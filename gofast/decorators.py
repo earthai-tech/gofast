@@ -3366,36 +3366,6 @@ class TrainingProgressBar:
         # Initialize best metrics to track improvements
         self.best_metrics_ = {k: v for k, v in self.metrics.items()}
 
-    def update(self, step, epoch):
-        """
-        Update the metrics and display the progress bar for the current step.
-
-        This method simulates the training progress, updates the metrics 
-        based on current step, and refreshes the display.
-
-        Parameters
-        ----------
-        step : int
-            The current step (batch) number within the epoch.
-        epoch : int
-            The current epoch number in training.
-
-        """
-        time.sleep(self.delay)  # Simulate processing time per step
-
-        # Simulate updating metrics; replace with actual metric updates
-        for metric in self.metrics:
-            if "loss" in metric or "PSS" in metric:
-                # For loss or PSS metrics, decrease value over time
-                self.metrics[metric] = max(0, self.metrics[metric] - 0.001 * step)
-            else:
-                # For performance metrics, increase value over time
-                self.metrics[metric] = min(float("inf"), self.metrics[metric] + 0.001 * step)
-
-        # Update best metrics and display progress
-        self._update_best_metrics()
-        self._display_progress(step, epoch)
-
     def __enter__(self):
         """Enter the context manager, starting the training progress display."""
         print(f"Starting training for {self.epochs} epochs.")
@@ -3409,13 +3379,66 @@ class TrainingProgressBar:
         print("\nTraining complete!")
         print(f"Best Metrics: {best_metric_display}")
 
+                
     def _update_best_metrics(self):
         """Update the best metrics based on current metrics."""
         for metric, value in self.metrics.items():
-            if "loss" in metric or  "PSS" in metric:
-                self.best_metrics_[metric] = min(self.best_metrics_[metric], value)
+            if "loss" in metric or "PSS" in metric: 
+                # Update best metrics for loss and PSS to track minimum values
+                if metric not in self.best_metrics_:
+                    self.best_metrics_[metric] = value  # Initialize if not present
+                else:
+                    self.best_metrics_[metric] = min(self.best_metrics_[metric], value)
             else:
-                self.best_metrics_[metric] = max(self.best_metrics_[metric], value)
+                # Update best metrics for other performance metrics to track maximum values
+                if metric not in self.best_metrics_:
+                    self.best_metrics_[metric] = value  # Initialize if not present
+                else:
+                    self.best_metrics_[metric] = max(self.best_metrics_[metric], value)
+
+    def update(self, step, epoch):
+        """
+        Update the metrics and display the progress bar for the current step.
+    
+        This method simulates the training progress, updates the metrics 
+        based on current step, and refreshes the display.
+    
+        Parameters
+        ----------
+        step : int
+            The current step (batch) number within the epoch.
+        epoch : int
+            The current epoch number in training.
+        """
+        time.sleep(self.delay)  # Simulate processing time per step
+    
+        # Simulate updating metrics; replace with actual metric updates
+        for metric in self.metrics:
+            if "loss" in metric or "PSS" in metric:
+                # For loss or PSS metrics, decrease value over time
+                # Initialize with a starting value (like 0.0) instead of float("inf")
+                if self.metrics[metric] > 0:
+                    self.metrics[metric] = max(0, self.metrics[metric] - 0.001 * step)
+            else:
+                # For performance metrics, increase value over time
+                # You may want to check against an upper limit depending on the context
+                self.metrics[metric] += 0.001 * step  # Increase without upper limit check
+    
+        # Update best metrics and display progress
+        self._update_best_metrics()
+        self._display_progress(step, epoch)
+    
+    def _update_best_metrics0(self):
+        """Update the best metrics based on current metrics."""
+        for metric, value in self.metrics.items():
+            if "loss" in metric or "PSS" in metric: 
+                # Update best metrics for loss and PSS to track minimum values
+                self.best_metrics_[metric] = min(self.best_metrics_.get(metric, float("inf")), value)
+            else:
+                # Update best metrics for other performance metrics to track maximum values
+                self.best_metrics_[metric] = max(self.best_metrics_.get(metric, 0), value)
+    
+
 
     def _display_progress(self, step, epoch):
         """Display the progress bar for the current step within the epoch."""

@@ -4,6 +4,7 @@
 
 from abc import ABCMeta, abstractmethod
 from numbers import Integral
+import warnings 
 import numpy as np
 
 from sklearn.base import BaseEstimator
@@ -276,3 +277,53 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=ABCMeta):
             Predicted values.
         """
         pass
+    
+    def _validate_input_data(self, X, y):
+        """Validate and preprocess the input features and target variables.
+    
+        Parameters
+        ----------
+        X : array-like or DataFrame
+            Input features, which may be a DataFrame or a NumPy array.
+        y : array-like, Series, or DataFrame
+            Target variable(s), which may be a Series, DataFrame, or NumPy array.
+    
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray]
+            Processed features and target variables as NumPy arrays.
+    
+        Warnings
+        --------
+        Raises a warning if input features or target names are not 
+        preserved in the training process.
+        """
+    
+        # Check if X is a DataFrame
+        if hasattr(X, "columns"):
+            self.feature_names_in_ = list(X.columns)
+            X = np.asarray(X)
+            warnings.warn(
+                "Input features detected as a DataFrame. Feature names"
+                " will not be preserved in the processing."
+            )
+    
+        # Check if y is a DataFrame
+        if hasattr(y, "columns"):
+            self.target_names_in_ = list(y.columns)  # Multi-output case
+            y = np.asarray(y)
+            warnings.warn(
+                "Input targets detected as a DataFrame. Target names will"
+                " not be preserved during training."
+            )
+    
+        # Check if y is a Series
+        elif hasattr(y, "name"):
+            self.target_name_ = y.name
+            y = np.asarray(y)
+            warnings.warn(
+                "Input target detected as a Series. The target name will"
+                " not be preserved during training."
+            )
+    
+        return X, y

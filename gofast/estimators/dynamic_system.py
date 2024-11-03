@@ -416,7 +416,9 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
             print("Starting HammersteinWienerClassifier fit method.")
 
         self._validate_params()
+        X, y = self._validate_input_data(X, y)
         X, y = check_X_y(X, y, multi_output=True)
+        
         self.is_multilabel_ = type_of_target(y) in (
             'multilabel-indicator', 'multiclass-multioutput')
         
@@ -431,13 +433,19 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         
         n_samples = X_train.shape[0]
         n_batches = int(np.floor(n_samples / self.batch_size))
+        
+        # Loss should start at infinity, as you're looking to minimize it.
+        # TWA should start at 0, indicating no predictions made yet.
+        # Validation loss should also start at infinity.
+        # Validation accuracy starts at 0%.
         metrics = {
-            'loss': np.inf, 
-            'accuracy': np.inf, 
-            'time-weighted-accuracy': -np.inf, 
-            'val_loss': np.inf, 
-            'val_accuracy': np.inf
-            }
+            'loss': 1.,          
+            'accuracy': 0.0,               
+            'TWA': 0.0,                    
+            'val_loss': float('inf'),      
+            'val_accuracy': 0.0             
+        }
+
 
         # Early stopping initialization and Track best loss
         self.best_loss_ = np.inf if self.early_stopping else None
@@ -518,7 +526,7 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
                                     random_state=42, stratify=y)
         return X_lagged, y, None, None
     
-    
+
     def _update_metrics(self, y_batch, y_pred, y_pred_proba, metrics, batch_idx):
         """Update metrics for progress bar and accuracy calculation."""
         try:
@@ -533,10 +541,12 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
             metrics['accuracy'] = (
                 metrics['accuracy'] * batch_idx + batch_accuracy
                 ) / (batch_idx + 1)
-            metrics['time-weighted-accuracy'] = (
-                metrics['time-weighted-accuracy'] * batch_idx + batch_twa_accuracy
-            ) / (batch_idx + 1)
             
+            metrics['TWA'] = (
+                metrics['TWA'] * batch_idx + batch_twa_accuracy
+            ) / (batch_idx + 1)
+         
+              
         except ValueError:
             pass  # Ignore errors in metrics calculation
 
@@ -544,7 +554,7 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         if self.verbose > 0: 
             print(
                 f"loss: {metrics['loss']:.4f} - accuracy: {metrics['accuracy']:.4f}"
-                f" - TWA: {metrics['time-weighted-accuracy']:.4f}"
+                f" - TWA: {metrics['TWA']:.4f}"
             )
  
     def _handle_early_stopping(self, val_loss):
@@ -598,8 +608,16 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
             y_val_pred_proba = self.linear_model_.predict_proba(X_val)
             val_loss = log_loss(y_val, y_val_pred_proba)
             val_accuracy = accuracy_score(y_val, self.linear_model_.predict(X_val))
-            metrics['val_loss'] = val_loss
-            metrics['val_accuracy'] = val_accuracy
+            
+            metrics['val_loss'] = (
+                metrics['accuracy'] * batch_idx + val_loss
+                ) / (batch_idx + 1)
+            
+            metrics['val_accuracy'] = (
+                metrics['val_accuracy'] * batch_idx + val_accuracy
+            ) / (batch_idx + 1)
+            # metrics['val_loss'] = val_loss
+            # metrics['val_accuracy'] = val_accuracy
             
             
             if self.verbose > 1:
@@ -1344,17 +1362,22 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
             print("Starting HammersteinWienerRegressor fit method.")
 
         # Initialize private attributes
+        # Loss should start at infinity, to be minimized.
+        # Validation loss should also start at infinity.
+        # # Initialize PSS at infinity, reflecting potential instability., 
         metrics = {
-            'loss': float("inf"), 
-            'PSS': np.inf, 
-            'val_loss': float("inf"),
-            'val_PSS': np.inf,
+            'loss': float('inf'),      
+            'PSS': float('inf'),               
+            'val_loss': float("inf"),  
+            'val_PSS': float('inf'),            
         }
+
         self.best_loss_ = np.inf if self.early_stopping else None
         self._no_improvement_count = 0
 
         # Validate parameters and input data
         self._validate_params()
+        X, y = self._validate_input_data(X, y)
         X, y = check_X_y(X, y, multi_output=True)
         X_transformed = self._apply_nonlinear_input(X, y)
         X_lagged = self._create_lagged_features(X_transformed)
@@ -1369,8 +1392,9 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         X_train, X_val, y_train,  y_val = self._split_data(X_lagged, y)
  
         n_samples = X_lagged.shape[0]
+  
         self.batch_size = validate_batch_size(self.batch_size, n_samples)
-        n_batches = int(np.floor(n_samples / self.batch_size))
+        n_batches = max(1, int(np.floor(n_samples / self.batch_size)))
 
         # Early stopping initialization and Track best loss
         self.best_loss_ = np.inf if self.early_stopping else None
@@ -1456,12 +1480,16 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         np.random.shuffle(indices)
         X_train_shuffled = X_train[indices]
         y_train_shuffled = y_train[indices]
-
+        print("nbatches =", n_batches)
         for batch_idx in range(n_batches):
+
             start = batch_idx * self.batch_size
             end = min(start + self.batch_size, X_train.shape[0])
             X_batch = X_train_shuffled[start:end]
             y_batch = y_train_shuffled[start:end]
+            # # Check if the batch is empty
+            # if X_batch.size == 0 or y_batch.size == 0:
+            #     continue  # Skip the iteration or handle it accordingly
             
             if self.verbose > 2:
                 print(f"Batch {batch_idx + 1}/{n_batches}:"
@@ -1469,16 +1497,21 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
                       f" y_batch shape {y_batch.shape}")
 
             # Partial fit on the batch
-            self.linear_model_.partial_fit(X_batch, y_batch)
-
-            if batch_idx == n_batches - 1:
-                self._evaluate_batch(
-                    X_batch, y_batch, 
-                    X_val, y_val, 
-                    metrics, batch_idx
-                )
-            if bar is not None:
-                bar.update(batch_idx + 1, epoch)
+            try: 
+                self.linear_model_.partial_fit(X_batch, y_batch)
+    
+                if batch_idx == n_batches - 1:
+                    self._evaluate_batch(
+                        X_batch, y_batch, 
+                        X_val, y_val, 
+                        metrics, batch_idx
+                    )
+            except:
+                pass 
+            finally:
+                 
+                if bar is not None:
+                    bar.update(batch_idx + 1, epoch)
 
     def _get_learning_rate_type(self):
         return {
@@ -1503,6 +1536,14 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
             batch_pss = prediction_stability_score( y_pred)
             metrics['loss'] = batch_loss
             metrics['PSS'] = batch_pss
+            
+            metrics['loss'] = (
+                metrics['loss'] * batch_idx + batch_loss
+                ) / (batch_idx + 1)
+            metrics['PSS'] = (
+                metrics['PSS'] * batch_idx + batch_pss
+                ) / (batch_idx + 1)
+            
         except ValueError:
             pass  # Ignore errors in metrics calculation
    
@@ -1520,8 +1561,17 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
             y_val_pred = self.linear_model_.predict(X_val)
             val_loss = self._compute_pred_loss(y_val, y_val_pred)
             val_pss = prediction_stability_score(y_val_pred)
-            metrics['val_loss'] = val_loss
-            metrics['val_PSS']= val_pss
+            
+            metrics['val_loss'] = (
+                metrics['val_loss'] * batch_idx + val_loss
+                ) / (batch_idx + 1)
+            metrics['val_PSS'] = (
+                metrics['val_PSS'] * batch_idx + val_pss
+                ) / (batch_idx + 1)
+            
+            
+            # metrics['val_loss'] = val_loss
+            # metrics['val_PSS']= val_pss
 
             if self.verbose > 1:
                 print(f"val_loss: {val_loss:.4f} - val_PSS: {val_pss:.4f}")
