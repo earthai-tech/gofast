@@ -1506,10 +1506,8 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
                         X_val, y_val, 
                         metrics, batch_idx
                     )
-            except:
-                pass 
+            except: pass 
             finally:
-                 
                 if bar is not None:
                     bar.update(batch_idx + 1, epoch)
 
@@ -1569,10 +1567,7 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
                 metrics['val_PSS'] * batch_idx + val_pss
                 ) / (batch_idx + 1)
             
-            
-            # metrics['val_loss'] = val_loss
-            # metrics['val_PSS']= val_pss
-
+      
             if self.verbose > 1:
                 print(f"val_loss: {val_loss:.4f} - val_PSS: {val_pss:.4f}")
                 
