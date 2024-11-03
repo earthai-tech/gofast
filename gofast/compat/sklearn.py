@@ -55,6 +55,7 @@ SKLEARN_VERSION = parse(sklearn.__version__)
 SKLEARN_LT_0_22 = SKLEARN_VERSION < Version("0.22.0")
 SKLEARN_LT_0_23 = SKLEARN_VERSION < Version("0.23.0")
 SKLEARN_LT_0_24 = SKLEARN_VERSION < Version("0.24.0")
+SKLEARN_LT_1_3 = SKLEARN_VERSION < parse("1.3.0")
 
 __all__ = [
     "Interval", 
@@ -66,6 +67,7 @@ __all__ = [
     "get_transformers_from_column_transformer",
     "check_is_fitted",
     "adjusted_mutual_info_score", 
+    "get_sgd_loss_param", 
     "validate_params", 
     "StrOptions", 
     "HasMethods", 
@@ -186,6 +188,42 @@ class Interval:
             # 'inclusive' not supported, remove it from kwargs if present
             kwargs.pop('inclusive', None)
             return sklearn_Interval(*args, **kwargs)
+
+def get_sgd_loss_param():
+    """Get the correct argument of loss parameter for SGDClassifier 
+    based on scikit-learn version.
+
+    This function determines which loss parameter to use for 
+    the SGDClassifier depending on the installed version of 
+    scikit-learn. In versions 0.24 and newer, the loss parameter 
+    should be set to 'log_loss'. In older versions, it should 
+    be set to 'log'.
+
+    Returns
+    -------
+    str
+        The appropriate loss parameter for the SGDClassifier.
+
+    Examples
+    --------
+    >>> loss_param = get_sgd_loss_param()
+    >>> print(loss_param)
+    'log_loss'  # If using scikit-learn 0.24 or newer
+
+    >>> # Example usage with SGDClassifier
+    >>> from sklearn.linear_model import SGDClassifier
+    >>> clf = SGDClassifier(loss=get_sgd_loss_param(), max_iter=1000)
+    
+    Notes
+    -----
+    This function is useful for maintaining compatibility 
+    with different versions of scikit-learn, ensuring that 
+    the model behaves as expected regardless of the library 
+    version being used.
+    """
+    
+    # Use 'log' for older versions if SKLEARN_LT_1_3
+    return 'log' if SKLEARN_LT_1_3 else 'log_loss'
 
 
 def validate_params(params, *args, prefer_skip_nested_validation=True, **kwargs):

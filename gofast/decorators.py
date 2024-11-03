@@ -3290,7 +3290,7 @@ class TrainingProgressBar:
     learning and machine learning experiments. The progress bar is 
     displayed in real-time, and best metrics are stored and shown after 
     completion.
-
+    
     Parameters
     ----------
     epochs : int
@@ -3318,101 +3318,112 @@ class TrainingProgressBar:
     Examples
     --------
     >>> from gofast.decorators import TrainingProgressBar
-    >>> metrics = {'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
+    >>> metrics = {'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 
+    ...             'val_accuracy': 0.5}
     >>> epochs, steps_per_epoch = 10, 20
     >>> with TrainingProgressBar(epochs, steps_per_epoch, metrics=metrics,
-                                 bar_length=40) as progress_bar:
-    ...     pass  # Simulation will display progress bar
-    # Parameters for the training simulation
-    >>> epochs = 5
-    >>> steps_per_epoch = 20
-    >>> metrics = {'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
-    
-    # Use the TrainingProgressBar as a context manager
-    >>> with TrainingProgressBar(epochs, steps_per_epoch, metrics=metrics,
-    ...                            bar_length=40, delay=0.01) as progress_bar:
-    ...     # Simulate the training process
-    ...     for epoch in range(1, epochs + 1):
-    ...        for step in range(1, steps_per_epoch + 1):
-    ...            # Simulate metric updates during training
-    ...            metrics['loss'] *= 0.99  # Decaying loss
-    ...            # Increasing accuracy
-    ...            metrics['accuracy'] = min(1.0, metrics['accuracy'] + 0.001)  
-    ...            metrics['val_loss'] *= 0.995  # Validation loss
-    ...            # Validation accuracy
-    ...            metrics['val_accuracy'] = min(1.0, metrics['val_accuracy'] + 0.001) 
-    ...
-    ...            # Update metrics in progress bar display (automatically handled in __enter__)
-    ...            # This loop illustrates the for-loop structure over epochs and steps
+    ...                          bar_length=40) as progress_bar:
+    ...     for epoch in range(epochs):
+    ...         for step in range(steps_per_epoch):
+    ...             progress_bar.update(step + 1, epoch + 1)
 
     Notes
     -----
-    - This class is best used in a machine learning training loop where 
-      the progress bar provides visual feedback on metrics per epoch.
-    - Metrics will dynamically update, and the best metrics observed 
-      during training are shown after training completes.
+    The `update` method should be called at each training step to update 
+    metrics and refresh the display.
 
-    See Also
+    The progress bar computes the completion fraction of the current 
+    step within an epoch as:
+
+    .. math:: 
+        \text{progress} = \frac{\text{step}}{\text{steps\_per\_epoch}}
+    
+    The best metrics are updated based on whether the current value is 
+    better than the previously recorded best value. For metrics that 
+    indicate performance (like accuracy), the best value is maximized, 
+    while for loss metrics, it is minimized.
+
+    See also
     --------
-    Other visualization tools for tracking progress in machine learning 
-    experiments, such as TensorBoard, which provides a web-based interface 
-    for metric monitoring.
+    - Keras Callbacks: Callbacks are used in Keras to extend the training 
+      process.
 
     References
     ----------
-    .. [1] Chollet, François, et al. "Keras: The Python Deep Learning library." 
-       GitHub repository, 2015.
+    .. [1] Chollet, F. (2015). Keras. https://keras.io
+
     """
-    
-    def __init__(
-        self, epochs, 
-        steps_per_epoch, 
-        metrics=None, 
-        bar_length=30, 
-        delay=0.01, 
-        instance=None, 
-        ):
+
+    def __init__(self, epochs, steps_per_epoch, metrics=None, 
+                 bar_length=30, delay=0.01):
         self.epochs = epochs
         self.steps_per_epoch = steps_per_epoch
         self.bar_length = bar_length
         self.delay = delay
         self.metrics = metrics if metrics is not None else {
             'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
+        
+        # Initialize best metrics to track improvements
         self.best_metrics_ = {k: v for k, v in self.metrics.items()}
-        self.instance=instance 
+
+    def update(self, step, epoch):
+        """
+        Update the metrics and display the progress bar for the current step.
+
+        This method simulates the training progress, updates the metrics 
+        based on current step, and refreshes the display.
+
+        Parameters
+        ----------
+        step : int
+            The current step (batch) number within the epoch.
+        epoch : int
+            The current epoch number in training.
+
+        """
+        time.sleep(self.delay)  # Simulate processing time per step
+
+        # Simulate updating metrics; replace with actual metric updates
+        for metric in self.metrics:
+            if "loss" in metric or "PSS" in metric:
+                # For loss or PSS metrics, decrease value over time
+                self.metrics[metric] = max(0, self.metrics[metric] - 0.001 * step)
+            else:
+                # For performance metrics, increase value over time
+                self.metrics[metric] = min(float("inf"), self.metrics[metric] + 0.001 * step)
+
+        # Update best metrics and display progress
+        self._update_best_metrics()
+        self._display_progress(step, epoch)
+
+    def __enter__(self):
+        """Enter the context manager, starting the training progress display."""
+        print(f"Starting training for {self.epochs} epochs.")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit the context manager, displaying the best metrics at the end of training."""
+        # Display the best metrics on a single line at the end of training
+        best_metric_display = " - ".join(
+            [f"{k}: {v:.4f}" for k, v in self.best_metrics_.items()])
+        print("\nTraining complete!")
+        print(f"Best Metrics: {best_metric_display}")
 
     def _update_best_metrics(self):
-        """
-        Update the best metrics based on current metrics. 
-        
-        This function checks each metric and updates `best_metrics_` if a 
-        better value is found (minimum for `loss` metrics and maximum 
-        otherwise).
-        """
+        """Update the best metrics based on current metrics."""
         for metric, value in self.metrics.items():
-            if "loss" in metric:
+            if "loss" in metric or  "PSS" in metric:
                 self.best_metrics_[metric] = min(self.best_metrics_[metric], value)
             else:
                 self.best_metrics_[metric] = max(self.best_metrics_[metric], value)
 
     def _display_progress(self, step, epoch):
-        """
-        Display the progress bar for the current step within the epoch.
-        
-        Parameters
-        ----------
-        step : int
-            Current step within the epoch.
-        epoch : int
-            Current epoch.
-        """
+        """Display the progress bar for the current step within the epoch."""
         progress = step / self.steps_per_epoch
         completed = int(progress * self.bar_length)
         
         # Construct the progress bar
-        progress_bar = '=' * completed
-        if completed < self.bar_length:
-            progress_bar += '>'
+        progress_bar = '=' * completed + ('>' if completed < self.bar_length else '')
         progress_bar = progress_bar.ljust(self.bar_length)
         
         # Display metrics dynamically
@@ -3420,54 +3431,10 @@ class TrainingProgressBar:
         
         # Print progress bar with metrics
         sys.stdout.write(
-            f"\rEpoch {epoch}/{self.epochs} - {step}/{self.steps_per_epoch} "
+            f"\r{step}/{self.steps_per_epoch} "
             f"[{progress_bar}] - {metric_display}"
         )
         sys.stdout.flush()
-
-    def __enter__(self):
-        """
-        Enter the context manager, automatically starting the training progress 
-        display by iterating through epochs and steps, updating metrics at each 
-        step and showing progress in real-time.
-        """
-        for epoch in range(1, self.epochs + 1):
-            print(f"\nEpoch {epoch}/{self.epochs}")
-            for step in range(1, self.steps_per_epoch + 1):
-                time.sleep(self.delay)  # Simulate processing time per step
-
-                # Simulate updating metrics; replace with actual metric updates
-                for metric in self.metrics:
-                    if "loss" in metric:
-                        self.metrics[metric] = max(0, self.metrics[metric] - 0.001 * step)
-                    else:
-                        self.metrics[metric] = min(1.0, self.metrics[metric] + 0.001 * step)
-
-                # Update best metrics and display progress
-                self._update_best_metrics()
-                self._display_progress(step, epoch)
-
-            print("\n")  # New line after each epoch
-
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """
-        Exit the context manager, displaying the best metrics at the end of training.
-        
-        This method is called when leaving the `with` block, showing the best 
-        metrics observed during training in a single line.
-        """
-        # Display the best metrics on a single line at the end of training
-        best_metric_display = " - ".join([f"{k}: {v:.4f}" 
-                                          for k, v in self.best_metrics_.items()])
-        print("Training complete!")
-        if self.instance is not None: 
-            from .tools.validator import get_estimator_name 
-            # Add hyphen separator if obj_name is specified
-            obj = get_estimator_name(self.instance) + ' - ' 
-            print(f"{obj}Best Metrics: {best_metric_display}")
-        print(f"Best Metrics: {best_metric_display}")
 
 
 class NumpyDocstringFormatter:

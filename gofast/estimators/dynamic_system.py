@@ -14,22 +14,23 @@ import numpy as np
 from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.utils._param_validation import StrOptions
 from sklearn.linear_model import SGDClassifier, SGDRegressor
-from sklearn.metrics import log_loss, accuracy_score
+from sklearn.metrics import ( 
+    log_loss, accuracy_score, mean_squared_error, mean_absolute_error
+    )
 from sklearn.model_selection import train_test_split 
 try:
     from sklearn.utils.multiclass import type_of_target
 except: 
     from ..tools.coreutils import type_of_target
     
-from ..metrics import twa_score 
-from ..compat.sklearn import Interval 
-from ..tools.coreutils import training_progress_bar 
-from ..tools.validator import check_is_fitted, check_X_y, check_array
+from ..metrics import twa_score, prediction_stability_score 
+from ..compat.sklearn import Interval, get_sgd_loss_param
+from ..decorators import TrainingProgressBar 
+from ..tools.validator import check_is_fitted, check_X_y, check_array, validate_batch_size 
 from ._dynamic_system import BaseHammersteinWiener
 from .util import activator
 
 __all__= ["HammersteinWienerClassifier","HammersteinWienerRegressor" ]
-
 
 class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
     """
@@ -137,9 +138,51 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         dataset. Increasing this value allows the model more time to learn 
         patterns but risks overfitting if too large.
         
+    tol : float, default=1e-3
+        The tolerance for the optimization criterion. This value sets a 
+        threshold for determining when the optimization process should stop. 
+        If the change in the loss function or model parameters falls below 
+        this tolerance level, training will be halted. A smaller `tol` value 
+        can lead to more precise convergence but may require more iterations, 
+        while a larger value can speed up the process but risks not finding 
+        the optimal solution.
+    
+    early_stopping : bool, default=False
+        A flag that indicates whether to enable early stopping during training. 
+        When set to `True`, the training process will terminate if the 
+        performance of the model does not improve for a specified number of 
+        iterations, as defined by `n_iter_no_change`. This feature helps 
+        prevent overfitting and saves computational resources. However, it 
+        should be used judiciously, as premature stopping may lead to 
+        suboptimal model performance.
+    
+    validation_fraction : float, default=0.1
+        The proportion of the training data to set aside for validation. This 
+        parameter specifies the fraction of the training dataset to be used 
+        for validating the model's performance during training. A common 
+        choice is to set this value between 0.1 and 0.2. Using a validation 
+        set helps monitor the model's generalization ability and enables the 
+        application of early stopping if the validation performance does not 
+        improve.
+    
+    n_iter_no_change : int, default=5
+        The number of iterations with no improvement on the training 
+        score after which the training will be stopped early. This 
+        parameter helps prevent overfitting by terminating the training 
+        process when the model's performance ceases to improve, thus 
+        saving computational resources. Setting this value too low 
+        may result in premature stopping, while a higher value could 
+        lead to unnecessary computation. Typical values range from 
+        5 to 20, depending on the model's convergence behavior 
+        and the complexity of the dataset.
+
     verbose : int, default=0
-        The verbosity level. If greater than 0, prints messages during
-        fitting and prediction.
+        The verbosity level for logging messages during fitting and 
+        prediction. A value greater than 0 enables message output, providing 
+        insights into the training process. If set to ``None``, message 
+        outputs will be suppressed. Adjusting this parameter can help with 
+        debugging or monitoring the model's progress.
+
 
     Attributes
     ----------
@@ -238,7 +281,6 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
     >>> print(f"Accuracy: {acc:.2f}")
     Accuracy: 0.85
     """
-    
     _parameter_constraints: dict = {
         **BaseHammersteinWiener._parameter_constraints,
         "loss": [StrOptions({"cross_entropy", "time_weighted_cross_entropy"})],
@@ -252,28 +294,29 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         "early_stopping": [bool],
         "validation_fraction": [Interval(Real, 0, 1, closed='neither')],
         "n_iter_no_change": [Interval(Integral, 1, None, closed='left')],
-        "verbose": [Interval(Integral, 0, None, closed='left'), None] # None for mute
+        "verbose": [Interval(Integral, 0, None, closed='left'), None]  
     }
+
     def __init__(
-        self,
-        nonlinear_input_estimator=None,
+        self, 
+        nonlinear_input_estimator=None, 
         nonlinear_output_estimator=None,
-        p=1,
-        loss="cross_entropy",
-        time_weighting="linear",
+        p=1, 
+        loss="cross_entropy", 
+        time_weighting="linear", 
         feature_engineering='auto',
         n_jobs=None,
-        epsilon=1e-15,
-        batch_size=32,
+        epsilon=1e-15, 
+        batch_size=32, 
         optimizer='adam',
-        learning_rate=0.001,
-        max_iter=1000,
-        tol=1e-3,
+        learning_rate=0.001, 
+        max_iter=1000, 
+        tol=1e-3, 
         early_stopping=False,
-        validation_fraction=0.1,
-        n_iter_no_change= 5, 
+        validation_fraction=0.1, 
+        n_iter_no_change=5, 
         verbose=0
-    ):
+        ):
         super().__init__(
             nonlinear_input_estimator=nonlinear_input_estimator,
             nonlinear_output_estimator=nonlinear_output_estimator,
@@ -282,72 +325,21 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
             n_jobs=n_jobs,
             verbose=verbose
         )
+
         self.loss = loss
         self.time_weighting = time_weighting
         self.epsilon = epsilon
-        self.batch_size = batch_size      
-        self.optimizer = optimizer        
-        self.learning_rate = learning_rate  
-        self.max_iter = max_iter  
+        self.batch_size = batch_size
+        self.optimizer = optimizer
+        self.learning_rate = learning_rate
+        self.max_iter = max_iter
         self.tol = tol
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_iter_no_change = n_iter_no_change
-        
-    
-    def _initialize_model(self):
-        """ Initialize SGDClassifier for the linear dynamic block """
-        learning_rate_type = 'optimal' if self.optimizer == 'sgd' else (
-            'adaptive' if self.optimizer == 'adam' else 'invscaling'
-        )
-        # Initialize the SGDClassifier with specified parameters
-        self.linear_model_ = SGDClassifier(
-            loss='log_loss',                    # Logistic regression
-            learning_rate=learning_rate_type,
-            eta0=self.learning_rate,       # Initial learning rate
-            max_iter=self.max_iter,
-            tol=self.tol,
-            shuffle=True,
-            verbose=self.verbose,
-            n_jobs=self.n_jobs,
-            n_iter_no_change=self.n_iter_no_change,
-            random_state=None, 
-        )
-        
-    def _split_data(self, X, y, X_lagged):
-        """ Split data into training and validation sets based on validation_fraction """
-        if self.validation_fraction < 1.0:
-            X_train, X_val, y_train, y_val = train_test_split(
-                X_lagged, y, 
-                test_size=self.validation_fraction, 
-                random_state=42, 
-                stratify=y
-            )
-        else:
-            X_train, y_train = X_lagged, y
-            X_val, y_val = None, None
-            
-        return X_train, y_train, X_val, y_val
-    
-    def _update_metrics(self, y_batch, y_pred, y_pred_proba, metrics, batch_idx):
-        """ Update metrics for progress bar and accuracy calculation """
 
-        try:
-            batch_loss = log_loss(y_batch, y_pred_proba) # 
-            batch_accuracy = accuracy_score(y_batch, y_pred) # 
-            batch_twa_accuracy = twa_score(y_batch, y_pred) # 
-    
-            metrics['loss'] =  batch_loss # (metrics['loss'] * batch_idx + batch_loss) / (batch_idx + 1)
-            metrics['accuracy'] = batch_accuracy # (metrics['accuracy'] * batch_idx + batch_accuracy) / (batch_idx + 1)
-            metrics['time-weighted-accuracy'] =batch_twa_accuracy# (
-                # metrics['time-weighted-accuracy'] * batch_idx + batch_twa_accuracy
-                # ) / (batch_idx + 1)
-            
-        except ValueError:
-            pass
-    
-    
-    def fit(self, X, y):
+        
+    def fit(self, X, y, **fit_params):
         """
         Fit the Hammerstein-Wiener classifier to the training data.
         
@@ -419,201 +411,202 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         .. [1] Hastie, T., Tibshirani, R., & Friedman, J. (2009). The Elements 
                of Statistical Learning. Springer.
         """
+        """Fit the Hammerstein-Wiener classifier to the data."""
         if self.verbose > 0:
             print("Starting HammersteinWienerClassifier fit method.")
 
-        # Validate parameter constraints
         self._validate_params()
-
-        # Validate input and output data
         X, y = check_X_y(X, y, multi_output=True)
-
-        # Determine the type of target (binary, multiclass, multilabel)
-        target_type = type_of_target(y)
-        if target_type in ('binary', 'multiclass'):
-            self.is_multilabel_ = False
-        elif target_type in ('multilabel-indicator', 'multiclass-multioutput'):
-            self.is_multilabel_ = True
-        else:
-            raise ValueError(f"Unsupported target type: {target_type}")
-
-        # Apply nonlinear input transformation
-        X_transformed = self._apply_nonlinear_input(X, y)
-
-        # Create lagged features for linear dynamic block
+        self.is_multilabel_ = type_of_target(y) in (
+            'multilabel-indicator', 'multiclass-multioutput')
+        
+        # Apply non-linear transformation and create lagged features
+        # then initialize the linear model
+        X_transformed = self._apply_nonlinear_input(X)
         X_lagged = self._create_lagged_features(X_transformed)
-
-        if self.verbose > 0:
-            print("Fitting linear model for classification with batch training.")
-
-        # Initialize the SGDClassifier with specified parameters
         self._initialize_model()
 
-        # Split data into training and validation sets based on validation_fraction
+        # Split data into training and validation sets
+        X_train, X_val, y_train,  y_val = self._split_data(X, y, X_lagged)
         
-        X_train, y_train, X_val, y_val = self._split_data (X, y, X_lagged )
-        
-
-    
-        # Fit the model in batches
         n_samples = X_train.shape[0]
-        n_batches = int(np.ceil(n_samples / self.batch_size))
-        
-        # Set up initial metrics dictionary
+        n_batches = int(np.floor(n_samples / self.batch_size))
         metrics = {
-            'loss': 1.0, 'accuracy': 0.5, 
-            'time-weighted-accuracy': 0.5, 
-            'val_loss': 1.0, 
-            'val_accuracy': 0.5
+            'loss': np.inf, 
+            'accuracy': np.inf, 
+            'time-weighted-accuracy': -np.inf, 
+            'val_loss': np.inf, 
+            'val_accuracy': np.inf
             }
-        if self.early_stopping: 
-            self._no_improvement_count = 0
 
+        # Early stopping initialization and Track best loss
+        self.best_loss_ = np.inf if self.early_stopping else None
         self._no_improvement_count = 0
-        if self.early_stopping:
-            self.validation_scores_ = []
-            self.best_validation_score_ = -np.inf
-            self.best_loss_ = None
-        else:
-            self.best_loss_ = np.inf
-            self.validation_scores_ = None
-            self.best_validation_score_ = None
-
-        best_val_loss = float('inf')
-        # Check for verbose and apply the progress bar if verbose == 0
+        
         if self.verbose == 0:
-            with training_progress_bar(
-                epochs=self.max_iter,
-                steps_per_epoch=n_batches,
-                metrics=metrics,
-                obj_name=self.__class__.__name__
-            ):
+            with TrainingProgressBar(
+                    epochs= self.max_iter, steps_per_epoch= n_batches, 
+                    metrics=metrics, ) as progress_bar:
                 for epoch in range(self.max_iter):
-                    # Shuffle data at the beginning of each epoch
-                    indices = np.arange(n_samples)
-                    np.random.shuffle(indices)
-                    X_train_shuffled = X_train[indices]
-                    y_train_shuffled = y_train[indices]
-        
-                    for batch_idx in range(n_batches):
-                        start = batch_idx * self.batch_size
-                        end = min(start + self.batch_size, n_samples)
-                        X_batch = X_train_shuffled[start:end]
-                        y_batch = y_train_shuffled[start:end]
-        
-                        if epoch == 0 and batch_idx == 0:
-                            self.linear_model_.partial_fit(X_batch, y_batch, classes=np.unique(y))
-                        else:
-                            self.linear_model_.partial_fit(X_batch, y_batch)
-        
-                        # Predict on the batch for accuracy
-                        # Print metrics without progress bar
-                        if batch_idx == n_batches - 1:
-                            y_pred = self.linear_model_.predict(X_batch)
-                            y_pred_proba = self.linear_model_.predict_proba(X_batch)
-                            try: 
-                                # Compute batch loss and accuracy and update metrics 
-                                self._update_metrics(y_batch, y_pred, y_pred_proba, metrics, batch_idx)
-                                
-                                if X_val is not None:
-                                    
-                                    y_val_pred_proba = self.linear_model_.predict_proba(X_val)
-                                    y_val_pred = self.linear_model_.predict(X_val)
-                                    val_loss = log_loss(y_val, y_val_pred_proba)
-                                    val_accuracy = accuracy_score(y_val, y_val_pred)
-                                    
-                                    # Update validation metrics for the progress bar
-                                    metrics['val_loss'] = val_loss
-                                    metrics['val_accuracy'] = val_accuracy
-                                    # Early stopping
-                                    if val_loss < best_val_loss -self.tol:
-                                        self._no_improvement_count = 0
-                                        best_val_loss = val_loss
-                                    else:
-                                        self._no_improvement_count += 1
-                            except: 
-                                
-                                pass 
-                            if self.early_stopping and self._no_improvement_count >= self.n_iter_no_change:
-                                print(f"Early stopping triggered after {epoch + 1} epochs.")
-                                break
-        
-                    if self.early_stopping and self._no_improvement_count >= self.n_iter_no_change:
+                    print(f"Epoch {epoch + 1 }/{self.max_iter}")
+      
+                    self._train_epoch(X_train, y_train, 
+                        X_val, y_val, y,  n_batches, metrics, epoch, 
+                        bar=progress_bar, 
+                    )
+                    print("\n")  
+                    if self.early_stopping and ( 
+                            self._no_improvement_count >= self.n_iter_no_change
+                        ):
                         print(f"Early stopping triggered after {epoch + 1} epochs.")
                         break
-
         else:
             for epoch in range(self.max_iter):
-                print(f"Epoch {epoch + 1}/{self.max_iter}")
-                indices = np.arange(n_samples)
-                np.random.shuffle(indices)
-                X_train_shuffled = X_train[indices]
-                y_train_shuffled = y_train[indices]
-        
-                #epoch_loss, epoch_correct, epoch_twa_correct = 0, 0, 0
-                for batch_idx in range(n_batches):
-                    start = batch_idx * self.batch_size
-                    end = min(start + self.batch_size, n_samples)
-                    X_batch = X_train_shuffled[start:end]
-                    y_batch = y_train_shuffled[start:end]
-        
-                    if epoch == 0 and batch_idx == 0:
-                        self.linear_model_.partial_fit(X_batch, y_batch, classes=np.unique(y))
-                    else:
-                        self.linear_model_.partial_fit(X_batch, y_batch)
-        
-                    # Print metrics without progress bar
-                    if batch_idx == n_batches - 1:
-                        y_pred = self.linear_model_.predict(X_batch)
-                        y_pred_proba = self.linear_model_.predict_proba(X_batch)
-                        
-                        try:
-                            epoch_loss = log_loss(y_batch, y_pred_proba)
-                            epoch_accuracy = accuracy_score(y_batch, y_pred)
-                            epoch_twa_accuracy = twa_score(y_batch, y_pred)
-                            print(
-                                f"loss: {epoch_loss:.4f} - accuracy: {epoch_accuracy:.4f}"
-                                f" - TWA: {epoch_twa_accuracy:.4f}"
-                            )
-        
-                            # Validation step without progress bar
-                            if X_val is not None:
-                                y_val_pred_proba = self.linear_model_.predict_proba(X_val)
-                                y_val_pred = self.linear_model_.predict(X_val)
-                                val_loss = log_loss(y_val, y_val_pred_proba)
-                                val_accuracy = accuracy_score(y_val, y_val_pred)
-                                print(f"val_loss: {val_loss:.4f} - val_accuracy: {val_accuracy:.4f}")
-        
-                                # Early stopping
-                                if val_loss < best_val_loss - self.tol:
-                                    best_val_loss = val_loss
-                                    self._no_improvement_count = 0
-                                else:
-                                    self._no_improvement_count += 1
-        
-                            if self.early_stopping and self._no_improvement_count >= self.n_iter_no_change:
-                                print(f"Early stopping triggered after {epoch + 1} epochs.")
-                                break
-                        except ValueError:
-                            pass
+                if self.verbose > 0: 
+                    print(f"Epoch {epoch + 1}/{self.max_iter}")
+                self._train_epoch(X_train, y_train, 
+                    X_val, y_val, y, n_batches, metrics, epoch
+                )
 
-        # Get the decision function output
+                if self.early_stopping and ( 
+                        self._no_improvement_count >= self.n_iter_no_change
+                        ):
+                    if self.verbose > 0: 
+                        print(f"Early stopping triggered after {epoch + 1} epochs.")
+                    break
+
+        # Finalize and compute initial loss
+        # Assess its performance on the data by calculating the linear 
+        # predictions using the decision function of the linear model.
+        # apply the nonlinear transformation to the linear outputs.
+        # This combines the output from the linear model with 
+        # the nonlinear component to produce the final predictions.
+        # Thus, we compare the true labels (y) with the predicted probabilities
+        # obtained from the model `predict_proba` method to give the 
+        # probability estimates for each class,
+        # which are then used to calculate the loss.
         y_linear = self.linear_model_.decision_function(X_lagged)
-
-        # Apply nonlinear output transformation
         self._apply_nonlinear_output(y_linear, y)
-
-        # Compute initial loss for reporting
-        y_pred_proba_initial = self.predict_proba(X)
-        self.initial_loss_ = self._compute_loss(y, y_pred_proba_initial)
+        self.initial_loss_ = self._compute_loss(y, self.predict_proba(X))
 
         if self.verbose > 0:
             print(f"Initial loss: {self.initial_loss_}")
             print("Fit method completed.")
-
         return self
     
+    def _initialize_model(self):
+        """Initialize SGDClassifier for the linear dynamic block."""
+        learning_rate_type = 'optimal' if self.optimizer == 'sgd' else (
+            'adaptive' if self.optimizer == 'adam' else 'invscaling'
+        )
+        self.linear_model_ = SGDClassifier(
+            loss=get_sgd_loss_param(),
+            learning_rate=learning_rate_type,
+            eta0=self.learning_rate,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            shuffle=True,
+            verbose=self.verbose,
+            n_jobs=self.n_jobs,
+            n_iter_no_change=self.n_iter_no_change,
+        )
+        
+    def _split_data(self, X, y, X_lagged):
+        """Split data into training and validation sets based on validation_fraction."""
+        if self.validation_fraction < 1.0:
+            return train_test_split(X_lagged, y, test_size=self.validation_fraction,
+                                    random_state=42, stratify=y)
+        return X_lagged, y, None, None
+    
+    
+    def _update_metrics(self, y_batch, y_pred, y_pred_proba, metrics, batch_idx):
+        """Update metrics for progress bar and accuracy calculation."""
+        try:
+            # Calculate batch loss and accuracy metrics
+            batch_loss = log_loss(y_batch, y_pred_proba)
+            batch_accuracy = accuracy_score(y_batch, y_pred)
+            batch_twa_accuracy = twa_score(y_batch, y_pred)
 
+            metrics['loss'] = (
+                metrics['loss'] * batch_idx + batch_loss
+                ) / (batch_idx + 1)
+            metrics['accuracy'] = (
+                metrics['accuracy'] * batch_idx + batch_accuracy
+                ) / (batch_idx + 1)
+            metrics['time-weighted-accuracy'] = (
+                metrics['time-weighted-accuracy'] * batch_idx + batch_twa_accuracy
+            ) / (batch_idx + 1)
+            
+        except ValueError:
+            pass  # Ignore errors in metrics calculation
+
+        # Print current metrics if verbosity is set
+        if self.verbose > 0: 
+            print(
+                f"loss: {metrics['loss']:.4f} - accuracy: {metrics['accuracy']:.4f}"
+                f" - TWA: {metrics['time-weighted-accuracy']:.4f}"
+            )
+ 
+    def _handle_early_stopping(self, val_loss):
+        """Manage early stopping logic."""
+        if val_loss < self.best_loss_ - self.tol:
+            self._no_improvement_count = 0
+            self.best_loss_ = val_loss
+        else:
+            self._no_improvement_count += 1
+            
+    def _train_epoch(
+        self, X_train, y_train, X_val, y_val, y, 
+        n_batches, metrics, epoch, bar=None
+        ):
+        """Train the model for one epoch."""
+        
+        indices = np.arange(X_train.shape[0])
+        np.random.shuffle(indices)
+        X_train_shuffled = X_train[indices]
+        y_train_shuffled = y_train[indices]
+
+        for batch_idx in range(n_batches):
+            start = batch_idx * self.batch_size
+            end = min(start + self.batch_size, X_train.shape[0])
+            X_batch = X_train_shuffled[start:end]
+            y_batch = y_train_shuffled[start:end]
+
+            if epoch == 0 and batch_idx == 0:
+                self.linear_model_.partial_fit(
+                    X_batch, y_batch, classes=np.unique(y))
+            else:
+                self.linear_model_.partial_fit(X_batch, y_batch)
+
+            if batch_idx == n_batches - 1:
+                self._evaluate_batch(
+                    X_batch, y_batch, 
+                    X_val, y_val, 
+                    metrics, batch_idx
+                )
+            if bar is not None:
+                bar.update(batch_idx + 1, epoch)
+              
+
+    def _evaluate_batch(self, X_batch, y_batch, X_val, y_val, metrics, batch_idx):
+        """Evaluate the performance of the model on the current batch."""
+        y_pred = self.linear_model_.predict(X_batch)
+        y_pred_proba = self.linear_model_.predict_proba(X_batch)
+        self._update_metrics(y_batch, y_pred, y_pred_proba, metrics, batch_idx)
+        
+        if X_val is not None:
+            y_val_pred_proba = self.linear_model_.predict_proba(X_val)
+            val_loss = log_loss(y_val, y_val_pred_proba)
+            val_accuracy = accuracy_score(y_val, self.linear_model_.predict(X_val))
+            metrics['val_loss'] = val_loss
+            metrics['val_accuracy'] = val_accuracy
+            
+            
+            if self.verbose > 1:
+                print(f"val_loss: {val_loss:.4f} - val_accuracy: {val_accuracy:.4f}")
+                
+            if self.early_stopping:
+                self._handle_early_stopping(val_loss)
 
     def predict_proba(self, X):
         """
@@ -928,7 +921,8 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         if self.verbose > 0:
             print(f"Time weights: {weights}")
 
-        return weights
+        return weights            
+            
 
 class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
     """
@@ -1045,14 +1039,55 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         dataset. Increasing this value allows the model more time to learn 
         patterns but risks overfitting if too large.
 
-
+    tol : float, default=1e-3
+        The tolerance for the optimization criterion. This value sets a 
+        threshold for determining when the optimization process should stop. 
+        If the change in the loss function or model parameters falls below 
+        this tolerance level, training will be halted. A smaller `tol` value 
+        can lead to more precise convergence but may require more iterations, 
+        while a larger value can speed up the process but risks not finding 
+        the optimal solution.
+    
+    early_stopping : bool, default=False
+        A flag that indicates whether to enable early stopping during training. 
+        When set to `True`, the training process will terminate if the 
+        performance of the model does not improve for a specified number of 
+        iterations, as defined by `n_iter_no_change`. This feature helps 
+        prevent overfitting and saves computational resources. However, it 
+        should be used judiciously, as premature stopping may lead to 
+        suboptimal model performance.
+    
+    validation_fraction : float, default=0.1
+        The proportion of the training data to set aside for validation. This 
+        parameter specifies the fraction of the training dataset to be used 
+        for validating the model's performance during training. A common 
+        choice is to set this value between 0.1 and 0.2. Using a validation 
+        set helps monitor the model's generalization ability and enables the 
+        application of early stopping if the validation performance does not 
+        improve.
+    
+    n_iter_no_change : int, default=5
+        The number of iterations with no improvement on the training 
+        score after which the training will be stopped early. This 
+        parameter helps prevent overfitting by terminating the training 
+        process when the model's performance ceases to improve, thus 
+        saving computational resources. Setting this value too low 
+        may result in premature stopping, while a higher value could 
+        lead to unnecessary computation. Typical values range from 
+        5 to 20, depending on the model's convergence behavior 
+        and the complexity of the dataset.
+        
     n_jobs : int or None, default=None
         The number of jobs to run in parallel. ``None`` means 1 unless in
         a ``joblib.parallel_backend`` context.
 
     verbose : int, default=0
-        The verbosity level. If greater than 0, prints messages during
-        fitting and prediction.
+        Determines the level of verbosity for logging messages during 
+        the fitting and prediction phases. Setting this value to greater 
+        than 0 will enable message outputs, giving visibility into the 
+        training process. If set to ``None``, all output messages will be 
+        suppressed. 
+
 
     Attributes
     ----------
@@ -1169,25 +1204,34 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         "optimizer": [StrOptions({"sgd", "adam", "adagrad"})],
         "learning_rate": [Interval(Real, 0, None, closed='neither')],
         "max_iter": [Interval(Integral, 1, None, closed='left')],
+        "tol": [Interval(Real, 0, None, closed='neither')],
+        "early_stopping": [bool],
+        "validation_fraction": [Interval(Real, 0, 1, closed='both')],
+        "n_iter_no_change": [Interval(Integral, 1, None, closed='left')],
+        "verbose": [Interval(Integral, 0, None, closed='left'), None]  
     }
 
     def __init__(
-            self,
-            nonlinear_input_estimator=None,
-            nonlinear_output_estimator=None,
-            p=1,
-            loss="mse",
-            output_scale=None,
-            time_weighting="linear",
-            feature_engineering='auto',
-            delta=1.0,
-            epsilon=1e-8,
-            batch_size=32,
-            optimizer='adam',
-            learning_rate=0.001,
-            max_iter=1000,
-            n_jobs=None,
-            verbose=0
+        self,
+        nonlinear_input_estimator=None,
+        nonlinear_output_estimator=None,
+        p=1,
+        loss="mse",
+        output_scale=None,
+        time_weighting="linear",
+        feature_engineering='auto',
+        delta=1.0,
+        epsilon=1e-8,
+        batch_size=32,
+        optimizer='adam',
+        learning_rate=0.001,
+        max_iter=1000,
+        tol=1e-3,
+        early_stopping=False,
+        validation_fraction=0.1,
+        n_iter_no_change=5,
+        n_jobs=None,
+        verbose=0
     ):
         super().__init__(
             nonlinear_input_estimator=nonlinear_input_estimator,
@@ -1197,7 +1241,7 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
             n_jobs=n_jobs,
             verbose=verbose
         )
-        
+
         self.loss = loss
         self.output_scale = output_scale
         self.time_weighting = time_weighting
@@ -1207,8 +1251,13 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         self.optimizer = optimizer        
         self.learning_rate = learning_rate  
         self.max_iter = max_iter          
+        self.tol = tol
+        self.early_stopping = early_stopping
+        self.validation_fraction = validation_fraction
+        self.n_iter_no_change = n_iter_no_change
+        
 
-    def fit(self, X, y):
+    def fit(self, X, y, **fit_params):
         """
         Fit the Hammerstein-Wiener regressor to the training data.
     
@@ -1291,93 +1340,78 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         .. [1] Ljung, L. (1999). System Identification: Theory for the User. 
                Prentice Hall.
         """
-
         if self.verbose > 0:
             print("Starting HammersteinWienerRegressor fit method.")
 
-        # Validate parameter constraints and input data
+        # Initialize private attributes
+        metrics = {
+            'loss': float("inf"), 
+            'PSS': np.inf, 
+            'val_loss': float("inf"),
+            'val_PSS': np.inf,
+        }
+        self.best_loss_ = np.inf if self.early_stopping else None
+        self._no_improvement_count = 0
+
+        # Validate parameters and input data
         self._validate_params()
-        # Allow multi-output y
         X, y = check_X_y(X, y, multi_output=True)
-
-        # Apply nonlinear input transformation to capture non-linear input effects
         X_transformed = self._apply_nonlinear_input(X, y)
-
-        # Create lagged features for the linear dynamic block
         X_lagged = self._create_lagged_features(X_transformed)
 
         if self.verbose > 0:
             print("Fitting linear model with batch training.")
 
-        # Use SGDRegressor to support batch training and optimizer selection
-        if self.optimizer == 'sgd':
-            learning_rate_type = 'optimal'
-        elif self.optimizer == 'adam':
-            learning_rate_type = 'adaptive'
-        elif self.optimizer == 'adagrad':
-            learning_rate_type = 'invscaling'
-        else:
-            raise ValueError(f"Unsupported optimizer: {self.optimizer}")
-
-        # Map the loss function to SGDRegressor's loss parameter
-        if self.loss == "mse":
-            loss_function = 'squared_error'
-        elif self.loss == "mae":
-            loss_function = 'epsilon_insensitive'  # Approximate
-        elif self.loss == "huber":
-            loss_function = 'huber'
-        else:
-            # For custom loss functions, default to 'squared_error'
-            loss_function = 'squared_error'
-
-        # Initialize the SGDRegressor with specified parameters
-        self.linear_model_ = SGDRegressor(
-            loss=loss_function,
-            learning_rate=learning_rate_type,
-            eta0=self.learning_rate,
-            max_iter=self.max_iter,
-            tol=1e-3,
-            shuffle=True,
-            verbose=self.verbose,
-            epsilon=self.delta,  # For huber loss
-            random_state=None
-        )
-
-        # Fit the model in batches
+        # Initialize the SGDRegressor
+        self._initialize_model()
+  
+        # Split data into training and validation sets
+        X_train, X_val, y_train,  y_val = self._split_data(X_lagged, y)
+ 
         n_samples = X_lagged.shape[0]
-        n_batches = int(np.ceil(n_samples / self.batch_size))
+        self.batch_size = validate_batch_size(self.batch_size, n_samples)
+        n_batches = int(np.floor(n_samples / self.batch_size))
 
-        for epoch in range(self.max_iter):
-            if self.verbose > 2:
-                print(f"Epoch {epoch + 1}/{self.max_iter}")
+        # Early stopping initialization and Track best loss
+        self.best_loss_ = np.inf if self.early_stopping else None
+        self._no_improvement_count = 0
+        
+        if self.verbose == 0:
+            with TrainingProgressBar(
+                    epochs= self.max_iter, steps_per_epoch= n_batches, 
+                    metrics=metrics, ) as progress_bar:
+                for epoch in range(self.max_iter):
+                    print(f"Epoch {epoch + 1 }/{self.max_iter}")
+      
+                    self._train_epoch(X_train, y_train, 
+                        X_val, y_val, n_batches, metrics, epoch, 
+                        bar=progress_bar, 
+                    )
+                    print("\n")  
+                    if self.early_stopping and ( 
+                            self._no_improvement_count >= self.n_iter_no_change
+                        ):
+                        print(f"Early stopping triggered after {epoch + 1} epochs.")
+                        break
+        else:
+            for epoch in range(self.max_iter):
+                if self.verbose > 0: 
+                    print(f"Epoch {epoch + 1}/{self.max_iter}")
+                
+                self._train_epoch(X_train, y_train, 
+                    X_val, y_val, n_batches, metrics, epoch
+                )
 
-            # Shuffle the data at the beginning of each epoch
-            indices = np.arange(n_samples)
-            np.random.shuffle(indices)
-            X_lagged_shuffled = X_lagged[indices]
-            y_shuffled = y[indices]
-
-            for batch_idx in range(n_batches):
-                start = batch_idx * self.batch_size
-                end = min(start + self.batch_size, n_samples)
-                X_batch = X_lagged_shuffled[start:end]
-                y_batch = y_shuffled[start:end]
-
-                # Partial fit on the batch
-                if epoch == 0 and batch_idx == 0:
-                    # Initialize the model
-                    self.linear_model_.partial_fit(X_batch, y_batch)
-                else:
-                    # Continue training
-                    self.linear_model_.partial_fit(X_batch, y_batch)
-
-        # Get predictions from the linear dynamic block
+                if self.early_stopping and ( 
+                        self._no_improvement_count >= self.n_iter_no_change
+                        ):
+                    if self.verbose > 0: 
+                        print(f"Early stopping triggered after {epoch + 1} epochs.")
+                    break
+                
         y_linear = self.linear_model_.predict(X_lagged)
-
-        # Fit nonlinear output estimator if specified
         self._apply_nonlinear_output(y_linear, y)
 
-        # Compute initial loss for reporting model performance
         y_pred_initial = self.predict(X)
         self.initial_loss_ = self._compute_loss(y, y_pred_initial)
 
@@ -1386,7 +1420,132 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
             print("Fit method completed.")
 
         return self
+    
+    def _initialize_model(self):
+        """Initialize SGDRegressor for the linear dynamic block."""
+        learning_rate_type = self._get_learning_rate_type()
+        self.loss_function_ = self._get_loss_function()
 
+        # Initialize the SGDRegressor
+        self.linear_model_ = SGDRegressor(
+            loss=self.loss_function_ ,
+            learning_rate=learning_rate_type,
+            eta0=self.learning_rate,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            shuffle=True,
+            verbose=self.verbose,
+            epsilon=self.delta,
+            random_state=None
+        )
+
+    def _split_data(self, X_lagged, y):
+        """Split data into training and validation sets based on validation_fraction."""
+        if self.validation_fraction < 1.0:
+            return train_test_split(X_lagged, y, test_size=self.validation_fraction,
+                                    random_state=42)
+        return X_lagged, y, None, None
+    
+    def _train_epoch(
+        self, X_train, y_train, X_val, y_val, 
+        n_batches, metrics, epoch, bar=None
+        ):
+        """Train the model for one epoch."""
+   
+        indices = np.arange(X_train.shape[0])
+        np.random.shuffle(indices)
+        X_train_shuffled = X_train[indices]
+        y_train_shuffled = y_train[indices]
+
+        for batch_idx in range(n_batches):
+            start = batch_idx * self.batch_size
+            end = min(start + self.batch_size, X_train.shape[0])
+            X_batch = X_train_shuffled[start:end]
+            y_batch = y_train_shuffled[start:end]
+            
+            if self.verbose > 2:
+                print(f"Batch {batch_idx + 1}/{n_batches}:"
+                      f" X_batch shape {X_batch.shape},"
+                      f" y_batch shape {y_batch.shape}")
+
+            # Partial fit on the batch
+            self.linear_model_.partial_fit(X_batch, y_batch)
+
+            if batch_idx == n_batches - 1:
+                self._evaluate_batch(
+                    X_batch, y_batch, 
+                    X_val, y_val, 
+                    metrics, batch_idx
+                )
+            if bar is not None:
+                bar.update(batch_idx + 1, epoch)
+
+    def _get_learning_rate_type(self):
+        return {
+            'sgd': 'optimal',
+            'adam': 'adaptive',
+            'adagrad': 'invscaling'
+        }.get(self.optimizer, 'optimal')
+
+    def _get_loss_function(self):
+        return {
+            "mse": 'squared_error',
+            "mae": 'epsilon_insensitive',
+            "huber": 'huber'
+        }.get(self.loss, 'squared_error')
+
+
+    def _update_metrics(self, y_batch, y_pred, metrics, batch_idx):
+        """Update metrics for progress bar and accuracy calculation."""
+        try:
+            # Calculate batch loss and accuracy metrics
+            batch_loss = self._compute_pred_loss(y_batch, y_pred)
+            batch_pss = prediction_stability_score( y_pred)
+            metrics['loss'] = batch_loss
+            metrics['PSS'] = batch_pss
+        except ValueError:
+            pass  # Ignore errors in metrics calculation
+   
+        # Print current metrics if verbosity is set
+        if self.verbose > 0: 
+            print(
+                f"loss: {metrics['loss']:.4f} - PSS: {metrics['PSS']:.4f}"
+            )
+    def _evaluate_batch(self, X_batch, y_batch, X_val, y_val, metrics, batch_idx):
+        """Evaluate the performance of the model on the current batch."""
+        y_pred = self.linear_model_.predict(X_batch)
+        self._update_metrics(y_batch, y_pred, metrics, batch_idx)
+        
+        if X_val is not None:
+            y_val_pred = self.linear_model_.predict(X_val)
+            val_loss = self._compute_pred_loss(y_val, y_val_pred)
+            val_pss = prediction_stability_score(y_val_pred)
+            metrics['val_loss'] = val_loss
+            metrics['val_PSS']= val_pss
+
+            if self.verbose > 1:
+                print(f"val_loss: {val_loss:.4f} - val_PSS: {val_pss:.4f}")
+                
+            if self.early_stopping:
+                self._handle_early_stopping(val_loss)
+    
+    def _handle_early_stopping(self, val_loss):
+        """Manage early stopping logic."""
+        if val_loss < self.best_loss_ - self.tol:
+            self._no_improvement_count = 0
+            self.best_loss_ = val_loss
+        else:
+            self._no_improvement_count += 1
+    
+    def _compute_pred_loss(self, y_true, y_pred): 
+        """ Compute loss value from batch prediction"""
+        if self.loss_function_ =='mae': 
+            loss = mean_absolute_error(y_true, y_pred)
+        else: 
+            loss = mean_squared_error(y_true, y_pred)
+            
+        return loss 
+            
     def predict(self, X):
         """
         Predict using the Hammerstein-Wiener regressor.
@@ -1721,3 +1880,4 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
 
         return y
  
+   
