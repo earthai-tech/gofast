@@ -3364,7 +3364,12 @@ class TrainingProgressBar:
             'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
         
         # Initialize best metrics to track improvements
-        self.best_metrics_ = {k: v for k, v in self.metrics.items()}
+        self.best_metrics_ = {}
+        for metric in self.metrics:
+            if "loss" in metric or "PSS" in metric:
+                self.best_metrics_[metric] = float('inf')  # For minimizing metrics
+            else:
+                self.best_metrics_[metric] = 0.0  # For maximizing metrics
 
     def __enter__(self):
         """Enter the context manager, starting the training progress display."""
@@ -3378,81 +3383,79 @@ class TrainingProgressBar:
             [f"{k}: {v:.4f}" for k, v in self.best_metrics_.items()])
         print("\nTraining complete!")
         print(f"Best Metrics: {best_metric_display}")
-
-                
+    
     def _update_best_metrics(self):
-        """Update the best metrics based on current metrics."""
+        """Update the best metrics based on the current metrics."""
         for metric, value in self.metrics.items():
-            if "loss" in metric or "PSS" in metric: 
-                # Update best metrics for loss and PSS to track minimum values
-                if metric not in self.best_metrics_:
-                    self.best_metrics_[metric] = value  # Initialize if not present
-                else:
-                    self.best_metrics_[metric] = min(self.best_metrics_[metric], value)
+            if "loss" in metric or "PSS" in metric:
+                # Track minimum values for loss and PSS metrics
+                if value < self.best_metrics_[metric]:
+                    self.best_metrics_[metric] = value
             else:
-                # Update best metrics for other performance metrics to track maximum values
-                if metric not in self.best_metrics_:
-                    self.best_metrics_[metric] = value  # Initialize if not present
-                else:
-                    self.best_metrics_[metric] = max(self.best_metrics_[metric], value)
-
-    def update(self, step, epoch):
+                # Track maximum values for other performance metrics
+                if value > self.best_metrics_[metric]:
+                    self.best_metrics_[metric] = value
+    
+    def update(self, step, epoch, step_metrics={}):
         """
         Update the metrics and display the progress bar for the current step.
-    
-        This method simulates the training progress, updates the metrics 
-        based on current step, and refreshes the display.
-    
-        Parameters
-        ----------
-        step : int
-            The current step (batch) number within the epoch.
-        epoch : int
-            The current epoch number in training.
+        
+        Parameters:
+            step (int): Current step in the training process.
+            epoch (int): Current epoch number.
+            step_metrics (dict): Metrics specific to the current step.
         """
         time.sleep(self.delay)  # Simulate processing time per step
     
-        # Simulate updating metrics; replace with actual metric updates
         for metric in self.metrics:
-            if "loss" in metric or "PSS" in metric:
-                # For loss or PSS metrics, decrease value over time
-                # Initialize with a starting value (like 0.0) instead of float("inf")
-                if self.metrics[metric] > 0:
-                    self.metrics[metric] = max(0, self.metrics[metric] - 0.001 * step)
+            if step == 0:
+                # Initialize step value for the first step
+                step_value = self.metrics[metric]
             else:
-                # For performance metrics, increase value over time
-                # You may want to check against an upper limit depending on the context
-                self.metrics[metric] += 0.001 * step  # Increase without upper limit check
+                if step_metrics:
+                    # Update step_value based on provided step_metrics
+                    if metric not in step_metrics:
+                        continue
+                    default_value = (
+                        self.metrics[metric] * step + step_metrics[metric]
+                    ) / (step + 1)
+                else:
+                    # For loss or PSS metrics, decrease value over time
+                    if "loss" in metric or "PSS" in metric:
+                        # Decrease metric value by a small step
+                        default_value = max(
+                            self.metrics[metric], 
+                            self.metrics[metric] - 0.001 * step
+                        )
+                    else:
+                        # For performance metrics, increase value over time
+                        # Here we can allow unlimited increase
+                        self.metrics[metric] += 0.001 * step
+                        default_value = self.metrics[metric]
     
-        # Update best metrics and display progress
+            # Get the step value for the current metric
+            step_value = step_metrics.get(metric, default_value)
+            self.metrics[metric] = round(step_value, 4)  # Round to 4 decimal places
+    
+        # Update the best metrics and display progress
         self._update_best_metrics()
         self._display_progress(step, epoch)
     
-    def _update_best_metrics0(self):
-        """Update the best metrics based on current metrics."""
-        for metric, value in self.metrics.items():
-            if "loss" in metric or "PSS" in metric: 
-                # Update best metrics for loss and PSS to track minimum values
-                self.best_metrics_[metric] = min(self.best_metrics_.get(metric, float("inf")), value)
-            else:
-                # Update best metrics for other performance metrics to track maximum values
-                self.best_metrics_[metric] = max(self.best_metrics_.get(metric, 0), value)
-    
-
-
     def _display_progress(self, step, epoch):
         """Display the progress bar for the current step within the epoch."""
-        progress = step / self.steps_per_epoch
+        progress = step / self.steps_per_epoch  # Calculate progress
         completed = int(progress * self.bar_length)
-        
-        # Construct the progress bar
+    
+        # Construct the progress bar string
         progress_bar = '=' * completed + ('>' if completed < self.bar_length else '')
         progress_bar = progress_bar.ljust(self.bar_length)
-        
-        # Display metrics dynamically
-        metric_display = " - ".join([f"{k}: {v:.4f}" for k, v in self.metrics.items()])
-        
-        # Print progress bar with metrics
+    
+        # Construct the display string for metrics
+        metric_display = " - ".join([
+            f"{k}: {v:.4f}" for k, v in self.metrics.items()
+        ])
+    
+        # Print the progress bar and metrics to the console
         sys.stdout.write(
             f"\r{step}/{self.steps_per_epoch} "
             f"[{progress_bar}] - {metric_display}"

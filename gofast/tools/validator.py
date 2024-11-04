@@ -4,8 +4,8 @@
 # Copyright (c) 2024 gofast developers.
 # All rights reserved.
 """
-`validator` module provides a comprehensive set of functions and warnings
- for validating and ensuring the integrity of data. This includes 
+Provides a comprehensive set of functions and warnings
+for validating and ensuring the integrity of data. This includes 
 utilities for checking data consistency, validating machine learning targets, 
 ensuring proper data types, and handling various validation scenarios.
 """
