@@ -45,6 +45,7 @@ from __future__ import print_function
 import os
 import re
 import sys
+import time
 import inspect
 import warnings
 import functools
@@ -81,6 +82,7 @@ __all__= [
     'SmartProcessor',
     'SuppressOutput',
     'Temp2D',
+    'TrainingProgressBar', 
     'available_if',
     'example_function',
     'isdf',
@@ -3278,69 +3280,188 @@ def isdf(func):
 
     return wrapper
 
-def isdf0(func: Callable) -> Callable:
+class TrainingProgressBar:
     """
-    A decorator that ensures the first positional argument passed to the 
-    decorated function is a pandas DataFrame.
+    A context manager class to display a Keras-like training progress bar 
+    for each epoch, showing metrics dynamically during training.
     
-    If the argument is not a DataFrame, the decorator attempts to convert it 
-    into one using an optional 'columns' keyword argument.
-
+    This class provides an intuitive way to visualize training progress 
+    and track best-performing metrics across epochs, useful for deep 
+    learning and machine learning experiments. The progress bar is 
+    displayed in real-time, and best metrics are stored and shown after 
+    completion.
+    
     Parameters
     ----------
-    func : Callable
-        The function to be decorated.
+    epochs : int
+        Total number of epochs to train the model.
+    steps_per_epoch : int
+        Total number of steps (batches) per epoch.
+    metrics : dict, optional
+        Dictionary of metric names and initial values, with keys as metric 
+        names (e.g., `'loss'`, `'accuracy'`) and values as initial values 
+        (e.g., `{'loss': 1.0, 'accuracy': 0.5}`). These are updated at each 
+        step and displayed in the progress bar.
+    bar_length : int, default=30
+        Length of the progress bar in characters. Adjust this value for a 
+        longer or shorter progress bar.
+    delay : float, default=0.01
+        Time delay between steps, in seconds, used to simulate processing 
+        time for each batch.
 
-    Returns
-    -------
-    Callable
-        The decorated function with data conversion logic.
-
-    Notes
-    -----
-    The decorated function must accept its first positional argument as data
-    and may optionally accept a 'columns' keyword argument to specify column names
-    for the DataFrame conversion.
+    Attributes
+    ----------
+    best_metrics_ : dict
+        Dictionary storing the best values observed for each metric during 
+        training. This is updated whenever a metric improves.
 
     Examples
     --------
-    >>> from gofast.decorators import isdf
-    >>> @isdf
-    ... def my_function(data, /, columns=None, **kwargs):
-    ...     print(data)
-    ...     print("Columns:", columns)
-    >>> import numpy as np
-    >>> my_function(np.array([[1, 2], [3, 4]]), columns=['A', 'B'])
-       A  B
-    0  1  2
-    1  3  4
-    Columns: ['A', 'B']
+    >>> from gofast.decorators import TrainingProgressBar
+    >>> metrics = {'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 
+    ...             'val_accuracy': 0.5}
+    >>> epochs, steps_per_epoch = 10, 20
+    >>> with TrainingProgressBar(epochs, steps_per_epoch, metrics=metrics,
+    ...                          bar_length=40) as progress_bar:
+    ...     for epoch in range(epochs):
+    ...         for step in range(steps_per_epoch):
+    ...             progress_bar.update(step + 1, epoch + 1)
+
+    Notes
+    -----
+    The `update` method should be called at each training step to update 
+    metrics and refresh the display.
+
+    The progress bar computes the completion fraction of the current 
+    step within an epoch as:
+
+    .. math:: 
+        \text{progress} = \frac{\text{step}}{\text{steps\_per\_epoch}}
+    
+    The best metrics are updated based on whether the current value is 
+    better than the previously recorded best value. For metrics that 
+    indicate performance (like accuracy), the best value is maximized, 
+    while for loss metrics, it is minimized.
+
+    See also
+    --------
+    - Keras Callbacks: Callbacks are used in Keras to extend the training 
+      process.
+
+    References
+    ----------
+    .. [1] Chollet, F. (2015). Keras. https://keras.io
+
     """
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        data = args[0]
-        columns = kwargs.get('columns', None)
-        if isinstance ( columns, str): 
-            columns =[columns]
-        # Check if the first positional argument is not a DataFrame
-        if not isinstance(data, pd.DataFrame):
-            # Attempt to convert it into a DataFrame
-            try:
-                data = pd.DataFrame(data, columns=columns)
-                # If columns are provided but do not match data dimensions,
-                # ignore them
-                if columns and len(columns) != data.shape[1]:
-                    data = pd.DataFrame(data)
-            except Exception as e:
-                raise ValueError(f"Error converting data to DataFrame: {e}")
-            # Call the decorated function with the new DataFrame 
-            # as the first argument
-            return func(data, *args[1:], **kwargs)
-        else:
-            # If the first argument is already a DataFrame, 
-            # proceed as normal
-            return func(*args, **kwargs)
-    return wrapper
+
+    def __init__(self, epochs, steps_per_epoch, metrics=None, 
+                 bar_length=30, delay=0.01):
+        self.epochs = epochs
+        self.steps_per_epoch = steps_per_epoch
+        self.bar_length = bar_length
+        self.delay = delay
+        self.metrics = metrics if metrics is not None else {
+            'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
+        
+        # Initialize best metrics to track improvements
+        self.best_metrics_ = {}
+        for metric in self.metrics:
+            if "loss" in metric or "PSS" in metric:
+                self.best_metrics_[metric] = float('inf')  # For minimizing metrics
+            else:
+                self.best_metrics_[metric] = 0.0  # For maximizing metrics
+
+    def __enter__(self):
+        """Enter the context manager, starting the training progress display."""
+        print(f"Starting training for {self.epochs} epochs.")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit the context manager, displaying the best metrics at the end of training."""
+        # Display the best metrics on a single line at the end of training
+        best_metric_display = " - ".join(
+            [f"{k}: {v:.4f}" for k, v in self.best_metrics_.items()])
+        print("\nTraining complete!")
+        print(f"Best Metrics: {best_metric_display}")
+    
+    def _update_best_metrics(self):
+        """Update the best metrics based on the current metrics."""
+        for metric, value in self.metrics.items():
+            if "loss" in metric or "PSS" in metric:
+                # Track minimum values for loss and PSS metrics
+                if value < self.best_metrics_[metric]:
+                    self.best_metrics_[metric] = value
+            else:
+                # Track maximum values for other performance metrics
+                if value > self.best_metrics_[metric]:
+                    self.best_metrics_[metric] = value
+    
+    def update(self, step, epoch, step_metrics={}):
+        """
+        Update the metrics and display the progress bar for the current step.
+        
+        Parameters:
+            step (int): Current step in the training process.
+            epoch (int): Current epoch number.
+            step_metrics (dict): Metrics specific to the current step.
+        """
+        time.sleep(self.delay)  # Simulate processing time per step
+    
+        for metric in self.metrics:
+            if step == 0:
+                # Initialize step value for the first step
+                step_value = self.metrics[metric]
+            else:
+                if step_metrics:
+                    # Update step_value based on provided step_metrics
+                    if metric not in step_metrics:
+                        continue
+                    default_value = (
+                        self.metrics[metric] * step + step_metrics[metric]
+                    ) / (step + 1)
+                else:
+                    # For loss or PSS metrics, decrease value over time
+                    if "loss" in metric or "PSS" in metric:
+                        # Decrease metric value by a small step
+                        default_value = max(
+                            self.metrics[metric], 
+                            self.metrics[metric] - 0.001 * step
+                        )
+                    else:
+                        # For performance metrics, increase value over time
+                        # Here we can allow unlimited increase
+                        self.metrics[metric] += 0.001 * step
+                        default_value = self.metrics[metric]
+    
+            # Get the step value for the current metric
+            step_value = step_metrics.get(metric, default_value)
+            self.metrics[metric] = round(step_value, 4)  # Round to 4 decimal places
+    
+        # Update the best metrics and display progress
+        self._update_best_metrics()
+        self._display_progress(step, epoch)
+    
+    def _display_progress(self, step, epoch):
+        """Display the progress bar for the current step within the epoch."""
+        progress = step / self.steps_per_epoch  # Calculate progress
+        completed = int(progress * self.bar_length)
+    
+        # Construct the progress bar string
+        progress_bar = '=' * completed + ('>' if completed < self.bar_length else '')
+        progress_bar = progress_bar.ljust(self.bar_length)
+    
+        # Construct the display string for metrics
+        metric_display = " - ".join([
+            f"{k}: {v:.4f}" for k, v in self.metrics.items()
+        ])
+    
+        # Print the progress bar and metrics to the console
+        sys.stdout.write(
+            f"\r{step}/{self.steps_per_epoch} "
+            f"[{progress_bar}] - {metric_display}"
+        )
+        sys.stdout.flush()
+
 
 class NumpyDocstringFormatter:
     """

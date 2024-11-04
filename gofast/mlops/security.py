@@ -579,7 +579,6 @@ class BaseSecurity(BaseLearner):
             dst.write(src.read())
         logger.info(f"Backed up logs to {backup_path}")
 
-
 @smartFitRun
 class DataEncryption(BaseSecurity):
     """
@@ -1485,6 +1484,7 @@ class ModelProtection(BaseSecurity):
             encrypted_model = backup_file.read()
         model_data = self.decrypt_model(encrypted_model)
         self.log_event('model_restore', {'backup_path': backup_path})
+
         return model_data
 
 @smartFitRun

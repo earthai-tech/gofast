@@ -11,6 +11,7 @@ from __future__ import print_function
 import os
 import re
 import copy
+import time
 import uuid
 import string
 import numbers
@@ -22,6 +23,7 @@ import warnings
 import itertools
 from collections import defaultdict
 from collections.abc import Sequence
+from contextlib import contextmanager
 
 import numpy as np
 import pandas as pd
@@ -183,6 +185,7 @@ def find_closest(arr, values):
 
     return closest_values
 
+
 def run_return(
     self, 
     attribute_name: Optional[str] = None, 
@@ -334,6 +337,135 @@ def run_return(
         # If no attribute is provided, return self
         return self
 
+@contextmanager
+def training_progress_bar(
+    epochs, 
+    steps_per_epoch, 
+    metrics=None, 
+    bar_length=30, 
+    delay=0.01, 
+    obj_name=''
+):
+    """
+    Context manager to display a Keras-like training progress bar for each epoch,
+    with dynamic metric display and optional object name.
+
+    This function simulates the progress of training epochs, displaying a progress 
+    bar and updating metrics in real-time. After completion, it shows the best 
+    metrics achieved. The context manager is suitable for visual feedback in 
+    iterative tasks such as training models in machine learning.
+
+    Parameters
+    ----------
+    epochs : int
+        Total number of epochs to simulate training.
+        
+    steps_per_epoch : int
+        Total number of steps (batches) per epoch.
+        
+    metrics : dict, optional
+        Dictionary containing metric names as keys (e.g., `loss`, `accuracy`, 
+        `val_loss`, `val_accuracy`) and their initial values as the dictionary 
+        values. These metrics are updated and displayed at each step.
+        
+    bar_length : int, default=30
+        Length of the progress bar in characters. Modify this to adjust 
+        the visual length of the progress bar.
+        
+    delay : float, default=0.01
+        Time delay (in seconds) between steps, useful for simulating processing 
+        time per batch or step.
+        
+    obj_name : str, optional
+        The name of the object being trained, if any. This can be set to 
+        ``obj.__class__.__name__`` if an object instance is passed to provide
+        customized display.
+
+    Notes
+    -----
+    - Metrics are simulated in this function and updated using an arbitrary decay 
+      for loss and growth for accuracy metrics. Replace these with actual values 
+      in a real training loop.
+    - `metrics` will show both current and best values across all epochs at the end.
+    
+    Examples
+    --------
+    >>> from gofast.tools.sysutils import training_progress_bar
+    >>> metrics = {'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
+    >>> with training_progress_bar(epochs=5, steps_per_epoch=20, metrics=metrics, obj_name="Model") as progress:
+    ...     pass  # This context will display progress updates as configured.
+
+    See Also
+    --------
+    Other tracking utilities, such as TensorBoard, which provides an interactive 
+    visual interface for tracking and logging training metrics.
+
+    References
+    ----------
+    .. [1] Keras Documentation - https://keras.io/api/callbacks/progress_bar/
+
+    """
+    import sys
+    
+    # Initialize metrics if not provided
+    if metrics is None:
+        metrics = {'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
+    best_metrics = {k: v for k, v in metrics.items()}  # Track best metrics
+
+    # Start training simulation
+    try:
+        for epoch in range(1, epochs + 1):
+            print(f"Epoch {epoch}/{epochs}")
+            for step in range(1, steps_per_epoch + 1):
+                time.sleep(delay)  # Simulate time delay for each step
+
+                # Update each metric for display
+                for metric in metrics:
+                    # Simulate decreasing loss and increasing accuracy
+                    if "loss" in metric:
+                        metrics[metric] = max(
+                            0, metrics[metric] - 0.001 * step)
+                    else:
+                        metrics[metric] = min(
+                            1.0, metrics[metric] + 0.001 * step)
+
+                    # Update best metric values
+                    if "loss" in metric:
+                        best_metrics[metric] = min(
+                            best_metrics[metric], metrics[metric])
+                    else:
+                        best_metrics[metric] = max(
+                            best_metrics[metric], metrics[metric])
+
+                # Calculate and display progress
+                progress = step / steps_per_epoch
+                completed = int(progress * bar_length)
+                
+                # Construct progress bar
+                progress_bar = '=' * completed
+                if completed < bar_length:
+                    progress_bar += '>'
+                progress_bar = progress_bar.ljust(bar_length)
+
+                # Display current metrics
+                metric_display = " - ".join([f"{k}: {v:.4f}" for k, v in metrics.items()])
+                
+                # Output progress bar with metrics
+                sys.stdout.write(
+                    f"\r{step}/{steps_per_epoch} "
+                    f"[{progress_bar}] - {metric_display}"
+                )
+                sys.stdout.flush()
+            print("\n")  # Newline after each epoch
+        yield
+    finally:
+        # Display the best metrics upon completion
+        best_metric_display = " - ".join([f"{k}: {v:.4f}" for k, v in best_metrics.items()])
+        print("Training complete!")
+        if obj_name:
+            obj_name += ' - '  # Add hyphen separator if obj_name is specified
+        print(f"{obj_name}Best Metrics: {best_metric_display}")
+        
 def generate_id(
     length=12,
     prefix="",

@@ -4,8 +4,8 @@
 # Copyright (c) 2024 gofast developers.
 # All rights reserved.
 """
-`validator` module provides a comprehensive set of functions and warnings
- for validating and ensuring the integrity of data. This includes 
+Provides a comprehensive set of functions and warnings
+for validating and ensuring the integrity of data. This includes 
 utilities for checking data consistency, validating machine learning targets, 
 ensuring proper data types, and handling various validation scenarios.
 """
@@ -78,6 +78,7 @@ __all__=[
      'parameter_validator',
      'to_dtype_str',
      'validate_and_adjust_ranges',
+     'validate_batch_size', 
      'validate_comparison_data',
      'validate_data_types',
      'validate_dates',
@@ -327,6 +328,114 @@ def check_has_run_method(estimator, msg=None, method_name="run"):
 
     # If no errors were raised, the method exists and is callable
     return
+
+def validate_batch_size(
+        batch_size, n_samples, min_batch_size=1, max_batch_size=None):
+    """
+    Validate the batch size against the number of samples.
+
+    This function checks whether the provided `batch_size` is appropriate 
+    given the total number of samples `n_samples`. It ensures that the batch 
+    size meets specified minimum and maximum limits, raising appropriate 
+    errors if any constraints are violated.
+
+    Parameters
+    ----------
+    batch_size : int
+        The size of each batch. This must be a positive integer, as batches 
+        must contain at least one sample. A ValueError will be raised if this 
+        value is less than the minimum allowed batch size or exceeds the 
+        total number of samples.
+
+    n_samples : int
+        The total number of samples in the dataset. This value must be 
+        positive and greater than or equal to the `batch_size`. If `batch_size` 
+        is greater than `n_samples`, a ValueError is raised.
+
+    min_batch_size : int, optional
+        The minimum allowed batch size (default is 1). This parameter defines 
+        the smallest permissible batch size. A ValueError will be raised if 
+        the `batch_size` is less than this value.
+
+    max_batch_size : int, optional
+        The maximum allowed batch size (default is None, meaning no upper limit). 
+        This parameter can be used to restrict the size of the batch to a 
+        specified maximum value. If `max_batch_size` is provided, a ValueError 
+        will be raised if the `batch_size` exceeds this limit.
+    
+    Return 
+    ------
+        batch_size: Validated number of batch size 
+    
+    Raises
+    ------
+    ValueError
+        If the `batch_size` is less than the `min_batch_size`, greater than the 
+        `n_samples`, or exceeds the `max_batch_size` if specified. Additionally, 
+        if `batch_size` is not a positive integer, a ValueError is raised.
+
+    Notes
+    ------
+    Let `B` represent the `batch_size` and `N` represent the `n_samples`. 
+    The validation can be expressed mathematically as:
+
+    .. math::
+        \text{If } B < \text{min\_batch\_size} \text{ or } B > N \text{ or } B > \text{max\_batch\_size}:
+        \quad \text{raise ValueError}
+
+    Examples
+    --------
+    >>> from gofast.tools.validators import validate_batch_size
+    >>> validate_batch_size(32, 100)  # Valid case
+    >>> validate_batch_size(0, 100)  # Raises ValueError
+    >>> validate_batch_size(150, 100)  # Raises ValueError
+    >>> validate_batch_size(32, 100, max_batch_size=32)  # Valid case
+    >>> validate_batch_size(40, 100, max_batch_size=32)  # Raises ValueError
+
+    Notes
+    -----
+    This function is essential for managing data batching in machine learning 
+    workflows, where improper batch sizes can lead to inefficient training or 
+    runtime errors.
+
+    See Also
+    --------
+    - Other validation functions in the `gofast.tools.validators` module
+    - Documentation on batch processing in machine learning frameworks
+
+    References
+    ----------
+    .. [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning. 
+       MIT Press. https://www.deeplearningbook.org/
+    """
+    n_samples = validate_positive_integer(n_samples, "N-samples")
+    
+    # Check if batch_size is a positive integer
+    batch_size = validate_positive_integer(batch_size, "Batch size", msg= ( 
+        f"Batch size must be a positive integer. Given: {batch_size}.")
+        )
+    
+    # Check if batch_size meets the minimum requirement
+    if batch_size < min_batch_size:
+        raise ValueError(
+            f"Batch size ({batch_size}) cannot be less than"
+            f" the minimum allowed ({min_batch_size})."
+        )
+
+    # Check if batch_size exceeds the maximum limit, if provided
+    if max_batch_size is not None and batch_size > max_batch_size:
+        raise ValueError(
+            f"Batch size ({batch_size}) cannot exceed"
+            f" the maximum allowed ({max_batch_size})."
+        )
+
+    # Check if batch_size exceeds the total number of samples
+    if batch_size > n_samples:
+        raise ValueError(
+            f"Batch size ({batch_size}) cannot exceed"
+            f" number of samples ({n_samples})."
+        )
+    return batch_size
 
 def validate_estimator_methods(estimator, methods, msg=None):
     """
@@ -3128,7 +3237,10 @@ def validate_dates(
     return start_date.year, end_date.year
 
 
-def validate_positive_integer(value, variable_name, include_zero=False, round_float=None):
+def validate_positive_integer(
+        value, variable_name, include_zero=False, round_float=None, 
+        msg=None
+        ):
     """
     Validates whether the given value is a positive integer or zero based 
     on the parameter and rounds float values according to the specified method.
@@ -3144,7 +3256,8 @@ def validate_positive_integer(value, variable_name, include_zero=False, round_fl
     round_float : str, optional
         If "ceil", rounds up float values; if "floor", rounds down float values;
         if None, truncates float values to the nearest whole number towards zero.
-
+    msg: str, optional, 
+        Error message when checking for proper type failed.
     Returns:
     -------
     int
@@ -3171,7 +3284,8 @@ def validate_positive_integer(value, variable_name, include_zero=False, round_fl
 
     # Check for proper type and round if necessary
     if not isinstance(value, (int, float, np.integer, np.floating)):
-        raise ValueError(f"{variable_name} must be an integer or float.")
+        msg = msg or f"{variable_name} must be an integer or float."
+        raise ValueError(msg)
         
     if isinstance(value, float):
         if round_float == "ceil":
@@ -3923,6 +4037,9 @@ def get_estimator_name (estimator ):
     :return: str, 
         name of the estimator. 
     """
+    if isinstance (estimator, str): 
+        return estimator 
+    
     name =' '
     if hasattr (estimator, '__qualname__') and hasattr(
             estimator, '__name__'): 
