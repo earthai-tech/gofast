@@ -793,13 +793,15 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=LearnerMeta):
             X_batch = X_train_shuffled[start:end]
             y_batch = y_train_shuffled[start:end]
             
-            if self.verbose > 2:
+            if self.verbose > 0:
                 # Print batch details if verbosity level is high
-                print(
-                    f"Batch {batch_idx + 1}/{n_batches}: "
-                    f"X_batch shape {X_batch.shape}, "
-                    f"y_batch shape {y_batch.shape}"
-                )
+                msg =f"Batch {batch_idx + 1}/{n_batches}:"
+                print(msg)
+                if self.verbose > 2: 
+                    print(
+                        f"{msg} X_batch shape {X_batch.shape}, "
+                        f"y_batch shape {y_batch.shape}"
+                    )
             
             if epoch == 0 and batch_idx == 0:
                 # For the first batch, provide classes if classifier

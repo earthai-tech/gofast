@@ -187,6 +187,48 @@ class NotFittedError(Exception):
     """
     pass
 
+class DependencyError(Exception):
+    """
+    Exception raised for errors related to missing or incompatible 
+    dependencies in the `gofast` package.
+
+    This error is used to handle situations where essential dependencies 
+    for a particular functionality are either not installed or incompatible 
+    with the current environment. The message provided can include the 
+    specific package or module causing the issue and potential solutions.
+
+    Examples
+    --------
+    >>> try:
+    >>>     raise DependencyError("PyTorch is not installed. Please install "
+    >>>                            "PyTorch by running 'pip install torch'.")
+    >>> except DependencyError as e:
+    >>>     print(e)
+    PyTorch is not installed. Please install PyTorch by running 
+    'pip install torch'.
+
+    Notes
+    -----
+    - This exception can be raised when the `gofast` package detects that 
+      a required dependency, such as PyTorch or TensorFlow, is missing or 
+      incompatible with the current system.
+    - The error message should provide clear instructions to resolve the issue, 
+      such as installation or upgrade commands.
+
+    See also
+    --------
+    - `gofast.exceptions`: Other custom exceptions in the `gofast` package.
+    - `gofast.utils.install_dependencies`: Function that installs missing 
+      dependencies for the package.
+
+    References
+    ----------
+    .. [1] Python Documentation: Custom Exceptions
+           https://docs.python.org/3/tutorial/errors.html
+    """
+    pass 
+
+
 class NotRunnedError(Exception):
     """
     Exception raised when an operation requiring a 'runned' state 
