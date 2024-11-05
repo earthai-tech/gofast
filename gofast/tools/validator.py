@@ -3284,7 +3284,7 @@ def validate_positive_integer(
 
     # Check for proper type and round if necessary
     if not isinstance(value, (int, float, np.integer, np.floating)):
-        msg = msg or f"{variable_name} must be an integer or float."
+        msg = msg or f"{variable_name} must be an integer or float. Got {value}"
         raise ValueError(msg)
         
     if isinstance(value, float):

@@ -10,7 +10,7 @@ machine learning techniques.
 """
 from collections import defaultdict
 from numbers import Real
-import warnings
+# import warnings
 
 import numpy as np
 from sklearn.base import (
@@ -25,16 +25,17 @@ from sklearn.metrics import (
     mean_absolute_error,
 )
 from sklearn.utils._param_validation import StrOptions
+from sklearn.utils import check_random_state # , gen_batches 
 
 from ..api.types import Any, Optional,Tuple
 from ..compat.sklearn import Interval, get_sgd_loss_param
 from ..decorators import TrainingProgressBar
+from ..tools.coreutils import gen_X_y_batches 
 from ..metrics import twa_score, prediction_stability_score
 from ..tools.validator import (
     check_is_fitted,
     check_X_y,
     check_array,
-    validate_batch_size,
     validate_length_range
 )
 from ._dynamic_system import BaseHammersteinWiener
@@ -162,6 +163,10 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
     n_iter_no_change : int, default=5
         Number of iterations with no improvement to wait before stopping
         training early.
+        
+    random_state : int, RandomState instance, default=None
+        Determines random number generation for weights and bias
+        Pass an int for reproducible results across multiple function calls.
     
     n_jobs : int or None, default=None
         Number of CPU cores to use during training. ``-1`` means using all
@@ -312,6 +317,7 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         early_stopping=False,
         validation_fraction=0.1, 
         n_iter_no_change=5,
+        random_state=None, 
         n_jobs=None,
         verbose=0
     ):
@@ -333,6 +339,7 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
             shuffle=shuffle,
             epsilon=epsilon,
             time_weighting=time_weighting,
+            random_state=random_state 
         )
 
         self.output_scale = output_scale
@@ -399,7 +406,9 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         X, y = check_X_y(X, y, multi_output=True)
         X_transformed = self._apply_nonlinear_input(X, y)
         X_lagged = self._create_lagged_features(X_transformed)
-    
+        
+        self._random_state= check_random_state(self.random_state)
+        
         if self.verbose > 0:
             print("Fitting linear model with batch training.")
     
@@ -410,25 +419,62 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         X_train, X_val, y_train, y_val = self._split_data(X_lagged, y)
     
         # Determine the number of samples in the dataset
-        n_samples = X_lagged.shape[0]
-    
-        # Determine and validate batch size
-        if self.batch_size == "auto":
-            batch_size = min(32, n_samples)
-        else:
-            if self.batch_size > n_samples:
-                warnings.warn(
-                    "Got `batch_size` less than 1 or larger than "
-                    "sample size. It is going to be clipped."
-                )
-            batch_size = np.clip(self.batch_size, 1, n_samples)
         
-        # Validate and set the batch size
-        self.batch_size = validate_batch_size(batch_size, n_samples)
-        
-        # Calculate the number of batches per epoch
-        n_batches = max(1, int(np.floor(n_samples / self.batch_size)))
+        # n_samples = X_lagged.shape[0]
     
+        # # Determine and validate batch size
+        # if self.batch_size == "auto":
+        #     batch_size = min(200, n_samples)
+        # else:
+        #     if self.batch_size > n_samples:
+        #         warnings.warn(
+        #             "Got `batch_size` less than 1 or larger than "
+        #             "sample size. It is going to be clipped."
+        #         )
+        #     batch_size = np.clip(self.batch_size, 1, n_samples)
+        
+        # batches = list(gen_batches(
+        #     n_samples, 
+        #     self.batch_size, 
+        #     min_batch_size=1
+        #     )
+        # )
+    
+        # Generating `X_y_batches` prior to validation ensures that batch
+        # processing is consistent throughout the training epoch. However,
+        # when batches are generated using index-based slicing, shuffling
+        # can occasionally result in some batches having zero samples.
+        # This scenario lead to Progress Bar Misalignment:
+        # - Metrics Inaccuracy: If empty batches are skipped, the
+        #   metrics may not be updated correctly, leading to inaccurate
+        #   performance evaluations.
+        # Indeed, The progress bar may not accurately reflect the actual 
+        # number of batches, often falling short by one or two batches,
+        # which disrupts the user’s perception of training progress.
+        #   
+        # To mitigate these issues, the optimal approach is to remove any
+        # empty batches and include only valid batches. This ensures that
+        # the number of batches aligns perfectly with the progress bar
+        # status when verbosity is enabled. By doing so, metrics are
+        # consistently updated, and the progress bar accurately represents
+        # the training progress.
+        #
+        # Additionally, using `gen_X_y_batches` is more stable compared to
+        # inline indexing within the training loop. Pre-generating a list
+        # of `(X_batch, y_batch)` tuples before the training epoch
+        # prevents inconsistencies and potential errors that might arise
+        # from dynamic batch generation during training. This approach
+        # enhances the overall stability and reliability of the training
+        # process.
+        X_y_batches= gen_X_y_batches (
+            X_train, y_train,
+            batch_size=self.batch_size , 
+            min_batch_size= 1, 
+            shuffle= self.shuffle,
+            random_state= self._random_state 
+        ) 
+        
+        # XXX
         # Initialize early stopping parameters and track best loss
         self.best_loss_ = np.inf if self.early_stopping else None
         self._no_improvement_count = 0
@@ -437,7 +483,7 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         if self.verbose == 0:
             with TrainingProgressBar(
                 epochs=self.max_iter,
-                steps_per_epoch=n_batches,
+                steps_per_epoch=len(X_y_batches),
                 metrics=metrics
             ) as progress_bar:
                 for epoch in range(self.max_iter):
@@ -448,11 +494,11 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
                     
                     # Train the model for the current epoch
                     self._train_epoch(
-                        X_train=X_train,
+                        # X_train=X_train,
                         y_train=y_train,
                         X_val=X_val,
                         y_val=y_val,
-                        n_batches=n_batches,
+                        Xy_batches=X_y_batches,
                         metrics=metrics,
                         epoch=epoch,
                         bar=progress_bar,
@@ -479,11 +525,11 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
                 
                 # Train the model for the current epoch
                 self._train_epoch(
-                    X_train=X_train,
+                    # X_train=X_train,
                     y_train=y_train,
                     X_val=X_val,
                     y_val=y_val,
-                    n_batches=n_batches,
+                    Xy_batches=X_y_batches,
                     metrics=metrics,
                     epoch=epoch,
                     epoch_metrics=epoch_metrics
@@ -1116,6 +1162,10 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
     n_iter_no_change : int, default=5
         Number of iterations with no improvement to wait before stopping
         training early.
+        
+    random_state : int, RandomState instance, default=None
+        Determines random number generation for weights and bias
+        Pass an int for reproducible results across multiple function calls.
     
     n_jobs : int or None, default=None
         Number of CPU cores to use during training. ``-1`` means using all
@@ -1279,6 +1329,7 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         early_stopping=False,
         validation_fraction=0.1, 
         n_iter_no_change=5,
+        random_state=None,
         n_jobs=None,
         verbose=0
     ):
@@ -1300,6 +1351,7 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
             shuffle=shuffle,
             epsilon=epsilon,
             time_weighting=time_weighting,
+            random_state=random_state
         )
 
         self.loss = loss
@@ -1348,7 +1400,8 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         # Validate and preprocess input data
         X, y = self._validate_input_data(X, y)
         X, y = check_X_y(X, y, multi_output=True)
-    
+        self._random_state = check_random_state(self.random_state)
+        
         # Determine if the classification problem is multilabel
         self.is_multilabel_ = type_of_target(y) in (
             'multilabel-indicator', 'multiclass-multioutput'
@@ -1367,24 +1420,72 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         X_train, X_val, y_train, y_val = self._split_data(X_lagged, y)
     
         # Determine the number of samples in training data
-        n_samples = X_train.shape[0]
-    
-        # Determine and validate batch size
-        if self.batch_size == "auto":
-            batch_size = min(32, n_samples)
-        else:
-            if self.batch_size > n_samples:
-                warnings.warn(
-                    "Got `batch_size` less than 1 or larger than "
-                    "sample size. It is going to be clipped."
-                )
-            batch_size = np.clip(self.batch_size, 1, n_samples)
+        # n_samples = X_train.shape[0]
+
+        #XXX
+        # The `gen_X_y_batches` function performs several critical operations:
+        # - Determines the total number of samples (`n_samples`) if not
+        #   explicitly provided.
+        # - Ensures that the `batch_size` is valid by clipping it to be
+        #   at least 1 and no larger than the total number of samples.
+        #   This prevents errors related to invalid batch sizes.
+        # - Calculates the number of batches per epoch based on the
+        #   validated `batch_size` using the `gen_batches` utility
+        #   function.
+        #
+        # Generating `X_y_batches` prior to validation ensures that batch
+        # processing is consistent throughout the training epoch. However,
+        # when batches are generated using index-based slicing, shuffling
+        # can occasionally result in some batches having zero samples.
+        # This scenario lead to Progress Bar Misalignment:
+        # - Metrics Inaccuracy: If empty batches are skipped, the
+        #   metrics may not be updated correctly, leading to inaccurate
+        #   performance evaluations.
+        # Indeed, The progress bar may not accurately reflect the actual 
+        # number of batches, often falling short by one or two batches,
+        # which disrupts the user’s perception of training progress.
+        #   
+        # To mitigate these issues, the optimal approach is to remove any
+        # empty batches and include only valid batches. This ensures that
+        # the number of batches aligns perfectly with the progress bar
+        # status when verbosity is enabled. By doing so, metrics are
+        # consistently updated, and the progress bar accurately represents
+        # the training progress.
+        #
+        # Additionally, using `gen_X_y_batches` is more stable compared to
+        # inline indexing within the training loop. Pre-generating a list
+        # of `(X_batch, y_batch)` tuples before the training epoch
+        # prevents inconsistencies and potential errors that might arise
+        # from dynamic batch generation during training. This approach
+        # enhances the overall stability and reliability of the training
+        # process.
         
-        # Validate and set the batch size
-        self.batch_size = validate_batch_size(batch_size, n_samples)
+        X_y_batches = gen_X_y_batches(
+            X_train, y_train,
+            batch_size=self.batch_size,
+            min_batch_size=1,
+            shuffle=self.shuffle,
+            random_state=self._random_state
+        )
+        # if self.batch_size == "auto":
+        #     batch_size = min(32, n_samples)
+        # else:
+        #     if self.batch_size > n_samples:
+        #         warnings.warn(
+        #             "Got `batch_size` less than 1 or larger than "
+        #             "sample size. It is going to be clipped."
+        #         )
+        #     batch_size = np.clip(self.batch_size, 1, n_samples)
         
-        # Calculate the number of batches per epoch
-        n_batches = int(np.ceil(n_samples / self.batch_size))
+        # # Validate and set the batch size
+        # # And calculate the number of batches per epoch
+        # self.batch_size = validate_batch_size(batch_size, n_samples)
+        # batches = list(gen_batches(
+        #     n_samples, 
+        #     self.batch_size, 
+        #     min_batch_size=1
+        #     )
+        # )
     
         # Initialize metrics for tracking model performance
         metrics = {
@@ -1403,7 +1504,7 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         if self.verbose == 0:
             with TrainingProgressBar(
                 epochs=self.max_iter,
-                steps_per_epoch=n_batches,
+                steps_per_epoch=len(X_y_batches),
                 metrics=metrics
             ) as progress_bar:
                 for epoch in range(self.max_iter):
@@ -1414,11 +1515,12 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
                     
                     # Train the model for the current epoch
                     self._train_epoch(
-                        X_train=X_train,
+                        # X_train=X_train,
                         y_train=y_train,
                         X_val=X_val,
                         y_val=y_val,
-                        n_batches=n_batches,
+                        # batches=batches,
+                        Xy_batches= X_y_batches, 
                         metrics=metrics,
                         epoch=epoch,
                         bar=progress_bar,
@@ -1445,11 +1547,12 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
                 
                 # Train the model for the current epoch
                 self._train_epoch(
-                    X_train=X_train,
+                    # X_train=X_train,
                     y_train=y_train,
                     X_val=X_val,
                     y_val=y_val,
-                    n_batches=n_batches,
+                    # batches=batches,
+                    Xy_batches= X_y_batches, 
                     metrics=metrics,
                     epoch=epoch, 
                     epoch_metrics=epoch_metrics

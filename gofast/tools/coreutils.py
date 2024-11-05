@@ -337,6 +337,495 @@ def run_return(
         # If no attribute is provided, return self
         return self
 
+def gen_X_y_batches(
+    X, y, *,
+    batch_size="auto",
+    n_samples=None,
+    min_batch_size=0,
+    shuffle=True,
+    random_state=None,
+    return_batches=False,
+    default_size=200,
+):
+    """
+    Generate batches of data (`X`, `y`) for machine learning tasks such as 
+    training or evaluation. This function slices the dataset into smaller 
+    batches, optionally shuffles the data, and returns them as a list of 
+    tuples or just the data batches.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        The input data matrix, where each row is a sample and each column 
+        represents a feature.
+
+    y : ndarray of shape (n_samples,) or (n_samples, n_targets)
+        The target variable(s) corresponding to `X`. Can be a vector or 
+        matrix depending on the problem (single or multi-output).
+
+    batch_size : int, "auto", default="auto"
+        The number of samples per batch. If set to `"auto"`, it uses the 
+        minimum between `default_size` and the number of samples, `n_samples`.
+
+    n_samples : int, optional, default=None
+        The total number of samples to consider. If `None`, the function 
+        defaults to using the number of samples in `X`.
+
+    min_batch_size : int, default=0
+        The minimum size for each batch. This parameter ensures that the 
+        final batch contains at least `min_batch_size` samples. If the 
+        last batch is smaller than `min_batch_size`, it will be excluded 
+        from the result.
+
+    shuffle : bool, default=True
+        If `True`, the data is shuffled before batching. This helps avoid 
+        bias when splitting data for training and validation.
+
+    random_state : int, RandomState instance, or None, default=None
+        The seed used by the random number generator for reproducibility. 
+        If `None`, the random number generator uses the system time or 
+        entropy source.
+
+    return_batches : bool, default=False
+        If `True`, the function returns both the data batches and the slice 
+        objects used to index into `X` and `y`. If `False`, only the 
+        data batches are returned.
+
+    default_size : int, default=200
+        The default batch size used when `batch_size="auto"` is selected.
+
+    Returns
+    -------
+    Xy_batches : list of tuples
+        A list of tuples where each tuple contains a batch of `X` and its 
+        corresponding batch of `y`.
+
+    batch_slices : list of slice objects, optional
+        If `return_batches=True`, this list of `slice` objects is returned, 
+        each representing the slice of `X` and `y` used for a specific batch.
+
+    Notes
+    -----
+    - This function ensures that no empty batches are returned. If a batch 
+      contains zero samples (either from improper slicing or due to 
+      `min_batch_size`), it will be excluded.
+    - The function performs shuffling using scikit-learn's `shuffle` function, 
+      which is more stable and reduces memory usage by shuffling indices 
+      rather than the whole dataset.
+    - The function utilizes the `gen_batches` utility to divide the data into 
+      batches.
+
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import gen_X_y_batches
+    >>> X = np.random.rand(2000, 5)
+    >>> y = np.random.randint(0, 2, size=(2000,))
+    >>> batches = gen_X_y_batches(X, y, batch_size=500, shuffle=True)
+    >>> len(batches)
+    4
+
+    >>> X = np.random.rand(2000, 5)
+    >>> y = np.random.randint(0, 2, size=(2000,))
+    >>> batches, slices = gen_X_y_batches(
+    >>>     X, y, batch_size=500, shuffle=True, return_batches=True
+    >>> )
+    >>> len(batches)
+    4
+    >>> len(slices)
+    4
+
+    Notes
+    ------
+    Given a dataset of size `n_samples` and target `y`, we want to partition 
+    the dataset into batches. The `batch_size` parameter defines the maximum 
+    number of samples in each batch, and `min_batch_size` ensures that 
+    the last batch has a minimum size if possible.
+
+    For each batch, we perform the following steps:
+    
+    1. **Determine the batch size**:
+       - If `batch_size` is "auto", we set:
+       
+       .. math::
+           \text{batch\_size} = \min(\text{default\_size}, n_{\text{samples}})
+       
+    2. **Validate batch size**:
+       - Ensure the batch size does not exceed the total number of samples. 
+       If it does, we clip it:
+       
+       .. math::
+           \text{batch\_size} = \min(\text{batch\_size}, n_{\text{samples}})
+    
+    3. **Generate batches**:
+       - Use the `gen_batches` utility to create slice indices that partition 
+       the dataset into batches:
+       
+       .. math::
+           \text{batch\_slices} = \text{gen\_batches}(n_{\text{samples}}, 
+           \text{batch\_size})
+       
+    4. **Shuffling** (if enabled):
+       - If `shuffle=True`, shuffle the dataset's indices before splitting:
+       
+       .. math::
+           \text{indices} = \text{shuffle}(0, 1, \dots, n_{\text{samples}} - 1)
+    
+    5. **Return Batches**:
+       - After creating the batches, return them as tuples of `(X_batch, y_batch)`.
+
+    See Also
+    --------
+    gen_batches : A utility function that generates slices of data.
+    shuffle : A utility to shuffle data while keeping the data and labels in sync.
+
+    References
+    ----------
+    [1] Scikit-learn. "sklearn.utils.shuffle". Available at 
+    https://scikit-learn.org/stable/modules/generated/sklearn.utils.shuffle.html
+    """
+    from sklearn.utils import shuffle as sk_shuffle, _safe_indexing
+    from sklearn.utils import gen_batches
+    from .validator import check_X_y, validate_batch_size 
+    
+    X, y = check_X_y(X, y, to_frame=True)
+
+    # List to store the resulting batches
+    Xy_batches = []
+    batch_slices = []
+
+    # Default to the number of samples in X if not provided
+    if n_samples is None:
+        n_samples = X.shape[0]
+
+    # Determine and validate batch size
+    if batch_size == "auto":
+        batch_size = min(default_size, n_samples)
+    else:
+        
+        if batch_size > n_samples:
+            warnings.warn(
+                "Got `batch_size` less than 1 or larger than "
+                "sample size. It is going to be clipped."
+            )
+            batch_size = np.clip(batch_size, 1, n_samples)
+    # Validate batch size
+    batch_size = validate_batch_size( 
+        batch_size, n_samples, min_batch_size=min_batch_size
+    )
+    
+    # Generate batch slices
+    batches = list(
+        gen_batches(n_samples, batch_size, min_batch_size=min_batch_size)
+    )
+
+    # Generate an array of indices for shuffling
+    indices = np.arange(X.shape[0])
+
+    if shuffle:
+        # Shuffle indices for stable randomization
+        sample_idx = sk_shuffle(indices, random_state=random_state)
+
+    for batch_idx, batch_slice in enumerate(batches):
+        # Slice the training data to obtain the current batch
+        if shuffle:
+            X_batch = _safe_indexing(X, sample_idx[batch_slice])
+            y_batch = y[sample_idx[batch_slice]]
+        else:
+            X_batch = X[batch_slice]
+            y_batch = y[batch_slice]
+
+        if y_batch.size == 0 or X_batch.size == 0:
+            if shuffle: 
+                X_batch, y_batch = ensure_non_empty_batch(
+                    X, y, batch_slice, 
+                    random_state=random_state, 
+                    error = "warn", 
+                ) 
+            else:
+                continue
+
+        # Append valid batches to the results
+        Xy_batches.append((X_batch, y_batch))
+        batch_slices.append(batch_slice)
+
+    if len(Xy_batches)==0: 
+        # No batch found 
+        Xy_batches.append ((X, y)) 
+        
+    return (Xy_batches, batch_slices) if return_batches else Xy_batches
+
+def ensure_non_empty_batch(
+    X, y, *, batch_slice, max_attempts=10, random_state=None,
+    error ="raise", 
+):
+    """
+    Shuffle the dataset (`X`, `y`) until the specified `batch_slice` yields 
+    a non-empty batch. This function ensures that the batch extracted using 
+    `batch_slice` contains at least one sample by repeatedly shuffling the 
+    data and reapplying the slice.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        The input data matrix, where each row corresponds to a sample and 
+        each column corresponds to a feature.
+
+    y : ndarray of shape (n_samples,) or (n_samples, n_targets)
+        The target variable(s) corresponding to `X`. It can be a one-dimensional 
+        array for single-output tasks or a two-dimensional array for multi-output 
+        tasks.
+
+    batch_slice : slice
+        A slice object representing the indices for the batch. For example, 
+        `slice(0, 512)` would extract the first 512 samples from `X` and `y`.
+
+    max_attempts : int, optional, default=10
+        The maximum number of attempts to shuffle the data to obtain a non-empty 
+        batch. If the batch remains empty after the specified number of attempts, 
+        a `ValueError` is raised.
+
+    random_state : int, RandomState instance, or None, default=None
+        Controls the randomness of the shuffling. Pass an integer for reproducible 
+        results across multiple function calls. If `None`, the random number 
+        generator is the RandomState instance used by `np.random`.
+
+    error: str, default ='raise' 
+        Handle error status when empty batch is still present after 
+        `max_attempts`. Expect ``{"raise", "warn" "ignore"} , if ``warn``, 
+        error is converted in warning message. Any other value ignore the 
+        error message. 
+        
+    Returns
+    -------
+    X_batch : ndarray of shape (batch_size, n_features)
+        The batch of input data extracted using `batch_slice`. Ensures that 
+        `X_batch` is not empty.
+
+    y_batch : ndarray of shape (batch_size,) or (batch_size, n_targets)
+        The batch of target data corresponding to `X_batch`, extracted using 
+        `batch_slice`. Ensures that `y_batch` is not empty.
+
+    Raises
+    ------
+    ValueError
+        If a non-empty batch cannot be obtained after `max_attempts` shuffles.
+
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import ensure_non_empty_batch
+    >>> import numpy as np
+    >>> X = np.random.rand(2000, 5)
+    >>> y = np.random.randint(0, 2, size=(2000,))
+    >>> batch_slice = slice(0, 512)
+    >>> X_batch, y_batch = ensure_non_empty_batch(X, y, batch_slice=batch_slice)
+    >>> X_batch.shape
+    (512, 5)
+    >>> y_batch.shape
+    (512,)
+
+    >>> # Example where the batch might initially be empty
+    >>> X_empty = np.empty((0, 5))
+    >>> y_empty = np.empty((0,))
+    >>> try:
+    ...     ensure_non_empty_batch(X_empty, y_empty, batch_slice=slice(0, 512))
+    ... except ValueError as e:
+    ...     print(e)
+    ...
+    Unable to obtain a non-empty batch after 10 attempts.
+
+    Notes
+    -----
+    Given a dataset with `n_samples` samples, the goal is to find a subset of 
+    samples defined by the `batch_slice` such that:
+
+    .. math::
+        \text{batch\_size} = \text{len}(X[\text{batch\_slice}])
+
+    The function ensures that:
+
+    .. math::
+        \text{batch\_size} > 0
+
+    This is achieved by iteratively shuffling the dataset and reapplying the 
+    `batch_slice` until the condition is satisfied or the maximum number of 
+    attempts is reached.
+
+    See Also
+    --------
+    gen_batches : Generate slice objects to divide data into batches.
+    shuffle : Shuffle arrays or sparse matrices in a consistent way.
+
+    References
+    ----------
+    .. [1] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, 
+       B., Grisel, O., ... & Duchesnay, E. (2011). Scikit-learn: Machine 
+       learning in Python. *Journal of Machine Learning Research*, 12, 
+       2825-2830.
+    .. [2] NumPy Developers. (2023). NumPy Documentation. 
+       https://numpy.org/doc/
+    """
+    from sklearn.utils import shuffle as sk_shuffle 
+    
+    attempts = 0
+
+    while attempts < max_attempts:
+        # Extract the batch using the provided slice
+        X_batch = X[batch_slice]
+        y_batch = y[batch_slice]
+
+        # Check if both X_batch and y_batch are non-empty
+        if X_batch.size > 0 and y_batch.size > 0:
+            return X_batch, y_batch
+
+        # Shuffle the dataset
+        X, y = sk_shuffle(
+            X, y, random_state=random_state
+        )
+
+        attempts += 1
+
+    msg =  f"Unable to obtain a non-empty batch after {max_attempts} attempts."
+    if error=="raise": 
+        # If a non-empty batch is not found after max_attempts, raise an error
+        raise ValueError(msg)
+    elif error =='warn':
+        warnings.warn( msg ) 
+        
+    return X, y 
+    
+
+        
+def safe_slicing(slice_indexes, X):
+    """
+    Removes slices from the list `slice_indexes` that result in zero samples 
+    when applied to the data `X`. The function checks each slice to ensure 
+    it selects at least one sample, and discards any slices with no samples 
+    selected.
+
+    Parameters
+    ----------
+    slice_indexes : list of slice objects
+        A list of slice objects, each representing a range of indices 
+        that can be used to index into a dataset, typically for batch 
+        processing.
+
+    X : ndarray of shape (n_samples, n_features)
+        The data array (or any other array-like structure) that the slices 
+        will be applied to. The function assumes that each slice in 
+        `slice_indexes` corresponds to a subset of rows (samples) in `X`.
+
+    Returns
+    -------
+    valid_slices : list of slice objects
+        A list of slice objects that correspond to valid (non-empty) 
+        subsets of `X`. Slices with zero elements (e.g., when the 
+        start index is equal to or greater than the end index) are removed.
+
+    Examples
+    --------
+    # Example 1: Basic use case where the last slice is valid
+    >>> X = np.random.rand(2000, 5)  # 2000 samples, 5 features
+    >>> slice_indexes = [slice(0, 512), slice(512, 1024), slice(1024, 1536), 
+                         slice(1536, 2000)]
+    >>> safe_slicing(slice_indexes, X)
+    [slice(0, 512, None), slice(512, 1024, None), slice(1024, 1536, None),
+     slice(1536, 2000, None)]
+
+    # Example 2: Case where the last slice has zero elements and is removed
+    >>> slice_indexes = [slice(0, 512), slice(512, 1024), slice(1024, 1536),
+                         slice(1536, 1500)]
+    >>> safe_slicing(slice_indexes, X)
+    [slice(0, 512, None), slice(512, 1024, None), slice(1024, 1536, None)]
+
+    # Example 3: Empty slice case where all slices are removed
+    >>> slice_indexes = [slice(0, 0), slice(1, 0)]
+    >>> safe_slicing(slice_indexes, X)
+    []
+
+    Notes
+    -----
+    - This function is useful when handling slices generated for batch 
+      processing in machine learning workflows, ensuring that only valid 
+      batches are processed.
+    - The function checks the start and stop indices of each slice and 
+      ensures that `end > start` before including the slice in the 
+      returned list.
+    """
+    
+    valid_slices = []
+    for slice_obj in slice_indexes:
+        # Extract the slice range
+        start, end = slice_obj.start, slice_obj.stop
+        
+        # Check if the slice has at least one sample
+        if end > start:
+            # Add to the valid_slices list only if there are samples
+            valid_slices.append(slice_obj)
+    
+    return valid_slices
+
+def gen_batches(n, batch_size, *, min_batch_size=0):
+    """Generator to create slices containing `batch_size` 
+    elements from 0 to `n`.
+
+    The last slice may contain less than `batch_size` elements, when
+    `batch_size` does not divide `n`.
+    
+    This is take on scikit-learn :func:`sklearn.utils.gen_batches` but modify 
+    to ensure that min_batch_size in not included. 
+
+    Parameters
+    ----------
+    n : int
+        Size of the sequence.
+    batch_size : int
+        Number of elements in each batch.
+    min_batch_size : int, default=0
+        Minimum number of elements in each batch.
+
+    Yields
+    ------
+    slice of `batch_size` elements
+
+    See Also
+    --------
+    gen_even_slices: Generator to create n_packs slices going up to n.
+    sklearn.utils.gen_slices: A generic batch slices
+
+    Examples
+    --------
+    >>> list(gen_batches(7, 3))
+    [slice(0, 3, None), slice(3, 6, None), slice(6, 7, None)]
+    >>> list(gen_batches(6, 3))
+    [slice(0, 3, None), slice(3, 6, None)]
+    >>> list(gen_batches(2, 3))
+    [slice(0, 2, None)]
+    >>> list(gen_batches(7, 3, min_batch_size=0))
+    [slice(0, 3, None), slice(3, 6, None), slice(6, 7, None)]
+    >>> list(gen_batches(7, 3, min_batch_size=2))
+    [slice(0, 3, None), slice(3, 7, None)]
+    """
+    if not isinstance(batch_size, numbers.Integral):
+        raise TypeError(
+            f"gen_batches got batch_size={batch_size}, must be an integer"
+        )
+    if batch_size <= 0:
+        raise ValueError(f"gen_batches got batch_size={batch_size}, must be positive")
+    
+    start = 0
+    for _ in range(int(n // batch_size)):
+        end = start + batch_size
+        # Skip batches where the remaining size would
+        # be smaller than min_batch_size
+        if end + min_batch_size > n:
+            break
+        yield slice(start, end)
+        start = end
+
+    # Handle the last batch
+    if start < n and (n - start) >= min_batch_size:
+        yield slice(start, n)
+
 @contextmanager
 def training_progress_bar(
     epochs, 
@@ -392,7 +881,8 @@ def training_progress_bar(
     --------
     >>> from gofast.tools.sysutils import training_progress_bar
     >>> metrics = {'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
-    >>> with training_progress_bar(epochs=5, steps_per_epoch=20, metrics=metrics, obj_name="Model") as progress:
+    >>> with training_progress_bar(epochs=5, steps_per_epoch=20, 
+                                   metrics=metrics, obj_name="Model") as progress:
     ...     pass  # This context will display progress updates as configured.
 
     See Also
