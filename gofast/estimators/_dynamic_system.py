@@ -793,6 +793,9 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=LearnerMeta):
             X_batch = X_train_shuffled[start:end]
             y_batch = y_train_shuffled[start:end]
             
+            if len(X_batch)==0: # No samples detected 
+                break 
+        
             if self.verbose > 0:
                 # Print batch details if verbosity level is high
                 msg =f"Batch {batch_idx + 1}/{n_batches}:"
