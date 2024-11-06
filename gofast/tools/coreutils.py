@@ -554,6 +554,7 @@ def gen_X_y_batches(
         
     return (Xy_batches, batch_slices) if return_batches else Xy_batches
 
+
 def ensure_non_empty_batch(
     X, y, *, batch_slice, max_attempts=10, random_state=None,
     error ="raise", 

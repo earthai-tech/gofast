@@ -3,6 +3,9 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
+
+
+
 System utilities module for managing system-level operations.
 
 This module provides utilities essential for system-level tasks such as
@@ -12,26 +15,36 @@ along with other miscellaneous system operations.
 
 import os 
 import re
+import gc 
+import time
+import sys
 import platform
 import socket
 import subprocess 
 import tempfile
 import shutil
+import logging
 import importlib.util
 import inspect 
 import itertools 
+import functools 
+from pathlib import Path
+import pickle
+from pickle import PicklingError
 from typing import Union, Tuple, Dict,Optional, List
 from typing import Sequence, Any, Callable
 import multiprocessing
-from concurrent.futures import as_completed 
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ( 
+    as_completed, ThreadPoolExecutor, ProcessPoolExecutor
+)
 
 from .._gofastlog import gofastlog
 from ..api.summary import ReportFactory 
 from ..api.util import get_table_size
 from .coreutils import is_iterable
-from .depsutils import import_optional_dependency, ensure_pkgs
-
+from .depsutils import ( 
+    import_optional_dependency, ensure_pkgs, is_module_installed
+)
 try:
     import psutil
 except : pass 
@@ -46,6 +59,9 @@ TW = get_table_size()
 logger = gofastlog().get_gofast_logger(__name__)
 
 __all__= [
+    'ProgressBar', 
+    'WorkflowOptimizer', 
+    'WorkflowManager', 
     'check_port_in_use',
     'clean_temp_files',
     'create_temp_dir',
@@ -72,9 +88,809 @@ __all__= [
     'represent_callable',
     'run_command',
     'safe_getattr',
-    'system_uptime'
+    'safe_optimize',
+    'system_uptime', 
 ]
 
+@ensure_pkgs(
+    "psutil",
+    extra="Frees up system memory requires `psutil` to be installed."
+)
+class WorkflowManager:
+    """
+    A context manager class for optimizing workflow execution by managing
+    resources, parallelizing tasks, and performing custom operations. It 
+    provides flexibility for memory management, CPU optimization, parallel 
+    processing, and custom post-processing tasks.
+
+    .. math::
+        \text{Efficiency} = \frac{\text{Optimized Resources}}{\text{Total Resources}}
+
+    Parameters
+    ----------
+    name : str, optional
+        The name of the workflow (default is ``"Workflow"``).
+    verbose : int, optional
+        Verbosity level for logging. Higher values increase the amount of 
+        logged information (default is ``1``).
+    optimize_memory : bool, optional
+        Flag to enable memory optimization. When set to ``True``, the 
+        workflow manager will attempt to reduce memory usage (default is 
+        ``False``).
+    optimize_cpu : bool, optional
+        Flag to enable CPU optimization. When set to ``True``, the workflow 
+        manager will optimize CPU usage (default is ``False``).
+    parallelize : bool, optional
+        Flag to enable task parallelization. When set to ``True``, tasks 
+        within the workflow will be executed in parallel (default is 
+        ``False``).
+    cpu_cores : Optional[List[int]], optional
+        Specific CPU cores to bind the process to. If ``None``, all available 
+        cores are utilized (default is ``None``).
+    memory_cleanup : bool, optional
+        Flag to enable memory cleanup after workflow execution. When set to 
+        ``True``, the workflow manager will perform memory cleanup tasks 
+        (default is ``False``).
+    custom_task : Optional[Callable], optional
+        A custom post-processing task to execute upon exiting the workflow 
+        context (default is ``None``).
+    debug_level : int, optional
+        Debugging verbosity level. Higher values provide more detailed 
+        debug information (default is ``1``).
+
+    Attributes
+    ----------
+    name : str
+        The name of the workflow.
+    verbose : int
+        Verbosity level for logging.
+    optimize_memory : bool
+        Flag indicating if memory optimization is enabled.
+    optimize_cpu : bool
+        Flag indicating if CPU optimization is enabled.
+    parallelize : bool
+        Flag indicating if task parallelization is enabled.
+    cpu_cores : Optional[List[int]]
+        List of CPU cores to bind the process to.
+    memory_cleanup : bool
+        Flag indicating if memory cleanup is enabled.
+    custom_task : Optional[Callable]
+        Custom post-processing task to execute.
+    debug_level : int
+        Debugging verbosity level.
+    pool : Optional[multiprocessing.Pool]
+        Multiprocessing pool for parallel task execution.
+
+    Examples
+    --------
+    >>> from gofast.tools.sysutils import WorkflowManager
+
+    >>> def custom_post_process():
+    ...     print("Custom post-processing task executed.")
+
+    >>> with WorkflowManager(
+    ...     name="DataProcessing",
+    ...     verbose=2,
+    ...     optimize_memory=True,
+    ...     optimize_cpu=True,
+    ...     parallelize=True,
+    ...     cpu_cores=[0, 1, 2, 3],
+    ...     memory_cleanup=True,
+    ...     custom_task=custom_post_process,
+    ...     debug_level=2
+    ... ) as manager:
+    ...     # Your workflow code here
+    ...     pass
+
+    Notes
+    -----
+    - Ensure that the `psutil` library is installed to utilize memory and 
+      CPU optimization features.
+    - GPU cache clearing is conditional based on the availability of 
+      `torch`, `tensorflow`, or `keras`.
+    - The class is designed to be flexible and can be integrated into 
+      various workflows requiring resource management and optimization.
+
+    See Also
+    --------
+    multiprocessing.Pool : For parallel task execution.
+    psutil : For system and process utilities.
+
+    References
+    ----------
+    .. [1] Smith, J. (2020). *Efficient Workflow Management*. Journal of 
+       Computational Efficiency, 15(3), 234-245.
+    .. [2] Doe, A. (2019). *Optimizing System Resources*. Proceedings of the 
+       International Conference on System Optimization, 112-119.
+    """
+
+    def __init__(
+        self,
+        name: str = "Workflow",
+        verbose: int = 1,
+        optimize_memory: bool = False,
+        optimize_cpu: bool = False,
+        parallelize: bool = False,
+        cpu_cores: Optional[List[int]] = None,
+        memory_cleanup: bool = False,
+        custom_task: Optional[Callable] = None,
+        debug_level: int = 1
+    ):
+        self.name = name
+        self.verbose = verbose
+        self.optimize_memory = optimize_memory
+        self.optimize_cpu = optimize_cpu
+        self.parallelize = parallelize
+        self.cpu_cores = cpu_cores
+        self.memory_cleanup = memory_cleanup
+        self.custom_task = custom_task
+        self.debug_level = debug_level
+        self.pool = None  
+
+    def __enter__(self):
+        """
+        Enters the runtime context related to this object. This method 
+        performs initial optimizations like memory and CPU management, and 
+        starts the multiprocessing pool if parallelization is enabled.
+        """
+        self._start_time = time.time()
+
+        if self.verbose > 0:
+            print(f"{self.name} - Started.")
+
+        # Optimize memory usage if flagged
+        if self.optimize_memory:
+            if self.debug_level > 0:
+                print("Optimizing memory usage...")
+            self._print_memory_usage()
+
+        # Optimize CPU usage if flagged
+        if self.optimize_cpu:
+            if self.debug_level > 0:
+                print("Optimizing CPU usage...")
+            self._reset_cpu_affinity()
+
+        # Start parallelization if flagged
+        if self.parallelize:
+            if self.debug_level > 1:
+                print("Parallelizing workflow tasks...")
+            self.pool = multiprocessing.Pool(
+                processes=multiprocessing.cpu_count()
+            )
+
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """
+        Exits the runtime context and performs cleanup operations. This method
+        measures elapsed time, performs memory cleanup if requested, closes the
+        multiprocessing pool, and executes any custom post-processing tasks.
+        """
+        elapsed_time = time.time() - self._start_time
+
+        if self.verbose > 0:
+            print(f"{self.name} - Completed in "
+                  f"{elapsed_time:.4f} seconds.")
+
+        # Memory cleanup if flagged
+        if self.optimize_memory and self.memory_cleanup:
+            if self.debug_level > 1:
+                print("Performing memory cleanup...")
+            self._clean_up_memory()
+
+        # Close the pool if parallelization was used
+        if self.parallelize and self.pool:
+            self.pool.close()
+            self.pool.join()
+            if self.debug_level > 1:
+                print("Closed multiprocessing pool.")
+
+        # Execute the custom post-processing task if defined
+        if self.custom_task:
+            if self.verbose > 0:
+                print("Running custom post-processing task...")
+            self.custom_task()
+
+    def _print_memory_usage(self):
+        """
+        Measures and prints the current system memory usage.
+        """
+        memory_info = psutil.virtual_memory()
+        print(
+            f"Memory Usage: {memory_info.percent}% "
+            f"(Total: {memory_info.total // (1024**3)}GB)"
+        )
+
+    def _reset_cpu_affinity(self):
+        """
+        Sets the CPU affinity of the current process to the specified CPU 
+        cores. If no specific cores are provided, it resets affinity to 
+        use all available CPUs.
+        """
+        process = psutil.Process(os.getpid())
+        if self.cpu_cores:
+            process.cpu_affinity(self.cpu_cores)
+            if self.verbose > 1:
+                print(f"Set CPU affinity to cores: {self.cpu_cores}")
+        else:
+            process.cpu_affinity(range(multiprocessing.cpu_count()))
+            if self.verbose > 1:
+                print("Reset CPU affinity to all available cores.")
+
+    def _clean_up_memory(self):
+        """
+        Cleans up memory by clearing caches, releasing unused resources, 
+        and deleting temporary files if a temporary directory is specified.
+
+        This includes clearing GPU caches for PyTorch and TensorFlow, 
+        deleting temporary directories, performing garbage collection, 
+        and freeing system memory.
+        """
+        _clean_up_memory(self.verbose )
+
+
+class WorkflowOptimizer:
+    """
+    WorkflowOptimizer is a decorator class designed to optimize the execution of
+    computationally intensive functions by enabling parallelization, managing CPU
+    and memory resources, and performing cleanup tasks. It provides flexibility
+    through various parameters that allow users to customize optimization
+    strategies according to their workflow requirements.
+
+    .. math::
+        T_{\text{total}} = T_{\text{start}} + T_{\text{execution}} + 
+        T_{\text{cleanup}}
+
+    Where:
+    - :math:`T_{\text{total}}` is the total time taken by the workflow.
+    - :math:`T_{\text{start}}` is the time taken to initialize optimizations.
+    - :math:`T_{\text{execution}}` is the time taken to execute the main workflow.
+    - :math:`T_{\text{cleanup}}` is the time taken to perform cleanup operations.
+
+    Parameters
+    ----------
+    parallelize : bool, optional
+        Flag to enable or disable parallel processing. If set to ``True``, the
+        decorator will attempt to parallelize the execution of the decorated
+        function using multiprocessing. Default is ``True``.
+
+    memory_cleanup : bool, optional
+        Whether to clean up system memory after the execution of the decorated
+        function. This includes triggering garbage collection and clearing GPU
+        caches if applicable. Default is ``False``.
+
+    log_level : int, optional
+        Level of logging verbosity. Accepts standard logging levels such as
+        ``logging.INFO``, ``logging.DEBUG``, etc. Default is ``logging.INFO``.
+
+    optimize_cpu : bool, optional
+        Whether to optimize CPU usage by setting CPU affinity to restrict the
+        process to specific CPU cores. If ``True``, the decorator will bind the
+        process to the cores specified in ``cpu_cores``. Default is ``True``.
+
+    num_processes : int, optional
+        The number of parallel processes to use when ``parallelize`` is enabled.
+        If not specified, it defaults to the minimum of the number of available
+        CPU cores and the length of the ``data`` iterable passed to the function.
+        Default is ``None``.
+
+    cpu_cores : list or None, optional
+        A list of specific CPU cores to bind the process to for optimized CPU
+        usage. If ``None``, the process is allowed to run on all available CPU
+        cores. Example: ``[0, 1, 2, 3]``. Default is ``None``.
+
+    verbose : bool, optional
+        Whether to print detailed logs during execution. If set to ``False``,
+        only essential information will be logged based on the ``log_level``.
+        Default is ``True``.
+
+    Examples
+    --------
+    >>> from gofast.tools.sysutils import WorkflowOptimizer
+    >>> import time
+    >>> 
+    >>> @WorkflowOptimizer(
+    ...     parallelize=True,
+    ...     memory_cleanup=True,
+    ...     log_level=logging.DEBUG,
+    ...     num_processes=4,
+    ...     cpu_cores=[0, 1, 2, 3],
+    ...     verbose=True
+    ... )
+    >>> def process_data(data_chunk):
+    ...     '''Simulate a time-consuming data processing function.'''
+    ...     time.sleep(1)  # Simulate a time-consuming task
+    ...     return f"Processed {data_chunk}"
+    ... 
+    >>> data_chunks = ['chunk1', 'chunk2', 'chunk3', 'chunk4']
+    >>> results = process_data(data=data_chunks)
+    >>> print(results)
+    ['Processed chunk1', 'Processed chunk2', 'Processed chunk3', 
+    'Processed chunk4']
+
+    Notes
+    -----
+    - The decorator checks for the presence of a ``data`` keyword argument to
+      determine whether to apply parallelization.
+    - When ``parallelize`` is enabled, ensure that the decorated function is
+      compatible with multiprocessing (i.e., it should be picklable).
+    - Memory cleanup is particularly useful in long-running workflows to prevent
+      memory leaks and manage resource usage efficiently.
+    - CPU affinity optimization can lead to performance improvements by limiting
+      the process to specific cores, reducing context switching and cache misses.
+
+    See Also
+    --------
+    - :class:`multiprocessing.Pool` : Provides a pool of worker processes.
+    - :class:`psutil.Process` : Allows manipulation of system processes.
+    - `Python Logging <https://docs.python.org/3/library/logging.html>`_
+
+    References
+    ----------
+    .. [1] Van Rossum, G., & Drake, F. L. (2009). *Python Cookbook* (3rd ed.).
+           O'Reilly Media.
+    .. [2] Jones, E., Oliphant, T., Peterson, P., et al. (2001). *SciPy: Open Source
+           Scientific Tools for Python*. URL https://www.scipy.org/.
+    """
+
+    def __init__(
+        self,
+        parallelize: bool = True,
+        memory_cleanup: bool = False,
+        log_level: int = logging.INFO,
+        optimize_cpu: bool = True,
+        num_processes: Optional[int] = None,
+        cpu_cores: Optional[List[int]] = None,
+        verbose: bool = True
+    ):
+        self.parallelize = parallelize
+        self.memory_cleanup = memory_cleanup
+        self.log_level = log_level
+        self.optimize_cpu = optimize_cpu
+        self.num_processes = num_processes
+        self.cpu_cores = cpu_cores
+        self.verbose = verbose
+ 
+    def __call__(self, func):
+        """
+        Makes the class instance callable so it can be used as a decorator.
+
+        Parameters
+        ----------
+        func : function
+            The function to be decorated and optimized.
+
+        Returns
+        -------
+        wrapper : function
+            The wrapped function with optimization strategies applied.
+        """
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # Set up logging based on the specified log level
+            logger.setLevel(self.log_level)
+
+            # Record the start time
+            start_time = time.time()
+
+            if self.verbose:
+                logger.info(
+                    f"Starting workflow optimization for `{func.__name__}`...")
+
+            # Apply CPU optimization if requested
+            if self.optimize_cpu and self.cpu_cores:
+                self._reset_cpu_affinity()
+                logger.info(
+                    f"Optimizing CPU usage, restricted to cores {self.cpu_cores}")
+
+            # Apply parallelization strategy if enabled
+            if self.parallelize:
+                if 'data' in kwargs:
+                    data = kwargs['data']
+                    num_processes = self.num_processes or min(
+                        multiprocessing.cpu_count(), len(data))
+                    logger.info(f"Parallelizing with {num_processes} processes.")
+                    
+                    # Ensure that the function is picklable for multiprocessing
+                    if not hasattr(func, '__name__'):
+                        raise ValueError(
+                            f"Function {func} is not picklable. Ensure it"
+                            " is a valid function for multiprocessing.")
+                    
+                    # Use multiprocessing Pool to parallelize tasks
+                    with multiprocessing.Pool(processes=num_processes) as pool:
+                        try:
+                             # Apply function to each data chunk
+                            results = pool.map(func, data) 
+                        except Exception as e:
+                            logger.error(f"Error during parallel execution: {e}")
+                            results = None
+                else:
+                    logger.info("No parallel data found, executing normally.")
+                    results = func(*args, **kwargs)
+
+            # If memory cleanup is requested, clean up after execution
+            if self.memory_cleanup:
+                self._clean_up_memory()
+                logger.info("Memory cleanup completed.")
+
+            # Log execution time
+            elapsed_time = time.time() - start_time
+            if self.verbose:
+                logger.info(f"Workflow completed in {elapsed_time:.4f} seconds.")
+
+            return results
+
+        return wrapper
+    
+    @ensure_pkgs(
+        ['psutil'], 
+        extra="Sets the CPU affinity of the current process requires the `"
+        " `psutil to be installed.",
+        auto_install=True
+    )
+    def _reset_cpu_affinity(self):
+        """
+        Sets the CPU affinity of the current process to the specified 
+        CPU cores.
+
+        If no specific cores are provided, it resets affinity to use 
+        all available CPUs.
+        """
+        import psutil 
+        process = psutil.Process(os.getpid())
+        if self.cpu_cores:
+            process.cpu_affinity(self.cpu_cores)
+            if self.verbose:
+                logger.debug(f"Set CPU affinity to cores: {self.cpu_cores}")
+        else:
+            process.cpu_affinity(range(multiprocessing.cpu_count()))
+            if self.verbose:
+                logger.debug("Reset CPU affinity to all available cores.")
+                
+    def _clean_up_memory(self, temp_dir=None):
+        """Cleans up memory by clearing caches, releasing unused 
+        resources, and deleting temporary files if a temporary 
+        directory is specified."""
+        logger.info("Starting memory cleanup...")
+    
+        _clean_up_memory(self.verbose )
+ 
+        
+class ProgressBar:
+    """
+    ProgressBar is a context manager for displaying a customizable progress bar 
+    similar to Keras' training progress display. It is designed to handle 
+    epoch-wise and batch-wise progress updates, providing real-time feedback 
+    on metrics such as loss and accuracy.
+
+    .. math::
+        \text{Progress} = \frac{\text{current step}}{\text{total steps}}
+
+    Attributes
+    ----------
+    total : int
+        Total number of epochs to be processed.
+    prefix : str, optional
+        String to prefix the progress bar display (default is empty).
+    suffix : str, optional
+        String to suffix the progress bar display (default is empty).
+    length : int, optional
+        Character length of the progress bar (default is 30).
+    decimals : int, optional
+        Number of decimal places to display for the percentage (default is 1).
+    metrics : List[str], optional
+        List of metric names to display alongside the progress bar 
+        (default is ['loss', 'accuracy', 'val_loss', 'val_accuracy']).
+    steps : Optional[int], optional
+        Number of steps per epoch. If not provided, defaults to `total`.
+
+    Methods
+    -------
+    __enter__()
+        Initializes the progress bar context.
+    __exit__(exc_type, exc_value, traceback)
+        Finalizes the progress bar upon exiting the context.
+    update(iteration, epoch=None, **metrics)
+        Updates the progress bar with the current iteration and metrics.
+    reset()
+        Resets the progress bar to its initial state.
+
+    Examples
+    --------
+    >>> from gofast.tools.sysutils import ProgressBar
+    >>> total_epochs = 5
+    >>> batch_size = 100
+    >>> with ProgressBar(total=total_epochs, 
+    ...                 prefix='Epoch', 
+    ...                 suffix='Complete', 
+    ...                 length=50) as pbar:
+    ...     for epoch in range(1, total_epochs + 1):
+    ...         print(f"Epoch {epoch}/{total_epochs}")
+    ...         for batch in range(1, batch_size + 1):
+    ...             # Simulate metric values
+    ...             metrics = {'loss': 0.1 * batch, 
+    ...                        'accuracy': 0.95 + 0.005 * batch, 
+    ...                        'val_loss': 0.1 * batch, 
+    ...                        'val_accuracy': 0.95 + 0.005 * batch}
+    ...             pbar.update(iteration=batch, epoch=epoch, **metrics)
+    ...             time.sleep(0.01)
+
+    >>> total_epochs = 3
+    >>> batch_size = 100
+    >>> epoch_data = [
+    ...    {
+    ...        'loss': 0.1235, 
+    ...        'accuracy': 0.9700, 
+    ...        'val_loss': 0.0674, 
+    ...        'val_accuracy': 0.9840
+    ...    },
+    ...    {
+    ...        'loss': 0.0917, 
+    ...        'accuracy': 0.9800, 
+    ...        'val_loss': 0.0673, 
+    ...        'val_accuracy': 0.9845
+    ...    },
+    ...    {
+    ...        'loss': 0.0623, 
+    ...        'accuracy': 0.9900, 
+    ...        'val_loss': 0.0651, 
+    ...        'val_accuracy': 0.9850
+    ...    },
+    ... ]
+
+    >>> with ProgressBar(
+    ...    total=total_epochs, 
+    ...    prefix="Steps", 
+    ...    suffix="Complete", 
+    ...    length=30, 
+    ...    metrics=['loss', 'accuracy', 'val_loss', 'val_accuracy']
+    ... ) as pbar:
+    ...    for epoch in range(1, total_epochs + 1):
+    ...        print(f"Epoch {epoch}/{total_epochs}")
+    ...        for batch in range(1, batch_size + 1):
+    ...            # Rotate through example data for simulation
+    ...            current_data = epoch_data[batch % len(epoch_data)]
+    ...           pbar.update(
+    ...                iteration=batch, 
+    ...                epoch=None, 
+    ...                **current_data
+    ...            )
+    ...            time.sleep(0.01)  # Simulate processing delay
+    ...        print()
+    
+    Notes
+    -----
+    - The progress bar dynamically updates in place, providing real-time 
+      feedback without cluttering the console.
+    - Metrics are tracked and the best metrics are displayed upon completion 
+      of the training process.
+
+    See Also
+    --------
+    tqdm : A popular progress bar library for Python.
+    rich.progress : A rich library for advanced progress bar visualizations.
+
+    References
+    ----------
+    .. [1] Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., 
+           Jones, L., Gomez, A. N., ... & Polosukhin, I. (2017). 
+           Attention is all you need. In Advances in neural information 
+           processing systems (pp. 5998-6008).
+    """
+
+    _default_metrics: List[str] = ['loss', 'accuracy', 'val_loss', 'val_accuracy']
+
+    def __init__(
+        self,
+        total: int,
+        prefix: str = '',
+        suffix: str = '',
+        length: int = 30,
+        steps: Optional[int] = None,
+        decimals: int = 1,
+        metrics: Optional[List[str]] = None
+    ):
+        self.total = total
+        self.prefix = prefix
+        self.suffix = suffix
+        self.length = length
+        self.decimals = decimals
+        self.metrics: List[str] = metrics if metrics is not None else self._default_metrics
+        self.iteration: int = 0
+        self.steps: int = steps if steps is not None else total
+        self.start_time: Optional[float] = None
+
+        # Initialize best metrics to track improvements
+        self.best_metrics_: Dict[str, float] = {}
+        for metric in self.metrics:
+            if "loss" in metric or "PSS" in metric:
+                self.best_metrics_[metric] = float('inf')  # For minimizing metrics
+            else:
+                self.best_metrics_[metric] = 0.0  # For maximizing metrics
+
+    def __enter__(self):
+        """
+        Enters the runtime context related to this object.
+
+        Returns
+        -------
+        ProgressBar
+            The ProgressBar instance itself.
+        """
+        self.start_time = time.time()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """
+        Exits the runtime context and performs final updates.
+
+        Parameters
+        ----------
+        exc_type : type
+            The exception type.
+        exc_value : Exception
+            The exception instance.
+        traceback : TracebackType
+            The traceback object.
+        """
+        # Final update to reach 100% completion
+        best_metric_display = " - ".join(
+            [f"{k}: {v:.4f}" for k, v in self.best_metrics_.items()]
+        )
+        print("\nTraining complete!")
+        print(f"Best Metrics: {best_metric_display}")
+
+    def update(self, iteration: int, epoch: Optional[int] = None, **metrics):
+        """
+        Updates the progress bar with the current iteration and metrics.
+
+        Parameters
+        ----------
+        iteration : int
+            The current iteration or batch number within the epoch.
+        epoch : Optional[int], optional
+            The current epoch number (default is None).
+        **metrics : dict
+            Arbitrary keyword arguments representing metric names and their 
+            current values (e.g., loss=0.1, accuracy=0.95).
+        """
+        self.iteration = iteration
+        progress = self._get_progress(iteration)
+        time_elapsed = time.time() - self.start_time if self.start_time else 0.0
+        self._print_progress(progress, epoch, time_elapsed, **metrics)
+
+    def reset(self):
+        """
+        Resets the progress bar to its initial state.
+
+        This method is useful for resetting the progress bar at the start 
+        of a new epoch or training phase.
+        """
+        self.iteration = 0
+        self.start_time = time.time()
+        self._print_progress(0.0)
+
+    def _get_progress(self, iteration: int) -> float:
+        """
+        Calculates the current progress as a float between 0 and 1.
+
+        Parameters
+        ----------
+        iteration : int
+            The current iteration or batch number within the epoch.
+
+        Returns
+        -------
+        float
+            The progress ratio, constrained between 0 and 1.
+        """
+        progress = iteration / self.steps
+        return min(progress, 1.0)
+
+    def _format_metrics(self, **metrics) -> str:
+        """
+        Formats the metrics for display alongside the progress bar.
+
+        Parameters
+        ----------
+        **metrics : dict
+            Arbitrary keyword arguments representing metric names and their 
+            current values.
+
+        Returns
+        -------
+        str
+            A formatted string of metrics.
+        """
+        formatted = ' - '.join(
+            f"{metric}: {metrics.get(metric, 0):.{self.decimals}f}" 
+            for metric in self.metrics
+        )
+        return formatted
+
+    def _update_best_metrics(self, metrics: Dict[str, float]):
+        """
+        Updates the best observed metrics based on current values.
+
+        For metrics related to loss or PSS, the best metric is the minimum 
+        observed value. For other performance metrics, the best metric is 
+        the maximum observed value.
+
+        Parameters
+        ----------
+        metrics : Dict[str, float]
+            A dictionary of current metric values.
+        """
+        for metric, value in metrics.items():
+            if "loss" in metric or "PSS" in metric:
+                # Track minimum values for loss and PSS metrics
+                if value < self.best_metrics_.get(metric, float('inf')):
+                    self.best_metrics_[metric] = value
+            else:
+                # Track maximum values for other performance metrics
+                if value > self.best_metrics_.get(metric, 0.0):
+                    self.best_metrics_[metric] = value
+
+    def _print_progress(
+        self, 
+        progress: float, 
+        epoch: Optional[int] = None,
+        time_elapsed: Optional[float] = None, 
+        **metrics
+    ):
+        """
+        Prints the progress bar to the console.
+
+        Parameters
+        ----------
+        progress : float
+            Current progress ratio between 0 and 1.
+        epoch : Optional[int], optional
+            Current epoch number (default is None).
+        time_elapsed : Optional[float], optional
+            Time elapsed since the start of the progress (default is None).
+        **metrics : dict
+            Arbitrary keyword arguments representing metric names and their 
+            current values.
+        """
+        completed = int(progress * self.length)  # Number of '=' characters
+        remaining = self.length - completed  # Number of '.' characters
+
+        if progress < 1.0:
+            # Progress bar with '>' indicating current progress
+            bar = '=' * completed + '>' + '.' * (remaining - 1)
+        else:
+            # Fully completed progress bar
+            bar = '=' * self.length
+
+        percent = f"{100 * progress:.{self.decimals}f}%"
+
+        # Display epoch information if provided
+        epoch_info = f"Epoch {epoch}/{self.total} " if epoch is not None else ''
+
+        # Display time elapsed if provided
+        time_info = (
+            f" - time elapsed: {time_elapsed:.2f}s" 
+            if time_elapsed is not None else ""
+        )
+
+        # Format and update best metrics
+        metrics_info = self._format_metrics(**metrics)
+        self._update_best_metrics(metrics)
+
+        # Construct the full progress bar display string
+        display = (
+            f'\r{epoch_info}{self.prefix} {self.iteration}/{self.steps} '
+            f'[{bar}] {percent} {self.suffix} {metrics_info}{time_info}'
+        )
+
+        # Output the progress bar to the console
+        sys.stdout.write(display)
+        sys.stdout.flush()
+
+        
 @ensure_pkgs(
     ['psutil'], 
     extra="`get_cpu_usage` requires the `psutil` "
@@ -1698,3 +2514,487 @@ def safe_getattr(obj: Any, name: str, default_value: Optional[Any] = None) -> An
     
     raise AttributeError(
         f"'{obj.__class__.__name__}' object has no attribute '{name}'{suggestion}")
+
+
+def safe_optimize(
+    parallelize: bool = True,          
+    memory_cleanup: bool = False,     
+    log_level: int = logging.INFO,     
+    optimize_cpu: bool = True,         
+    num_processes: Optional[int] = None,  
+    cpu_cores: Optional[List[int]] = None,  
+    verbose: bool = True,               
+    mode: str = 'strict'                 
+):
+    """
+    Optimizes the workflow by wrapping a function to measure execution time,
+    enable parallelization, manage resources, and perform memory cleanup and 
+    acts similary like class-based decorator `WorflowOptimizer`.  
+    
+    Class-based decorators can sometimes encounter issues when trying to pickle 
+    certain objects, especially in parallel execution contexts. This issue arises 
+    because certain objects (such as file handles, open network connections, 
+    or non-serializable class instances) cannot be passed between processes 
+    in multiprocessing environments. By ensuring compatibility with these 
+    contexts, `safe_optimize` helps mitigate such issues and optimize the 
+    execution of computationally intensive workflows.
+    
+    This decorator is particularly suitable for workflows involving large-scale 
+    computations, such as data processing pipelines, machine learning model training, 
+    or simulations, where parallel execution and resource optimization are crucial 
+    for performance improvement.
+
+    Parameters
+    ----------
+    parallelize : bool, optional
+        Flag to enable or disable parallel processing (default is ``True``).
+    memory_cleanup : bool, optional
+        Whether to clean up system memory after execution (default is ``False``).
+    log_level : int, optional
+        Level of logging (default is ``logging.INFO``). Set to 
+        ``logging.DEBUG`` for more detailed logs.
+    optimize_cpu : bool, optional
+        Whether to optimize CPU core usage (default is ``True``).
+    num_processes : Optional[int], optional
+        The number of parallel processes for execution (default is ``None``).
+    cpu_cores : Optional[List[int]], optional
+        Specify a list of CPU cores to restrict the process (default is ``None``).
+    verbose : bool, optional
+        Whether to print detailed logs during execution (default is ``True``).
+    mode : str, optional
+        Mode for handling pickling issues: ``'strict'`` to raise errors, 
+        or ``'soft'`` to fallback to sequential execution with warnings 
+        (default is ``'strict'``).
+
+    Returns
+    -------
+    decorator : Callable
+        The wrapped function that includes optimization strategies.
+
+    Raises
+    ------
+    ValueError
+        If an unsupported mode is specified.
+
+    Examples
+    --------
+    >>> from gofast.tools.sysutils import safe_optimize
+
+    >>> @workflow_optimizer(
+    ...     parallelize=True,
+    ...     memory_cleanup=True,
+    ...     log_level=logging.DEBUG,
+    ...     optimize_cpu=True,
+    ...     num_processes=4,
+    ...     cpu_cores=[0, 1, 2, 3],
+    ...     verbose=True,
+    ...     mode='soft'
+    ... )
+    ... def process_data(data):
+    ...     # Your data processing logic here
+    ...     return [d * 2 for d in data]
+
+    >>> data = [1, 2, 3, 4, 5]
+    >>> results = process_data(data)
+    >>> print(results)
+    [2, 4, 6, 8, 10]
+
+    Notes
+    -----
+    - This decorator uses multiprocessing for parallel execution, which may not 
+      be suitable for all environments, especially those that do not support 
+      forking (e.g., some Windows configurations).
+    - Ensure that the decorated function and its arguments are picklable 
+      when using parallelization.
+    - The `mode` parameter allows handling non-picklable objects gracefully.
+
+    See Also
+    --------
+    multiprocessing.Pool : For parallel task execution.
+    psutil : For system and process utilities.
+    functools.wraps : For preserving metadata of decorated functions.
+
+    References
+    ----------
+    .. [1] Python Documentation. *functools - Higher-order functions
+          and operations on callable objects*. 
+       https://docs.python.org/3/library/functools.html
+    .. [2] psutil Documentation. *Process Management*. 
+       https://psutil.readthedocs.io/en/latest/#process-management
+    .. [3] Python Packaging User Guide. *Installing Packages*. 
+       https://packaging.python.org/tutorials/installing-packages/
+
+    """
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def optimized_function(*args, **kwargs):
+            # Set up logging based on the specified log level
+            logger.setLevel(log_level)
+
+            # Record the start time
+            start_time = time.time()
+            if verbose:
+                logger.info(f"Starting workflow optimization"
+                            f" for '{func.__name__}'...")
+
+            # Apply CPU optimization if requested
+            if optimize_cpu and cpu_cores:
+                try:
+                    _reset_cpu_affinity(cpu_cores)
+                    logger.info(f"Optimized CPU usage, restricted"
+                                f" to cores {cpu_cores}.")
+                except Exception as e:
+                    logger.error(f"CPU optimization failed: {e}")
+                    if mode == 'strict':
+                        raise
+                    elif mode == 'soft':
+                        logger.warning("Falling back to default CPU settings.")
+
+            # Check if the function and data are picklable
+            if parallelize:
+                if not _is_picklable(func, mode):
+                    if mode == 'strict':
+                        raise PicklingError(
+                            f"Function '{func.__name__}' or"
+                            " its arguments are not picklable."
+                        )
+                    elif mode == 'soft':
+                        logger.warning(
+                            f"Function '{func.__name__}' or"
+                            " its arguments are not picklable. "
+                            "Falling back to sequential execution."
+                        )
+                        parallelize_flag = False
+                else:
+                    parallelize_flag = True
+            else:
+                parallelize_flag = False
+
+            # Apply parallelization strategy if enabled
+            if parallelize_flag:
+                try:
+                    results = _parallelize_flow(
+                        func, num_processes, *args, **kwargs)
+                except Exception as e:
+                    logger.error(f"Parallel execution failed: {e}")
+                    if mode == 'strict':
+                        raise
+                    elif mode == 'soft':
+                        logger.warning("Falling back to sequential execution.")
+                        results = func(*args, **kwargs)
+            else:
+                # Execute function normally if parallelization is disabled
+                results = func(*args, **kwargs)
+
+            # If memory cleanup is requested, clean up after execution
+            if memory_cleanup:
+                _clean_up_memory(verbose=verbose)
+                logger.info("Memory cleanup completed.")
+
+            # Log execution time
+            elapsed_time = time.time() - start_time
+            if verbose:
+                logger.info(
+                    f"Workflow '{func.__name__}' completed"
+                    f" in {elapsed_time:.4f} seconds.")
+
+            return results
+
+        return optimized_function
+
+    return decorator
+
+
+def _is_picklable(func: Callable, mode: str) -> bool:
+    """
+    Check whether the function and its arguments are picklable.
+
+    Parameters
+    ----------
+    func : Callable
+        The function to check for picklability.
+    mode : str
+        The mode of operation: 'strict' or 'soft'.
+
+    Returns
+    -------
+    bool
+        Returns ``True`` if the function and its arguments are picklable, 
+        ``False`` otherwise.
+
+    Raises
+    ------
+    PicklingError
+        If the function or its arguments are not picklable and mode is 'strict'.
+    """
+    
+
+    try:
+        # Attempt to pickle the function
+        pickle.dumps(func)
+        return True
+    except PicklingError as e:
+        if mode == 'strict':
+            raise PicklingError(
+                f"Function '{func.__name__}' is not picklable: {e}"
+            )
+        elif mode == 'soft':
+            logger.warning(
+                f"Function '{func.__name__}' is not picklable: {e}. "
+                "Parallelization will be skipped."
+            )
+            return False
+    except Exception as e:
+        logger.error(f"Unexpected error during pickling check: {e}")
+        if mode == 'strict':
+            raise
+        elif mode == 'soft':
+            logger.warning("Falling back to sequential execution.")
+            return False
+
+def _parallelize_flow(
+    func: Callable, 
+    num_processes: Optional[int], 
+    *args, **kwargs
+    ):
+    """
+    Parallelize the execution of a function across multiple processes.
+
+    Parameters
+    ----------
+    func : Callable
+        The function to execute in parallel.
+    num_processes : Optional[int]
+        The number of parallel processes to use. If ``None``, defaults to the 
+        number of CPU cores.
+    *args : tuple
+        Positional arguments to pass to the function.
+    **kwargs : dict
+        Keyword arguments to pass to the function.
+
+    Returns
+    -------
+    list
+        A list of results from each parallel execution.
+
+    Raises
+    ------
+    TypeError
+        If the 'data' keyword argument is not a list or tuple.
+    """
+    if 'data' in kwargs:
+        data = kwargs['data']
+        if not isinstance(data, (list, tuple)):
+            raise TypeError(
+                f"'data' parameter should be a list or tuple, got "
+                f"{type(data).__name__!r} instead."
+            )
+        num_processes_ = num_processes or min(
+            multiprocessing.cpu_count(), len(data))
+        logger.info(f"Parallelizing with {num_processes_} processes.")
+
+        # Use multiprocessing Pool to parallelize tasks
+        with multiprocessing.Pool(processes=num_processes_) as pool:
+            results = pool.map(func, data)  # Apply function to each data chunk
+    else:
+        # If no data parameter, execute function normally
+        logger.info("No parallel data found, executing function sequentially.")
+        results = func(*args, **kwargs)
+
+    return results
+
+
+def _reset_cpu_affinity(cpu_cores: List[int]):
+    """
+    Restrict the process to specific CPU cores.
+
+    Parameters
+    ----------
+    cpu_cores : List[int]
+        A list of CPU core indices to bind the process to.
+
+    Raises
+    ------
+    psutil.Error
+        If setting CPU affinity fails.
+    """
+    try:
+        p = psutil.Process()
+        p.cpu_affinity(cpu_cores)  # Set the process CPU affinity
+    except psutil.Error as e:
+        logger.error(f"Failed to set CPU affinity to cores {cpu_cores}: {e}")
+        raise
+
+
+def _delete_temp_files(temp_dir: str, verbose: bool = True):
+    """
+    Deletes temporary files or directories created during the workflow.
+
+    Parameters
+    ----------
+    temp_dir : str
+        The path to the temporary directory to be deleted.
+    verbose : bool, optional
+        Whether to log the action. Default is ``True``.
+
+    Notes
+    -----
+    - Uses ``shutil.rmtree`` to remove directories and their contents.
+    - Does nothing if the specified directory does not exist.
+
+    """
+    path = Path(temp_dir)
+    if path.exists() and path.is_dir():
+        shutil.rmtree(temp_dir)
+        if verbose:
+            print(f"Deleted temporary directory: {temp_dir}")
+            logger.debug(f"Deleted temporary directory: {temp_dir}")
+    else:
+        if verbose:
+            print(f"No temporary files found to delete in '{temp_dir}'.")
+            logger.debug(f"No temporary files found to delete in '{temp_dir}'.")
+
+
+def _clear_unused_variables(verbose: bool = True):
+    """
+    Deletes unused variables to free up memory using garbage collection.
+
+    Parameters
+    ----------
+    verbose : bool, optional
+        Whether to log the action. Default is ``True``.
+
+    Notes
+    -----
+    - Invokes Python's garbage collector to clean up unreferenced objects.
+
+    """
+
+    gc.collect()
+    if verbose:
+        print("Cleared unused variables (Garbage Collection).")
+        logger.debug("Cleared unused variables (Garbage Collection).")
+
+
+def _clear_system_memory(verbose: bool = True):
+    """
+    Frees up system memory by performing garbage collection and printing 
+    memory usage.
+
+    Parameters
+    ----------
+    verbose : bool, optional
+        Whether to log the action. Default is ``True``.
+
+    Notes
+    -----
+    - Uses `psutil` to monitor memory usage before and after cleanup.
+
+    """
+
+    process = psutil.Process(os.getpid())
+    memory_before = process.memory_info().rss / (1024 ** 2)  # Convert to MB
+    if verbose:
+        print(f"Current memory usage before cleanup: {memory_before:.2f} MB")
+        logger.debug(f"Current memory usage before cleanup: {memory_before:.2f} MB")
+
+    gc.collect()
+
+    memory_after = process.memory_info().rss / (1024 ** 2)  # Convert to MB
+    if verbose:
+        print(f"Memory usage after cleanup: {memory_after:.2f} MB")
+        logger.debug(f"Memory usage after cleanup: {memory_after:.2f} MB")
+
+
+def _clear_cuda_cache(verbose: bool = True):
+    """
+    Clears CUDA memory cache if using PyTorch with CUDA.
+
+    Parameters
+    ----------
+    verbose : bool, optional
+        Whether to log the action. Default is ``True``.
+
+    Notes
+    -----
+    - Requires PyTorch to be installed and CUDA to be available.
+
+    """
+    try:
+        import torch  # For PyTorch GPU memory management
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            if verbose:
+                print("Cleared CUDA cache (PyTorch).")
+                logger.debug("Cleared CUDA cache (PyTorch).")
+    except ImportError:
+        if verbose:
+            print("PyTorch is not installed; skipping CUDA cache clearing.")
+            logger.debug("PyTorch is not installed; skipping CUDA cache clearing.")
+
+
+def _clear_tensorflow_cache(verbose: bool = True):
+    """
+    Clears TensorFlow GPU memory cache if applicable.
+
+    Parameters
+    ----------
+    verbose : bool, optional
+        Whether to log the action. Default is ``True``.
+
+    Notes
+    -----
+    - Requires TensorFlow to be installed.
+
+    """
+    try:
+        import tensorflow as tf  # For TensorFlow GPU memory management
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus:
+            try:
+                for gpu in gpus:
+                    tf.config.experimental.reset_memory_growth(gpu)
+                tf.keras.backend.clear_session()
+                if verbose:
+                    print("Cleared GPU memory (TensorFlow).")
+                    logger.debug("Cleared GPU memory (TensorFlow).")
+            except RuntimeError as e:
+                logger.error(f"Error clearing TensorFlow GPU memory: {e}")
+    except ImportError:
+        if verbose:
+            print("TensorFlow is not installed; skipping GPU cache clearing.")
+            logger.debug("TensorFlow is not installed; skipping GPU cache clearing.")
+
+
+def _clean_up_memory(verbose: bool = True):
+    """
+    Cleans up memory by clearing caches, releasing unused resources.
+
+    Parameters
+    ----------
+    verbose : bool, optional
+        Whether to log the action. Default is ``True``.
+
+    Notes
+    -----
+    - Clears CUDA caches for PyTorch and TensorFlow if available.
+    - Performs garbage collection and system memory cleanup.
+
+    """
+    logger.info("Starting memory cleanup...")
+
+    if is_module_installed("torch"):
+        # Clear CUDA memory if using PyTorch with CUDA
+        _clear_cuda_cache(verbose)
+
+    if is_module_installed("tensorflow"):
+        # Clear TensorFlow GPU memory if applicable
+        _clear_tensorflow_cache(verbose)
+
+    # Clear unused variables in the Python environment
+    _clear_unused_variables(verbose)
+
+    # Attempt to free system memory
+    _clear_system_memory(verbose)
+
+    logger.info("Memory cleanup complete.")

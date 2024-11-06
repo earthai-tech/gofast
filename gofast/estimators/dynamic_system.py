@@ -418,28 +418,6 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         # Split data into training and validation sets
         X_train, X_val, y_train, y_val = self._split_data(X_lagged, y)
     
-        # Determine the number of samples in the dataset
-        
-        # n_samples = X_lagged.shape[0]
-    
-        # # Determine and validate batch size
-        # if self.batch_size == "auto":
-        #     batch_size = min(200, n_samples)
-        # else:
-        #     if self.batch_size > n_samples:
-        #         warnings.warn(
-        #             "Got `batch_size` less than 1 or larger than "
-        #             "sample size. It is going to be clipped."
-        #         )
-        #     batch_size = np.clip(self.batch_size, 1, n_samples)
-        
-        # batches = list(gen_batches(
-        #     n_samples, 
-        #     self.batch_size, 
-        #     min_batch_size=1
-        #     )
-        # )
-    
         # Generating `X_y_batches` prior to validation ensures that batch
         # processing is consistent throughout the training epoch. However,
         # when batches are generated using index-based slicing, shuffling
@@ -474,7 +452,6 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
             random_state= self._random_state 
         ) 
         
-        # XXX
         # Initialize early stopping parameters and track best loss
         self.best_loss_ = np.inf if self.early_stopping else None
         self._no_improvement_count = 0
@@ -494,11 +471,10 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
                     
                     # Train the model for the current epoch
                     self._train_epoch(
-                        # X_train=X_train,
                         y_train=y_train,
                         X_val=X_val,
                         y_val=y_val,
-                        Xy_batches=X_y_batches,
+                        X_y_batches=X_y_batches,
                         metrics=metrics,
                         epoch=epoch,
                         bar=progress_bar,
@@ -525,11 +501,10 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
                 
                 # Train the model for the current epoch
                 self._train_epoch(
-                    # X_train=X_train,
                     y_train=y_train,
                     X_val=X_val,
                     y_val=y_val,
-                    Xy_batches=X_y_batches,
+                    X_y_batches=X_y_batches,
                     metrics=metrics,
                     epoch=epoch,
                     epoch_metrics=epoch_metrics
@@ -1419,10 +1394,6 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
         # Split data into training and validation sets
         X_train, X_val, y_train, y_val = self._split_data(X_lagged, y)
     
-        # Determine the number of samples in training data
-        # n_samples = X_train.shape[0]
-
-        #XXX
         # The `gen_X_y_batches` function performs several critical operations:
         # - Determines the total number of samples (`n_samples`) if not
         #   explicitly provided.
@@ -1467,26 +1438,7 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
             shuffle=self.shuffle,
             random_state=self._random_state
         )
-        # if self.batch_size == "auto":
-        #     batch_size = min(32, n_samples)
-        # else:
-        #     if self.batch_size > n_samples:
-        #         warnings.warn(
-        #             "Got `batch_size` less than 1 or larger than "
-        #             "sample size. It is going to be clipped."
-        #         )
-        #     batch_size = np.clip(self.batch_size, 1, n_samples)
-        
-        # # Validate and set the batch size
-        # # And calculate the number of batches per epoch
-        # self.batch_size = validate_batch_size(batch_size, n_samples)
-        # batches = list(gen_batches(
-        #     n_samples, 
-        #     self.batch_size, 
-        #     min_batch_size=1
-        #     )
-        # )
-    
+  
         # Initialize metrics for tracking model performance
         metrics = {
             'loss': float('inf'),
@@ -1515,12 +1467,10 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
                     
                     # Train the model for the current epoch
                     self._train_epoch(
-                        # X_train=X_train,
                         y_train=y_train,
                         X_val=X_val,
                         y_val=y_val,
-                        # batches=batches,
-                        Xy_batches= X_y_batches, 
+                        X_y_batches= X_y_batches, 
                         metrics=metrics,
                         epoch=epoch,
                         bar=progress_bar,
@@ -1547,12 +1497,10 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
                 
                 # Train the model for the current epoch
                 self._train_epoch(
-                    # X_train=X_train,
                     y_train=y_train,
                     X_val=X_val,
                     y_val=y_val,
-                    # batches=batches,
-                    Xy_batches= X_y_batches, 
+                    X_y_batches= X_y_batches, 
                     metrics=metrics,
                     epoch=epoch, 
                     epoch_metrics=epoch_metrics

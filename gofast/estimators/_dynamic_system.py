@@ -729,12 +729,10 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=LearnerMeta):
 
     def _train_epoch(
         self,
-        # X_train: np.ndarray,
         y_train: np.ndarray,
-        Xy_batches: list [np.ndarray, np.ndarray], 
+        X_y_batches: list [np.ndarray, np.ndarray], 
         X_val:np.ndarray,
         y_val: np.ndarray,
-        # batches,
         metrics: dict[str, float],
         epoch: int,
         bar: Optional[TrainingProgressBar] = None,
@@ -749,10 +747,11 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=LearnerMeta):
         
         Parameters
         ----------
-        X_train : np.ndarray
-            Training features.
         y_train : np.ndarray
             Training labels.
+        X_y_batches: List of Tuple ( np.ndarray, np.ndarray)
+           List of batches in pair (X_batch, y_batch) sampling for 
+           training as a couple of Training features and labels.
         X_val : Optional[np.ndarray]
             Validation features.
         y_val : Optional[np.ndarray]
@@ -777,42 +776,21 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=LearnerMeta):
             # Initialize epoch_metrics if not provided
             epoch_metrics = {}
         
-        # Generate an array of indices for shuffling
-        #  indices = np.arange(X_train.shape[0])
-        
-        # if self.shuffle:
-        #     # Apply shuffled indices to training data: Use scikit-learn 
-        #     # shuffle function more stable to avoid generating empty batches
-        #     # Shuffle the sample indices instead of X and y to
-        #     # reduce the memory footprint, used to slice the X and y.
-        #     sample_idx = sk_shuffle(indices, random_state=self._random_state)
-        
-        for batch_idx, ( X_batch, y_batch) in enumerate (Xy_batches): 
-        # for batch_idx, batch_slice  in enumerate (batches):
-            # # Determine the start and end indices for the current batch
-            # Slice the training data to obtain the current batch
-            # if self.shuffle:
-            #     X_batch = _safe_indexing(X_train, sample_idx[batch_slice])
-            #     y_batch = y_train[sample_idx[batch_slice]]
-            # else:
-            #     X_batch = X_train[batch_slice]
-            #     y_batch = y_train[batch_slice]
-            
+        for batch_idx, ( X_batch, y_batch) in enumerate (X_y_batches): 
+
             # Initialize step_metrics to collect metrics across the batch
             step_metrics: dict[str, float] = {}
         
             if self.verbose > 0:
                 # Print batch details if verbosity level is high
-                msg =f"Batch {batch_idx + 1}/{len(Xy_batches)}:"
+                msg =f"Batch {batch_idx + 1}/{len(X_y_batches)}:"
                 print(msg)
                 if self.verbose > 2: 
                     print(
                         f"{msg} X_batch shape {X_batch.shape}, "
                         f"y_batch shape {y_batch.shape}"
                     )
-            # If no empty batch
-            # if X_batch.size !=0 and y_batch.size !=0:
-            if epoch == 0 and batch_idx == 0:
+            if epoch == 0 and batch_idx == 0: 
                 # For the first batch, provide classes if classifier
                 if self._estimator_type=='classifier':
                     # Initialize partial_fit with classes for classifiers
@@ -826,7 +804,7 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=LearnerMeta):
                 # Perform partial_fit on subsequent batches
                 self.linear_model_.partial_fit(X_batch, y_batch)
             
-            if batch_idx < len(Xy_batches):
+            if batch_idx < len(X_y_batches):
                 # Evaluate the current batch and update metrics
                 step_metrics, epoch_metrics = self._evaluate_batch(
                     X_batch=X_batch,

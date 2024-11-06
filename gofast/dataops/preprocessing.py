@@ -399,9 +399,8 @@ def base_transform(
         no columns are treated as targets.
     columns : str or list of str, optional
         Specific columns to which transformations should be applied. 
-        If None, transformations
-        are applied to all columns excluding `target_columns`. 
-        Default is None.
+        If None, transformations are applied to all columns excluding 
+        `target_columns`. Default is None.
     noise_level : float, optional
         The level of noise (as a fraction between 0 and 1) to introduce into 
         the numeric columns. If None, no noise is added. Default is None.

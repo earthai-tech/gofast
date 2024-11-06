@@ -19,8 +19,153 @@ _logger = gofastlog.get_gofast_logger(__name__)
 
 __all__ = ["ensure_pkg", "ensure_pkgs", "install_package","is_installing",
            "get_installation_name", "is_module_installed", 
-           "import_optional_dependency"]
+           "import_optional_dependency", "ensure_module_installed"]
 
+def ensure_module_installed(
+    module_name: str,
+    auto_install: bool = False,
+    version: Optional[str] = None,
+    package_manager: str = "pip",
+    dist_name: Optional[str] = None,
+    extra_install_args: Optional[List[str]] = None
+) -> bool:
+    """
+    Ensure that the required module is installed, optionally installing it 
+    if missing.
+
+    Parameters
+    ----------
+    module_name : str
+        The name of the module to check and install if necessary.
+    auto_install : bool, optional
+        If ``True``, automatically install the module using the specified 
+        package manager if it is not already installed (default is ``False``).
+    version : Optional[str], optional
+        Specify a version or version range for the module. For example, 
+        ">=1.0.0" or "==2.0.1". If ``None``, no version constraints are 
+        applied (default is ``None``).
+    package_manager : str, optional
+        The package manager to use for installation. Currently, only 
+        ``"pip"`` is supported. Future versions may support other package 
+        managers like ``"conda"`` (default is ``"pip"``).
+    dist_name : Optional[str], optional
+        Sometimes the module name used for importing is different from the 
+        distribution package name. This parameter allows specifying the 
+        distribution package name (default is ``None``).
+    extra_install_args : Optional[List[str]], optional
+        A list of additional arguments to pass to the package manager during 
+        installation. For example, ``["--upgrade"]`` to upgrade the package. 
+        If ``None``, no extra arguments are passed (default is ``None``).
+
+    Returns
+    -------
+    bool
+        Returns ``True`` if the module is installed or successfully 
+        installed, ``False`` otherwise.
+
+    Raises
+    ------
+    ImportError
+        If the module is not installed and ``auto_install`` is ``False``, 
+        or if the installation fails.
+    ValueError
+        If an unsupported package manager is specified.
+
+    .. math::
+        P(\text{installed}) = 
+        \begin{cases} 
+            1 & \text{if module is installed} \\ 
+            0 & \text{otherwise} 
+        \end{cases}
+
+    Examples
+    --------
+    >>> from gofast.tools.depsutils import ensure_module_installed
+
+    >>> # Ensure that 'numpy' is installed
+    >>> ensure_module_installed("numpy")
+
+    >>> # Ensure that 'pandas' is installed, automatically installing if missing
+    >>> ensure_module_installed("pandas", auto_install=True)
+
+    >>> # Ensure that 'scipy' version >=1.5.0 is installed
+    >>> ensure_module_installed("scipy", version=">=1.5.0", auto_install=True)
+
+    >>> # Install with additional arguments
+    >>> ensure_module_installed(
+    ...     "requests", 
+    ...     auto_install=True, 
+    ...     extra_install_args=["--upgrade"]
+    ... )
+
+    Notes
+    -----
+    - This function currently supports only ``"pip"`` as the package manager.
+    - When specifying a version, ensure that the version string is compatible 
+      with the package manager's version specification syntax.
+    - For packages that require system-level dependencies, manual installation 
+      might be necessary.
+
+    See Also
+    --------
+    subprocess : For spawning new processes.
+    sys : System-specific parameters and functions.
+
+    References
+    ----------
+    .. [1] Python Packaging User Guide. *Installing Packages*. 
+       https://packaging.python.org/tutorials/installing-packages/
+    .. [2] pip documentation. *User Guide*. 
+       https://pip.pypa.io/en/stable/user_guide/
+    """
+    try:
+        # Attempt to import the module using the module_name
+        if dist_name:
+            __import__(dist_name)
+        else:
+            __import__(module_name)
+        return True
+    except ImportError:
+        if not auto_install:
+            raise ImportError(
+                f"``{module_name}`` is required but not installed."
+            )
+
+        if package_manager.lower() != "pip":
+            raise ValueError(
+                f"Unsupported package manager ``'{package_manager}'``. "
+                f"Only ``'pip'`` is supported."
+            )
+
+        # If auto-install is true, create the install command
+        install_cmd = [sys.executable, "-m", "pip", "install"]
+
+        # Append the module_name and version if provided
+        install_cmd.append(module_name)
+        if version:
+            install_cmd.append(version)
+        
+        # Include any additional installation arguments
+        if extra_install_args:
+            install_cmd.extend(extra_install_args)
+        
+        # Attempt to install the module
+        try:
+            subprocess.check_call(install_cmd)
+            if dist_name:
+                __import__(dist_name)
+            else:
+                __import__(module_name)
+            return True
+        except subprocess.CalledProcessError as e:
+            raise ImportError(
+                f"Failed to install ``{module_name}``"
+                f" using ``{package_manager}``: {e}"
+            )
+        except ImportError:
+            raise ImportError(
+                f"Module ``{module_name}`` was installed but could not be imported."
+            )
 
 def install_package(
     name: str, 
@@ -65,7 +210,7 @@ def install_package(
     Examples
     --------
     Install a package using pip without version specification:
-
+        >>> from gofast.tools.depsutils import install_package
         >>> install_package('requests', verbose=True)
 
     Install a specific version of a package using conda:
@@ -788,34 +933,4 @@ def is_installing (
         
     return success 
 
-def subprocess_module_installation (module, upgrade =True ): 
-    """ Install  module using subprocess.
-    :param module: str, module name 
-    :param upgrade:bool, install the lastest version.
-    """
-    import sys 
-    import subprocess 
-    #implement pip as subprocess 
-    # refer to https://pythongeeks.org/subprocess-in-python/
-    MOD_IMP=False 
-    print(f'---> Module {module!r} installation will take a while,'
-          ' please be patient...')
-    cmd = f'<pip install {module}> | <python -m pip install {module}>'
-    try: 
-
-        upgrade ='--upgrade' if upgrade else ''
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install',
-        f'{module}', f'{upgrade}'])
-        reqs = subprocess.check_output([sys.executable,'-m', 'pip',
-                                        'freeze'])
-        [r.decode().split('==')[0] for r in reqs.split()]
-        _logger.info(f"Intallation of `{module}` and dependancies"
-                     "was successfully done!") 
-        MOD_IMP=True
-     
-    except: 
-        _logger.error(f"Fail to install the module =`{module}`.")
-        print(f'---> Module {module!r} installation failed, Please use'
-           f'  the following command {cmd} to manually install it.')
-    return MOD_IMP 
         

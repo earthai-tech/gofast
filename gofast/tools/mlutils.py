@@ -54,7 +54,6 @@ from .coreutils import (
     validate_feature, exist_features, contains_delimiter, 
     str2columns 
 )
-from .datautils import nan_to_na 
 from .depsutils import ensure_pkg
 from .validator import (
     _is_numeric_dtype, _is_arraylike_1d, get_estimator_name, check_array,
@@ -901,7 +900,6 @@ def dynamic_batch_size(
                 )
             return current_batch_size
 
-
 def one_click_prep (
     data: DataFrame, 
     target_columns=None,
@@ -1063,7 +1061,6 @@ def one_click_prep (
     # Attempt to retrieve processed column names for creating
     # a DataFrame from the transformed data.
     try:
-        
         if categorical_features: 
             processed_columns = numeric_features + list(get_feature_names(
                 preprocessor.named_transformers_['cat']['onehot'], categorical_features)
@@ -1247,6 +1244,8 @@ def soft_encoder(
       could appear in future data.
 
     """
+    from .datautils import nan_to_na 
+    
     # Convert ellipsis inputs to False for get_dummies, parse_cols,
     # return_cat_codes if not explicitly defined
     get_dummies, parse_cols, return_cat_codes = ellipsis2false(
