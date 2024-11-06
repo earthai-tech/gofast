@@ -6,6 +6,7 @@
 
 from __future__ import annotations, print_function 
 from scipy import stats
+import warnings 
 import numpy as np 
 import pandas as pd 
 import matplotlib.pyplot as plt 
@@ -16,7 +17,7 @@ from ..api.types import List,  DataFrame, Optional, Series
 from ..api.types import Dict, Union, Tuple, ArrayLike
 from ..api.util import get_table_size 
 from ..decorators import Dataify, DynamicMethod, DataTransformer
-from ..tools.coreutils import is_iterable, assert_ratio
+from ..tools.coreutils import is_iterable, assert_ratio, exist_features
 from ..tools.depsutils import ensure_pkg
 from ..tools.validator import is_frame, parameter_validator, check_consistent_length 
 
@@ -28,7 +29,7 @@ __all__= [
     "apply_tfidf_vectorization",
     "apply_word_embeddings",
     "augment_data",
-    "base_transform",
+    "transform",
     "boxcox_transformation",
     "transform_dates",
     ]
@@ -374,14 +375,17 @@ def boxcox_transformation(
 @DynamicMethod(
     'both', 
     capture_columns=True, 
-    prefixer='exclude' 
-   )
-def base_transform(
+)
+def transform(
     data: DataFrame, 
-    target_columns:Optional[str|List[str]]=None, 
-    columns: Optional[str|List[str]]=None, 
-    noise_level: float=None, 
-    seed: int=None):
+    target_columns: Optional[str|List[str]] = None, 
+    columns: Optional[str|List[str]] = None, 
+    decode_sparse_matrix: bool = True, 
+    noise_level: float = None, 
+    error: str = "ignore", 
+    seed: int = None, 
+    view=None, 
+):
     """
     Applies preprocessing transformations to the specified DataFrame, including 
     handling of missing values, feature scaling, encoding categorical variables, 
@@ -395,18 +399,27 @@ def base_transform(
     target_columns : str or list of str, optional
         The name(s) of the column(s) considered as target variable(s). 
         These columns are excluded from transformations to prevent leakage. 
-        Default is None, indicating
-        no columns are treated as targets.
+        Default is None, indicating no columns are treated as targets.
     columns : str or list of str, optional
         Specific columns to which transformations should be applied. 
         If None, transformations are applied to all columns excluding 
         `target_columns`. Default is None.
-    noise_level : float, optional
+    decode_sparse_matrix : bool, optional, default=True
+        If True, the function will decode sparse matrices back into dense format 
+        if the data is encoded as sparse matrices.
+    noise_level : float, optional, default=None
         The level of noise (as a fraction between 0 and 1) to introduce into 
-        the numeric columns. If None, no noise is added. Default is None.
-    seed : int, optional
+        the numeric columns. If None, no noise is added.
+    error : str, optional, default='ignore'
+        The error handling strategy. Default is 'ignore'. If set to 'raise', 
+        an exception is raised if any error occurs during processing.
+    seed : int, optional, default=None
         Seed for the random number generator, ensuring reproducibility of 
         the noise and other random aspects of preprocessing. Default is None.
+    view : Any, optional, default=None
+        This parameter is here for API consistency with methods like 
+        `go_transform` but does not affect the function behavior. It does
+        nothing.
 
     Returns
     -------
@@ -419,16 +432,17 @@ def base_transform(
     --------
     >>> import pandas as pd
     >>> from sklearn.datasets import make_classification
+    >>> from gofast.dataops.preprocessing import transform 
 
     # Generating a synthetic dataset
     >>> X, y = make_classification(n_samples=100, n_features=4, random_state=42)
-    >>> data = pd.DataFrame(X, columns=['feature_1', 'feature_2', 'feature_3',
+    >>> data = pd.DataFrame(X, columns=['feature_1', 'feature_2', 'feature_3', 
     ...                                 'feature_4'])
     >>> data['target'] = y
 
     # Apply base_transform to preprocess features, excluding the target column
     >>> from gofast.dataops.preprocessing import base_transform 
-    >>> preprocessed_data = base_transform(data, target_columns='target', 
+    >>> preprocessed_data = transform(data, target_columns='target', 
     ...                                    noise_level=0.1, seed=42)
     >>> print(preprocessed_data.head())
 
@@ -437,21 +451,42 @@ def base_transform(
     This function is designed to be flexible, allowing selective preprocessing
     on parts of the DataFrame. It leverages `ColumnTransformer` to efficiently 
     process columns based on their data type. The inclusion of `noise_level` 
-    allows for simulating real-world data imperfections.
+    allows for simulating real-world data imperfections. Furthermore, this 
+    method ensures that the original dataset structure is preserved, with 
+    options for restoring target columns and handling sparse matrices.
+
+    The preprocessing steps include:
+    - Handling missing values for both numeric and categorical columns using 
+      median imputation for numeric columns and constant imputation for 
+      categorical ones.
+    - Scaling numeric features using `StandardScaler` for normalization.
+    - One-hot encoding for categorical features.
+    - Optionally, adding noise to numeric columns to simulate real-world data 
+      imperfections.
+    - Handling sparse matrices by decoding them back to dense format if 
+      specified.
+
     """
     from sklearn.compose import ColumnTransformer
     from sklearn.impute import SimpleImputer
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import OneHotEncoder, StandardScaler
+    from ..tools.coreutils import is_sparse_matrix
     
+    # collect the target if target_columns is passed 
+    # then concatenated later to build original 
+    # dataset.
+    target = None 
     np.random.seed(seed)
     target_columns = [target_columns] if isinstance(
         target_columns, str) else target_columns
 
     if target_columns is not None:
+        exist_features(data, features= target_columns, name="Target")
+        target = data[target_columns]
         data = data.drop(columns=target_columns, errors='ignore')
     # get original data columns 
-    original_columns = list(data.columns  )
+    original_columns = list(data.columns)
     # Identify numeric and categorical features for transformation
     numeric_features = data.select_dtypes(
         include=['int64', 'float64']).columns.tolist()
@@ -459,18 +494,18 @@ def base_transform(
         include=['object']).columns.tolist()
 
     # Define transformations for numeric and categorical features
-    numeric_transformer = Pipeline(steps=[
+    numeric_transformer = Pipeline(steps=[ 
         ('imputer', SimpleImputer(strategy='median')),
         ('scaler', StandardScaler())
     ])
 
-    categorical_transformer = Pipeline(steps=[
+    categorical_transformer = Pipeline(steps=[ 
         ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
         ('encoder', OneHotEncoder(handle_unknown='ignore'))
     ])
 
     # Apply ColumnTransformer to handle each feature type
-    preprocessor = ColumnTransformer(transformers=[
+    preprocessor = ColumnTransformer(transformers=[ 
         ('num', numeric_transformer, numeric_features),
         ('cat', categorical_transformer, categorical_features)
     ], remainder='passthrough')
@@ -487,20 +522,179 @@ def base_transform(
 
     # Apply noise to non-target numeric columns if specified
     if noise_level is not None:
-        noise_level = assert_ratio ( noise_level )
-        # Add noise if specified
-        # if  noise_level > 0:
-        #     noise_mask = np.random.rand(*data_processed.shape) < noise_level
-        #     data_processed.where(~noise_mask, other=np.nan, inplace=True)
-        assert 0 <= noise_level <= 1, "noise_level must be between 0 and 1"
+        noise_level = assert_ratio ( 
+            noise_level , bounds=(0, 1), 
+            name="noise_level"
+        )
         for column in numeric_features:
             noise_mask = np.random.rand(data.shape[0]) < noise_level
             data_processed.loc[noise_mask, column] = np.nan
-    # now rearrange the columns back 
+            
+    if is_sparse_matrix(data_processed) and decode_sparse_matrix: 
+        data_processed = _decode_sparse_processed_data(
+            data_processed, processed_columns= processed_columns, 
+            error=error
+        )
+    
+    if target is not None: 
+        # try to reconstruct the original dataset.
+        original_columns += target_columns 
+        data_processed = pd.concat([data_processed, target], axis=1)
+        
+    if view is not None: 
+        warnings.warn(
+                "The 'view' parameter is included for API consistency"
+                " with methods like 'go_transform' but does not affect"
+                " the behavior of the 'transform' function.",
+                UserWarning
+            )
     try:
-        return  data_processed [original_columns ]
+        return data_processed[original_columns]
     except:
         return data_processed # if something wrong, return it
+
+def _decode_sparse_processed_data(
+        processed_data, 
+        processed_columns=None, 
+        error="warn"
+    ):
+    """
+    Decodes processed sparse data and converts float categorical 
+    features to integer categories.
+    
+    This helper function performs the following operations:
+    1. Decodes string-encoded sparse matrix data back into a dense 
+       pandas DataFrame.
+    2. Transforms float categorical features into integer 
+       categorical features using the `FloatCategoricalToInt` transformer.
+    3. Reassigns original column names to the processed DataFrame 
+       if provided.
+    
+    Parameters
+    ----------
+    processed_data : pd.Series or scipy.sparse.spmatrix
+        The processed data to decode. This can be either a pandas Series 
+        containing string-encoded sparse matrix data or an actual 
+        scipy sparse matrix.
+    
+    processed_columns : list of str, optional, default=None
+        The original column names to assign to the decoded DataFrame. 
+        If provided, the function attempts to reassign these names to 
+        the processed DataFrame. If not provided or if reassignment 
+        fails, the original column names are retained.
+    
+    Returns
+    -------
+    pd.DataFrame
+        A dense pandas DataFrame with decoded sparse data and transformed 
+        categorical features. If decoding fails, returns the original 
+        `processed_data`.
+    
+    Raises
+    ------
+    ValueError
+        If the `processed_data` cannot be decoded into a DataFrame.
+    
+    Notes
+    -----
+    - This function assumes that the `FloatCategoricalToInt` transformer 
+      is properly implemented and imported from the 
+      `gofast.tools.transformers.feature_engineering` module.
+    - The function attempts to decode the data and transform categorical 
+      features. If any step fails, it gracefully handles the exception 
+      and returns the original `processed_data`.
+    - Reassigning column names is optional and dependent on the availability 
+      and correctness of `processed_columns`.
+    
+    Examples
+    --------
+    1. **Decoding a pandas Series with string-encoded sparse data:**
+    
+        ```python
+        import pandas as pd
+        from gofast.tools.coreutils import decode_sparse_data, is_sparse_matrix
+        from gofast.tools.transformers.feature_engineering import FloatCategoricalToInt
+        
+        # Sample string-encoded sparse data
+        processed_data = pd.Series([
+            "(0, 0)\t1.0\n(1, 1)\t2.0\n(2, 2)\t3.0",
+            "(0, 1)\t1.5\n(1, 0)\t1.0\n(2, 1)\t2.5"
+        ])
+        
+        # Original column names
+        original_columns = ['A', 'B', 'C']
+        
+        # Decode and transform the data
+        decoded_df = _decode_sparse_processed_data(
+            processed_data, 
+            processed_columns=original_columns
+        )
+        
+        print(decoded_df)
+        ```
+    
+    2. **Decoding a scipy sparse matrix:**
+    
+        ```python
+        import scipy.sparse as sp
+        from gofast.tools.transformers.feature_engineering import FloatCategoricalToInt
+        
+        # Sample scipy sparse matrix
+        sparse_matrix = sp.csr_matrix([
+            [0, 1, 0],
+            [1, 0, 2],
+            [0, 3, 0]
+        ])
+        
+        # Decode and transform the data without reassigning column names
+        decoded_df = _decode_sparse_processed_data(sparse_matrix)
+        
+        print(decoded_df)
+        ```
+    
+    References
+    ----------
+    - **SciPy Sparse Matrices Documentation**:
+      https://docs.scipy.org/doc/scipy/reference/sparse.html
+    - **pandas Series Documentation**:
+      https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.html
+    - **FloatCategoricalToInt Transformer**:
+      Assumed to be implemented in `gofast.tools.transformers.feature_engineering`.
+    """
+    from ..tools.coreutils import decode_sparse_data
+    from ..transformers.feature_engineering import FloatCategoricalToInt
+
+    try:
+        # Attempt to decode the processed data if it is string-encoded
+        processed_data = decode_sparse_data(processed_data)
+        
+        # Transform float categorical features to integer categories
+        transformer = FloatCategoricalToInt()
+        processed_data = transformer.fit_transform(processed_data)
+        
+        # Reassign original column names if provided
+        if processed_columns is not None:
+            try:
+                processed_data.columns = processed_columns
+            except Exception as e:
+                # If reassignment fails, retain existing column names
+                msg=f"Warning: Failed to assign processed_columns. {e}"
+                if error=="warn": 
+                    warnings.warn(msg)
+                elif error =="raise": 
+                    raise TypeError (msg )
+        
+    except Exception as decode_exception:
+        # Handle any exceptions that occur during decoding or transformation
+        msg = f"Warning: Decoding or transformation failed. {decode_exception}"
+        if error =='warn': 
+            warnings.warn(msg)
+        elif error =="raise": 
+            raise TypeError(msg)
+        # Optionally, you can choose to return the original data or raise an error
+        return processed_data
+    
+    return processed_data
 
 def augment_data(
     X: Union[DataFrame, ArrayLike], 
@@ -667,7 +861,8 @@ def apply_tfidf_vectorization(
     >>> import pandas as pd 
     >>> from gofast.dataops.preprocessing import apply_tfidf_vectorization
     >>> data = pd.DataFrame({
-    ...     'message_to_investigators': ['This is a sample message', 'Another sample message', np.nan],
+    ...     'message_to_investigators': ['This is a sample message', 
+    ...                                   'Another sample message', np.nan],
     ...     'additional_notes': ['Note one', np.nan, 'Note three']
     ... })
     >>> processed_data = apply_tfidf_vectorization(

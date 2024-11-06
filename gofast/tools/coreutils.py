@@ -27,6 +27,7 @@ from contextlib import contextmanager
 
 import numpy as np
 import pandas as pd
+import scipy.sparse as ssp 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
@@ -3362,11 +3363,11 @@ def _validate_name_in (name, defaults = '', expect_name= None,
     return name 
 
 def get_confidence_ratio (
-        ar, 
-        axis = 0, 
-        invalid = 'NaN',
-        mean=False, 
-        ):
+    ar, 
+    axis = 0, 
+    invalid = 'NaN',
+    mean=False, 
+    ):
     
     """ Get ratio of confidence in array by counting the number of 
     invalid values. 
@@ -3446,107 +3447,187 @@ def get_confidence_ratio (
         ratio = np.array (ratio).mean() 
     return ratio 
     
-def assert_ratio(
-    v,  bounds: List[float] = None , 
-    exclude_value:float= None, 
-    in_percent:bool =False , 
-    name:str ='rate' 
-    ): 
-    """ Assert rate value between a specific range. 
-    
-    Parameters 
-    -----------
-    v: float, 
-       ratio value to assert 
-    bounds: list ( lower, upper) 
-       The range that value must  be included
-    exclude_value: float 
-       A value that ``v`` must not taken. Exclude it from the ``bounds``. 
-       Raise error otherwise. Note that  any other value will use the 
-       lower bound in `bounds` as exlusion. 
-       
-    in_percent: bool, default=False, 
-       Convert the value into a percentage.
-       
-    name: str, default='rate' 
-       the name of the value for assertion. 
-       
-    Returns
-    --------
-    v: float 
-       Asserted value. 
-       
-    Examples
-    ---------
-    >>> from gofast.tools.coreutils import assert_ratio
-    >>> assert_ratio('2')
-    2.0
-    >>> assert_ratio(2 , bounds =(2, 8))
-    2.0
-    >>> assert_ratio(2 , bounds =(4, 8))
-    ValueError:...
-    >>> assert_ratio(2 , bounds =(1, 8), exclude_value =2 )
-    ValueError: ...
-    >>> assert_ratio(2 , bounds =(1, 8), exclude_value ='use bounds' )
-    2.0
-    >>> assert_ratio(2 , bounds =(0, 1) , in_percent =True )
-    0.02
-    >>> assert_ratio(2 , bounds =(0, 1) )
-    ValueError:
-    >>> assert_ratio(2 , bounds =(0, 1), exclude_value ='use lower bound',
-                         name ='tolerance', in_percent =True )
-    0.02
-    """ 
-    msg =("greater than {} and less than {}" )
-    
-    
-    if isinstance (v, str): 
-        if "%" in v: in_percent=True 
-        v = v.replace('%', '')
-    try : 
-        v = float (v)
-    except TypeError : 
-        raise TypeError (f"Unable to convert {type(v).__name__!r} "
-                         f"to float: {v}")
-    except ValueError: 
-        raise ValueError(f"Expects 'float' not {type(v).__name__!r}: "
-                         f"{(v)!r}")
-    # put value in percentage 
-    # if greater than 1. 
-    if in_percent: 
-        if 1 < v <=100: 
-            v /= 100. 
-          
-    bounds = bounds or []
-    low, up, *_ = list(bounds) + [ None, None]
-    e=("Expects a {} value {}, got: {}".format(
-            name , msg.format(low, up), v)) 
-    err = ValueError (e)
 
-    if len(bounds)!=0:
-        if ( 
-            low is not None  # use is not None since 0. is
-            and up is not None # consider as False value
-            and  (v < low or v > up)
-            ) :
-                raise err 
+def assert_ratio(
+    v: Union[str, float, int],
+    bounds: Optional[Tuple[float, float]] = None,
+    exclude_values: Optional[Union[float, List[float]]] = None,
+    in_percent: bool = False,
+    inclusive: bool = True,
+    name: str = 'ratio'
+) -> float:
+    """
+    Asserts that a given value falls within a specified range and does not
+    match any excluded values. Optionally converts the value to a percentage.
+    
+    This function is useful for validating ratio or rate values in data 
+    preprocessing, ensuring they meet defined criteria before further 
+    analysis or modeling.
+    
+    Parameters
+    ----------
+    v : Union[str, float, int]
+        The ratio value to assert. Can be a string (possibly containing 
+        a percentage sign), float, or integer.
         
-    if exclude_value is not None: 
-        try : 
-            low = float (str(exclude_value))
-        except : # use bounds
-            pass 
-        if low is None:
-            warnings.warn("Cannot exclude the lower value in the interval"
-                          " while `bounds` argument is not given.")
-        else:  
-            if v ==low: 
-                raise ValueError (e.replace (", got:", ' excluding') + ".")
-            
-    if in_percent and v > 100: 
-         raise ValueError ("{} value should be {}, got: {}".
-                           format(name.title(), msg.format(low, up), v  ))
-    return v 
+    bounds : Optional[Tuple[float, float]], default=None
+        A tuple specifying the lower and upper bounds (inclusive by default) 
+        within which the value `v` must lie. If `None`, no bounds are enforced.
+        
+    exclude_values : Optional[Union[float, List[float]]], default=None
+        Specific value(s) that `v` must not equal. Can be a single float or a 
+        list of floats. If provided, `v` is checked against these excluded 
+        values after any necessary conversions.
+        
+    in_percent : bool, default=False
+        If `True`, interprets the input value `v` as a percentage and converts 
+        it to its decimal form (e.g., 50 becomes 0.5). If `v` is a string 
+        containing a `%` sign, it is automatically converted to decimal.
+        
+    inclusive : bool, default=True
+        Determines whether the bounds are inclusive. If `True`, `v` can be equal 
+        to the lower and upper bounds. If `False`, `v` must be strictly 
+        greater than the lower bound and strictly less than the upper bound.
+        
+    name : str, default='ratio'
+        The descriptive name of the value being asserted. This is used in error 
+        messages for clarity.
+    
+    Returns
+    -------
+    float
+        The validated (and possibly converted) ratio value.
+        
+    Raises
+    ------
+    TypeError
+        If `v` cannot be converted to a float.
+        
+    ValueError
+        If `v` is outside the specified bounds or matches any excluded values.
+    
+    Examples
+    --------
+    1. **Basic Usage with Bounds:**
+    
+        ```python
+        from gofast.tools.coreutils import assert_ratio
+        assert_ratio(0.5, bounds=(0.0, 1.0))
+        # Returns: 0.5
+        ```
+    
+    2. **String Input with Percentage:**
+    
+        ```python
+        assert_ratio("75%", in_percent=True)
+        # Returns: 0.75
+        ```
+    
+    3. **Excluding Specific Values:**
+    
+        ```python
+        assert_ratio(0.5, bounds=(0.0, 1.0), exclude_values=0.5)
+        # Raises ValueError
+        ```
+    
+    4. **Multiple Excluded Values and Exclusive Bounds:**
+    
+        ```python
+        assert_ratio(0.3, bounds=(0.0, 1.0), exclude_values=[0.2, 0.4], inclusive=False)
+        # Returns: 0.3
+        ```
+    
+    Notes
+    -----
+    - The function first attempts to convert the input `v` to a float. 
+      If `in_percent` is `True`, it converts percentage values to 
+      their decimal equivalents.
+    - Bounds can be set to define a valid range for `v`. If `inclusive` 
+      is set to `False`, the bounds are treated as exclusive.
+    - Excluded values are checked after any necessary conversions.
+    - If `exclude_values` is provided without specifying `bounds`, the 
+      function will only check for excluded values.
+    
+    References
+    ----------
+    - [Python `float()` Function](https://docs.python.org/3/library/functions.html#float)
+    - [Warnings in Python](https://docs.python.org/3/library/warnings.html)
+    """
+    
+    # Initialize exclusion list
+    if exclude_values is not None and not isinstance(exclude_values, list):
+        exclude_values = [exclude_values]
+    
+    # Regular expression to detect percentage in strings
+    percent_pattern = re.compile(r'^\s*[-+]?\d+(\.\d+)?%\s*$')
+    
+    # Check and convert string inputs
+    if isinstance(v, str):
+        v = v.strip()
+        if percent_pattern.match(v):
+            in_percent = True
+            v = v.replace('%', '').strip()
+    
+    try:
+        # Convert to float
+        v = float(v)
+    except (TypeError, ValueError):
+        raise TypeError(
+            f"Unable to convert {type(v).__name__!r} value '{v}' to float."
+        )
+    
+    # Convert to percentage if required
+    if in_percent:
+        if 0 <= v <= 100:
+            v /= 100.0
+        elif 0 <= v <= 1:
+            warnings.warn(
+                f"The value {v} seems already in decimal form; "
+                f"no conversion applied for {name}.",
+                UserWarning
+            )
+        else:
+            raise ValueError(
+                f"When 'in_percent' is True, {name} should be between "
+                f"0 and 100, got {v * 100 if 0 <= v <=1 else v}."
+            )
+    
+    # Check bounds if specified
+    if bounds:
+        if not isinstance(bounds, tuple) or len(bounds) != 2:
+            raise ValueError(
+                 "'bounds' must be a tuple of two"
+                f" floats, got {type(bounds).__name__}."
+            )
+        lower, upper = bounds
+        if inclusive:
+            if not (lower <= v <= upper):
+                raise ValueError(
+                    f"{name.capitalize()} must be between {lower}"
+                    f" and {upper} inclusive, got {v}."
+                )
+        else:
+            if not (lower < v < upper):
+                raise ValueError(
+                    f"{name.capitalize()} must be between {lower} and "
+                    f"{upper} exclusive, got {v}."
+                )
+    
+    # Check excluded values
+    if exclude_values:
+        if v in exclude_values:
+            if len(exclude_values) == 1:
+                exclusion_msg =( 
+                    f"{name.capitalize()} must not be {exclude_values[0]}."
+                    )
+            else:
+                exclusion_msg =( 
+                    f"{name.capitalize()} must not be one of {exclude_values}."
+                    )
+            raise ValueError(exclusion_msg)
+    
+    return v
+
 
 def validate_ratio(
     value: float, 
@@ -3611,48 +3692,433 @@ def validate_ratio(
 
     return value
 
-def exist_features (df, features, error='raise', name="Feature"): 
-    """Control whether the features exist or not.  
-    
-    :param df: a dataframe for features selections 
-    :param features: list of features to select. Lits of features must be in the 
-        dataframe otherwise an error occurs. 
-    :param error: str - raise if the features don't exist in the dataframe. 
-        *default* is ``raise`` and ``ignore`` otherwise. 
-        
-    :return: bool 
-        assert whether the features exists 
-    """
-    isf = False  
-    
-    error= 'raise' if error.lower().strip().find('raise')>= 0  else 'ignore' 
 
-    if isinstance(features, str): 
-        features =[features]
+def exist_features(
+    df: pd.DataFrame, 
+    features, 
+    error='raise',  
+    name="Feature"
+) -> bool:
+    """
+    Check whether the specified features exist in the dataframe.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing the features to be checked.
+    features : list or str
+        List of feature names (str) to check for in the dataframe. 
+        If a string is provided, it will be treated as a list with 
+        a single feature.
+    error : str, optional, default 'raise'
+        Action to take if features are not found. Can be one of:
+        - 'raise' (default): Raise a ValueError.
+        - 'warn': Issue a warning and return False.
+        - 'ignore': Do nothing if features are not found.
+    name : str, optional, default 'Feature'
+        Name of the feature(s) being checked (default is 'Feature').
+
+    Returns
+    -------
+    bool
+        Returns True if all features exist in the dataframe, otherwise False.
+
+    Raises
+    ------
+    ValueError
+        If 'error' is 'raise' and features are not found.
+    
+    Warns
+    -----
+    UserWarning
+        If 'error' is 'warn' and features are missing.
+
+    Notes
+    -----
+    This function ensures that all the specified features exist in the
+    dataframe. If the 'error' parameter is set to 'warn', the function 
+    will issue a warning instead of raising an error when a feature 
+    is missing, and return False.
+
+    References
+    ----------
+    - pandas.DataFrame:
+        https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.html
+
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import exist_features
+    >>> import pandas as pd
+
+    >>> # Sample DataFrame
+    >>> df = pd.DataFrame({
+    >>>     'feature1': [1, 2, 3],
+    >>>     'feature2': [4, 5, 6],
+    >>>     'feature3': [7, 8, 9]
+    >>> })
+
+    >>> # Check for missing features with 'raise' error
+    >>> exist_features(df, ['feature1', 'feature4'], error='raise')
+    Traceback (most recent call last):
+        ...
+    ValueError: Features feature4 not found in the dataframe.
+
+    >>> # Check for missing features with 'warn' error
+    >>> exist_features(df, ['feature1', 'feature4'], error='warn')
+    UserWarning: Features feature4 not found in the dataframe.
+
+    >>> # Check for missing features with 'ignore' error
+    >>> exist_features(df, ['feature1', 'feature4'], error='ignore')
+    False
+    """
+    # Validate if the input is a DataFrame
+    if not isinstance(df, pd.DataFrame):
+        raise ValueError("'df' must be a pandas DataFrame.")
+
+    # Normalize the error parameter to lowercase and strip whitespace
+    error = error.lower().strip()
+
+    # Validate the 'error' parameter
+    if error not in ['raise', 'ignore', 'warn']:
+        raise ValueError(
+            "Invalid value for 'error'. Expected"
+            " one of ['raise', 'ignore', 'warn'].")
+
+    # Ensure 'features' is a list-like structure
+    if isinstance(features, str):
+        features = [features]
+
+    # Validate that 'features' is one of the allowed types
+    features = _assert_all_types(features, (list, tuple, np.ndarray))
+
+    # Get the intersection of features with the dataframe columns
+    existing_features = set(features).intersection(df.columns)
+
+    # If all features exist, return True
+    if len(existing_features) == len(features):
+        return True
+
+    # Calculate the missing features
+    missing_features = set(features) - existing_features
+
+    # If there are missing features, handle according to 'error' type
+    if missing_features:
+        msg = f"{name}{'s' if len(features) > 1 else ''}"
+
+        if error == 'raise':
+            raise ValueError(
+                f"{msg} {smart_format(missing_features)} not found in the dataframe."
+            )
+
+        elif error == 'warn':
+            warnings.warn(
+                f"{msg} {smart_format(missing_features)} not found in the dataframe.",
+                UserWarning
+            )
+            return False
+
+        # If 'error' is 'ignore', simply return False
+        return False
+
+    return True
+
+import pandas as pd
+import numpy as np
+from scipy.sparse import coo_matrix
+
+def decode_sparse_data(sparse_data: pd.Series) -> pd.DataFrame:
+    """
+    Decode a sparse matrix represented as strings in a pandas Series 
+    back into a dense pandas DataFrame.
+    
+    Each entry in the `sparse_data` Series should contain multiple lines, 
+    where each line represents a non-zero entry in the format:
+    `(row_index, column_index)\tvalue`.
+    
+    **Note:** This function assumes that the row indices within the strings 
+    are always `(0, column_index)`. The Series index is used as the actual 
+    row index in the decoded DataFrame.
+    
+    Parameters
+    ----------
+    sparse_data : pd.Series
+        A pandas Series where each element is a string representing a 
+        sparse matrix row. Each string contains entries separated by 
+        newline characters (`\n`), and each entry is in the format 
+        `(row, col)\tvalue`.
+    
+    Returns
+    -------
+    pd.DataFrame
+        A dense pandas DataFrame reconstructed from the sparse representation.
+    
+    Raises
+    ------
+    ValueError
+        If an entry in `sparse_data` is not a string or does not follow the 
+        expected format.
+    
+    Examples
+    --------
+    >>> from gofast.tools.coreutils import decode_sparse_data
+    >>> import pandas as pd
+    >>> 
+    >>> # Sample sparse data as a pandas Series
+    >>> sparse_data = pd.Series([
+    ...     "(0, 0)\t-1.6752467319482305\n(0, 1)\t1.515...",
+    ...     "(0, 0)\t-1.5597124745724904\n(0, 1)\t-0.00...",
+    ...     "(0, 0)\t-1.4441782171967503\n(0, 1)\t-1.41...",
+    ...     "(0, 0)\t-1.3286439598210102\n(0, 1)\t0.912...",
+    ...     "(0, 0)\t-1.2131097024452704\n(0, 1)\t-0.41..."
+    ... ])
+    >>> 
+    >>> # Decode the sparse data
+    >>> decoded_df = decode_sparse_data(sparse_data)
+    >>> print(decoded_df)
+               0     1
+        0 -1.675  1.515
+        1 -1.560 -0.000
+        2 -1.444 -1.410
+        3 -1.329  0.912
+        4 -1.213 -0.410
+    
+    Notes
+    -----
+    - **Input Structure:** Each entry in the `sparse_data` Series should be a 
+      string containing multiple `(row, column)\tvalue` pairs separated by 
+      newline characters.
+    - **Row Mapping:** The Series index is used as the row index in the 
+      decoded DataFrame. The row index specified within each string is 
+      ignored and assumed to be `0`.
+    - **Memory Consideration:** Decoding large sparse matrices into dense 
+      DataFrames can consume significant memory. Consider using sparse 
+      DataFrame representations if memory usage is a concern.
+    
+    References
+    ----------
+    - pandas.DataFrame: https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.html
+    - scipy.sparse.coo_matrix: https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.coo_matrix.html
+    """
+    if isinstance ( sparse_data, pd.DataFrame): 
+        # try to squeeze the dataframe if has a single column 
+        sparse_data = sparse_data.squeeze() 
         
-    features = _assert_all_types(features, list, tuple, np.ndarray)
-    set_f =  set (features).intersection (set(df.columns))
-    if len(set_f)!= len(features): 
-        nfeat= len(features) 
-        msg = f"{name}{'s' if nfeat >1 else ''}"
-        if len(set_f)==0:
-            if error =='raise':
-                raise ValueError (f"{msg} {smart_format(features)} "
-                                  f"{'does not' if nfeat <2 else 'dont'}"
-                                  " exist in the dataframe")
-            isf = False 
-        # get the difference 
-        diff = set (features).difference(set_f) if len(
-            features)> len(set_f) else set_f.difference (set(features))
-        nfeat= len(diff)
-        if error =='raise':
-            raise ValueError(f"{msg} {smart_format(diff)} not found in"
-                             " the dataframe.")
-        isf = False  
-    else : isf = True 
+    if not isinstance(sparse_data, pd.Series):
+        raise ValueError("Input `sparse_data` must be a pandas Series.")
     
-    return isf    
+    rows = []
+    cols = []
+    data = []
     
+    for series_idx, row in sparse_data.items():
+        if not isinstance(row, str):
+            row = str(row)  # Convert to string if possible
+        
+        for entry in row.split('\n'):
+            entry = entry.strip()
+            if entry:
+                try:
+                    col_row, value = entry.split('\t')
+                    # Remove parentheses and split into row and column
+                    _, col_idx = map(int, col_row.strip('()').split(','))
+                    rows.append(series_idx)  # Use Series index as row index
+                    cols.append(col_idx)
+                    data.append(float(value))
+                except Exception as e:
+                    raise ValueError(
+                        f"Error parsing entry '{entry}' in Series index {series_idx}: {e}"
+                    )
+    
+    if not rows:
+        raise ValueError("No data found to decode.")
+    
+    # Determine the size of the matrix
+    max_row = max(rows) + 1
+    max_col = max(cols) + 1
+    
+    # Create a COO sparse matrix
+    sparse_matrix = coo_matrix(
+        (data, (rows, cols)), shape=(max_row, max_col)
+    )
+    
+    # Convert to a dense NumPy array
+    dense_array = sparse_matrix.toarray()
+    
+    # Convert to a pandas DataFrame
+    df = pd.DataFrame(dense_array)
+    
+    return df
+
+def is_sparse_matrix(
+    data: pd.Series, 
+    threshold: float = 0.9, 
+    verbose=False
+    ) -> bool:
+    """
+    Checks if the data is a sparse matrix, either as a scipy sparse matrix 
+    or a pandas Series containing string-encoded sparse matrix data.
+    
+    This function identifies sparse data structures, considering both 
+    actual scipy sparse matrix types and string-encoded representations 
+    of sparse matrices, such as those commonly found in pandas Series.
+    
+    Parameters
+    ----------
+    data : object
+        The data to check. This can be a scipy sparse matrix or a pandas 
+        Series containing string-encoded sparse matrix data.
+    
+    threshold : float, optional, default 0.9
+        The minimum proportion of entries that must match the sparse 
+        pattern (i.e., be non-zero) for the data to be considered sparse. 
+        This value should lie between 0 and 1.
+    
+    verbose : bool, optional, default False
+        If set to True, the function will print the sparsity ratio for a 
+        scipy sparse matrix and the proportion of matching entries for a 
+        pandas Series. This is useful for debugging or monitoring the 
+        function’s behavior.
+    
+    Returns
+    -------
+    bool
+        True if the data is a sparse matrix (either scipy sparse matrix or 
+        string-encoded sparse matrix), False otherwise.
+    
+    Notes
+    -----
+    - The function first checks if the data is a scipy sparse matrix 
+      (e.g., `csr_matrix`, `coo_matrix`).
+    - If the data is a pandas Series, it assumes the Series may contain 
+      string-encoded sparse matrix data and checks if each entry in the 
+      Series follows the expected sparse format.
+    - The `threshold` determines how many non-zero elements (or matching 
+      string-encoded sparse entries) are required to consider the data sparse.
+    
+    Examples
+    --------
+    1. Check if a scipy sparse matrix is sparse:
+    
+       ```python
+       sparse_matrix = sp.csr_matrix([[0, 0, 1], [0, 2, 0], [0, 0, 3]])
+       result = is_sparse_matrix(sparse_matrix)
+       print(result)  # Expected: True (based on sparsity ratio)
+       ```
+
+    2. Check if a pandas Series with string-encoded sparse matrix data is sparse:
+    
+       ```python
+       sparse_series = pd.Series([
+           "(0, 0)\t1.0\n(1, 1)\t2.0\n(2, 2)\t3.0",
+           "(0, 1)\t1.5\n(1, 0)\t1.0\n(2, 1)\t2.5"
+       ])
+       result = is_sparse_matrix(sparse_series)
+       print(result)  # Expected: True or False (based on threshold)
+       ```
+
+    References
+    ----------
+    - SciPy Sparse Matrices Documentation:
+      https://docs.scipy.org/doc/scipy/reference/sparse.html
+    - pandas Series Documentation:
+      https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.html
+    """
+    if isinstance ( data, pd.DataFrame) :
+        data = data.squeeze () 
+        
+    # Check if the data is a scipy sparse matrix
+    if isinstance(data, ssp.spmatrix):
+        # Number of non-zero elements in the sparse matrix
+        non_zero_elements = data.nnz
+        
+        # Total number of elements in the matrix (rows * columns)
+        total_elements = data.shape[0] * data.shape[1]
+        
+        # Calculate the sparsity ratio (non-zero elements / total elements)
+        sparsity_ratio = non_zero_elements / total_elements
+        
+        # Print the sparsity ratio if verbose flag is True
+        if verbose:
+            print(f"Sparsity ratio: {sparsity_ratio:.2f}")
+        
+        # If the sparsity ratio meets the threshold, return True (sparse)
+        return sparsity_ratio >= threshold
+    
+    # Check if the data is a pandas Series
+    if isinstance(data, pd.Series):
+        # Check if each entry in the Series follows the expected sparse format
+        matches = data.apply(has_sparse_format)
+        
+        # Calculate the proportion of entries that match the sparse format
+        proportion = matches.mean()
+        
+        # Print the proportion of matching entries if verbose flag is True
+        if verbose:
+            print(f"Proportion of matching entries: {proportion:.2f}")
+        
+        # If the proportion of matching entries
+        # meets the threshold, return True (sparse)
+        return proportion >= threshold
+    
+    # If data is neither a scipy sparse matrix
+    # nor a string-encoded pandas Series
+    if verbose:
+        print("Data is neither a scipy sparse matrix"
+              " nor a string-encoded pandas Series.")
+    
+    return False
+
+def has_sparse_format(s):
+    """
+    Checks if a string follows the expected sparse matrix format for entries
+    (i.e., coordinate-value pairs like (i, j)\tvalue).
+    
+    This function uses a regular expression to identify if a given string 
+    represents a sparse matrix entry with coordinate-value pairs. This is 
+    particularly useful when checking if the entries in a pandas Series 
+    follow the sparse matrix format.
+    
+    Parameters
+    ----------
+    s : str
+        A string entry to check. This should contain coordinates and values 
+        separated by tabs, e.g., "(i, j)\tvalue".
+    
+    Returns
+    -------
+    bool
+        True if the string follows the sparse matrix format, False otherwise.
+    
+    Examples
+    --------
+    1. Check if a string represents a sparse matrix entry:
+    
+       ```python
+       entry = "(0, 0)\t1.0"
+       result = has_sparse_format(entry)
+       print(result)  # Expected: True
+       ```
+    """
+    # Regex pattern for the expected sparse format: (i, j)\tvalue
+    pattern = re.compile(r'\(\d+, \d+\)\t-?\d+(\.\d+)?')
+    
+    if isinstance(s, (ssp.coo_matrix, ssp.csr_matrix, ssp.csc_matrix)):
+        return True 
+    
+    # Return False if s is not a string
+    if not isinstance(s, str):
+        return False
+    
+    # Split the string into individual entries
+    entries = s.split()
+    
+    # Check if each entry matches the sparse matrix format
+    for entry in entries:
+        if not pattern.match(entry):
+            return False
+    
+    return True
+
 def make_obj_consistent_if ( 
         item= ... , default = ..., size =None, from_index: bool =True ): 
     """Combine default values to item to create default consistent iterable 

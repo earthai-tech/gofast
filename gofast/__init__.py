@@ -79,9 +79,9 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 
 # Setup logging configuration
-from .util import setup_logging
+from .util import initialize_logging
 
-setup_logging()
+initialize_logging()
 
 # Public API flag
 PUBLIC = False
