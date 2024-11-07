@@ -869,7 +869,7 @@ class ProgressBar:
 
         # Display time elapsed if provided
         time_info = (
-            f" - time elapsed: {time_elapsed:.2f}s" 
+            f" - ETA: {time_elapsed:.2f}s" 
             if time_elapsed is not None else ""
         )
 
@@ -2513,16 +2513,146 @@ def safe_getattr(obj: Any, name: str, default_value: Optional[Any] = None) -> An
         f"'{obj.__class__.__name__}' object has no attribute '{name}'{suggestion}")
 
 
+class _SafeOptimize:
+    def __init__(
+        self,
+        func: Optional[Callable] = None,
+        *,
+        parallelize: bool = True,
+        memory_cleanup: bool = False,
+        log_level: int = logging.INFO,
+        optimize_cpu: bool = True,
+        num_processes: Optional[int] = None,
+        cpu_cores: Optional[List[int]] = None,
+        verbose: bool = True,
+        mode: str = 'strict'
+    ):
+        self.func = func
+        self.parallelize = parallelize
+        self.memory_cleanup = memory_cleanup
+        self.log_level = log_level
+        self.optimize_cpu = optimize_cpu
+        self.num_processes = num_processes
+        self.cpu_cores = cpu_cores
+        self.verbose = verbose
+        self.mode = mode
+
+    def __call__(self, *args, **kwargs):
+        if self.func is None and len(args) == 1 and callable(args[0]):
+            # Decorator used without arguments
+            self.func = args[0]
+            return self._wrap_function(self.func)
+        elif self.func and callable(self.func):
+            # Function is already set, execute it
+            return self._wrap_function(self.func)(*args, **kwargs)
+        else:
+            # Decorator used with arguments
+            def wrapper(func):
+                self.func = func
+                return self._wrap_function(func)
+            return wrapper
+
+    def _wrap_function(self, func):
+        @functools.wraps(func)
+        def wrapped_function(*args, **kwargs):
+            return self._execute_function(func, *args, **kwargs)
+        return wrapped_function
+
+    def _execute_function(self, func, *args, **kwargs):
+        # Set up logging based on the specified log level
+        logger.setLevel(self.log_level)
+
+        # Record the start time
+        start_time = time.time()
+        if self.verbose:
+            logger.info(
+                f"Starting workflow optimization for '{func.__name__}'..."
+            )
+
+        # Apply CPU optimization if requested
+        if self.optimize_cpu and self.cpu_cores:
+            try:
+                _reset_cpu_affinity(self.cpu_cores)
+                logger.info(
+                    f"Optimized CPU usage, restricted to cores "
+                    f"{self.cpu_cores}."
+                )
+            except Exception as e:
+                logger.error(f"CPU optimization failed: {e}")
+                if self.mode == 'strict':
+                    raise
+                elif self.mode == 'soft':
+                    logger.warning(
+                        "Falling back to default CPU settings."
+                    )
+
+        # Check if the function is picklable
+        if self.parallelize:
+            parallelize_flag = True
+            if not _is_picklable(func, self.mode):
+                if self.mode == 'strict':
+                    raise pickle.PicklingError(
+                        f"Function '{func.__name__}' or its arguments are "
+                        "not picklable."
+                    )
+                elif self.mode == 'soft':
+                    logger.warning(
+                        f"Function '{func.__name__}' or its arguments are "
+                        "not picklable. Falling back to sequential execution."
+                    )
+                    parallelize_flag = False   
+        else:
+            parallelize_flag = False
+
+        # Apply parallelization strategy if enabled
+        if parallelize_flag:
+            try:
+                results = _parallelize_flow(
+                    func,
+                    self.num_processes,
+                    *args,
+                    **kwargs
+                )
+            except Exception as e:
+                logger.error(f"Parallel execution failed: {e}")
+                if self.mode == 'strict':
+                    raise
+                elif self.mode == 'soft':
+                    logger.warning(
+                        "Falling back to sequential execution."
+                    )
+                    results = func(*args, **kwargs)
+        else:
+            # Execute function normally if parallelization is disabled
+            results = func(*args, **kwargs)
+
+        # If memory cleanup is requested, clean up after execution
+        if self.memory_cleanup:
+            _clean_up_memory(verbose=self.verbose)
+            logger.info("Memory cleanup completed.")
+
+        # Log execution time
+        elapsed_time = time.time() - start_time
+        if self.verbose:
+            logger.info(
+                f"Workflow '{func.__name__}' completed in "
+                f"{elapsed_time:.4f} seconds."
+            )
+
+        return results
+
 def safe_optimize(
-    parallelize: bool = True,          
-    memory_cleanup: bool = False,     
-    log_level: int = logging.INFO,     
-    optimize_cpu: bool = True,         
-    num_processes: Optional[int] = None,  
-    cpu_cores: Optional[List[int]] = None,  
-    verbose: bool = True,               
-    mode: str = 'strict'                 
-):
+    func: Optional[Callable] = None,
+    *,
+    parallelize: bool = True,
+    memory_cleanup: bool = False,
+    log_level: int = logging.INFO,
+    optimize_cpu: bool = True,
+    num_processes: Optional[int] = None,
+    cpu_cores: Optional[List[int]] = None,
+    verbose: bool = True,
+    mode: str = 'strict'
+) -> Callable:
     """
     Optimizes the workflow by wrapping a function to measure execution time,
     enable parallelization, manage resources, and perform memory cleanup and 
@@ -2577,7 +2707,7 @@ def safe_optimize(
     --------
     >>> from gofast.tools.sysutils import safe_optimize
 
-    >>> @workflow_optimizer(
+    >>> @safe_optimize(
     ...     parallelize=True,
     ...     memory_cleanup=True,
     ...     log_level=logging.DEBUG,
@@ -2622,85 +2752,17 @@ def safe_optimize(
        https://packaging.python.org/tutorials/installing-packages/
 
     """
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def optimized_function(*args, **kwargs):
-            # Set up logging based on the specified log level
-            logger.setLevel(log_level)
-
-            # Record the start time
-            start_time = time.time()
-            if verbose:
-                logger.info(f"Starting workflow optimization"
-                            f" for '{func.__name__}'...")
-
-            # Apply CPU optimization if requested
-            if optimize_cpu and cpu_cores:
-                try:
-                    _reset_cpu_affinity(cpu_cores)
-                    logger.info(f"Optimized CPU usage, restricted"
-                                f" to cores {cpu_cores}.")
-                except Exception as e:
-                    logger.error(f"CPU optimization failed: {e}")
-                    if mode == 'strict':
-                        raise
-                    elif mode == 'soft':
-                        logger.warning("Falling back to default CPU settings.")
-
-            # Check if the function and data are picklable
-            if parallelize:
-                if not _is_picklable(func, mode):
-                    if mode == 'strict':
-                        raise PicklingError(
-                            f"Function '{func.__name__}' or"
-                            " its arguments are not picklable."
-                        )
-                    elif mode == 'soft':
-                        logger.warning(
-                            f"Function '{func.__name__}' or"
-                            " its arguments are not picklable. "
-                            "Falling back to sequential execution."
-                        )
-                        parallelize_flag = False
-                else:
-                    parallelize_flag = True
-            else:
-                parallelize_flag = False
-
-            # Apply parallelization strategy if enabled
-            if parallelize_flag:
-                try:
-                    results = _parallelize_flow(
-                        func, num_processes, *args, **kwargs)
-                except Exception as e:
-                    logger.error(f"Parallel execution failed: {e}")
-                    if mode == 'strict':
-                        raise
-                    elif mode == 'soft':
-                        logger.warning("Falling back to sequential execution.")
-                        results = func(*args, **kwargs)
-            else:
-                # Execute function normally if parallelization is disabled
-                results = func(*args, **kwargs)
-
-            # If memory cleanup is requested, clean up after execution
-            if memory_cleanup:
-                _clean_up_memory(verbose=verbose)
-                logger.info("Memory cleanup completed.")
-
-            # Log execution time
-            elapsed_time = time.time() - start_time
-            if verbose:
-                logger.info(
-                    f"Workflow '{func.__name__}' completed"
-                    f" in {elapsed_time:.4f} seconds.")
-
-            return results
-
-        return optimized_function
-
-    return decorator
-
+    return _SafeOptimize(
+        func=func,
+        parallelize=parallelize,
+        memory_cleanup=memory_cleanup,
+        log_level=log_level,
+        optimize_cpu=optimize_cpu,
+        num_processes=num_processes,
+        cpu_cores=cpu_cores,
+        verbose=verbose,
+        mode=mode
+    )
 
 def _is_picklable(func: Callable, mode: str) -> bool:
     """
@@ -2716,7 +2778,7 @@ def _is_picklable(func: Callable, mode: str) -> bool:
     Returns
     -------
     bool
-        Returns ``True`` if the function and its arguments are picklable, 
+        Returns ``True`` if the function and its arguments are picklable,
         ``False`` otherwise.
 
     Raises
@@ -2724,25 +2786,45 @@ def _is_picklable(func: Callable, mode: str) -> bool:
     PicklingError
         If the function or its arguments are not picklable and mode is 'strict'.
     """
-    
-
     try:
         # Attempt to pickle the function
         pickle.dumps(func)
         return True
-    except PicklingError as e:
-        if mode == 'strict':
-            raise PicklingError(
-                f"Function '{func.__name__}' is not picklable: {e}"
-            )
-        elif mode == 'soft':
-            logger.warning(
-                f"Function '{func.__name__}' is not picklable: {e}. "
-                "Parallelization will be skipped."
-            )
-            return False
+    except pickle.PicklingError as e:
+        if is_module_installed("cloudpickle"):
+            import cloudpickle
+            try:
+                cloudpickle.dumps(func)
+                return True
+            except Exception as e:
+                logger.error(
+                    f"Function '{func.__name__}' is not picklable: {e}"
+                )
+                if mode == 'strict':
+                    raise pickle.PicklingError(
+                        f"Function '{func.__name__}' is not picklable. {e}"
+                    )
+                elif mode == 'soft':
+                    logger.warning(
+                        f"Function '{func.__name__}' is not picklable. "
+                        "Falling back to sequential execution."
+                    )
+                    return False
+        else:
+            if mode == 'strict':
+                raise pickle.PicklingError(
+                    f"Function '{func.__name__}' is not picklable: {e}"
+                )
+            elif mode == 'soft':
+                logger.warning(
+                    f"Function '{func.__name__}' is not picklable: {e}. "
+                    "Parallelization will be skipped."
+                )
+                return False
     except Exception as e:
-        logger.error(f"Unexpected error during pickling check: {e}")
+        logger.error(
+            f"Unexpected error during pickling check: {e}"
+        )
         if mode == 'strict':
             raise
         elif mode == 'soft':
@@ -2750,10 +2832,11 @@ def _is_picklable(func: Callable, mode: str) -> bool:
             return False
 
 def _parallelize_flow(
-    func: Callable, 
-    num_processes: Optional[int], 
-    *args, **kwargs
-    ):
+    func: Callable,
+    num_processes: Optional[int],
+    *args,
+    **kwargs
+):
     """
     Parallelize the execution of a function across multiple processes.
 
@@ -2781,25 +2864,50 @@ def _parallelize_flow(
     """
     if 'data' in kwargs:
         data = kwargs['data']
-        if not isinstance(data, (list, tuple)):
-            raise TypeError(
-                f"'data' parameter should be a list or tuple, got "
-                f"{type(data).__name__!r} instead."
+    elif args:
+        data = args[0]
+    else:
+        logger.info("No data provided for parallel processing.")
+        return func(*args, **kwargs)
+
+    if not isinstance(data, (list, tuple)):
+        raise TypeError(
+            f"'data' parameter should be a list or tuple, got "
+            f"{type(data).__name__!r} instead."
+        )
+
+    if is_module_installed("joblib"):
+        from joblib import Parallel, delayed
+        try:
+            # Run the function in parallel using joblib
+            results = Parallel(n_jobs=num_processes)(
+                delayed(func)(
+                    item,
+                    *args[1:],
+                    **kwargs
+                ) for item in data
             )
+        except Exception as e:
+            logger.error(f"Parallel execution failed: {e}")
+            logger.warning(
+                "Falling back to sequential execution."
+            )
+            results = func(*args, **kwargs)
+    else:
+        import multiprocessing
         num_processes_ = num_processes or min(
-            multiprocessing.cpu_count(), len(data))
-        logger.info(f"Parallelizing with {num_processes_} processes.")
+            multiprocessing.cpu_count(),
+            len(data)
+        )
+        logger.info(
+            f"Parallelizing with {num_processes_} processes."
+        )
 
         # Use multiprocessing Pool to parallelize tasks
         with multiprocessing.Pool(processes=num_processes_) as pool:
-            results = pool.map(func, data)  # Apply function to each data chunk
-    else:
-        # If no data parameter, execute function normally
-        logger.info("No parallel data found, executing function sequentially.")
-        results = func(*args, **kwargs)
+            results = pool.map(func, data)
 
     return results
-
 
 def _reset_cpu_affinity(cpu_cores: List[int]):
     """

@@ -734,7 +734,7 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
             step_metrics=step_metrics,
             epoch_metrics=epoch_metrics
         )
-        
+
         if X_val is not None and y_val is not None:
             # Predict target values for the validation set
             y_val_pred = self.linear_model_.predict(X_val)

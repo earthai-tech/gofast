@@ -179,12 +179,12 @@ class EnsureMethod:
     """
 
     def __init__(
-            self, 
-            method_name=None, 
-            error="raise", 
-            mode="strict", 
-            precondition_attr=None, 
-            verbose=False
+        self, 
+        method_name=None, 
+        error="raise", 
+        mode="strict", 
+        precondition_attr=None, 
+        verbose=False
         ):
         self.method_name = method_name
         self.error = error
@@ -398,7 +398,7 @@ def executeWithFallback(method):
 
     Examples
     --------
-    >>> from gofast.<subpackage>.decorators import executeWithFallback
+    >>> from gofast.decorators import executeWithFallback
     >>> class MyClass:
     >>>     @executeWithFallback
     >>>     def execute(self, *args, **kwargs):
@@ -455,7 +455,7 @@ class RunReturn:
     """
     A class-based decorator that enhances a method's return behavior, allowing 
     flexibility in returning `self`, an attribute, or both. If the decorated 
-    method returns `None`, the `run_return` logic is applied automatically.
+    method returns `None`, the `RunReturn` logic is applied automatically.
 
     Parameters
     ----------
@@ -3502,13 +3502,20 @@ class TrainingProgressBar:
         """
         for metric, value in self.metrics.items():
             if "loss" in metric or "PSS" in metric:
-                # Track minimum values for loss and PSS metrics
-                if value < self.best_metrics_[metric]:
-                    self.best_metrics_[metric] = value
+                try: 
+                    # Track minimum values for loss and PSS metrics
+                    if value < self.best_metrics_[metric]:
+                        self.best_metrics_[metric] = value
+                except: 
+                    # when validation does not exist skip 
+                    pass 
             else:
-                # Track maximum values for other performance metrics
-                if value > self.best_metrics_[metric]:
-                    self.best_metrics_[metric] = value
+                try: 
+                    # Track maximum values for other performance metrics
+                    if value > self.best_metrics_[metric]:
+                        self.best_metrics_[metric] = value
+                except: 
+                    pass 
 
     def _display_progress(self, step, epoch):
         """
