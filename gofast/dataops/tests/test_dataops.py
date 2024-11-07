@@ -54,7 +54,7 @@ except :
     if not is_module_installed("requests"): 
         install_package("requests")
 
-DOWNLOAD_FILE='https://raw.githubusercontent.com/WEgeophysics/gofast/main/gofast/datasets/data/iris.csv'
+DOWNLOAD_FILE='https://raw.githubusercontent.com/earthai-tech/gofast/main/gofast/datasets/data/iris.csv'
 
 class TestSummarizeTextColumns(unittest.TestCase):
     def test_summarize_text_columns(self):

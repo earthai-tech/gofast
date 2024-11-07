@@ -41,6 +41,7 @@ from ..api.types import (
     Optional,
     Union
 )
+from ..decorators import smartFitRun 
 from ..exceptions import EstimatorError, NotFittedError
 from ..tools.coreutils import get_params, listing_items_format, validate_ratio
 from ..tools.ioutils import save_job
@@ -72,6 +73,7 @@ _param_docs = DocstringComponents.from_nested_components(
     core=_core_docs["params"], 
     )
 
+@smartFitRun
 class MultipleSearch(BaseClass):
     r"""
     A class for concurrently performing parameter tuning across multiple  
@@ -477,7 +479,7 @@ class MultipleSearch(BaseClass):
             )
         return results, best_params
 
-
+@smartFitRun
 class PerformanceTuning(BaseClass):
     """
     Fine-tune multiple estimators and create performance data for model comparison.
@@ -935,7 +937,7 @@ class PerformanceTuning(BaseClass):
         params = ",\n    ".join(f"{key}={val}" for key, val in parameters.items())
         return f"{self.__class__.__name__}(\n    {params}\n)"
 
-
+@smartFitRun
 class CrossValidator(BaseClass):
     """
     A class for handling cross-validation of machine learning models.
@@ -1324,7 +1326,8 @@ class CrossValidator(BaseClass):
         if not hasattr (self, "score_results_" ): 
             raise NotFittedError(msg.format(expobj=self))
         return 1 
-
+    
+@smartFitRun
 class BaseSearch (BaseClass): 
     __slots__=(
         '_base_estimator',
@@ -1610,7 +1613,8 @@ References
        Journal of Machine Learning Research, 12, 2825-2830.
 """.format (params=_param_docs,
 )
-   
+                            
+@smartFitRun   
 class SearchMultiple(BaseClass):
     def __init__ (
         self, 
@@ -1900,7 +1904,8 @@ Examples
  
 """.format (params=_param_docs,
 )
-    
+ 
+@smartFitRun
 class BaseEvaluation (BaseClass): 
     def __init__(
         self, 

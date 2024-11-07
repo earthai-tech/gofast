@@ -125,7 +125,7 @@ MODULE_MAPPING = {
         'load_model',
         'make_pipe', 
         'one_click_prep',
-        'minimum_data_processor', 
+        'process_data_types', 
         'resampling',
         'save_dataframes', 
         'select_feature_importances', 

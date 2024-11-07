@@ -23,7 +23,7 @@ from .make import (
    make_tem, make_well_logging, make_sounding, make_african_demo,
    make_agronomy_feedback, make_social_media_comments, make_cc_factors,
    make_water_demand, make_regression, make_classification, 
-   make_data, make_financial_market_trends, make_control_system_dynamics
+   make_data, make_financial_market_trends, make_system_dynamics
 )
 # Data simulation functions
 from .simulate import ( 
@@ -46,7 +46,7 @@ __all__ = [
     "make_well_logging", "make_sounding","make_african_demo", "make_cc_factors",
     "make_agronomy_feedback","make_social_media_comments", "make_water_demand", 
     "make_regression","make_classification", "make_drill_ops",
-    "make_data", "make_control_system_dynamics", "make_financial_market_trends",
+    "make_data", "make_system_dynamics", "make_financial_market_trends",
     
     "simulate_water_reserves", "simulate_world_mineral_reserves", 
     "simulate_energy_consumption","simulate_customer_churn",  

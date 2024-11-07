@@ -358,6 +358,8 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=LearnerMeta):
         # Check if y is a DataFrame or Series
         if hasattr(y, "columns"):
             self.target_names_in_ = list(y.columns)
+            # squeeze data if dimension (n_samples, 1)
+            y= y.squeeze() 
             y = np.asarray(y)
             warnings.warn(
                 "Input targets detected as a DataFrame. Target names will "
