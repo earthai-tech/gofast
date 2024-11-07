@@ -2071,6 +2071,11 @@ def manage_data(
         if target_names else list(frame.columns )
     )
     y = None
+    
+    if split_X_y:
+        # set to True to get y 
+        return_X_y =True 
+ 
     if return_X_y:
         y = data [target_names].squeeze ()  
         data.drop( columns = target_names, inplace =True )

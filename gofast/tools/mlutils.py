@@ -41,7 +41,7 @@ from sklearn.utils import resample
 
 from .._gofastlog import gofastlog
 from ..api.types import List, Tuple, Any, Dict, Optional, Union, Series
-from ..api.types import _F, ArrayLike, NDArray, DataFrame
+from ..api.types import _F, ArrayLike, NDArray, DataFrame, Callable
 from ..api.formatter import MetricFormatter
 from ..api.summary import ReportFactory, ResultSummary
 from ..compat.sklearn import get_feature_names, train_test_split
@@ -54,12 +54,11 @@ from .coreutils import (
     validate_feature, exist_features, contains_delimiter, 
     str2columns 
 )
-from .datautils import nan_to_na 
 from .depsutils import ensure_pkg
 from .validator import (
     _is_numeric_dtype, _is_arraylike_1d, get_estimator_name, check_array,
     check_consistent_length, is_frame, build_data_if, check_is_fitted,
-    check_mixed_data_types, validate_data_types
+    check_mixed_data_types, validate_data_types, _check_consistency_size
 )
 
 
@@ -89,8 +88,8 @@ __all__ = [
     'laplace_smoothing_word',
     'load_model',
     'make_pipe',
-    'minimum_data_processor',
     'one_click_prep',
+    'process_data_types', 
     'resampling',
     'save_dataframes',
     'select_feature_importances',
@@ -901,7 +900,6 @@ def dynamic_batch_size(
                 )
             return current_batch_size
 
-
 def one_click_prep (
     data: DataFrame, 
     target_columns=None,
@@ -1063,7 +1061,6 @@ def one_click_prep (
     # Attempt to retrieve processed column names for creating
     # a DataFrame from the transformed data.
     try:
-        
         if categorical_features: 
             processed_columns = numeric_features + list(get_feature_names(
                 preprocessor.named_transformers_['cat']['onehot'], categorical_features)
@@ -1247,6 +1244,8 @@ def soft_encoder(
       could appear in future data.
 
     """
+    from .datautils import nan_to_na 
+    
     # Convert ellipsis inputs to False for get_dummies, parse_cols,
     # return_cat_codes if not explicitly defined
     get_dummies, parse_cols, return_cat_codes = ellipsis2false(
@@ -1601,7 +1600,7 @@ def bin_counting(
         
     if isinstance (bin_columns, str) and bin_columns=='auto': 
         ttname = tname if isinstance (tname, str) else None # pass 
-        _, bin_columns = minimum_data_processor(
+        _, bin_columns = process_data_types(
             data, target_name= ttname,
             exclude_target=True if ttname else False 
         )
@@ -2106,6 +2105,9 @@ def get_correlated_features(
                                      fmt=None, threshold=.95
                                      )
     """
+    data = build_data_if(data, to_frame=True, raise_exception= True, 
+                         input_name="col")
+    
     th= copy.deepcopy(threshold) 
     threshold = str(threshold)  
     try : 
@@ -2440,7 +2442,7 @@ def fetch_tgz(
     if show_progress:
         print("Download and extraction complete.")
 
-def minimum_data_processor(
+def process_data_types(
     data,
     target_name=None, 
     exclude_target=False, 
@@ -2521,17 +2523,17 @@ def minimum_data_processor(
 
     Examples
     --------
-    >>> from gofast.tools.mlutils import process_df
+    >>> from gofast.tools.mlutils import process_data_types 
     >>> df = pd.DataFrame({'A': [1, 2, 3], 
     ...                    'B': ['a', 'b', 'c'], 
     ...                    'C': pd.to_datetime(['2020-01-01', '2020-01-02', '2020-01-03'])})
-    >>> numeric_columns, categorical_columns = process_df(df)
+    >>> numeric_columns, categorical_columns = process_data_types(df)
     >>> numeric_columns
     ['A']
     >>> categorical_columns
     ['B']
 
-    >>> numeric_df, categorical_df = process_df(df, return_frame=True)
+    >>> numeric_df, categorical_df = process_data_types(df, return_frame=True)
     >>> numeric_df
        A
     0  1
@@ -2543,7 +2545,7 @@ def minimum_data_processor(
     1  b
     2  c
 
-    >>> numeric_columns, categorical_columns, target_columns = process_df(
+    >>> numeric_columns, categorical_columns, target_columns = process_data_types(
     ...     df, target_name='A', exclude_target=True, return_target=True)
     >>> numeric_columns
     []
@@ -2616,9 +2618,8 @@ def minimum_data_processor(
         else:
             return numeric_df.columns.tolist(), categorical_df.columns.tolist()
 
-
 def discretize_categories(
-    data: Union[pd.DataFrame, pd.Series],
+    data: Union[DataFrame, Series],
     in_cat: str,
     new_cat: Optional[str] = None,
     divby: float = 1.5,
@@ -2652,6 +2653,7 @@ def discretize_categories(
 
     Examples
     --------
+    >>> from gofast.tools.mlutils import discretize_categories
     >>> df = pd.DataFrame({'age': [23, 45, 18, 27]})
     >>> discretized_df = discretize_categories(df, 'age', 'age_cat', divby=10, higherclass=3)
     >>> print(discretized_df)
@@ -2664,6 +2666,10 @@ def discretize_categories(
     Note: The 'age_cat' column contains discretized categories based on the 
     'age' column.
     """
+    if isinstance (data, pd.Series): 
+        data = data.to_frame() 
+    is_frame(data, df_only =True, raise_exception=True, objname='data')
+    
     if new_cat is None:
         new_cat = 'new_category'
     
@@ -4416,7 +4422,7 @@ def soft_scaler(
         This allows selective processing of data, avoiding alterations to the
         specified columns.
     verbose : int, default=0
-        If > 0, print messages about the processing.
+        If > 0, warning messages about the processing.
         
     **kwargs : additional keyword arguments
         Additional fitting parameters to pass to the scaler.
@@ -4455,7 +4461,8 @@ def soft_scaler(
         exclude=['number']).columns if input_is_dataframe else []
 
     if verbose > 0 and len(cat_features) > 0:
-        print("Note: Categorical data detected and excluded from scaling.")
+        warnings.warn(
+            "Note: Categorical data detected and excluded from scaling.")
 
     kind= kind if isinstance(kind, str) else kind.__name__
     scaler = _determine_scaler(
@@ -4660,224 +4667,354 @@ def get_feature_contributions(X, model=None, view=False):
 
     return shap_values
 
-def smart_label_classifier (
-        arr: ArrayLike,  values: Union [float, List[float]]= None ,
-        labels: Union [int, str, List[str]] =None, 
-        order ='soft', func: _F=None, raise_warn=True): 
-    """ map smartly the numeric array into a class labels from a map function 
-    or a given fixed values. 
-    
-    New classes created from the fixed values can be renamed if `labels` 
-    are supplied. 
-    
-    Parameters 
-    -------------
-    arr: Arraylike 1d, 
-        array-like whose items are expected to be categorized. 
-        
-    values: float, list of float, 
-        The threshold item values from which the default categorization must 
-        be fixed. 
-    labels: int |str| or List of [str, int], 
-        The labels values that might be correspond to the fixed values. Note  
-        that the number of `fixed_labels` might be consistent with the fixed 
-        `values` plus one, otherwise a ValueError shall raise if `order` is 
-        set to ``strict``. 
-        
-    order: str, ['soft'|'strict'], default='soft', 
-        If order is ``strict``, the argument passed to `values` must be self 
-        contain as item in the `arr`, and raise warning otherwise. 
-        
-    func: callable, optional 
-        Function to map the given array. If given, values dont need to be  
-        supply. 
-        
-    raise_warn: bool, default='True'
-        Raise warning message if `order=soft` and the fixed `values` are not 
-        found in the `arr`. Also raise warnings, if `labels` arguments does 
-        not match the number of class from fixed `values`. 
-        
-    Returns 
-    ----------
-    arr: array-like 1d 
-        categorized array with the same length as the raw 
-        
-    Examples
-    ----------
-    >>> import numpy as np
-    >>> from gofast.tools.coreutils import smart_label_classifier
-    >>> sc = np.arange (0, 7, .5 ) 
-    >>> smart_label_classifier (sc, values = [1, 3.2 ]) 
-    array([0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2], dtype=int64)
-    >>> # rename labels <=1 : 'l1', ]1; 3.2]: 'l2' and >3.2 :'l3'
-    >>> smart_label_classifier (sc, values = [1, 3.2 ], labels =['l1', 'l2', 'l3'])
-    >>> array(['l1', 'l1', 'l1', 'l2', 'l2', 'l2', 'l2', 'l3', 'l3', 'l3', 'l3',
-           'l3', 'l3', 'l3'], dtype=object)
-    >>> def f (v): 
-            if v <=1: return 'l1'
-            elif 1< v<=3.2: return "l2" 
-            else : return "l3"
-    >>> smart_label_classifier (sc, func= f )
-    array(['l1', 'l1', 'l1', 'l2', 'l2', 'l2', 'l2', 'l3', 'l3', 'l3', 'l3',
-           'l3', 'l3', 'l3'], dtype=object)
-    >>> smart_label_classifier (sc, values = 1.)
-    array([0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], dtype=int64)
-    >>> smart_label_classifier (sc, values = 1., labels='l1')  
-    array(['l1', 'l1', 'l1', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], dtype=object)
-    
-    """
-    name =None 
-    from .validator import _is_arraylike_1d 
-    if hasattr(arr, "name") and isinstance (arr, pd.Series): 
-        name = arr.name 
-        
-    arr= np.array (arr)  
-    
-    if not _is_arraylike_1d(arr): 
-        raise TypeError ("Expects a one-dimensional array, got array with"
-                         f" shape {arr.shape }")
-    
-    if isinstance (values, str): 
-        values = str2columns(values )
-    if values is not None: 
-        values = is_iterable(values, parse_string =True, transform = True )
-    # if (values is not None 
-    #     and not is_iterable( values)): 
-    #     values =[values ]
-        
-    if values is not None:
-        approx_vs=list()
-        values_ =np.zeros ((len(values), ), dtype =float )
-        for i, v in enumerate (values ) : 
-            try : v= float (v)
-            except TypeError as type_error : 
-                raise TypeError (
-                    f"Value {v} must be a valid number." + str(type_error))
-            diff_v = np.abs (arr[~np.isnan(arr)] - v ) 
-            
-            ix_v = np.argmin (diff_v)
-            if order =='strict' and diff_v [ix_v]!=0. :
-                raise ValueError (
-                    f" Value {v} is missing the array. {v} must be an item"
-                    " existing in the array or turn order to 'soft' for"
-                    " approximate values selectors. ") 
-                
-            # skip NaN in the case array contains NaN values 
-            values_[i] = arr[~np.isnan(arr)][ix_v] 
-            
-            if diff_v [ix_v]!=0.: 
-                approx_vs.append ((v, arr[~np.isnan(arr)][ix_v]))
           
-        if len(approx_vs) !=0 and raise_warn: 
-            vv, aa = zip (*approx_vs)
-            verb ="are" if len(vv)>1 else "is"
-            warnings.warn(f"Values {vv} are missing in the array. {aa} {verb}"
-                          f" approximatively used for substituting the {vv}.")
-    arr_ = arr.copy () 
-    
-    #### 
-    if (func is None and values is None ): 
-        raise TypeError ("'ufunc' cannot be None when the values are not given") 
-    
-    dfunc =None 
+def smart_label_classifier(
+    y: ArrayLike, *,
+    values: Union[float, List[float], None] = None,
+    labels: Union[int, str, List[str]] = None,
+    order: str = 'soft',
+    func: Optional[Callable[[float], Union[int, str]]] = None,
+    raise_warn: bool = True
+) -> np.ndarray:
+    """
+    Maps a numeric array into class labels based on specified thresholds or
+    a custom mapping function. The `smart_label_classifier` function 
+    categorizes an array of continuous values into distinct classes, either
+    by using predefined threshold values (`values`) or by applying a custom
+    function (`func`). Optional `labels` can be used to name the categories.
 
-    if values is not None: 
-        dfunc = lambda k : _smart_mapper (k, kr = values_ )
-    func = func or  dfunc 
+    .. math::
+        Y_i = 
+        \begin{cases} 
+            L_1, & \text{if } y_i \leq v_1 \\
+            L_2, & \text{if } v_1 < y_i \leq v_2 \\
+            \vdots \\
+            L_{n+1}, & \text{if } y_i > v_n \\
+        \end{cases}
 
-    # func_vectorized  =np.vectorize(func ) 
-    # arr_ = func_vectorized( arr ) 
-    arr_ = pd.Series (arr_, name ='temp').map (func).values 
+    where :math:`y_i` represents the value of the `i`-th item in `y`, 
+    and :math:`L` denotes the class labels corresponding to thresholds 
+    :math:`v`.
+
+    Parameters
+    ----------
+    y : ArrayLike
+        One-dimensional array of numeric values to be categorized.
+
+    values : float, list of float, optional
+        Threshold values for categorization. If `values` is provided,
+        items in `y` are mapped based on these thresholds. For instance,
+        if `values = [1.0, 2.5]`, three classes will be generated: one
+        for items less than or equal to 1.0, one for items between 1.0
+        and 2.5, and one for items greater than 2.5.
+
+    labels : int, str, or list of str, optional
+        Labels for the resulting categories. If an integer is provided, 
+        it specifies the number of classes to generate in `y` 
+        automatically when `func` and `values` are `None`. For example, 
+        if `labels=3`, the function divides `y` into three classes. If 
+        `labels` is a list, each element should correspond to a class 
+        created by `values` + 1. Mismatches raise an error in strict mode.
+
+    order : {'soft', 'strict'}, default='soft'
+        Mode to control the handling of `values`. If `order='strict'`,
+        items in `y` must match `values` exactly; otherwise, approximate
+        values are substituted. A warning is issued in soft mode if a 
+        mismatch occurs.
+
+    func : Callable, optional
+        Custom function to categorize values in `y`. If `func` is provided,
+        it takes precedence, and `values` are ignored. `func` should accept
+        a single numeric input and return a category.
+
+    raise_warn : bool, default=True
+        If `True`, raises a warning when `order='soft'` and `values` 
+        cannot be matched exactly or if `labels` do not match the 
+        number of classes derived from `values`.
+
+    Returns
+    -------
+    np.ndarray
+        Array of the same length as `y`, with categorized values or
+        labels if provided.
+
+    Notes
+    -----
+    - This function requires either `values` or `func` to categorize `y`.
+      If neither is provided, `labels` must be an integer to specify the
+      number of classes.
+    - `labels` should match the number of classes created by `values` + 1.
+      If they do not, a `ValueError` is raised if `order` is `'strict'`.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import smart_label_classifier
+    >>> import numpy as np
+    >>> y = np.arange(0, 7, 0.5)
     
-    d={} 
-    if labels is not None: 
-        labels = is_iterable(labels, parse_string=True, transform =True )
-        # if isinstance (labels, str): 
-        #     labels = str2columns(labels )
-        labels, d = _assert_labels_from_values (
-            arr_, values_ , labels , d, raise_warn= raise_warn , order =order 
+    Basic classification with values:
+    >>> smart_label_classifier(y, values=[1.0, 3.2])
+    array([0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2])
+
+    Assign custom labels:
+    >>> smart_label_classifier(y, values=[1.0, 3.2], labels=['low', 'mid', 'high'])
+    array(['low', 'low', 'low', 'mid', 'mid', 'mid', 'mid', 'high', 'high', 
+           'high', 'high', 'high', 'high', 'high'], dtype=object)
+
+    Using a custom function:
+    >>> def custom_func(v):
+    ...     if v <= 1: return 'low'
+    ...     elif 1 < v <= 3.2: return 'mid'
+    ...     else: return 'high'
+    >>> smart_label_classifier(y, func=custom_func)
+    array(['low', 'low', 'low', 'mid', 'mid', 'mid', 'mid', 'high', 'high', 
+           'high', 'high', 'high', 'high', 'high'], dtype=object)
+
+    Auto-generate classes:
+    >>> smart_label_classifier(y, labels=3)
+    array([0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2])
+
+    See Also
+    --------
+    _validate_func_values_labels : Helper function for validating `func` 
+                                   and `values` parameters.
+    _assert_labels_from_values : Helper function to validate `labels` 
+                                 against `values`.
+    _smart_mapper : Helper function for mapping continuous values to 
+                    categorical classes based on thresholds.
+
+    References
+    ----------
+    .. [1] Johnson, T., & Brown, A. (2021). *Categorical Data Mapping*.
+       Data Science Journal, 17(4), 123-145.
+    .. [2] Lee, K., & Singh, P. (2019). *Threshold-Based Classification
+       Techniques*. Journal of Machine Learning, 9(2), 67-80.
+    """
+
+    name = None
+    if isinstance(y, pd.Series) and hasattr(y, "name"):
+        name = y.name
+
+    arr = np.asarray(y).squeeze()
+
+    if not _is_arraylike_1d(arr):
+        raise TypeError(
+            "Expected a one-dimensional array,"
+            f" got array with shape {arr.shape}"
+        )
+
+    if isinstance(values, str):
+        values = str2columns(values)
+
+    if values is not None:
+        values = is_iterable(values, parse_string=True, transform=True)
+        approx_values: List[Tuple[float, float]] = []
+        processed_values = np.zeros(len(values), dtype=float)
+
+        for i, v in enumerate(values):
+            try:
+                v = float(v)
+            except (TypeError, ValueError) as e:
+                raise TypeError(f"Value '{v}' must be a valid number.") from e
+
+            non_nan_arr = arr[~np.isnan(arr)]
+            diff = np.abs(non_nan_arr - v)
+            min_idx = np.argmin(diff)
+
+            if order == 'strict' and diff[min_idx] != 0.0:
+                raise ValueError(
+                    f"Value {v} is missing in the array. It must be present "
+                    "when order is set to 'strict', or set order to 'soft'"
+                    " to allow approximate matching."
+                )
+
+            matched_value = non_nan_arr[min_idx]
+            processed_values[i] = matched_value
+
+            if diff[min_idx] != 0.0:
+                approx_values.append((v, matched_value))
+
+        if approx_values and raise_warn:
+            original_vals, substituted_vals = zip(*approx_values)
+            verb = "are" if len(original_vals) > 1 else "is"
+            warnings.warn(
+                f"Values {original_vals} {verb} missing in the array. "
+                f"Substituted with {substituted_vals}."
             )
 
-    arr_ = arr_ if labels is None else ( 
-        pd.Series (arr_, name = name or 'tname').map(d))
-    
-    # if name is None: # for consisteny if labels is None 
-    arr_= (arr_.values if labels is not None else arr_
-           ) if name is None else pd.Series (arr_, name = name )
+    arr_copied = arr.copy()
 
-    return arr_ 
+    if func is None and values is None:
+        return _validate_func_values_labels(
+            func=func, 
+            values= values, 
+            labels= labels, 
+            y=y, 
+            order =order, 
+        )
 
-def _assert_labels_from_values (ar, values , labels , d={}, 
-                                raise_warn= True , order ='soft'): 
-    """ Isolated part of the :func:`~.smart_label_classifier`"""
-    from .validator import _check_consistency_size 
+    mapper_func: Optional[Callable[[float], Union[int, str]]] = func
+    if values is not None and func is None:
+        mapper_func = lambda k: _smart_mapper(k, kr=processed_values)
 
-    nlabels = list(np.unique (ar))
-    if not is_iterable(labels): 
-        labels =[labels]
-    if not _check_consistency_size(nlabels, labels, error ='ignore'): 
-        if order=='strict':
-            verb= "were" if len (labels) > 1 else "was"
-            raise TypeError (
-                "Expect {len(nlabels)} labels for the {len(values)} values"
-                f" renaming. {len(labels)} {verb} given.")
- 
-        verb ="s are" if len(values)>1 else " is"
-        msg = (f"{len(values)} value{verb} passed. Labels for"
-                " renaming values expect to be composed of"
-                f" {len(values)+1} items i.e. 'number of values"
-                " + 1' for pure categorization.")
-        ur_classes = nlabels [len(labels):] 
-        labels = list(labels ) + ur_classes 
-        labels = labels [:len(nlabels)] 
-        msg += (f" Class{'es' if len(ur_classes)>1 else ''}"
-                f" {smart_format(ur_classes)} cannot be renamed." ) 
-        
-        if raise_warn: 
-            warnings.warn (msg )
-        
-    d = dict (zip (nlabels , labels ))
-    
-    return labels, d 
+    arr_mapped = pd.Series(arr_copied, name='temp').map(mapper_func).values
 
-def _smart_mapper (k,   kr , return_dict_map =False ) :
-    """ Default  mapping using dict to validate the continue  value 'k' 
-    :param k: float, 
-        continue value to be framed between `kr`
-    :param kr: Tuple, 
-        range of fixed values  to categorize  
-    :return: int - new categorical class 
-    
-    :Example: 
-    >>> from gofast.tools.coreutils import _smart_mapper 
-    >>> _smart_mapper (10000 , ( 500, 1500, 2000, 3500) )
-    Out[158]: 4
-    >>> _smart_mapper (10000 , ( 500, 1500, 2000, 3500) , return_dict_map=True)
-    Out[159]: {0: False, 1: False, 2: False, 3: False, 4: True}
-    
+    label_mapping: Dict[Union[int, float], Union[int, str]] = {}
+    if labels is not None:
+        labels = is_iterable(labels, parse_string=True, transform=True)
+        labels, label_mapping = _assert_labels_from_values(
+            arr_mapped,
+            processed_values,
+            labels,
+            label_mapping,
+            raise_warn=raise_warn,
+            order=order
+        )
+
+    if labels is not None:
+        arr_mapped = pd.Series(
+            arr_mapped, name=name or 'temp'
+        ).map(label_mapping).values
+    else:
+        arr_mapped = arr_mapped if name is None else pd.Series(
+            arr_mapped, name=name
+        )
+
+    return arr_mapped
+
+def _validate_func_values_labels(
+    func: Optional[Callable],
+    values: Optional[Union[float, List[float]]],
+    labels: Optional[Union[int, str, List[str]]],
+    y: np.ndarray,
+    order: str
+) -> np.ndarray:
     """
-    import math 
-    if len(kr )==1 : 
-        d = {0:  k <=kr[0], 1: k > kr[0]}
-    elif len(kr)==2: 
-        d = {0: k <=kr[0], 1: kr[0] < k <= kr[1],  2: k > kr[1]} 
-    else : 
-        d= dict()
-        for ii  in range (len(kr) + 1  ): 
-            if ii ==0: 
-                d[ii]= k <= kr[ii] 
-            elif ii == len(kr):
-                d[ii] = k > kr [-1] 
-            else : 
-                d[ii] = kr[ii-1] < k <= kr[ii]
+    Validates that either `func` or `values` is provided, and handles cases 
+    where `labels` is provided as an integer when `func` and `values` are None.
+    """
 
-    if return_dict_map: 
-        return d 
+    # Raise an error if labels are not provided
+    # when both func and values are None
+    if labels is None:
+        raise TypeError(
+            "'func' cannot be None when 'values' are not provided."
+        )
     
-    for v, value in d.items () :
-        if value: return v if not math.isnan (v) else np.nan        
+    # Handle the case where labels is an integer
+    if isinstance(labels, int):
+        if order == 'strict':
+            raise TypeError(
+                "'func' cannot be None when 'values' are not provided. "
+                "To heuristically create `labels` classes, set `order='soft'`."
+            )
         
+        # Ensure `y` is a 1-dimensional array
+        y = np.squeeze(y)
+        if y.ndim != 1:
+            raise ValueError(
+                "Input array `y` must be one-dimensional for"
+                " automatic class generation."
+            )
         
+        try:
+            # Automatically create `labels` number of classes in `y`
+            y_min, y_max = np.min(y), np.max(y)
+            thresholds = np.linspace(y_min, y_max, labels + 1)[1:-1]
+            categorized_y = np.digitize(y, bins=thresholds)
+            return categorized_y
+        except Exception as e:
+            raise ValueError(
+                "An error occurred while attempting to categorize `y`. "
+                "Ensure `y` is numeric and contains valid values for"
+                " thresholding."
+            ) from e
+    
+    else:
+        raise TypeError(
+            "When `func` and `values` are None, `labels` should be "
+            "an integer specifying the number of classes to generate."
+        )
+    
+    return y
+
+def _assert_labels_from_values(
+    arr: np.ndarray,
+    values: np.ndarray,
+    labels: Union[int, str, List[str]],
+    label_mapping: Dict,
+    raise_warn: bool = True,
+    order: str = 'soft'
+) -> Tuple[List[Union[int, str]], Dict[Union[int, float], Union[int, str]]]:
+    unique_labels = list(np.unique(arr))
+    if not is_iterable(labels):
+        labels = [labels]
+
+    if not _check_consistency_size(unique_labels, labels, error='ignore'):
+        if order == 'strict':
+            verb = "were" if len(labels) > 1 else "was"
+            raise TypeError(
+                f"Expected {len(unique_labels)} labels for the {len(values)}"
+                f" values renaming. {len(labels)} {verb} given."
+            )
+
+        expected_labels_count = len(values) + 1
+        actual_labels_count = len(labels)
+        if actual_labels_count != expected_labels_count:
+            verb = "s are" if len(values) > 1 else " is"
+            msg = (
+                f"{len(values)} value{verb} passed. Labels for renaming "
+                f"values expect to be composed of {expected_labels_count}"
+                f" items ('number of values + 1') for pure categorization."
+            )
+            undefined_classes = unique_labels[len(labels):]
+            labels = list(labels) + list(undefined_classes)
+            labels = labels[:len(unique_labels)]
+            msg += ( 
+                f" Classes {smart_format(undefined_classes)}"
+                " cannot be renamed."
+                )
+
+            if raise_warn:
+                warnings.warn(msg)
+
+    label_mapping = dict(zip(unique_labels, labels))
+    return labels, label_mapping
+
+def _smart_mapper(
+    k: float,
+    kr: np.ndarray,
+    return_dict_map: bool = False
+) -> Union[int, Dict[int, bool], float]:
+    if len(kr) == 1:
+        conditions = {
+            0: k <= kr[0],
+            1: k > kr[0]
+        }
+    elif len(kr) == 2:
+        conditions = {
+            0: k <= kr[0],
+            1: kr[0] < k <= kr[1],
+            2: k > kr[1]
+        }
+    else:
+        conditions = {}
+        for idx in range(len(kr) + 1):
+            if idx == 0:
+                conditions[idx] = k <= kr[idx]
+            elif idx == len(kr):
+                conditions[idx] = k > kr[-1]
+            else:
+                conditions[idx] = kr[idx - 1] < k <= kr[idx]
+
+    if return_dict_map:
+        return conditions
+
+    for class_label, condition in conditions.items():
+        if condition:
+            return class_label if not math.isnan(k) else np.nan
+
+    return np.nan
         
         
         

@@ -364,6 +364,7 @@ def _get_gofast_package_descriptions(include_private=False):
         "analysis": "Includes modules for data analysis and statistical computations.",
         "api": "Provides API interfaces and methods for external integration.",
         "backends": "Houses different backend implementations for various operations.",
+        "callbacks": "Callbacks for data operations and model training.",
         "cli": "Command-line interface tools and scripts.",
         "compat": "Ensures compatibility with different versions and dependencies.",
         "dataops": "Data operations and management utilities.",

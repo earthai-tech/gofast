@@ -61,6 +61,7 @@ __all__ = [
     "simulate_weather_data",
     "simulate_climate_data",
     "simulate_clinical_trials",
+    "simulate_telecom_data"
 ]
 
 def simulate_telecom_data(

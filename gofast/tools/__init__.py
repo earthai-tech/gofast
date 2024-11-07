@@ -114,6 +114,7 @@ MODULE_MAPPING = {
         'discretize_categories', 
         'evaluate_model',
         'fetch_model', 
+        'get_batch_size', 
         'get_correlated_features',
         'get_feature_contributions',
         'get_global_score',
@@ -124,7 +125,7 @@ MODULE_MAPPING = {
         'load_model',
         'make_pipe', 
         'one_click_prep',
-        'minimum_data_processor', 
+        'process_data_types', 
         'resampling',
         'save_dataframes', 
         'select_feature_importances', 
@@ -138,7 +139,10 @@ MODULE_MAPPING = {
         'stratify_categories'
     ], 
     'sysutils': [
-        'parallelize_jobs'
+        'WorkflowManager', 
+        'WorkflowOptimizer',
+        'parallelize_jobs', 
+        'safe_optimize', 
         ]
 }
 

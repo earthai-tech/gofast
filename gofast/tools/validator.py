@@ -3284,7 +3284,7 @@ def validate_positive_integer(
 
     # Check for proper type and round if necessary
     if not isinstance(value, (int, float, np.integer, np.floating)):
-        msg = msg or f"{variable_name} must be an integer or float."
+        msg = msg or f"{variable_name} must be an integer or float. Got {value}"
         raise ValueError(msg)
         
     if isinstance(value, float):
@@ -4941,7 +4941,7 @@ def is_frame (arr, df_only =False, raise_exception: bool=False,
             )
     if not isf and raise_exception : 
         # then check only 
-        objname='Expect' if not objname else f'{objname} expects'
+        objname='Expect' if not objname else f'{objname!r} parameter expects'
         raise TypeError(
             f"{objname} a {'DataFrame' if df_only else 'data frame or series'}."
               f" Got {type(arr).__name__!r}")

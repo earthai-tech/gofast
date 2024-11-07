@@ -66,7 +66,7 @@ __all__=[
      'make_tem',
      'make_water_demand',
      'make_well_logging', 
-     'make_control_system_dynamics', 
+     'make_system_dynamics', 
      'make_financial_market_trends', 
  ]
 
@@ -316,8 +316,7 @@ def make_financial_market_trends(
         FDESCR=features_descr, 
     )
 
-
-def make_control_system_dynamics(
+def make_system_dynamics(
     *, samples=1000, 
     end_time=10, 
     input_noise_level=0.05, 

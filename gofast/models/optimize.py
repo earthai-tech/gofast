@@ -19,6 +19,7 @@ from ..api.box import KeyBox
 from ..api.types import Any, Dict, List,Union, Optional, ArrayLike
 from ..api.types import _F, Array1D, NDArray, Callable 
 from ..api.summary import ModelSummary
+from ..decorators import smartFitRun 
 from ..tools.coreutils import ellipsis2false 
 from ..tools.validator import get_estimator_name , check_X_y 
 from ._optimize import BaseOptimizer, _perform_search, _validate_parameters
@@ -32,6 +33,7 @@ __all__=[
     "parallelize_search", "optimize_hyperparams", "optimize_search2", 
     ]
 
+@smartFitRun
 class OptimizeHyperparams(BaseOptimizer):
     """
     OptimizeHyperparams class for hyperparameter optimization of a single 
@@ -323,6 +325,7 @@ class OptimizeHyperparams(BaseOptimizer):
     def __str__(self):
         return super().__str__()
 
+@smartFitRun
 class Optimizer(BaseOptimizer):
     """
     Optimizer class for hyperparameter optimization of multiple estimators.
@@ -576,6 +579,7 @@ class Optimizer(BaseOptimizer):
         self.save_results_to_file(result_dict)
         return self.construct_model_summary(result_dict, descriptor="Optimizer")
 
+@smartFitRun
 class OptimizeSearch(BaseOptimizer):
     """
     OptimizeSearch class for hyperparameter optimization of multiple 
@@ -833,6 +837,7 @@ class OptimizeSearch(BaseOptimizer):
         self.save_results_to_file(result_dict)
         return self.construct_model_summary(result_dict, descriptor="OptimizeSearch")
 
+@smartFitRun
 class ParallelizeSearch(BaseOptimizer):
     """
     ParallelizeSearch class for hyperparameter optimization of multiple 
@@ -1127,6 +1132,7 @@ class ParallelizeSearch(BaseOptimizer):
         self.summary_.summary(o)
         return self.summary_
 
+@smartFitRun
 class Optimizer2(BaseOptimizer):
     """
     Optimizer2 class for hyperparameter optimization of multiple estimators 
@@ -1411,7 +1417,8 @@ class Optimizer2(BaseOptimizer):
 
         self.summary_ = ModelSummary(descriptor="Optimizer2", **o)
         return self.summary_.summary(o)
-    
+   
+@smartFitRun
 class ParallelOptimizer(BaseOptimizer):
     """
     ParallelOptimizer for hyperparameter optimization of multiple estimators.
@@ -1754,39 +1761,6 @@ class ParallelOptimizer(BaseOptimizer):
         self.summary_ = ModelSummary(descriptor="ParallelOptimizer", **results)
         return self.summary_.summary(results)
     
-# write a robust function to create a list of dict estimator ( name , estimators ) and 
-# list of param_grids ( name, estimator_param_grids ) for instance 
-# >>> estimators = {'rf': RandomForestClassifier(), 'svc': SVC()}
-# >>> param_grids = {'rf': {'n_estimators': [10, 100], 'max_depth': [None, 10]},
-# ...                'svc': {'C': [1, 10], 'kernel': ['linear', 'rbf']}}
-
-# function must associate the estimators and param_grids. 
-# note first check whether the length of estimator and param_grids much if not raise error 
-# if estimators is given as {'name1': estimator1, name2: estimator2, ... } already 
-# the name should much in param_grids as 
-# {name1: param_grid1 , name2: param_grid2, ...} 
-
-# if estimators is given as list like [ estimator1, estimator 2] , transform then 
-# by using the estimator name as key as { estimator1 name: estimator1, estimator name2: estimator2}
-# if a list of param_grid is given as [ param_grid1, param_grid2 ] and estimator is given 
-# as {'name1': estimator1, name2: estimator2 } , add new parameter 'alignment_mode' ; 
-#   - if alignment mode is 'soft'(default), then associate the name of estimator to each paramgrid
-#     as param_grids will become { name1: param_grid1, 'name2: param_grid2}
-#    - if aligment mode is 'strict' , then raise error indicating that need to specify the 
-#      param_grid mode. 
-#      However if single estimator and single paramgrid like estimators = estimator or [estimator ] 
-#      and param_grids = param_grid or [param_grid] or course that mean the single estimator is equal 
-#      to it param_grids so estimator will become { estimator name: estimator } and 
-#      param_grids should be {estimator name: param_grid }
-
-# note that if estimator is given as 
-# estimtors = {'name1': estimator1, name2: estimator2, ... }
-# and { = {name1: param_grid1 , name2: param_grid2, ...} , you must check that the name 
-# in estimators.keys and param_grids.keys are identic, the same. 
-
-# function must return estimators, param_grids 
-# find the best function name and parameters name. You can also add more parameters for 
-# versatility and flexibility ; 
 
 def optimize_search(
     estimators: Dict[str, BaseEstimator], 
