@@ -646,7 +646,7 @@ class SuppressOutput:
             sys.stderr = self._stderr
         if self._devnull is not None:
             self._devnull.close()
-            
+
 
 class EpochBar:
     """
@@ -870,20 +870,14 @@ class EpochBar:
         """
         for metric, value in self.metrics.items():
             if "loss" in metric or "PSS" in metric:
-                try: 
-                    # Track minimum values for loss and PSS metrics
-                    if value < self.best_metrics_[metric]:
-                        self.best_metrics_[metric] = value
-                except: 
-                    # when validation does not exist skip 
-                    pass 
+                # Track minimum values for loss and PSS metrics
+                if value < self.best_metrics_[metric]:
+                    self.best_metrics_[metric] = value
             else:
-                try: 
-                    # Track maximum values for other performance metrics
-                    if value > self.best_metrics_[metric]:
-                        self.best_metrics_[metric] = value
-                except: 
-                    pass 
+                # Track maximum values for other performance metrics
+                if value > self.best_metrics_[metric]:
+                    self.best_metrics_[metric] = value
+
 
     def _display_progress(self, step, epoch):
         """
