@@ -25,11 +25,11 @@ from sklearn.metrics import (
     mean_absolute_error,
 )
 from sklearn.utils._param_validation import StrOptions
-from sklearn.utils import check_random_state # , gen_batches 
+from sklearn.utils import check_random_state 
 
 from ..api.types import Any, Optional,Tuple
 from ..compat.sklearn import Interval, get_sgd_loss_param
-from ..decorators import TrainingProgressBar
+from ..tools.contextual import EpochBar
 from ..tools.coreutils import gen_X_y_batches 
 from ..metrics import twa_score, prediction_stability_score
 from ..tools.validator import (
@@ -41,8 +41,6 @@ from ..tools.validator import (
 from ._dynamic_system import BaseHammersteinWiener
 from .util import activator
 
-# Attempt to import 'type_of_target' from sklearn;
-# fallback to local if error
 try:
     from sklearn.utils.multiclass import type_of_target
 except:
@@ -458,7 +456,7 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         
         # Begin the training loop
         if self.verbose == 0:
-            with TrainingProgressBar(
+            with EpochBar(
                 epochs=self.max_iter,
                 steps_per_epoch=len(X_y_batches),
                 metrics=metrics
@@ -1454,7 +1452,7 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
     
         # Begin the training loop
         if self.verbose == 0:
-            with TrainingProgressBar(
+            with EpochBar(
                 epochs=self.max_iter,
                 steps_per_epoch=len(X_y_batches),
                 metrics=metrics

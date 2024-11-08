@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from abc import ABCMeta, abstractmethod
+from abc import abstractmethod
 from numbers import Integral, Real
 from sklearn.base import BaseEstimator
 
@@ -9,11 +9,12 @@ from sklearn.utils._param_validation import Interval, StrOptions, HasMethods
 from sklearn.ensemble import BaggingClassifier, GradientBoostingClassifier
 from sklearn.ensemble import BaggingRegressor, GradientBoostingRegressor
 
+from ..api.property import LearnerMeta 
 from ..tools.validator import check_array
 from ..tools.validator import check_is_fitted, get_estimator_name
 
 
-class BaseEnsemble(BaseEstimator, metaclass=ABCMeta):
+class BaseEnsemble(BaseEstimator, metaclass=LearnerMeta):
     """
     BaseEnsemble
 

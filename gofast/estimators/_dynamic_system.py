@@ -10,11 +10,9 @@ import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.model_selection import train_test_split
 from sklearn.utils._param_validation import HasMethods, StrOptions
-# from sklearn.utils import _safe_indexing, shuffle as sk_shuffle 
 
 from ..api.property import LearnerMeta 
 from ..api.types import Optional, Union, Series, DataFrame, Tuple
-from ..decorators import TrainingProgressBar
 from ..tools.validator import check_is_fitted
 
 
@@ -731,14 +729,14 @@ class BaseHammersteinWiener(BaseEstimator, metaclass=LearnerMeta):
 
     def _train_epoch(
         self,
-        y_train: np.ndarray,
-        X_y_batches: list [np.ndarray, np.ndarray], 
-        X_val:np.ndarray,
-        y_val: np.ndarray,
-        metrics: dict[str, float],
-        epoch: int,
-        bar: Optional[TrainingProgressBar] = None,
-        epoch_metrics: Optional[dict[str, list[float]]] = None
+        y_train,
+        X_y_batches, 
+        X_val,
+        y_val,
+        metrics,
+        epoch,
+        bar=None,
+        epoch_metrics= None
     ) -> None:
         """
         Train the model for one epoch.

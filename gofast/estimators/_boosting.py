@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 
-from abc import ABCMeta, abstractmethod
+from abc import abstractmethod
 from numbers import Integral, Real
 from sklearn.base import BaseEstimator
 from sklearn.utils._param_validation import Interval, StrOptions
+from ..api.property import LearnerMeta 
 
-class BaseBoostingTree(BaseEstimator, metaclass=ABCMeta):
+class BaseBoostingTree(BaseEstimator, metaclass=LearnerMeta):
     """
     Base class for Boosting Tree algorithms.
 
