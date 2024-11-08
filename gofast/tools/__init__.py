@@ -139,10 +139,12 @@ MODULE_MAPPING = {
         'stratify_categories'
     ], 
     'sysutils': [
-        'WorkflowManager', 
         'WorkflowOptimizer',
         'parallelize_jobs', 
         'safe_optimize', 
+        ], 
+    'contextual': [ 
+        'WorkflowManager', 
         ]
 }
 

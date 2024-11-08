@@ -5395,8 +5395,9 @@ def validate_feature(data: Union[DataFrame, Series],  features: List[str],
 
     if len(present_features) != len(features):
         missing_features = set(features).difference(present_features)
+        verb =" is" if len(missing_features) <2 else "s are"
         if verbose == 'raise':
-            raise ValueError("The following features are missing in the "
+            raise ValueError(f"The following feature{verb} missing in the "
                              f"data: {smart_format(missing_features)}.")
         return False
 

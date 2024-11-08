@@ -67,6 +67,7 @@ __all__= [
     'Deprecated',
     'DynamicMethod',
     'EnsureMethod',
+    'executeWithFallback', 
     'ExportData',
     'Extract1dArrayOrSeries',
     'NumpyDocstring',
@@ -337,7 +338,7 @@ class EnsureMethod:
             print(msg)
 
 
-def executeWithFallback(method):
+def executeWithFallback(method, *, mode="soft"):
     """
     Decorator for the `execute` method, providing fallback functionality to
     either `run` or `fit` methods within the class based on availability.
@@ -346,7 +347,8 @@ def executeWithFallback(method):
     `run` or `fit`, depending on which one is available, and provides an 
     informative warning if only one is present. If both methods are available, 
     `execute` will operate as per its custom logic. In the case where neither 
-    `run` nor `fit` exists, an `AttributeError` is raised.
+    `run` nor `fit` exists, an `AttributeError` is raised in ``strict`` mode, 
+    otherwise will operate as per its custom decorated method logic
 
     The decorator is implemented using :math:`\text{method chaining}` to 
     improve code flexibility and prevent redundancy. For example, in cases 
@@ -442,9 +444,12 @@ def executeWithFallback(method):
         
         # Raise an error if neither 'run' nor 'fit' is defined
         else:
-            raise AttributeError("Neither 'run' nor 'fit' methods are "
-                                 "available in the class.")
-    
+            if mode=="strict": 
+                raise AttributeError("Neither 'run' nor 'fit' methods are "
+                                     "available in the class.")
+            else:
+                return method(self, *args, **kwargs)
+        
     return wrapper
 
 class RunReturn:
