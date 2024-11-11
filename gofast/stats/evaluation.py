@@ -24,7 +24,7 @@ import statsmodels.api as sm
 import statsmodels.tsa.stattools as tsa
 import statsmodels.stats.diagnostic as diag
 
-from sklearn.base import BaseEstimator, ClassifierMixin, clone
+from sklearn.base import ClassifierMixin, clone
 from sklearn.metrics import accuracy_score, log_loss, brier_score_loss
 from sklearn.calibration import calibration_curve
 from sklearn.linear_model import LinearRegression
@@ -32,15 +32,14 @@ from sklearn.metrics import mean_squared_error, check_scoring, make_scorer
 from sklearn.inspection import permutation_importance
 from sklearn.model_selection import cross_val_score
 
-
+from ..api.property import BaseClass 
+from ..decorators import smartFitRun
 from ..compat.sklearn import validate_params, Interval, StrOptions, HasMethods
 from ..tools.depsutils import ensure_pkg, is_module_installed
 from ..tools.validator import (
     check_is_fitted, check_is_runned, has_methods, 
     check_X_y, check_array, check_y, validate_distribution,
 )
-from ..decorators import smartFitRun
-
 
 __all__ = [
     'BayesianMethods',
@@ -61,7 +60,7 @@ __all__ = [
     'VarianceComparison',
 ]
 
-class ModelComparison(BaseEstimator):
+class ModelComparison(BaseClass):
     @validate_params(
         {
             "models": [dict],
@@ -70,7 +69,6 @@ class ModelComparison(BaseEstimator):
             "scoring": [HasMethods(['__call__']), str],
         }
     )
-
     def __init__(
         self, 
         models, 
@@ -90,7 +88,6 @@ class ModelComparison(BaseEstimator):
         self.fit_models = fit_models  
 
     def fit(self, X, y, cv=3, **fit_params):
-  
         X, y = check_X_y(
             X, y, 
             accept_sparse=True, 
@@ -122,7 +119,6 @@ class ModelComparison(BaseEstimator):
             self.predictions_[name] = preds
             
         return self
-
 
     def paired_t_test(self, model_a, model_b):
         check_is_fitted(self, "X_")
@@ -345,7 +341,7 @@ References
        Edinburgh: Oliver and Boyd.
 """
 
-class GoodnessOfFit(BaseEstimator, ClassifierMixin):
+class GoodnessOfFit(BaseClass, ClassifierMixin):
     @validate_params(
         {
             "model": [HasMethods(['fit', 'predict_proba'])],
@@ -510,7 +506,7 @@ References
 
 """
 
-class ProbabilisticModels(BaseEstimator):
+class ProbabilisticModels(BaseClass):
     @validate_params(
         {
             "model": [HasMethods(['fit', 'predict_proba'])],
@@ -669,7 +665,7 @@ References
 """
 
 @smartFitRun 
-class VarianceComparison(BaseEstimator):
+class VarianceComparison(BaseClass):
     @validate_params(
         {
             "alpha": [Interval(Real, 0, 1, closed="both")],
@@ -792,7 +788,7 @@ References
 """
 
 @smartFitRun 
-class NonParametrics(BaseEstimator):
+class NonParametrics(BaseClass):
     @validate_params(
         {
             "alpha": [Interval(Real, 0, 1, closed="both")],
@@ -909,7 +905,7 @@ References
 
 """
 
-class NormalityTests(BaseEstimator):
+class NormalityTests(BaseClass):
     @validate_params(
         {
             "alpha": [Interval(Real, 0, 1, closed="both")],
@@ -1033,7 +1029,7 @@ References
     
 """
 
-class InformationCriteria(BaseEstimator):
+class InformationCriteria(BaseClass):
     @validate_params(
         {
             "models": [dict],
@@ -1194,7 +1190,7 @@ References
 """
 
 @smartFitRun 
-class DistributionComparison(BaseEstimator):
+class DistributionComparison(BaseClass):
     @validate_params(
         {
             "base": [Interval( Real, 0, None, closed="neither")],
@@ -1323,7 +1319,7 @@ References
     
 """
 
-class ResidualAnalysis(BaseEstimator):
+class ResidualAnalysis(BaseClass):
     @validate_params(
         {
             "model": [HasMethods(['fit', 'predict'])],
@@ -1468,7 +1464,7 @@ References
    *Introduction to Linear Regression Analysis*. Wiley.
 """
 
-class FeatureImportanceTests(BaseEstimator):
+class FeatureImportanceTests(BaseClass):
     @validate_params(
         {
             "model": [HasMethods(['fit', 'predict'])],
@@ -1614,7 +1610,7 @@ References
 """
 
 @smartFitRun 
-class SequentialTesting(BaseEstimator):
+class SequentialTesting(BaseClass):
     @validate_params(
         {
             "p0": [Interval(Real, 0., 1., closed ="both")],
@@ -1760,7 +1756,7 @@ References
    in Statistical Inference*. Springer.
 """
 
-class RegressionModel(BaseEstimator):
+class RegressionModel(BaseClass):
     @validate_params(
         {
             "full_model": [
@@ -1926,7 +1922,7 @@ References
 """
 
 @smartFitRun 
-class TimeSeriesTests(BaseEstimator):
+class TimeSeriesTests(BaseClass):
     @validate_params ({"lags": [ int, list, None]})
     def __init__(self, lags=None):
         self.lags = lags
@@ -2069,7 +2065,7 @@ References
 
 """
 
-class ErrorAnalysis(BaseEstimator):
+class ErrorAnalysis(BaseClass):
     @validate_params ({"alpha": [Interval(Real, 0, 1, closed="both")]})
     def __init__(self, alpha=0.05):
         self.alpha = alpha
@@ -2220,7 +2216,7 @@ References
 @ensure_pkg(
     "pymc3", extra="pymc3 is needed for BayesianMethods to proceed.",
 )
-class BayesianMethods(BaseEstimator):
+class BayesianMethods(BaseClass):
     @validate_params(
         {
             "tune": Interval(Integral, 1, None, closed="left"),
@@ -2443,7 +2439,7 @@ References
 
 """
 
-class ModelRobustness(BaseEstimator, ClassifierMixin):
+class ModelRobustness(BaseClass, ClassifierMixin):
     @validate_params(
         {
             "model":  [HasMethods(['fit', 'predict'])],
@@ -2786,7 +2782,7 @@ of the model.
 
 See Also
 --------
-sklearn.base.BaseEstimator : Base class for all estimators in scikit-learn.
+sklearn.base.BaseClass : Base class for all estimators in scikit-learn.
 sklearn.base.ClassifierMixin : Mixin class for all classifiers in scikit-learn.
 
 References
