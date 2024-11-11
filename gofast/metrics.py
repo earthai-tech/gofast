@@ -5191,7 +5191,7 @@ def spearmans_rank_score(
         Spearman rank-order correlation coefficient calculation in SciPy.
     pandas.DataFrame.corr:
         Compute pairwise correlation of columns, excluding NA/null values.
-    gofast.tools.mathex.optimized_spearmanr: 
+    gofast.tools.mathext.optimized_spearmanr: 
         Compute Spearman's rank correlation coefficient with support for 
         sample weights, custom tie handling, and NaN policies.
 

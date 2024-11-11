@@ -129,7 +129,7 @@ def perform_friedman_test(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.stats.model_comparisons import perform_friedman_test
+    >>> from gofast.stats.comparisons import perform_friedman_test
     >>> performance_data = pd.DataFrame({
     ...     'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
     ...     'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
@@ -141,7 +141,7 @@ def perform_friedman_test(
     If the result indicates a significant difference and post-hoc 
     testing is desired:
 
-    >>> from gofast.stats.model_comparisons import perform_nemenyi_posthoc_test
+    >>> from gofast.stats.comparisons import perform_nemenyi_posthoc_test
     >>> result_post_hoc = perform_friedman_test(
     ...        performance_data, perform_posthoc=True, 
     ...        posthoc_test=perform_nemenyi_posthoc_test)
@@ -169,7 +169,7 @@ def perform_friedman_test(
         raise ValueError("model_performance_data DataFrame contains"
                          " NaN values. Please clean your data.")
         
-    alpha = validate_ratio(alpha , bounds=(0, 1), exclude =0 )
+    alpha = validate_ratio(alpha , bounds=(0, 1), exclude =0, param_name="alpha" )
     # Validate and normalize score preference
     score_preference = normalize_preference(score_preference)
     # Adjust ranks based on scoring preference
@@ -306,7 +306,7 @@ def perform_nemenyi_posthoc_test(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.stats.model_comparisons import perform_nemenyi_posthoc_test
+    >>> from gofast.stats.comparisons import perform_nemenyi_posthoc_test
     >>> model_performance = pd.DataFrame({
     ...     'Model A': [0.85, 0.80, 0.82],
     ...     'Model B': [0.76, 0.78, 0.75],
@@ -322,7 +322,8 @@ def perform_nemenyi_posthoc_test(
     import pandas as pd
     
     significance_level= validate_ratio(
-        significance_level, bounds=(0, 1), exclude=0 )
+        significance_level, bounds=(0, 1), exclude=0,
+        param_name="significance_level" )
     # Validate input
     if not isinstance(model_performance_data, pd.DataFrame):
         raise TypeError("Input must be a pandas DataFrame.")
@@ -419,7 +420,7 @@ def plot_nemenyi_cd_diagram(
         
     Examples
     --------
-    >>> from gofast.stats.model_comparisons import plot_nemenyi_cd_diagram
+    >>> from gofast.stats.comparisons import plot_nemenyi_cd_diagram
     >>> model_performance_data = pd.DataFrame({
     ...     'Model A': [0.9, 0.85, 0.8],
     ...     'Model B': [0.84, 0.82, 0.83],
@@ -558,7 +559,7 @@ def perform_wilcoxon_test(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.stats.model_comparisons import perform_wilcoxon_test
+    >>> from gofast.stats.comparisons import perform_wilcoxon_test
     >>> model_performance = pd.DataFrame({
             'Model_A': [0.90, 0.85, 0.88],
             'Model_B': [0.92, 0.83, 0.89],
@@ -579,7 +580,7 @@ def perform_wilcoxon_test(
     
     n_models = model_performance_data.shape[1]
     p_values_matrix = np.full((n_models, n_models), np.nan)
-    alpha = validate_ratio( alpha, bounds=(0, 1), exclude=0 )
+    alpha = validate_ratio( alpha, bounds=(0, 1), exclude=0, param_name="alpha" )
     
     for i in range(n_models):
         for j in range(i+1, n_models):
@@ -647,7 +648,7 @@ def perform_friedman_test2(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.stats.model_comparisons import perform_friedman_test2
+    >>> from gofast.stats.comparisons import perform_friedman_test2
     >>> df = pd.DataFrame({
     ...    'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
     ...    'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
@@ -877,7 +878,7 @@ def perform_wilcoxon_test2(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.stats.model_comparisons import perform_wilcoxon_test2
+    >>> from gofast.stats.comparisons import perform_wilcoxon_test2
     >>> performance_data = pd.DataFrame({
     ...     'Model_X': [0.85, 0.80, 0.78],
     ...     'Model_Y': [0.75, 0.82, 0.79],
@@ -968,7 +969,7 @@ def plot_cd_diagram(
 
     Examples
     --------
-    >>> from gofast.stats.model_comparisons import plot_cd_diagram
+    >>> from gofast.stats.comparisons import plot_cd_diagram
     >>> model_performance = pd.DataFrame({
     ...     'Model_A': [0.90, 0.85, 0.88],
     ...     'Model_B': [0.92, 0.83, 0.89],
@@ -1099,7 +1100,7 @@ def plot_model_rankings(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.stats.model_comparisons import plot_model_rankings
+    >>> from gofast.stats.comparisons import plot_model_rankings
     >>> performance_data = {
     ...    'Model_X': [0.85, 0.80, 0.78],
     ...    'Model_Y': [0.75, 0.82, 0.79],
@@ -1234,7 +1235,7 @@ def perform_posthoc_test(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.stats.model_comparisons import perform_posthoc_test
+    >>> from gofast.stats.comparisons import perform_posthoc_test
     >>> df = pd.DataFrame({
     ...    'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
     ...    'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
@@ -1344,7 +1345,7 @@ def calculate_pairwise_mean_differences(
 
     Examples
     --------
-    >>> from gofast.stats.model_comparisons import calculate_pairwise_mean_differences
+    >>> from gofast.stats.comparisons import calculate_pairwise_mean_differences
     >>> performance_data = pd.DataFrame({
     ...     'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
     ...     'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
@@ -1535,7 +1536,7 @@ def perform_posthoc_analysis(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.stats.model_comparisons import perform_posthoc_analysis 
+    >>> from gofast.stats.comparisons import perform_posthoc_analysis 
     >>> performance_data = pd.DataFrame({
     ...     'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
     ...     'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
@@ -1745,8 +1746,8 @@ def compute_stats_comparisons(data_or_result, test_type='wilcoxon'):
 
     Examples:
     --------
-    >>> from gofast.stats.model_comparisons import compute_stats_comparisons
-    >>> from gofast.stats.model_comparisons import perform_wilcoxon_test2
+    >>> from gofast.stats.comparisons import compute_stats_comparisons
+    >>> from gofast.stats.comparisons import perform_wilcoxon_test2
     >>> performance_data = pd.DataFrame({
     ...     'Model_A': [1.0, 0.9, 0.78],
     ...     'Model_B': [0.9, 1.0, 0.9],
@@ -1848,7 +1849,7 @@ def perform_posthoc_test2(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.stats.model_comparisons import perform_posthoc_test
+    >>> from gofast.stats.comparisons import perform_posthoc_test
     >>> model_performance_data = pd.DataFrame({
     ...     'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
     ...     'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
@@ -1921,7 +1922,7 @@ def visualize_model_performance(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.stats.model_comparisons import visualize_model_performance
+    >>> from gofast.stats.comparisons import visualize_model_performance
     >>> # Example DataFrame of model performances
     >>> data = {'Model A': [0.8, 0.82, 0.78],
     ...         'Model B': [0.79, 0.84, 0.76],
@@ -2033,7 +2034,7 @@ def visualize_wilcoxon_test(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.stats.model_comparisons import visualize_wilcoxon_test
+    >>> from gofast.stats.comparisons import visualize_wilcoxon_test
     >>> df = pd.DataFrame({
     ...    'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
     ...    'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
@@ -2180,7 +2181,7 @@ def generate_model_pairs(
 
     Examples:
     ---------
-    >>> from gofast.stats.model_comparisons import generate_model_pairs
+    >>> from gofast.stats.comparisons import generate_model_pairs
     >>> model_performance_data = pd.DataFrame({
     ...     'Model_A': [0.8, 0.82, 0.78, 0.81, 0.79],
     ...     'Model_B': [0.79, 0.84, 0.76, 0.82, 0.78],
@@ -2265,7 +2266,7 @@ def compute_model_summary(
       
     Examples
     ----------
-    >>> from gofast.stats.model_comparisons import compute_model_summary
+    >>> from gofast.stats.comparisons import compute_model_summary
     >>> # Example performance data for 5 models across 5 datasets
     >>> model_performance_data = pd.DataFrame({
     ...    'LR': [86.07, 87.90, 88.57, 90.95, 83.33],
@@ -2353,7 +2354,7 @@ def plot_model_summary(
     --------
     Using a pandas DataFrame as input:
     >>> import pandas as pd 
-    >>> from gofast.stats.model_comparisons import plot_model_summary
+    >>> from gofast.stats.comparisons import plot_model_summary
     >>> performance_data = pd.DataFrame({
     ...     'Model A': [0.8, 0.82, 0.85],
     ...     'Model B': [0.75, 0.78, 0.8]

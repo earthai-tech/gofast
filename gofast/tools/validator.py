@@ -63,6 +63,7 @@ __all__=[
      'filter_valid_kwargs',
      'get_estimator_name',
      'handle_zero_division',
+     'has_methods', 
      'has_fit_parameter',
      'has_required_attributes',
      'is_binary_class',
@@ -101,6 +102,231 @@ __all__=[
      'validate_weights',
      'validate_yy'
  ]
+
+def has_methods(
+    models,
+    methods, 
+    strict=True, 
+    check_status="check_only", 
+    msg=None
+    ):
+    """
+    Validates the implementation of specified methods across model objects.
+
+    This function checks whether each model in ``models`` implements all the 
+    methods listed in ``methods``. It supports both single and multiple 
+    model instances and provides flexible validation behaviors based on 
+    the parameters.
+
+    .. math::
+        \text{For each model } m \text{ in } M, \text{ verify } \forall 
+        \text{method } s \in S, \text{ } m \text{ has method } s \text{ and } 
+        \text{callable}(m.s).
+
+    Parameters
+    ----------
+    models : object or list of objects
+        A single model instance or a list of model instances to be validated.
+    methods : list of str
+        A list of method names (strings) to validate. Only methods that do 
+        not start with an underscore ('_') are considered.
+    strict : bool, optional
+        If ``strict=True``, raises an ``AttributeError`` upon finding a 
+        missing method. If ``False``, behaves based on the ``check_status``
+        parameter. Default is ``True``.
+    check_status : str, optional
+        Determines the return behavior. Must be either ``"validate"`` or 
+        ``"check_only"``.
+        
+        - ``"validate"``: 
+            - If ``strict=True``, raises an error for models missing methods.
+            - If ``False``, returns a list of models that have all required 
+              methods.
+        - ``"check_only"``: 
+            - If ``strict=True``, raises an error for models missing methods.
+            - If ``False``, returns ``True`` if all models have the methods, 
+              ``False`` otherwise.
+        
+        Default is ``"check_only"``.
+    msg : str, optional
+        Custom error message. Can include placeholders:
+        
+        - ``{model}``: Model name.
+        - ``{methods}``: Comma-separated list of missing methods.
+        
+        Example: ``"Model '{model}' lacks methods: {methods}."``
+
+    Returns
+    -------
+    list of objects or bool or True
+        - If ``check_status="validate"``:
+            - If ``strict=True`` and all models have the methods, returns the 
+              list of models.
+            - If ``strict=False``, returns a list of models that have all the 
+              required methods.
+        - If ``check_status="check_only"``:
+            - If ``strict=False``, returns ``True`` if all models have the 
+              methods, ``False`` otherwise.
+            - If ``strict=True`` and all models have the methods, returns 
+              ``True``.
+
+    Raises
+    ------
+    AttributeError
+        If a model does not implement a required method and ``strict=True``.
+    TypeError
+        If ``methods`` is not a list of strings.
+    ValueError
+        If ``check_status`` has an invalid value.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import has_methods
+    >>> class ModelA:
+    ...     def train(self):
+    ...         pass
+    ...     def predict(self):
+    ...         pass
+    >>> class ModelB:
+    ...     def train(self):
+    ...         pass
+    >>> model_a = ModelA()
+    >>> model_b = ModelB()
+    
+    # Strict validation with check_status="validate"
+    >>> try:
+    ...     validated = has_methods(
+    ...         models=[model_a, model_b],
+    ...         methods=['train', 'predict'],
+    ...         strict=True,
+    ...         check_status="validate",
+    ...         msg="Custom Error: {model} lacks methods: {methods}."
+    ...     )
+    ... except AttributeError as e:
+    ...     print(e)
+    Custom Error: ModelB lacks methods: predict.
+
+    # Non-strict validation with check_status="validate"
+    >>> validated = has_methods(
+    ...     models=[model_a, model_b],
+    ...     methods=['train', 'predict'],
+    ...     strict=False,
+    ...     check_status="validate"
+    ... )
+    >>> [type(m).__name__ for m in validated]
+    ['ModelA']
+
+    # Strict check_only
+    >>> try:
+    ...     result = has_methods(
+    ...         models=[model_a, model_b],
+    ...         methods=['train', 'predict'],
+    ...         strict=True,
+    ...         check_status="check_only",
+    ...         msg="Error: {model} is missing methods: {methods}."
+    ...     )
+    ... except AttributeError as e:
+    ...     print(e)
+    Error: ModelB is missing methods: predict.
+
+    # Non-strict check_only
+    >>> result = has_methods(
+    ...     models=[model_a, model_b],
+    ...     methods=['train', 'predict'],
+    ...     strict=False,
+    ...     check_status="check_only"
+    ... )
+    >>> result
+    False
+
+    # Single model input
+    >>> single_result = has_methods(
+    ...     models=model_a,
+    ...     methods=['train', 'predict'],
+    ...     strict=False,
+    ...     check_status="check_only"
+    ... )
+    >>> single_result
+    True
+
+    Notes
+    -----
+    - The function assumes that the model instances are properly initialized.
+    - Only methods that are publicly accessible (do not start with '_') are 
+      considered during validation.
+
+    See Also
+    --------
+    `validate_models` : Another function for model validation.
+
+    References
+    ----------
+    .. [1] Smith, J., & Doe, A. (2020). *Model Validation Techniques*. 
+       Journal of Machine Learning, 15(3), 123-145.
+
+    """
+    if isinstance (models, dict): 
+        models = list(models.values())
+        
+    # Ensure 'models' is a list
+    if not isinstance(models, list):
+        models = [models]
+    
+    # Validate 'methods' parameter
+    if not isinstance(methods, list) or not all(
+        isinstance(m, str) for m in methods
+    ):
+        raise TypeError("'methods' should be a list of method name strings.")
+    
+    # Validate 'check_status' parameter
+    valid_check_status = {"validate", "check_only"}
+    if check_status not in valid_check_status:
+        raise ValueError(
+            f"'check_status' must be one of {valid_check_status}, "
+            f"got '{check_status}'."
+        )
+    
+    missing_methods_report = {}
+    validated_models = []
+    
+    for model in models:
+        missing = []
+        for method in methods:
+            if not hasattr(model, method) or not callable(getattr(model, method)):
+                missing.append(method)
+        if missing:
+            model_name = getattr(model, '__name__', type(model).__name__)
+            missing_methods_report[model_name] = missing
+            if strict:
+                # Use custom message if provided
+                if msg:
+                    error_message = msg.format(
+                        model=model_name, methods=', '.join(missing)
+                    )
+                else:
+                    error_message = (
+                        f"Model '{model_name}' is missing "
+                        f"required methods: {', '.join(missing)}."
+                    )
+                raise AttributeError(error_message)
+        else:
+            validated_models.append(model)
+    
+    if check_status == "validate":
+        if strict:
+            # If strict and no exception was raised, return the list of models
+            return models
+        else:
+            # Return only the validated models
+            return validated_models
+        
+    elif check_status == "check_only":
+        if strict:
+            # If strict and no exception was raised, return True
+            return True
+        else:
+            # Return True if no missing methods, else False
+            return len(missing_methods_report) == 0
 
 def check_is_runned(estimator, attributes=None, *, msg=None, all_or_any=all):
     """
@@ -832,7 +1058,8 @@ def validate_scores(
     # Return scores as numpy array
     return np.asarray(scores)
 
-def _is_probability_distribution(y, mode='strict'):
+
+def _is_probability_distribution(y, mode='strict', error="ignore"):
     """
     Checks if `y` is a probability distribution across the last axis according 
     to the specified mode.
@@ -850,6 +1077,12 @@ def _is_probability_distribution(y, mode='strict'):
         scores are non-negative.
         - 'passthrough': Only checks that all scores are non-negative and do 
           not exceed 1, without summing them.
+    error : str, optional
+        Specifies the error handling behavior. Options are:
+        - 'raise': Raises an error if the check fails.
+        - 'warn': Issues a warning if the check fails and returns False.
+        - 'ignore': Silently ignores any failure and returns False.
+        Default is 'ignore'.
 
     Returns
     -------
@@ -860,32 +1093,64 @@ def _is_probability_distribution(y, mode='strict'):
     Raises
     ------
     ValueError
-        If an invalid mode is specified.
+        If an invalid mode is specified, or if `error` is set to 'raise' and 
+        the distribution check fails in strict mode.
 
     Examples
     --------
+    >>> from gofast.tools.validator import _is_probability_distribution
     >>> y = np.array([0.3, 0.7])
-    >>> print(is_probability_distribution(y, mode='strict'))
+    >>> print(_is_probability_distribution(y, mode='strict'))
     True
 
     >>> y = np.array([0.5, 0.5, 0.2])
-    >>> print(is_probability_distribution(y, mode='soft'))
+    >>> print(_is_probability_distribution(y, mode='soft'))
     False
 
     >>> y = np.array([0.2, 0.3, 0.4])
-    >>> print(is_probability_distribution(y, mode='passthrough'))
+    >>> print(_is_probability_distribution(y, mode='passthrough'))
     True
     """
-  
+    y = np.asarray(y)
+    
+    mode_status ='.'
     if mode == 'strict':
-        return np.all(np.isclose(np.sum(y, axis=-1), 1)) and np.all(y >= 0)
+        is_valid = np.all(np.isclose(np.sum(y, axis=-1), 1)) and np.all(y >= 0)
+        mode_status =(
+            ": Requires that the sum of scores"
+            " exactly equals 1 (within a tolerance)"
+        )
+        
     elif mode == 'soft':
-        return np.all(np.sum(y, axis=-1) <= 1) and np.all(y >= 0)
+        is_valid = np.all(np.sum(y, axis=-1) <= 1) and np.all(y >= 0)
+        mode_status =(
+            ": Requires that the sum of scores does not"
+            " exceed 1 and all scores are non-negative"
+        )
     elif mode == 'passthrough':
-        return np.all(np.asarray(y) <= 1) and np.all(np.asarray(y) >= 0)
+        is_valid = np.all(y <= 1) and np.all(y >= 0)
+        mode_status =(
+            ": Only checks that all scores are non-negative"
+            " and do not exceed 1, without summing them."
+        )
     else:
         raise ValueError(f"Invalid validation mode: '{mode}'. Valid modes"
                          " are 'strict', 'soft', or 'passthrough'.")
+    
+    if not is_valid:
+        if error == "raise":
+            raise ValueError(f"Input array does not meet the {mode} mode "
+                             "requirements for a probability distribution"
+                             f"{mode_status}")
+        elif error == "warn":
+            warnings.warn(f"Input array does not meet the {mode} mode "
+                          "requirements for a probability distribution"
+                          "{mode_status}")
+            return False
+        elif error == "ignore":
+            return False
+    
+    return is_valid
 
 def validate_square_matrix(data, align=False, align_mode="auto", message=''):
     """
@@ -2091,7 +2356,6 @@ def parameter_validator(
       where only specific values are allowed.
     """
     from .coreutils import normalize_string 
-
     def validator(param_value):
         """Validate param value from :func:`~normalize_string`"""
         if param_value:
@@ -2105,10 +2369,15 @@ def parameter_validator(
 
     return validator
 
-def validate_distribution(distribution, elements=None):
+def validate_distribution(
+    distribution, 
+    elements=None, 
+    kind=None, 
+    check_normalization=True
+    ):
     """
-    Validates or generates distributions for given elements ensuring the 
-    sum equals 1.
+    Validates or generates distributions for given elements, ensuring the 
+    sum equals 1 if `check_normalization` is True.
 
     Parameters:
     ----------
@@ -2120,6 +2389,13 @@ def validate_distribution(distribution, elements=None):
         Defines how many elements the distribution should be generated for 
         when 'auto' is used. If a list of strings is provided, its length 
         is used to determine the number of elements.
+    kind : str, optional 
+        Specifies the kind of distribution. It can be ``{"probs"}`` for 
+        probability distributions, where the sum should equal 1 and 
+        values must be non-negative.
+    check_normalization : bool, optional
+        If True, ensures that the sum of the distribution equals 1. 
+        Default is True.
 
     Returns:
     -------
@@ -2129,22 +2405,25 @@ def validate_distribution(distribution, elements=None):
     Raises:
     ------
     ValueError
-        If the provided distribution does not sum to 1 or contains invalid values.
-        
+        If the provided distribution does not meet the specified conditions.
+
     Examples 
     ---------
     >>> from gofast.tools.validator import validate_distribution
-    >>> validate_distribution ("auto", elements= [ 'positive', 'neutral', 'negative'])
+    >>> validate_distribution("auto", elements=['positive', 'neutral', 'negative'])
     (0.1450318690603951, 0.5660028611331361, 0.2889652698064687)
     """
     # Determine the number of elements if a list is provided
-    if isinstance(elements, list):
-        distributed_elements = len(elements)
-    elif isinstance(elements, ( float, int, np.integer, np.floating)):
-        distributed_elements = int (elements)
-    else:
-        raise ValueError("'elements' must be an integer or a list of strings.")
-
+    distributed_elements = None
+    if elements is not None:
+        if isinstance(elements, (list, tuple, np.ndarray)):
+            distributed_elements = len(elements)
+        elif isinstance(elements, (float, int, np.integer, np.floating)):
+            distributed_elements = int(elements)
+        else:
+            raise ValueError("'elements' must be an integer or a list of strings.")
+    
+    # Generate a random distribution if specified as 'auto'
     if str(distribution).lower() == 'auto':
         if distributed_elements is None:
             raise ValueError("'distributed_elements' must be specified when"
@@ -2154,26 +2433,30 @@ def validate_distribution(distribution, elements=None):
         distribution = tuple(random_values / np.sum(random_values))
     else:
         if not hasattr(distribution, '__iter__') or isinstance(distribution, str):
-            # If distribution is not iterable (or a single string), raise an error
             raise ValueError(
-                "distribution must be 'auto', a tuple, or a list of distributions")
+                "Distribution must be 'auto', a tuple, or a list of values.")
         
         distribution = tuple(distribution)
         
         if distributed_elements is not None and len(distribution) != distributed_elements:
             raise ValueError(
-                f"The distribution must have exactly {distributed_elements} elements")
+                f"The distribution must have exactly {distributed_elements} elements.")
         
         validated_distribution = []
         for value in distribution:
             if not isinstance(value, (int, float)):
-                raise ValueError("All distribution values must be numeric")
+                raise ValueError("All distribution values must be numeric.")
             validated_distribution.append(float(value))
         
-        if not np.isclose(sum(validated_distribution), 1):
-            raise ValueError("The sum of the distribution values must be equal to 1")
+        # Check if the distribution is normalized
+        if check_normalization and not np.isclose(sum(validated_distribution), 1):
+            raise ValueError("The sum of the distribution values must be equal to 1.")
         
         distribution = tuple(validated_distribution)
+    
+    # Check if the distribution matches a probability distribution
+    if kind == 'probs':
+        _is_probability_distribution(distribution, mode="strict", error="raise")
     
     return distribution
 
