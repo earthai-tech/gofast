@@ -3,18 +3,15 @@
 
 import pytest
 import numpy as np
-import pandas as pd
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.linear_model import RidgeClassifier
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.base import BaseEstimator, clone
-from sklearn.metrics import mean_squared_error, accuracy_score
+from sklearn.base import clone
+from sklearn.metrics import accuracy_score
 from sklearn.utils._param_validation import InvalidParameterError 
-from scipy.stats import norm, entropy
+from scipy.stats import entropy
 import matplotlib.pyplot as plt
 
-
-# Import all classes from gofast.stats.evaluation
 from gofast.stats.evaluation import (
     BayesianMethods,
     DistributionComparison,
@@ -37,11 +34,30 @@ from gofast.stats.evaluation import (
 # Conditional imports for BayesianMethods
 try:
     import pymc3 as pm
-    import arviz as az
+    import arviz as az # noqa
     PYMCMC_AVAILABLE = True
 except ImportError:
     PYMCMC_AVAILABLE = False
 
+
+try:
+    from scipy.stats import jensenshannon
+    # This is import older version. In newest version, jensenshannon 
+    # has been moved to distance module:
+    # from scipy.stats.distance import jensenshannon 
+    
+except: 
+    # neverthess we can mannually implement this function as 
+    # below based on entropy 
+    
+    def jensenshannon(p, q):
+        """Compute Jensen-Shannon divergence between'
+        two probability distributions."""
+        p = np.array(p)
+        q = np.array(q)
+        m = 0.5 * (p + q)
+        return np.sqrt(0.5 * (entropy(p, m) + entropy(q, m)))
+    
 # Fixtures for common data
 @pytest.fixture
 def regression_data():
@@ -103,18 +119,6 @@ def model_robustness_data():
     y = np.array([0, 1, 0, 1])
     return X, y
 
-
-try:
-    from scipy.stats import jensenshannon
-except: 
-    def jensenshannon(p, q):
-        """Compute Jensen-Shannon divergence between'
-        two probability distributions."""
-        p = np.array(p)
-        q = np.array(q)
-        m = 0.5 * (p + q)
-        return np.sqrt(0.5 * (entropy(p, m) + entropy(q, m)))
-
 # Fixtures for SequentialTesting
 @pytest.fixture
 def sequential_testing_data_accept_h1():
@@ -122,7 +126,8 @@ def sequential_testing_data_accept_h1():
     Fixture for SequentialTesting with data leading to 'Accept H1'.
     """
     # Data that should lead to accepting H1
-    # Assuming p1 > p0, so a series of successes should accumulate the log-likelihood ratio
+    # Assuming p1 > p0, so a series of successes should 
+    # accumulate the log-likelihood ratio
     data = [1] * 10  # all successes
     return data
 
@@ -132,7 +137,8 @@ def sequential_testing_data_accept_h0():
     Fixture for SequentialTesting with data leading to 'Accept H0'.
     """
     # Data that should lead to accepting H0
-    # Assuming p1 > p0, so a series of failures should accumulate the log-likelihood ratio
+    # Assuming p1 > p0, so a series of failures should
+    # accumulate the log-likelihood ratio
     data = [0] * 10  # all failures
     return data
 
@@ -185,18 +191,16 @@ def mock_plot_show(monkeypatch):
 # Test BayesianMethods only if pymc3 is available
 @pytest.mark.skipif(not PYMCMC_AVAILABLE, reason="pymc3 is not installed.")
 def test_BayesianMethods():
-    import pymc3 as pm
-    import numpy as np
 
     # Define two simple Bayesian models
     with pm.Model() as model_a:
         mu = pm.Normal('mu', mu=0, sigma=1)
-        obs = pm.Normal('obs', mu=mu, sigma=1, observed=np.random.randn(100))
+        pm.Normal('obs', mu=mu, sigma=1, observed=np.random.randn(100))
 
     with pm.Model() as model_b:
         mu = pm.Normal('mu', mu=0, sigma=1)
         sigma = pm.HalfNormal('sigma', sigma=1)
-        obs = pm.Normal('obs', mu=mu, sigma=sigma, observed=np.random.randn(100))
+        pm.Normal('obs', mu=mu, sigma=sigma, observed=np.random.randn(100))
 
     models = {'ModelA': model_a, 'ModelB': model_b}
     bm = BayesianMethods(fit_models=True, draws=100, tune=100, random_seed=42, cores=1)
@@ -257,6 +261,8 @@ def test_ErrorAnalysis(error_analysis_data):
     ea.plot()
 
 # Test BayesianMethods with missing dependencies
+# This test is wierd, nevertheless, wrote it for testing 
+# the "ensure_pkg" from gofast.tools.depsutils conditionnaly import.
 @pytest.mark.skipif(PYMCMC_AVAILABLE, reason="pymc3 is installed.")
 def test_BayesianMethods_skip():
     with pytest.raises(ImportError):
@@ -750,19 +756,19 @@ def test_SequentialTesting_invalid_params():
     """
     # Test invalid p0 (<0)
     with pytest.raises(ValueError):
-        st = SequentialTesting(p0=-0.1, p1=0.7)
+        SequentialTesting(p0=-0.1, p1=0.7)
     
     # Test invalid p1 (>1)
     with pytest.raises(ValueError):
-        st = SequentialTesting(p0=0.3, p1=1.2)
+        SequentialTesting(p0=0.3, p1=1.2)
     
     # Test invalid alpha (>1)
     with pytest.raises(ValueError):
-        st = SequentialTesting(p0=0.3, p1=0.7, alpha=1.1)
+        SequentialTesting(p0=0.3, p1=0.7, alpha=1.1)
     
     # Test invalid beta (<0)
     with pytest.raises(ValueError):
-        st = SequentialTesting(p0=0.3, p1=0.7, beta=-0.2)
+        SequentialTesting(p0=0.3, p1=0.7, beta=-0.2)
 
 # Test DistributionComparison class
 def test_DistributionComparison_identical(distribution_comparison_data_identical):

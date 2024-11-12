@@ -11,7 +11,7 @@ ensuring proper data types, and handling various validation scenarios.
 """
 
 from functools import wraps
-from typing import Any, Callable, Optional, Union, Dict, List
+from typing import Any, Callable, Optional, Union
 import re
 import inspect 
 import types 
@@ -1830,118 +1830,196 @@ def convert_to_numeric(value, preserve_integers=True, context_description='Data'
                          f" but got {type(value).__name__}: '{value}'") from e
 
 def validate_performance_data(
-    model_performance_data: Union[Dict[str, List[float]], pd.DataFrame],
-    nan_policy: str = 'raise',  
-    convert_integers: bool = True, 
-    check_performance_range: bool = True,  
-    verbose: bool = False  
-) -> pd.DataFrame:
+    model_performance_data=None,
+    nan_policy='raise',
+    convert_integers=True,
+    check_performance_range=True,
+    verbose=False
+):
     """
-    Validates and processes the model performance data.
-    
+    Validates and preprocesses model performance data to ensure it conforms
+    to the necessary structure and constraints for statistical and machine
+    learning analysis. The function accepts either a dictionary or a
+    DataFrame as input and performs the following tasks:
+
+    1. Converts data to a DataFrame if it is provided as a dictionary.
+    2. Converts integer values to floats, ensuring compatibility with
+       statistical processing.
+    3. Manages NaN values according to the specified `nan_policy`.
+    4. Validates that performance data falls within a valid range, ensuring
+       values lie within [0, 1].
+
+    The function is adaptable, capable of being used directly or as a
+    decorator, with or without configuration parameters.
+
     Parameters
     ----------
-    model_performance_data : Union[Dict[str, List[float]], pd.DataFrame]
-        A dictionary or DataFrame with model names as keys (columns) and lists
-        of performance metrics as values.
-    
-    nan_policy : str, default 'raise'
-        Specifies how to handle NaN values in the data.
-        'raise' will throw an error if NaNs are found, 'omit' will drop them,
-        and 'propagate' will ignore NaNs when checking performance range.
-        
-    convert_integers : bool, default True
-        Whether to convert integer values to floats.
-        
-    check_performance_range : bool, default True
-        Whether to ensure that performance values are within the [0, 1] range.
-        
-    verbose : bool, default False
-        If True, prints the steps of the validation and conversion process.
-    
-    Returns
+    model_performance_data : Union[Dict[str, List[float]], pd.DataFrame], optional
+        The input model performance data to validate. Can be provided as
+        either a dictionary (with model names as keys and performance
+        metrics as lists) or a DataFrame where each column represents a model.
+
+    nan_policy : str, default='raise'
+        The policy to handle NaN values:
+        * 'raise': Raises a ValueError if NaNs are detected.
+        * 'omit': Drops rows with NaNs.
+        * 'propagate': Ignores NaNs during performance range checks.
+
+    convert_integers : bool, default=True
+        Converts integer values within the data to floats if set to True,
+        which is useful for consistency when computing metrics.
+
+    check_performance_range : bool, default=True
+        Ensures that performance values lie within the range [0, 1].
+        If any value falls outside this range, an error is raised unless
+        `nan_policy` is set to 'propagate'.
+
+    verbose : bool, default=False
+        If True, displays steps of the data validation process for tracking
+        operations and debugging.
+
+    Methods
     -------
-    pd.DataFrame
-        A DataFrame with float values.
+    actual_validate_performance_data(data)
+        Validates and processes the data according to specified policies
+        and constraints.
+
+    Usage
+    -----
+    This function can be utilized in three primary ways:
+
+    1. **As a function**: Provide data directly to perform validation.
     
-    Raises
-    ------
-    ValueError
-        If the input data cannot be converted to a valid DataFrame, 
-        if NaN values are found and `nan_policy` is 'raise', or if performance 
-        values are outside the range [0, 1].
-    
-    Examples
-    --------
     >>> from gofast.tools.validator import validate_performance_data
-    
-    Example 1: Dictionary input with NaN check and integer to float conversion.
-    
     >>> data = {'model1': [0.85, 0.90, 0.92], 'model2': [0.80, 0.87, 0.88]}
-    >>> validate_performance_data(data, nan_policy='raise')
-    
-    Example 2: DataFrame input with performance range check disabled.
-    
-    >>> df = pd.DataFrame({'model1': [0.85, 0.90, 0.92], 'model2': [0.80, 0.87, 0.88]})
-    >>> validate_performance_data(df, check_performance_range=False)
-    
-    Example 3: Handling NaN values with 'omit' policy.
-    
-    >>> df = pd.DataFrame({'model1': [0.85, None, 0.92], 'model2': [0.80, 0.87, None]})
-    >>> validate_performance_data(df, nan_policy='omit')
-    
+    >>> validate_performance_data(data)
+
+    2. **As a decorator**: Use as a decorator to validate the first
+       argument of a function. If used without parentheses, default values
+       will be applied.
+
+    >>> @validate_performance_data
+    >>> def process_data(validated_data):
+    >>>     print(validated_data)
+
+    3. **As a decorator with parameters**: Customize validation by
+       specifying parameters.
+
+    >>> @validate_performance_data(nan_policy='omit', verbose=True)
+    >>> def process_data(validated_data):
+    >>>     print(validated_data)
+
+    Notes
+    -----
+    The validation process includes statistical pre-checks, using custom
+    modules to convert data and handle NaNs. For integer-to-float
+    conversion, the `convert_to_numeric` function is utilized, while NaN
+    policies are verified using `is_valid_policies`.
+
+    See Also
+    --------
+    DataFrameFormatter : Formatter for handling DataFrame structures.
+    MultiFrameFormatter : Formatter for handling multiple DataFrames.
+
+    References
+    ----------
+    .. [1] Demsar, J., "Statistical Comparisons of Classifiers over
+           Multiple Data Sets," Journal of Machine Learning Research, 2006.
+
     """
 
-    # Convert to DataFrame if input is a dictionary
-    if isinstance(model_performance_data, dict):
-        if verbose:
-            print("Converting dictionary to DataFrame...")
-        df = pd.DataFrame(model_performance_data)
-    elif isinstance(model_performance_data, pd.DataFrame):
-        df = model_performance_data.copy()
-    else:
-        raise ValueError("Input data must be either a dictionary or a DataFrame.")
+    from ..api.formatter import ( 
+        DataFrameFormatter, MultiFrameFormatter, formatter_validator
+        )
+    from ..decorators import isdf 
     
-    # Ensure all values are float, convert integers to floats if needed
-    if convert_integers:
-        if verbose:
-            print("Converting integer values to floats where necessary...")
-        df = df.applymap(convert_to_numeric, preserve_integers=False, 
-                         context_description='Performance data')
-    
-    # Handle NaN values according to nan_policy
-    is_valid_policies(nan_policy, allowed_policies=['raise', 'omit', 'propagate'])
-    
-    if df.isna().any().any():  # Check for NaN values
-        if nan_policy == 'raise':
-            raise ValueError("NaN values detected in the data. Set"
-                             " `nan_policy='omit'` to drop them.")
-        elif nan_policy == 'omit':
+    @isdf 
+    def actual_validate_performance_data(data):
+        # Convert to DataFrame if input is a dictionary
+        if isinstance(data, dict):
             if verbose:
-                print("Dropping rows with NaN values...")
-            df = df.dropna()
-    
-    # Ensure all values are float type
-    df = df.astype(float)
-    
-    # Check if performance values are within the valid range [0, 1],
-    # considering nan_policy 'propagate'
-    if check_performance_range:
-        if nan_policy == 'propagate':
-            if (df.dropna() < 0).any().any():
-                raise ValueError("Performance values cannot be negative.")
-            if (df.dropna() > 1).any().any():
-                raise ValueError("Performance values must be in the range [0, 1].")
+                print("Converting dictionary to DataFrame...")
+            df = pd.DataFrame(data)
+        elif isinstance(data, pd.DataFrame):
+            df = data.copy()
         else:
-            if (df < 0).any().any():
+            raise ValueError("Input data must be either a dictionary or a DataFrame.")
+
+        # Ensure all values are float, convert integers to floats if needed
+        if convert_integers:
+            if verbose:
+                print("Converting integer values to floats where necessary...")
+            df = df.applymap(convert_to_numeric, preserve_integers=False,
+                             context_description='Performance data')
+
+        # Handle NaN values according to nan_policy
+        is_valid_policies(nan_policy, allowed_policies=['raise', 'omit', 'propagate'])
+
+        if df.isna().any().any():  # Check for NaN values
+            if nan_policy == 'raise':
+                raise ValueError(
+                    "NaN values detected in the data. Set"
+                    " `nan_policy='omit'` to drop them.")
+            elif nan_policy == 'omit':
+                if verbose:
+                    print("Dropping rows with NaN values...")
+                df = df.dropna()
+
+        # Ensure all values are float type
+        df = df.astype(float)
+
+        # Check if performance values are within the valid range [0, 1]
+        if check_performance_range:
+            if nan_policy == 'propagate':
+                df_checked = df.dropna()
+            else:
+                df_checked = df
+
+            if (df_checked < 0).any().any():
                 raise ValueError("Performance values cannot be negative.")
-            if (df > 1).any().any():
-                raise ValueError("Performance values must be in the range [0, 1].")
-    
-    if verbose:
-        print("Validation and conversion complete. Data is ready for further processing.")
-    
-    return df
+            if (df_checked > 1).any().any():
+                raise ValueError(
+                    "Performance values must be in the range [0, 1].")
+
+        if verbose:
+            print("Validation and conversion complete."
+                  " Data is ready for further processing.")
+
+        return df
+
+    if model_performance_data is not None and callable(
+            model_performance_data):
+        # Used as a decorator without arguments
+        func = model_performance_data
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            data = args[0]
+            validated_data = actual_validate_performance_data(data)
+            return func(validated_data, *args[1:], **kwargs)
+
+        return wrapper
+
+    elif model_performance_data is not None:
+        # Used as a normal function
+        # Validate and extract DataFrame if data is a formatter instance
+        if isinstance(model_performance_data, (
+                DataFrameFormatter, MultiFrameFormatter)):
+            model_performance_data = formatter_validator(
+                model_performance_data, df_indices=[0], only_df=True)
+            
+        return actual_validate_performance_data(model_performance_data)
+
+    else:
+        # Used as a decorator with arguments
+        def decorator(func):
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                data = args[0]
+                validated_data = actual_validate_performance_data(data)
+                return func(validated_data, *args[1:], **kwargs)
+            return wrapper
+        return decorator
 
 def validate_comparison_data(df,  alignment="auto"):
     """

@@ -395,7 +395,8 @@ class GoodnessOfFit(BaseClass, ClassifierMixin):
 
     def plot(self):
         check_is_fitted(self, ["y_", "predicted_probs_"])
-        prob_true, prob_pred = calibration_curve(self.y_, self.predicted_probs_[:, 1], n_bins=10)
+        prob_true, prob_pred = calibration_curve(
+            self.y_, self.predicted_probs_[:, 1], n_bins=10)
         plt.plot(prob_pred, prob_true, marker='o', linestyle='')
         plt.plot([0, 1], [0, 1], linestyle='--')
         plt.xlabel('Predicted Probability')

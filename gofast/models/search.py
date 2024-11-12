@@ -535,7 +535,7 @@ class PerformanceTuning(BaseClass):
     fit(X, y):
         Fits the models to the data (X, y) and performs cross-validation.
     
-    _cv_performance_data_base(X, y):
+    _cv_performance_base(X, y):
         Performs base cross-validation for performance data.
     
     _cv_performance_deep(X, y):
@@ -706,11 +706,11 @@ class PerformanceTuning(BaseClass):
         if self.tuning_depth == 'deep':
             self._cv_performance_deep(X, y)
         else:
-            self._cv_performance_data_base(X, y)
+            self._cv_performance_base(X, y)
         
         return self
 
-    def _cv_performance_data_base(self, X, y): 
+    def _cv_performance_base(self, X, y): 
         
         if self.estimators is None: 
             if self.param_grids is not None: 

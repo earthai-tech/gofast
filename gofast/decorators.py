@@ -19,8 +19,6 @@ Decorators included in this module:
    diagrams or dendrogram figures.
 - `RedirectToNew`: Redirects calls from deprecated functions or classes to their 
    new implementations.
-- `SanitizeDocstring`: Sanitizes and restructures docstrings to fit the Numpy
-   docstring format.
 - More ...
 
 Each decorator is designed with specific use cases in mind, ranging from 
@@ -29,7 +27,7 @@ scripts for cleaner execution logs. Users are encouraged to explore the
 functionalities provided by each decorator to enhance their codebase.
 
 Examples:
-    >>> from gofast.decorators import SuppressOutput, SanitizeDocstring, AppendDocFrom
+    >>> from gofast.decorators import SanitizeDocstring, AppendDocFrom
 
 Note:
     While each decorator is designed to be as versatile as possible, users should
@@ -70,6 +68,7 @@ __all__= [
     'executeWithFallback', 
     'ExportData',
     'Extract1dArrayOrSeries',
+    'IsPerformanceData', 
     'NumpyDocstring',
     'NumpyDocstringFormatter',
     'PlotFeatureImportance',
@@ -3225,6 +3224,314 @@ def isdf(func):
             return func(*args, **kwargs)
 
     return wrapper
+
+class IsPerformanceData:
+    """
+    A decorator and validator for performance data in machine learning.
+
+    The `IsPerformanceData` class can be used both as a decorator and as a
+    function to validate performance data, ensuring that the data conforms
+    to expected formats and value ranges. It checks that the data is a 
+    pandas DataFrame or dictionary with numeric values, handles NaN values
+    according to the specified policy, and verifies that performance metrics
+    are within the range [0, 1].
+
+    Parameters
+    ----------
+    *args : tuple
+        Positional arguments. If used as a decorator without arguments,
+        the first argument may be the function to decorate.
+        If used as a function, the first argument is the data to validate.
+
+    **kwargs : dict
+        Keyword arguments for configuration.
+
+    nan_policy : str, optional
+        Defines how to handle NaN values in the data.
+        Options are ``'raise'`` (default), ``'omit'``, or ``'propagate'``.
+
+        - ``'raise'``: Raise a ``ValueError`` if NaN values are found.
+        - ``'omit'``: Drop rows containing NaN values.
+        - ``'propagate'``: Proceed without altering NaN values.
+
+    convert_integers : bool, optional
+        If ``True`` (default), integer values are converted to floats.
+
+    check_performance_range : bool, optional
+        If ``True`` (default), checks that all performance values are within
+         the range [0, 1].
+
+    verbose : bool, optional
+        If ``True``, prints detailed messages during validation.
+
+    Methods
+    -------
+    __call__(*args, **kwargs)
+        Allows the class instance to be called as a function or used as a 
+        decorator.
+
+    actual_validate_performance_data(data)
+        Validates the performance data according to the specified policies.
+
+    Notes
+    -----
+    This class serves both as a decorator and a validator function. When 
+    used as a decorator, it validates the performance data  passed to the
+    decorated function. When used as a function, it validates the given 
+    data and returns the validated DataFrame.
+
+    The validation process includes:
+
+    - Checking that the data is a pandas DataFrame or a dictionary that can
+      be converted to a DataFrame.
+    - Converting integer values to floats if `convert_integers` is `True`.
+    - Handling NaN values according to the specified `nan_policy`.
+    - Ensuring all performance values are within the range [0, 1] if
+       `check_performance_range` is `True`.
+
+    Examples
+    --------
+    Using as a decorator without arguments:
+
+    >>> from gofast.decorators import IsPerformanceData
+    >>> @IsPerformanceData
+    ... def analyze_performance(data):
+    ...     # Function body
+    ...     pass
+
+    Using as a decorator with arguments:
+
+    >>> from gofast.decorators import IsPerformanceData
+    >>> @IsPerformanceData(nan_policy='omit', verbose=True)
+    ... def analyze_performance(data):
+    ...     # Function body
+    ...     pass
+
+    Using as a function:
+
+    >>> from gofast.decorators import IsPerformanceData
+    >>> validator = IsPerformanceData(nan_policy='omit')
+    >>> validated_data = validator(data)
+
+    See Also
+    --------
+    pandas.DataFrame : Two-dimensional, size-mutable,
+        potentially heterogeneous tabular data.
+
+    References
+    ----------
+    .. [1] pandas.DataFrame documentation,
+       https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.html
+
+    """
+
+    def __init__(
+        self,
+        *args,
+        **kwargs
+    ):
+        # Default parameter values
+        self.nan_policy = kwargs.get('nan_policy', 'raise')
+        self.convert_integers = kwargs.get('convert_integers', True)
+        self.check_performance_range = kwargs.get(
+            'check_performance_range', True)
+        self.verbose = kwargs.get('verbose', False)
+        self.func = None
+
+        if args and callable(args[0]):
+            # Decorator used without arguments
+            self.func = args[0]
+        elif args:
+            # Called as a function with data as the first argument
+            self.data = args[0]
+        else:
+            # Decorator used with arguments or will be called as a function later
+            self.data = None
+
+    def __call__(self, *args, **kwargs):
+        """
+        Enables the class instance to be called as a function
+        or used as a decorator.
+
+        Parameters
+        ----------
+        *args : tuple
+            Positional arguments. If used as a decorator, the
+            first argument may be the function to decorate. If
+            used as a function, the first argument is the data
+            to validate.
+
+        **kwargs : dict
+            Keyword arguments passed to the decorated function
+            or the validation process.
+
+        Returns
+        -------
+        callable or pandas.DataFrame
+            If used as a decorator, returns the wrapped function.
+            If used as a function, returns the validated DataFrame.
+
+        Examples
+        --------
+        Using as a decorator:
+
+        >>> from gofast.decorators import IsPerformanceData
+        >>> @IsPerformanceData
+        ... def analyze_performance(data):
+        ...     # Function body
+        ...     pass
+
+        Using as a function:
+
+        >>> from gofast.decorators import IsPerformanceData
+        >>> validator = IsPerformanceData()
+        >>> validated_data = validator(data)
+
+        """
+        if self.func:
+            # Used as a decorator without arguments
+            @functools.wraps(self.func)
+            def wrapper(*args, **kwargs):
+                data = args[0]
+                data = self._is_formatter_data(data)
+                validated_data = self.actual_validate_performance_data(data)
+                return self.func(validated_data, *args[1:], **kwargs)
+            return wrapper(*args, **kwargs)
+        elif args and callable(args[0]):
+            # Used as a decorator with arguments
+            func = args[0]
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                data = args[0]
+                data = self._is_formatter_data(data)
+                validated_data = self.actual_validate_performance_data(data)
+                return func(validated_data, *args[1:], **kwargs)
+            return wrapper
+        else:
+            # Called as a function with data
+            data = args[0] if args else self.data
+            return self.actual_validate_performance_data(data)
+
+    @isdf 
+    def actual_validate_performance_data(self, data):
+        """
+        Performs the actual validation of the performance data.
+
+        Parameters
+        ----------
+        data : pandas.DataFrame or dict
+            The performance data to validate. Should be a DataFrame
+            or a dictionary that can be converted into a DataFrame.
+
+        Returns
+        -------
+        pandas.DataFrame
+            The validated performance data.
+
+        Raises
+        ------
+        ValueError
+            If the data is invalid or does not meet the specified
+            criteria.
+
+        Notes
+        -----
+        The validation process includes:
+
+        - Converting dictionaries to DataFrames if necessary.
+        - Converting integer values to floats if
+          `convert_integers` is `True`.
+        - Handling NaN values according to the `nan_policy`.
+        - Checking that all performance values are within the
+          range [0, 1] if `check_performance_range` is `True`.
+
+        The performance values are expected to satisfy:
+
+        .. math::
+
+            0 \\leq x \\leq 1
+
+        where :math:`x` represents a performance metric value.
+
+        Examples
+        --------
+        >>> validator = IsPerformanceData()
+        >>> validated_data = validator.actual_validate_performance_data(data)
+
+        """
+        from .tools.validator import convert_to_numeric
+        from .tools.validator import is_valid_policies
+
+        # Convert to DataFrame if input is a dictionary
+        if isinstance(data, dict):
+            if self.verbose:
+                print("Converting dictionary to DataFrame...")
+            df = pd.DataFrame(data)
+        elif isinstance(data, pd.DataFrame):
+            df = data.copy()
+        else:
+            raise ValueError("Input data must be either a dictionary "
+                             "or a DataFrame.")
+
+        # Ensure all values are float, convert integers to floats if needed
+        if self.convert_integers:
+            if self.verbose:
+                print("Converting integer values to floats where necessary...")
+            df = df.applymap(
+                lambda x: convert_to_numeric(
+                    x, preserve_integers=False,
+                    context_description='Performance data')
+            )
+
+        # Handle NaN values according to nan_policy
+        is_valid_policies(
+            self.nan_policy, allowed_policies=['raise', 'omit', 'propagate']
+        )
+
+        if df.isna().any().any():  # Check for NaN values
+            if self.nan_policy == 'raise':
+                raise ValueError("NaN values detected in the data. "
+                                 "Set `nan_policy='omit'` to drop them.")
+            elif self.nan_policy == 'omit':
+                if self.verbose:
+                    print("Dropping rows with NaN values...")
+                df = df.dropna()
+
+        # Ensure all values are float type
+        df = df.astype(float)
+
+        # Check if performance values are within the valid range [0, 1]
+        if self.check_performance_range:
+            if self.nan_policy == 'propagate':
+                df_checked = df.dropna()
+            else:
+                df_checked = df
+
+            if (df_checked < 0).any().any():
+                raise ValueError("Performance values cannot be negative.")
+            if (df_checked > 1).any().any():
+                raise ValueError("Performance values must be in the "
+                                 "range [0, 1].")
+
+        if self.verbose:
+            print("Validation and conversion complete. "
+                  "Data is ready for further processing.")
+
+        return df
+    
+    def _is_formatter_data (self, data): 
+        """ Check whether the data passed is a formatter instance. If so,
+        then retrieve the dataframe before calling the 
+        `actual_validate_performance_data` method. 
+        
+        """
+        from .api.formatter import( 
+            DataFrameFormatter, MultiFrameFormatter, formatter_validator
+            )
+        if isinstance(data, (DataFrameFormatter, MultiFrameFormatter)):
+            data = formatter_validator(data, df_indices=[0], only_df=True)
+            
+        return data 
 
 class NumpyDocstringFormatter:
     """
