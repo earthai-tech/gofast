@@ -347,7 +347,7 @@ def get_cpu_usage(per_cpu: bool = False) -> Optional[float]:
     --------
     >>> from gofast.tools.sysutils import get_cpu_usage
     >>> get_cpu_usage()
-    23.5
+    1.3
     >>> get_cpu_usage(per_cpu=True)
     [20.4, 25.1, 21.3, 24.5]
 

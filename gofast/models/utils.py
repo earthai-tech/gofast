@@ -221,7 +221,7 @@ class NoneHandler:
             'gamma': 'scale',  # Default value for gamma in SVMs
             'n_estimators': 100,  # Common default for ensemble methods
             'learning_rate': 0.1,  # Common default for boosting methods
-            # Add more common hyperparameters as needed
+            # more common hyperparameters as needed
         }
         return default_values.get(param, None)
     
