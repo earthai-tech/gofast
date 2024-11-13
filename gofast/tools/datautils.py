@@ -811,7 +811,7 @@ def random_sampling(
 
     # Set default sample size to 1 if samples is None or wildcarded
     if samples is None or str(samples) in ('1', '*'):
-        samples = 1.0
+        samples = "100%"
 
     # Handle percentage-based sampling if specified as a string
     if "%" in str(samples):
@@ -828,7 +828,7 @@ def random_sampling(
     # Calculate the sample size based on percentage if necessary
     if samples <= 1 or is_percent:
         samples = assert_ratio(
-            samples, bounds=(0, 1), exclude_value='use lower bound',
+            samples, bounds=(0, 1), exclude_values='use lower bound',
             in_percent=True
         )
         n = int(samples * (d.shape[0] if scipy.sparse.issparse(d) else len(d)))

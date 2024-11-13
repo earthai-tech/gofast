@@ -128,7 +128,7 @@ def test_normalize_standardize():
     assert np.allclose(processor.target_.min(), 0)
     assert np.allclose(processor.target_.max(), 1)
 
-    processor.scale_target()
+    processor.scale()
     # Check if standardization was applied correctly
     assert np.isclose(processor.target_.mean(), 0, atol=0.1)
     assert np.isclose(processor.target_.std(), 1, atol=0.1)

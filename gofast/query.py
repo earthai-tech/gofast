@@ -166,12 +166,21 @@ class DBAnalysis(BaseClass):
         
         self._setup_connection()
         
+        self.engine_ =None
+        _use_sqlalchemy=False  # flag to use sqlalchemy to store data
         if hasattr(self.connection_, 'execute'):
             # Using sqlalchemy to store data
-            data.to_sql(table_name, self.engine_, if_exists='replace', index=False)
-        else:
+            try:
+                data.to_sql(
+                    table_name, self.engine_, if_exists='replace', index=False)
+                _use_sqlalchemy=True 
+            except : 
+                pass 
+                 
+        if not _use_sqlalchemy:
             # Using sqlite3 to store data
-            data.to_sql(table_name, self.connection_, if_exists='replace', 
+            data.to_sql(table_name, self.connection_,
+                        if_exists='replace', 
                         index=False, method='multi')
     
         return self

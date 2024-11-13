@@ -20,7 +20,11 @@ import numpy as np
 import pandas as pd
 
 from ..api.structures import Boxspace
-from ..tools.baseutils import check_file_exists, fancier_downloader
+from ..tools.baseutils import ( 
+    check_file_exists, 
+    fancier_downloader, 
+    update_df
+    )
 from ..tools.coreutils import (
     assert_ratio,
     convert_to_structured_format,
@@ -692,12 +696,13 @@ def load_nansha (
         
     # read dataframe and separate data to target. 
     frame, data, target = _to_dataframe(
-        data, feature_names = feature_names, target_names = target_names, 
+        data, feature_names = feature_names, 
+        target_names = target_names, 
         target=data[target_names].values 
         )
-    # for consistency, re-cast values to numeric 
+    # for consistency, re-cast values to numeric
     frame = to_numeric_dtypes(frame)
-        
+
     if split_X_y: 
         return _split_X_y(frame,target_columns, as_frame=as_frame, 
                           test_ratio=test_ratio)
@@ -847,9 +852,11 @@ def load_bagoue(
     target_column = [
         "flow",
     ]
+
     frame, data, target = _to_dataframe(
         data, feature_names = feature_names, target_names = target_column, 
         target=target)
+
     frame = to_numeric_dtypes(frame)
 
     if split_X_y: 
@@ -1071,9 +1078,12 @@ def load_mxs (
     target_names = None , 
     data_names=None, 
     split_X_y=False, 
+    drop_observations=False, 
+    drop_nan_columns=True, 
     seed = None, 
     shuffle=False,
-    test_ratio=.2,  
+    test_ratio=.2, 
+    
     **kws):
     """
     Load the dataset after implementing the mixture learning strategy (MXS).
@@ -1133,6 +1143,9 @@ def load_mxs (
     
     drop_observations: bool, default='False'
         Drop the ``remark`` column in the logging data if set to ``True``. 
+        
+    drop_nan_columns : bool, default=True
+        If True, drops columns filled entirely with NaN values.
         
     seed: int, array-like, BitGenerator, np.random.RandomState, \
         np.random.Generator, optional
@@ -1198,7 +1211,6 @@ def load_mxs (
     """
     from ..tools.datautils import resample_data 
     
-    drop_observations = kws.pop("drop_observations", False)
     target_map = {0: '1', 1: '11*', 2: '2', 3: '2*', 4: '3', 5: '33*'}
     
     # Handling the 'key' parameter and validating against available options
@@ -1210,24 +1222,46 @@ def load_mxs (
         data_file = str(p)
     data_dict = joblib.load(data_file)
     samples = ( None if samples =="*" else samples) or .5 # 50%
-    data, frame,feature_names, target_names = _prepare_common_dataset(
-        data_dict["data"], drop_observations, target_names,  samples, seed, shuffle)
+    #XXX
+    # data is processed data then feature_data 
+    # frame is a combined data 
+    data, frame, feature_names, target_names = _prepare_common_dataset(
+        data_dict["data"], 
+        drop_observations,
+        target_names,  
+        samples, 
+        seed, 
+        shuffle, 
+        drop_nan_columns, 
+    )
     # Processing based on the specified 'key'
     if key in available_dict:
         Xy = _get_mxs_X_y(available_dict[key], data_dict)
         if Xy:
-            Xy = resample_data(*Xy, samples=samples, random_state=seed, shuffle=shuffle)
+            Xy = resample_data(
+                *Xy, samples=samples, 
+                random_state=seed,
+                shuffle=shuffle
+            )
   
             if (split_X_y and key == 'pp') or return_X_y:
                 return Xy
             elif split_X_y:
-                return _split_and_convert(Xy, test_ratio, seed, shuffle, as_frame)
+                return _split_and_convert(
+                    Xy, test_ratio, seed, 
+                    shuffle, as_frame
+                    )
   
     elif split_X_y:
         return _split_X_y(frame, target_names, test_ratio, as_frame)
 
-    return (data, frame[target_names]) if return_X_y else frame if as_frame else\
-        Boxspace(
+    if return_X_y: 
+        return data, frame[target_names]
+    
+    if as_frame: 
+        return frame 
+    
+    return Boxspace(
             data=np.array(data),
             target=np.array(frame[target_names]),
             frame=data,
@@ -1292,7 +1326,9 @@ def _validate_key(key: str):
         
     return available_data
 
-def _prepare_common_dataset(data, drop_observations, target_names, samples, seed, shuffle):
+def _prepare_common_dataset(
+        data, drop_observations, target_names, samples, seed, shuffle, 
+        drop_nan_columns):
     # Process the common dataset: handling dropping columns, sampling,
     # and converting to DataFrame
     from ..tools.datautils import random_sampling 
@@ -1309,7 +1345,19 @@ def _prepare_common_dataset(data, drop_observations, target_names, samples, seed
     frame, processed_data, target = _to_dataframe(
         sampled_data, target_names, list(data.columns [:13] ),
         target=sampled_data[target_names].values)
-    return processed_data, to_numeric_dtypes(frame), feature_names, target_names
+    
+    combined_frame = to_numeric_dtypes(
+        frame, drop_nan_columns=drop_nan_columns
+        )
+    if drop_nan_columns:
+        # dr
+        feature_names= list(
+            set(feature_names).intersection(combined_frame.columns)) 
+        target_names = list(
+            set(target_names).intersection(combined_frame.columns))
+        
+    return processed_data, combined_frame, feature_names, target_names
+
 
 def _split_and_convert(Xy, test_ratio, seed, shuffle, as_frame):
     # Split data into training and testing sets and optionally convert
@@ -1321,6 +1369,9 @@ def _split_and_convert(Xy, test_ratio, seed, shuffle, as_frame):
         return convert_to_structured_format(X_train, X_test, y_train, y_test,
                                             as_frame=True)
     return X_train, X_test, y_train, y_test
+
+
+
 
 def _get_subsidence_data (
         data_file, /, 

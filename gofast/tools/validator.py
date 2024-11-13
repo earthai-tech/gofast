@@ -3039,7 +3039,7 @@ def check_epsilon(
     Using 'auto' for `eps` allows algorithms to adapt to different scales of data,
     enhancing numerical stability without manually tuning the epsilon value.
     """
-    from .mathex import determine_epsilon 
+    from .mathext import determine_epsilon 
     # Initialize a list to hold arrays for dynamic epsilon determination
     y_arrays = []
     

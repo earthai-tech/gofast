@@ -26,6 +26,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 from tqdm import tqdm
+from scipy import stats
 from scipy.signal import argrelextrema
 from scipy.interpolate import interp1d, griddata
 from matplotlib.ticker import FixedLocator
@@ -58,9 +59,9 @@ __all__ = [
     'interpolate_grid', 'interpolate_data', 'labels_validator', 
     'make_df', 'normalizer', 'remove_outliers', 'remove_target_from_array', 
     'rename_labels_in', 'save_or_load', 'scale_y', 'select_features', 
-    'smooth1d', 'smoothing', 'soft_bin_stat', 'speed_rowwise_process'
+    'smooth1d', 'smoothing', 'soft_bin_stat', 'speed_rowwise_process', 
+    'nan_to_mode'
 ]
-
 
 def detect_categorical_columns(
     data,
@@ -3509,7 +3510,6 @@ def _handle_non_numeric(data, action='normalize'):
     
     return numeric_data
 
-
 def _nan_checker(arr, allow_nan=False):
     """Check and handle NaN values in a numpy array, pandas Series, 
     or pandas DataFrame.
@@ -3536,10 +3536,120 @@ def _nan_checker(arr, allow_nan=False):
                 raise ValueError("NaN values found, set allow_nan=True to handle them.")
     if allow_nan:
         if isinstance(arr, np.ndarray):
-            arr = np.nan_to_mode(arr)  # Replace NaNs with zero for numpy arrays
+            arr = nan_to_mode(arr)  # Replace NaNs with zero for numpy arrays
         elif isinstance(arr, (pd.Series, pd.DataFrame)):
             arr = arr.fillna(0)  # Replace NaNs with zero for pandas Series or DataFrame
     
+    return arr
+
+def nan_to_mode(
+    arr: np.ndarray,
+    nan_policy: str = 'omit',
+    axis: int = None,
+    keepdims: bool = False,
+    fill_value: float = None
+) -> np.ndarray:
+    """
+    Replace NaN values in a numpy array with the mode (most frequent value).
+    
+    This function calculates the mode (the most frequent value) of the given 
+    array, and replaces NaN values with this mode [1]_. The mode is computed 
+    across the array, and the behavior can be customized based on the axis, 
+    nan_policy, and whether to keep the dimensions of the array after 
+    the operation [2]_.
+
+    Parameters
+    ----------
+    arr : ndarray
+        The input array which may contain NaN values. It can be a 
+        one-dimensional or multi-dimensional numpy array. NaN values will
+        be replaced with the computed mode.
+    
+    nan_policy : {'omit', 'raise'}, optional, default 'omit'
+        Defines how to handle NaN values while computing the mode. If 'omit', 
+        the NaN values are ignored during the computation. If 'raise', a 
+        `ValueError` is raised if NaN values are encountered in the array.
+        
+    axis : int, optional, default None
+        The axis along which to compute the mode. If `None`, the mode is 
+        computed over the flattened array. If an integer is provided, it 
+        computes the mode along that axis.
+    
+    keepdims : bool, optional, default False
+        If True, the reduced dimensions will be retained as dimensions of 
+        size one. If False, the reduced dimensions are removed.
+
+    fill_value : float, optional, default None
+        If provided, it replaces NaN values with the specified `fill_value` 
+        instead of the mode.
+
+    Returns
+    -------
+    ndarray
+        The array with NaN values replaced by the mode (or the specified `fill_value`). 
+        The shape of the output array will match the input array, except for 
+        the dimensions reduced by the `axis` if specified.
+
+    Notes
+    -----
+    - The mode is computed using `scipy.stats.mode` with the `nan_policy='omit'`
+      argument.
+    - If `nan_policy` is set to `'raise'`, an error is thrown if NaN values 
+      are encountered.
+    - `fill_value` can be used to specify a custom replacement for NaN values
+      instead of the mode.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.tools.baseutils import nan_to_mode
+
+    >>> arr = np.array([1, 2, 2, 3, np.nan, 4, np.nan, 2])
+    >>> nan_to_mode(arr)
+    array([1., 2., 2., 3., 2., 4., 2., 2.])
+
+    >>> arr2 = np.array([[1, 2], [np.nan, 4]])
+    >>> nan_to_mode(arr2, axis=0)
+    array([[1., 2.],
+           [2., 4.]])
+           
+    >>> nan_to_mode(arr, nan_policy='raise')
+    ValueError: Input array contains NaN values
+
+    References
+    ----------
+    .. [1] Harris, C. R., Millman, K. J., van der Walt, S. J., et al.
+           "Array programming with NumPy." Nature 585, 357–362 (2019).
+           https://doi.org/10.1038/s41586-019-1556-0
+
+    .. [2] Virtanen, P., Gommers, R., Oliphant, T. E., et al. "SciPy 1.0: 
+           fundamental algorithms for scientific computing in Python." 
+           Nature Methods 17, 261–272 (2020). https://doi.org/10.1038/s41592-019-0686-2
+
+    See Also
+    --------
+    numpy.nan_to_num : Replace NaN with a specified value
+    scipy.stats.mode : Compute the mode of an array
+    """
+    arr = np.asarray( arr)
+
+    # Calculate the mode, ignoring NaN values
+    mode_result = stats.mode(
+        arr, nan_policy=nan_policy, 
+        axis=axis, 
+        keepdims=keepdims
+    )
+    # mode_result is a tuple: (mode_values, count_values)
+    mode_value = mode_result.mode
+    
+    # If a fill_value is provided, replace NaN values with
+    # the fill_value instead of the mode
+    if fill_value is not None:
+        arr = np.where(np.isnan(arr), fill_value, arr)
+    else:
+        # Replace NaNs with the mode value
+        arr = np.where(np.isnan(arr), mode_value, arr)
+
     return arr
 
 def normalizer(
@@ -4570,7 +4680,7 @@ def make_df(
     >>> from gofast.tools.baseutils import make_df
     >>> X = np.random.rand(90, 5)
     >>> y = np.random.rand(100)
-    >>> df = make_data(X, y, coerce=True, error='ignore')
+    >>> df = make_df(X, y, coerce=True, error='ignore')
     >>> print(df.head())
 
     See Also
@@ -4656,8 +4766,173 @@ def make_df(
     return X
 
 
-        
+def update_df(
+    old_df: pd.DataFrame,
+    new_df: pd.DataFrame,
+    return_common_dfs=False, 
+    return_common_columns=False,
+    error_policy="warn"
+):
+    """
+    `update_df` function is designed to update a given DataFrame (`old_df`) 
+    by replacing the common columns with the corresponding values from a 
+    new DataFrame (`new_df`). This function supports a variety of use cases, 
+    such as returning updated DataFrames, extracting common columns, or 
+    handling potential errors when the common columns are missing.
+
+    Parameters
+    ----------
+    `old_df` : pandas.DataFrame
+        The original DataFrame to be updated. It must contain columns 
+        that can be matched with those in `new_df`.
+
+    `new_df` : pandas.DataFrame
+        The DataFrame that contains updated values for the common columns 
+        with `old_df`. It should have columns that overlap with `old_df`.
+
+    `return_common_dfs` : bool, optional, default=False
+        If set to True, the function will return two DataFrames containing 
+        only the common columns between `old_df` and `new_df`:
+        - The first DataFrame will be from `old_df`.
+        - The second DataFrame will be from `new_df`.
+        If False (default), the function will update the common columns in 
+        `old_df` with the corresponding values from `new_df`.
+
+    `return_common_columns` : bool, optional, default=False
+        If set to True, the function will return a list of common column 
+        names between `old_df` and `new_df`. This can be useful to 
+        inspect which columns will be updated or matched between the DataFrames.
+
+    `error_policy` : {'warn', 'raise'}, optional, default='warn'
+        Defines the action to take if no common columns are found between 
+        `old_df` and `new_df`. 
+        - 'warn' (default) will display a warning message.
+        - 'raise' will raise an exception (`ValueError`).
+
+    Returns
+    -------
+    updated_df : pandas.DataFrame
+        If neither `return_common_columns` nor `return_common_dfs` is 
+        specified, this function returns the original `old_df` with its 
+        common columns updated to the values from `new_df`.
+
+    common_columns : list
+        If `return_common_columns` is set to True, returns a list of 
+        column names common to both `old_df` and `new_df`.
+
+    common_old_df : pandas.DataFrame
+        If `return_common_dfs` is set to True, returns a DataFrame 
+        containing the common columns of `old_df`.
+
+    common_new_df : pandas.DataFrame
+        If `return_common_dfs` is set to True, returns a DataFrame 
+        containing the common columns of `new_df`.
+
+
+
+    Examples
+    --------
+    >>> from gofast.tools.baseutils import update_df
+
+    # Example 1: Return only common columns
+    >>> updated_common = update_df(old_df, new_df, return_common_columns=True)
+    >>> print(updated_common)
+    ['A', 'B']
+
+    # Example 2: Return DataFrames for common columns
+    >>> common_old, common_new = update_df(
+    ...    old_df, new_df, return_common_dfs=True)
+    >>> print(common_old)
+       A  B
+    0  1  4
+    1  2  5
+    2  3  6
+    >>> print(common_new)
+        A   B
+    0  10  40
+    1  20  50
+    2  30  60
+
+    # Example 3: Update full DataFrame with common columns
+    >>> updated_full = update_df(
+    ...    old_df, new_df, return_common_columns=False, return_common_dfs=False)
+    >>> print(updated_full)
+        A   B  C
+    0  10  40  7
+    1  20  50  8
+    2  30  60  9
+
+    Notes
+    -----
+
+    Given two DataFrames `old_df` and `new_df`, we define a set of common 
+    columns:
+
+    .. math:: 
+        C = \text{columns}(old\_df) \cap \text{columns}(new\_df)
+
+    The function then replaces the values in the common columns of `old_df` 
+    with the corresponding values from `new_df`:
+
+    .. math::
+        \text{updated\_df}[C] = \text{new\_df}[C]
+
+    Where `C` is the set of common columns between `old_df` and `new_df`. 
+    This operation is done only for the common columns, and other columns 
+    remain unchanged.
+
+    - The function allows flexibility in handling errors and selecting 
+      what to return: the updated DataFrame, common columns, or common 
+      DataFrames.
+    - The error policy can be customized to either raise an exception or 
+      warn the user when no common columns are found.
+    - The function assumes that `old_df` and `new_df` are pandas DataFrames 
+      with at least some overlapping column names.
+
+
+    See Also
+    --------
+    - :func:`pandas.DataFrame`
+    - :func:`pandas.DataFrame.intersection`
+
+    References
+    ----------
+    .. [1] McKinney, W. "Data Structures for Statistical Computing in 
+       Python." Proceedings of the 9th Python in Science Conference, 
+       2010.
+       https://conference.scipy.org/proceedings/scipy2010/pdfs/mckinney.pdf
+    """
+
+    # Check if the DataFrames are valid
+    if not isinstance(old_df, pd.DataFrame) or not isinstance(new_df, pd.DataFrame):
+        raise ValueError("Both old_df and new_df must be pandas DataFrame.")
+
+    # Find common columns
+    common_columns = old_df.columns.intersection(new_df.columns)
     
+    # Handle error policy for missing common columns
+    if len(common_columns) == 0:
+        if error_policy == "warn":
+            print("Warning: No common columns between the two DataFrames.")
+        elif error_policy == "raise":
+            raise ValueError("No common columns found between the two DataFrames.")
+    
+    # Case 1: Return only the common columns
+    if return_common_columns:
+        return common_columns.tolist()
+
+    # Case 2: Return DataFrames for common columns
+    if return_common_dfs:
+        common_old_df = old_df[common_columns]
+        common_new_df = new_df[common_columns]
+        return common_old_df, common_new_df
+    
+    # Case 3: Return the full DataFrame with updated common columns
+    # Update the common columns from new_df to old_df
+    updated_df = old_df.copy()
+    updated_df[common_columns] = new_df[common_columns]
+    
+    return updated_df
         
 
 
