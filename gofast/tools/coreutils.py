@@ -6090,20 +6090,23 @@ def to_series_if(
     **kws
 ) -> Series:
     """
-    Constructs a pandas Series from given values, optionally naming the series
-    and its index.
+    Constructs a pandas Series from given values, optionally naming 
+    the series and its index.
 
     Parameters
     ----------
     *values : Any
-        A variable number of inputs, each can be a scalar, float, int, or array-like object.
+        A variable number of inputs, each can be a scalar, float, int,\
+            or array-like object.
     value_names : Optional[List[str]]
-        Names to be used for the index of the series. If not provided or if its length
-        doesn't match the number of values, default numeric index is used.
+        Names to be used for the index of the series. If not provided or 
+        if its length doesn't match the number of values, default numeric
+        index is used.
     name : Optional[str]
         Name of the series.
     error : str, default 'ignore'
-        Error handling strategy ('ignore' or 'raise'). If 'raise', errors during series
+        Error handling strategy ('ignore' or 'raise'). If 'raise', errors 
+        during series
         construction lead to an exception.
     **kws : dict
         Additional keyword arguments passed to `pd.Series` constructor.
@@ -6111,8 +6114,8 @@ def to_series_if(
     Returns
     -------
     pd.Series or original values
-        A pandas Series constructed from the inputs if successful, otherwise, the original
-        values if the series construction is not applicable.
+        A pandas Series constructed from the inputs if successful, otherwise,
+        the original values if the series construction is not applicable.
 
     Examples
     --------
@@ -6133,14 +6136,17 @@ def to_series_if(
     # Validate input lengths and types
     if value_names and len(value_names) != len(values):
         if error == 'raise':
-            raise ValueError("Length of `value_names` does not match the number of values.")
+            raise ValueError("Length of `value_names` does not"
+                             " match the number of values.")
         value_names = None  # Reset to default indexing
     # Attempt to construct series
     try:
         # Flatten array-like inputs to avoid creating Series of lists/arrays
         flattened_values = [val[0] if isinstance(
-            val, (list,tuple,  np.ndarray, pd.Series)) and len(val) == 1 else val for val in values]
-        series = pd.Series(flattened_values, index=value_names, name=name, **kws)
+            val, (list,tuple,  np.ndarray, pd.Series)) 
+            and len(val) == 1 else val for val in values]
+        series = pd.Series(
+            flattened_values, index=value_names, name=name, **kws)
     except Exception as e:
         if error == 'raise':
             raise ValueError(f"Failed to construct series due to: {e}")

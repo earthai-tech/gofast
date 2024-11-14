@@ -61,7 +61,7 @@ class Data(BaseClass):
         df = array_to_frame(
             df,
             to_frame=True,
-            input_name='col_',
+            input_name='col',
             force=True
         )
         self.data = df
@@ -367,7 +367,7 @@ execute(inplace=False)
 
 Examples
 --------
->>> from gofast.dataops._base import Data
+>>> from gofast.dataops.core import Data
 >>> import pandas as pd
 >>> 
 >>> # Sample data
@@ -476,7 +476,6 @@ class MergeableSeries(BaseClass):
         if not isinstance(other, MergeableSeries):
             raise ValueError(
                 "Operand must be an instance of MergeableSeries")
-        
         series1 = series.astype(
             str) if series.dtype == 'object' else series
         series2 = other.series.astype(
@@ -521,7 +520,7 @@ where \( \land \) represents the element-wise logical AND.
 
 Examples
 --------
->>> from gofast.dataops._base import MergeableSeries
+>>> from gofast.dataops.core import MergeableSeries
 >>> import pandas as pd
 >>> series1 = pd.Series([True, False, True])
 >>> series2 = pd.Series([True, True, False])
@@ -567,6 +566,10 @@ class Frames(BaseClass):
        
     def _initial_processing(self, *frames: pd.DataFrame, **kws) -> 'Frames':
         processed_frames = []
+        frames = [ 
+            array_to_frame(df, to_frame=True, force=True, input_name="col")
+            for df in frames
+        ]
         for frame in self.frames:
             processed_frame = to_numeric_dtypes(frame, **kws)
             processed_frames.append(processed_frame)
@@ -739,13 +742,13 @@ Formulation
 
 Examples
 --------
->>> from gofast.dataops._base import Frames
+>>> from gofast.dataops.core import Frames
 >>> import pandas as pd
 >>> df1 = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
 >>> df2 = pd.DataFrame({'A': [5, 6], 'B': [7, 8]})
 >>> frames = Frames([df1, df2])
->>> merged = frames.merge(on='A', how='inner').execute()
->>> print(merged)
+>>> concatenated = frames.concat().execute()
+>>> print(concatenated)
    A  B
 0  1  3
 1  2  4
@@ -868,7 +871,7 @@ Formulation
 
 Examples
 --------
->>> from gofast.dataops._base import MergeableFrames
+>>> from gofast.dataops.core import MergeableFrames
 >>> import pandas as pd
 >>> df1 = pd.DataFrame({'A': [True, False], 'B': [True, True]})
 >>> df2 = pd.DataFrame({'A': [False, True], 'B': [True, False]})
@@ -1111,7 +1114,7 @@ Formulation
 
 Examples
 --------
->>> from gofast.dataops._base import Missing
+>>> from gofast.dataops.core import Missing
 >>> import pandas as pd
 >>> df = pd.DataFrame({
 ...     'A': [1, 2, None, 4],
@@ -1154,7 +1157,7 @@ References
 if __name__ == "__main__":
     # Sample data
     import pandas as pd 
-    from gofast.dataops._base import Data 
+    from gofast.dataops.core import Data 
     sample_data = pd.DataFrame({
         'Name': [' Alice ', 'Bob', None, 'David'],
         'Age': [25, None, 30, 22],

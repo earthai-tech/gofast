@@ -1116,10 +1116,10 @@ class BaseClass(metaclass=HelpMeta):
         str
             A summarized string representation of the DataFrame.
         """
-        if len(df) > self.MAX_DISPLAY_ITEMS:
-            return f"DataFrame({len(df)} rows, {len(df.columns)} columns)"
-        else:
-            return f"DataFrame: {df.to_string(index=False)}"
+        # if len(df) > self.MAX_DISPLAY_ITEMS:
+        return f"DataFrame({len(df)} rows, {len(df.columns)} columns)"
+        # else:
+        #     return f"DataFrame: {df.to_string(index=False)}"
 
     def _summarize_series(self, series: pd.Series) -> str:
         """
@@ -1136,12 +1136,12 @@ class BaseClass(metaclass=HelpMeta):
         str
             A summarized string representation of the Series.
         """
-        if len(series) > self.MAX_DISPLAY_ITEMS:
-            limited_items = ', '.join(f"{series.index[i]}: {series[i]}" 
-                                      for i in range(self.MAX_DISPLAY_ITEMS))
-            return f"Series([{limited_items}, ...])"
-        else:
-            return f"Series: {series.to_string(index=False)}"
+        # if len(series) > self.MAX_DISPLAY_ITEMS:
+        limited_items = ', '.join(f"{series.index[i]}: {series[i]}" 
+                                  for i in range(self.MAX_DISPLAY_ITEMS))
+        return f"Series([{limited_items}, ...])"
+        # else:
+        #     return f"Series: {series.to_string(index=False)}"
         
 class BaseLearner(metaclass=LearnerMeta):
     """
@@ -1638,7 +1638,6 @@ class BaseLearner(metaclass=LearnerMeta):
         params = self.get_params(deep=False)
         summary_str = "\n".join(f"{k}: {v}" for k, v in params.items())
         return f"{self.__class__.__name__} Summary:\n{summary_str}"
-    
     
     def execute(self, *args, **kwargs):
         """
