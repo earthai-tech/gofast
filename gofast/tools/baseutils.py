@@ -199,6 +199,132 @@ def detect_categorical_columns(
 
     return categorical_columns
 
+# XXX TODO 
+def remove_outliers_(
+    ar: Union[np.ndarray, pd.DataFrame, pd.Series],
+    method: str = 'IQR',
+    threshold: float = 3.0,
+    fill_value: Optional[float] = None,
+    axis: int = 1,
+    interpolate: bool = False,
+    kind: str = 'linear',
+ 
+    return_removed: bool = False
+) -> Union[np.ndarray, pd.DataFrame, pd.Series]:
+    
+    # Handle DataFrame and Series input types
+    is_series =False 
+    if isinstance ( ar, pd.Series): 
+        ar = ar.to_frame()
+        is_series =True
+    if isinstance ( ar, pd.DataFrame) :
+        df_sanitized = _remove_outliers(ar, n_std = threshold) 
+        if is_series: 
+            df_sanitized = df_sanitized.squeeze () 
+        return df_sanitized
+    
+    # Validation of inputs
+    method = parameter_validator(
+        "method", target_strs={"iqr", 'z-score'}) (method)
+    kind = parameter_validator(
+        "kind", target_strs=['nearest', 'linear', 'cubic']) (kind)
+
+    arr = np.asarray( ar)
+    
+    removed_indices = []  # To keep track of removed outliers
+    
+    if method == 'iqr':
+        Q1 = np.percentile(arr[~np.isnan(arr)], 25, axis=axis)
+        Q3 = np.percentile(arr[~np.isnan(arr)], 75, axis=axis)
+        IQR = Q3 - Q1
+        
+        lower_bound = Q1 - threshold * IQR
+        upper_bound = Q3 + threshold * IQR
+        
+        lower_outliers = arr <= lower_bound
+        upper_outliers = arr >= upper_bound
+        
+        removed_indices.append(np.where(lower_outliers | upper_outliers))
+        
+        arr[lower_outliers | upper_outliers] = fill_value if fill_value else np.nan
+        
+    elif method == 'z-score':
+        z = np.abs(stats.zscore(arr[~np.isnan(arr)], axis=axis))
+        z_outliers = z > threshold
+        removed_indices.append(np.where(z_outliers))
+        
+        arr[z_outliers] = fill_value if fill_value else np.nan
+    
+    if fill_value is None:
+        arr = arr[~np.isnan(arr).any(axis=axis)] if arr.ndim > 1 else arr[~np.isnan(arr)]
+    
+    if interpolate:
+        arr = interpolate_grid(arr, method=kind)
+    
+    if return_removed:
+        return arr, removed_indices
+    else:
+        return arr
+    
+def _remove_outliers_(data: pd.DataFrame, n_std: float = 3) -> pd.DataFrame:
+
+    # Separate categorical and numeric features
+    df, numf, catf = to_numeric_dtypes(
+        data, return_feature_types=True, drop_nan_columns=True)
+    df = df[numf]  # Work with only numeric columns
+    
+    removed_indices = []
+    for col in df.columns:
+        mean = df[col].mean()
+        std = df[col].std()
+        outliers = df[col].abs() > (mean + n_std * std)
+        removed_indices.append(df[outliers].index)
+        
+        # Replace outliers with NaN or fill_value
+        df.loc[outliers, col] = np.nan
+    
+    # Recreate the DataFrame with categorical data included
+    df_cat = data[catf].iloc[df.index]
+    df_cleaned = pd.concat([df_cat, df], axis=1)
+    
+    return df_cleaned, removed_indices
+
+
+def interpolate_grid_(
+    arr: np.ndarray,
+    method: str = 'cubic',
+    fill_value: Optional[float] = 'auto',
+    view: bool = False
+) -> np.ndarray:
+    from scipy import interpolate
+
+    # Validation of inputs
+
+    method = parameter_validator(
+        "method", target_strs=['nearest', 'linear', 'cubic']) (method)
+    
+    arr = np.asarray ( arr)
+    # Interpolate NaN values
+    nan_mask = np.isnan(arr)
+    if fill_value == 'auto':
+        fill_value = np.nanmedian(arr[~nan_mask])  # Use median as fallback
+    
+    # Perform interpolation using scipy
+    grid_x, grid_y = np.meshgrid(np.arange(arr.shape[1]), np.arange(arr.shape[0]))
+    interpolated_arr = interpolate.griddata(
+        (grid_x[~nan_mask], grid_y[~nan_mask]),
+        arr[~nan_mask],
+        (grid_x, grid_y),
+        method=method,
+        fill_value=fill_value
+    )
+    
+    if view:
+        plt.imshow(interpolated_arr, cmap='hot', interpolation='nearest')
+        plt.show()
+    
+    return interpolated_arr
+
 
 def remove_outliers(
     ar: Union[ArrayLike,DataFrame],  
@@ -299,6 +425,9 @@ def remove_outliers(
     >>> plt.plot(np.arange(len(data)), data, 'r-')
     """
     method = str(method).lower()
+    # Validation of inputs
+    method = parameter_validator(
+        "method", target_strs={"iqr", 'z-score'}) (method)
     
     if isinstance (ar, pd.DataFrame):
         return _remove_outliers( ar, n_std= threshold )
@@ -332,6 +461,9 @@ def remove_outliers(
                   ]  if np.ndim (arr) > 1 else arr [~np.isnan(arr)]
 
     if interpolate: 
+        if fill_value !=np.nan: 
+            raise ValueError(
+                "Interpolate is feasible only if ``fill_value=np.nan``.")
         arr = interpolate_grid (arr, method = kind)
         
     if is_series: 
