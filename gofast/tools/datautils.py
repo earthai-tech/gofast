@@ -28,7 +28,7 @@ from ..compat.sklearn import validate_params
 from ..decorators import Deprecated, RunReturn, isdf 
 from .coreutils import ( 
     _assert_all_types, _isin, _validate_name_in, assert_ratio,
-    is_iterable, sanitize_frame_cols, to_numeric_dtypes 
+    is_iterable, sanitize_frame_cols, to_numeric_dtypes, 
 )
 from .validator import ( 
     check_is_runned, validate_positive_integer 
@@ -50,7 +50,8 @@ __all__= [
     'read_worksheets',
     'resample_data', 
     'replace_data', 
-    'sample_spatial_data', 
+    'resample_spatial_data', 
+    'pivot_long_to_wide', 
     ]
 
 class DataManager(BaseClass):
@@ -1186,7 +1187,6 @@ def process_and_extract_data(
 
     return extracted_data
 
-
 def random_selector(
     arr: ArrayLike,
     value: Union[float, ArrayLike, str],
@@ -2074,7 +2074,7 @@ def replace_data(
     return concat_data(X)
 
 @isdf
-def sample_spatial_data(
+def resample_spatial_data(
     data,
     sample_size=0.01,
     stratify_by=['year'],
@@ -2161,11 +2161,11 @@ def sample_spatial_data(
 
     Examples
     --------
-    >>> from gofast.tools.datautils import sample_spatial_data
+    >>> from gofast.tools.datautils import resample_spatial_data
     >>> import pandas as pd
     >>> # Assume 'df' is a pandas DataFrame with columns
     >>> # 'longitude', 'latitude', 'year', and other data.
-    >>> sampled_df = sample_spatial_data(
+    >>> sampled_df = resample_spatial_data(
     ...     data=df,
     ...     sample_size=0.05,
     ...     stratify_by=['year', 'geological_category'],
@@ -2324,3 +2324,137 @@ def sample_spatial_data(
     return sampled_data.reset_index(
         drop=True
     )
+
+@isdf 
+def pivot_long_to_wide(
+    data,
+    index_columns=None,
+    pivot_column='year',
+    value_column='subsidence',
+    aggfunc='first',
+    savefile=None
+):
+    """
+    Convert a DataFrame from long to wide format by pivoting.
+
+    This function transforms a DataFrame from long format to wide
+    format by pivoting the DataFrame based on specified index columns,
+    pivot column, and value column. The resulting DataFrame will have
+    one row per unique combination of `index_columns` and columns for
+    each unique value in `pivot_column`.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The input DataFrame in long format containing the data to be
+        pivoted.
+
+    index_columns : list of str, optional
+        List of column names to use as the index for the pivot
+        operation. If `None`, defaults to ``['longitude', 'latitude']``.
+
+    pivot_column : str, default ``'year'``
+        The name of the column whose values will be used as new column
+        names in the pivoted DataFrame.
+
+    value_column : str, default ``'subsidence'``
+        The name of the column whose values will fill the cells of the
+        pivoted DataFrame.
+
+    aggfunc : str or callable, default ``'first'``
+        The aggregation function to apply if there are duplicate
+        entries for the same index and pivot column values.
+
+    savefile : str, optional
+        If provided, the resulting wide-format DataFrame will be saved
+        to this file path in CSV format.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A wide-format DataFrame with one row per combination of
+        `index_columns` and columns for each unique value in
+        `pivot_column`.
+
+    Notes
+    -----
+    This function is useful for transforming data from long to wide
+    format, which is often required for certain types of analysis or
+    visualization. The pivot operation is performed using
+    :func:`pandas.pivot_table` [1]_.
+
+    If there are multiple entries for the same index and pivot column
+    values, the specified `aggfunc` is applied to aggregate them. The
+    aggregation is defined as:
+
+    .. math::
+
+        \text{Value}_{i,j} = \text{aggfunc}(\{ v_k \mid
+        \text{index}_k = i, \text{pivot}_k = j \})
+
+    where :math:`v_k` are the values in `value_column`, :math:`i` and
+    :math:`j` represent the unique values in `index_columns` and
+    `pivot_column`, respectively.
+
+    Examples
+    --------
+    >>> from gofast.tools.datautils import pivot_long_to_wide
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({
+    ...     'longitude': [1, 1, 2, 2],
+    ...     'latitude': [3, 3, 4, 4],
+    ...     'year': [2020, 2021, 2020, 2021],
+    ...     'subsidence': [0.1, 0.2, 0.15, 0.25]
+    ... })
+    >>> wide_df = pivot_long_to_wide(data)
+    >>> print(wide_df)
+       longitude  latitude  subsidence_2020  subsidence_2021
+    0          1         3             0.10             0.20
+    1          2         4             0.15             0.25
+
+    See Also
+    --------
+    pandas.pivot_table : Create a spreadsheet-style pivot table as a DataFrame.
+
+    References
+    ----------
+    .. [1] Wes McKinney. "pandas: a foundational Python library for
+       data analysis and statistics." Python for High Performance and
+       Scientific Computing (2011): 1-9.
+
+    """
+    # Set default index columns if not provided
+    if index_columns is None:
+        index_columns = ['longitude', 'latitude']
+
+    # Check that required columns exist in DataFrame
+    required_columns = index_columns + [pivot_column, value_column]
+    missing_columns = set(required_columns) - set(data.columns)
+    if missing_columns:
+        raise ValueError(f"Missing columns in DataFrame: {missing_columns}")
+
+    # Pivot the DataFrame
+    wide_df = data.pivot_table(
+        index=index_columns,
+        columns=pivot_column,
+        values=value_column,
+        aggfunc=aggfunc
+    )
+
+    # Flatten the multi-level columns if necessary
+    if isinstance(wide_df.columns, pd.MultiIndex):
+        wide_df.columns = [
+            f'{value_column}_{col}' for col in wide_df.columns
+        ]
+    else:
+        wide_df.columns = [
+            f'{value_column}_{wide_df.columns}'
+        ]
+
+    # Reset the index to convert back to a normal DataFrame
+    wide_df = wide_df.reset_index()
+
+    if savefile:
+        wide_df.to_csv(savefile, index=False)
+
+    return wide_df

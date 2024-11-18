@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.patches import Ellipse
 import matplotlib.transforms as transforms 
+from scipy.interpolate import griddata
 
 from sklearn.metrics import r2_score 
 from sklearn.utils import resample
@@ -27,13 +28,17 @@ from sklearn.utils import resample
 from ..api.types import Optional, Tuple,  Union 
 from ..api.types import Dict, ArrayLike, DataFrame
 from ..api.property import BasePlot
+from ..decorators import isdf
 from ..tools.coreutils import ( 
-    _assert_all_types, is_iterable, str2columns, is_in_if
+    _assert_all_types, is_iterable, str2columns, is_in_if, 
+    exist_features 
 )
 from ..tools.validator import  assert_xy_in
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
-__all__=["boxplot", "plot_r_squared", "plot_text"]
+__all__=["boxplot", "plot_r_squared", "plot_text", "plot_spatial_features", 
+         "plot_categorical_feature", 
+         ]
 
 class PlotUtils(BasePlot):
     def __init__(self, **kwargs):
@@ -140,6 +145,640 @@ See also:
     on adjustable parameters.
 """
 # ##################################################
+
+@isdf 
+def plot_spatial_features(
+    data,
+    features,
+    dates=None,
+    date_col="year",
+    x_col='longitude',
+    y_col='latitude',
+    colormaps=None,
+    figsize=None,
+    point_size=10,
+    marker='o',
+    plot_type='scatter',
+    colorbar_orientation='vertical',
+    cbar_labelsize=10,
+    axis_off=True,
+    titles=None,
+    vmin_vmax=None,
+    **kwargs
+):
+    """
+    Plot spatial distribution of specified features over given dates.
+
+    This function creates a grid of subplots, each displaying the
+    geographical distribution of a specified feature at particular
+    dates or times. It supports multiple plot types including
+    ``'scatter'``, ``'hexbin'``, and ``'contour'``, allowing for
+    extensive customization of plot appearance. The function leverages
+    Matplotlib's plotting capabilities [1]_ to visualize spatial data.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The input DataFrame containing the data to plot. It must
+        include the specified `features`, `x_col`, `y_col`, and
+        the `date_col` if `dates` are provided.
+
+    features : list of str
+        List of feature names to plot. Each feature must exist
+        in `data`. A subplot will be created for each feature.
+
+    dates : str or datetime-like or list of str or datetime-like, optional
+        Dates or times to plot. Each date must correspond to an entry
+        in the `date_col` of `data`. If `None`, the function plots
+        the features without considering dates.
+
+    date_col : str, default ``'year'``
+        Name of the column in `data` to use for date or time filtering.
+        This column can contain datetime objects, years, or any other
+        temporal representation.
+
+    x_col : str, default ``'longitude'``
+        Name of the column in `data` to use for the x-axis coordinates.
+
+    y_col : str, default ``'latitude'``
+        Name of the column in `data` to use for the y-axis coordinates.
+
+    colormaps : list of str, optional
+        List of colormap names to use for each feature. If not
+        provided, default colormaps are used.
+
+    figsize : tuple of float, optional
+        Figure size in inches, as a tuple ``(width, height)``. If not
+        provided, the figure size is determined based on the number of
+        features and dates.
+
+    point_size : int, default 10
+        Size of the points in the scatter plot.
+
+    marker : str, default ``'o'``
+        Marker style for scatter plots.
+
+    plot_type : {'scatter', 'hexbin', 'contour'}, default ``'scatter'``
+        Type of plot to create. Supported options are ``'scatter'``,
+        ``'hexbin'``, and ``'contour'``.
+
+    colorbar_orientation : {'vertical', 'horizontal'}, default ``'vertical'``
+        Orientation of the colorbar.
+
+    cbar_labelsize : int, default 10
+        Font size for the colorbar tick labels.
+
+    axis_off : bool, default True
+        If ``True``, axes are turned off. If ``False``, axes are shown.
+
+    titles : dict of str, optional
+        Dictionary of titles for each feature. Keys are feature names,
+        and values are title templates that can include ``{date}``.
+
+    vmin_vmax : dict of tuple, optional
+        Dictionary specifying the color scale (vmin and vmax) for each
+        feature. Keys are feature names, and values are tuples
+        ``(vmin, vmax)``.
+
+    **kwargs
+        Additional keyword arguments passed to the plotting functions
+        (``scatter``, ``hexbin``, or ``contourf``).
+
+    Notes
+    -----
+    The function supports different plot types:
+
+    - For ``plot_type='scatter'``, it creates a scatter plot using
+      ``matplotlib.pyplot.scatter``.
+
+    - For ``plot_type='hexbin'``, it creates a hexbin plot using
+      ``matplotlib.pyplot.hexbin``.
+
+    - For ``plot_type='contour'``, it creates a contour plot by
+      interpolating the data onto a grid using
+      :func:`scipy.interpolate.griddata` and then plotting using
+      ``matplotlib.pyplot.contourf``.
+
+    The color normalization is performed using:
+
+    .. math::
+
+        c_{\text{norm}} = \frac{c - v_{\text{min}}}{v_{\text{max}} - v_{\text{min}}}
+
+    where :math:`c` is the feature value, :math:`v_{\text{min}}` and
+    :math:`v_{\text{max}}` are the minimum and maximum values for the
+    color scale.
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_spatial_features
+    >>> plot_spatial_features(
+    ...     data=df,
+    ...     features=['temperature', 'humidity'],
+    ...     dates=['2023-01-01', '2023-06-01'],
+    ...     date_col='date',
+    ...     x_col='lon',
+    ...     y_col='lat',
+    ...     colormaps=['coolwarm', 'YlGnBu'],
+    ...     point_size=15,
+    ...     plot_type='scatter',
+    ...     axis_off=False,
+    ...     titles={'temperature': 'Temp on {date}',
+    ...             'humidity': 'Humidity on {date}'},
+    ...     alpha=0.7
+    ... )
+
+    See Also
+    --------
+    matplotlib.pyplot.scatter : Create a scatter plot.
+    matplotlib.pyplot.hexbin : Make a hexagonal binning plot.
+    matplotlib.pyplot.contourf : Create a filled contour plot.
+    scipy.interpolate.griddata : Interpolate unstructured D-dimensional data.
+
+    References
+    ----------
+    .. [1] Hunter, J. D. (2007). Matplotlib: A 2D graphics environment.
+       *Computing in Science & Engineering*, 9(3), 90-95.
+    """
+
+    # Validate that features exist in data
+    for feature in features:
+        if feature not in data.columns:
+            raise ValueError(f"Feature '{feature}' not found in data.")
+
+    # Handle dates parameter
+    if dates is not None:
+        # Convert single value to list
+        if not isinstance(dates, (list, tuple, np.ndarray, pd.Series)):
+            dates = [dates]
+        else:
+            dates = list(dates)
+
+        # Check that 'date_col' exists
+        if date_col not in data.columns:
+            raise ValueError(f"Column '{date_col}' not found in data.")
+
+        # Depending on the type of 'date_col', process accordingly
+        if np.issubdtype(data[date_col].dtype, np.datetime64):
+            # If date_col is datetime, convert dates to datetime
+            data[date_col] = pd.to_datetime(data[date_col])
+
+            # Convert dates parameter to datetime
+            dates = [pd.to_datetime(d) for d in dates]
+
+            # Normalize dates to remove time component
+            data_dates = data[date_col].dt.normalize().unique()
+            dates_normalized = [d.normalize() for d in dates]
+
+            # Check that dates exist in data
+            missing_dates = set(dates_normalized) - set(data_dates)
+            if missing_dates:
+                missing_dates_str = ', '.join(
+                    [d.strftime('%Y-%m-%d') for d in missing_dates]
+                )
+                raise ValueError(f"Dates {missing_dates_str} not found in data.")
+
+            ncols = len(dates)
+        else:
+            # date_col is not datetime, treat as categorical or numeric
+            data_dates = data[date_col].unique()
+            missing_dates = set(dates) - set(data_dates)
+            if missing_dates:
+                missing_dates_str = ', '.join(map(str, missing_dates))
+                raise ValueError(f"Dates {missing_dates_str} not found in data.")
+
+            ncols = len(dates)
+    else:
+        ncols = 1
+
+    nrows = len(features)
+
+    if colormaps is None:
+        colormaps = ['viridis', 'plasma', 'inferno', 'magma', 'cividis']
+
+    if figsize is None:
+        figsize = (5 * ncols, 5 * nrows)
+
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=figsize,
+        squeeze=False
+    )
+
+    for i, feature in enumerate(features):
+        cmap = colormaps[i % len(colormaps)]
+
+        if vmin_vmax and feature in vmin_vmax:
+            vmin, vmax = vmin_vmax[feature]
+        else:
+            vmin = data[feature].min()
+            vmax = data[feature].max()
+
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+
+        if dates is not None:
+            for j, date in enumerate(dates):
+                ax = axes[i, j]
+                if np.issubdtype(data[date_col].dtype, np.datetime64):
+                    # Normalize date to remove time component
+                    date_normalized = pd.to_datetime(date).normalize()
+                    subset = data[
+                        (data[date_col].dt.normalize() == date_normalized)
+                        & data[feature].notnull()
+                    ]
+                    date_str = date_normalized.strftime('%Y-%m-%d')
+                else:
+                    subset = data[
+                        (data[date_col] == date)
+                        & data[feature].notnull()
+                    ]
+                    date_str = str(date)
+
+                x = subset[x_col].values
+                y = subset[y_col].values
+                c = subset[feature].values
+
+                if plot_type == 'scatter':
+                    sc = ax.scatter(
+                        x,
+                        y,
+                        c=c,
+                        cmap=cmap,
+                        norm=norm,
+                        s=point_size,
+                        marker=marker,
+                        **kwargs
+                    )
+                elif plot_type == 'hexbin':
+                    sc = ax.hexbin(
+                        x,
+                        y,
+                        C=c,
+                        gridsize=50,
+                        cmap=cmap,
+                        norm=norm,
+                        **kwargs
+                    )
+                elif plot_type == 'contour':
+                    # Create a grid to interpolate data
+                    xi = np.linspace(x.min(), x.max(), 100)
+                    yi = np.linspace(y.min(), y.max(), 100)
+                    xi, yi = np.meshgrid(xi, yi)
+                    # Interpolate using griddata
+                    zi = griddata((x, y), c, (xi, yi), method='linear')
+                    # Plot contour
+                    sc = ax.contourf(
+                        xi,
+                        yi,
+                        zi,
+                        levels=15,
+                        cmap=cmap,
+                        norm=norm,
+                        **kwargs
+                    )
+                else:
+                    raise ValueError(f"Unsupported plot_type: {plot_type}")
+
+                if titles and feature in titles:
+                    title = titles[feature].format(date=date_str)
+                else:
+                    title = f"{feature} - {date_str}"
+
+                ax.set_title(title)
+                if axis_off:
+                    ax.axis('off')
+
+                if j == ncols - 1:
+                    cbar = fig.colorbar(
+                        sc,
+                        ax=ax,
+                        orientation=colorbar_orientation
+                    )
+                    cbar.ax.tick_params(labelsize=cbar_labelsize)
+        else:
+            ax = axes[i, 0]
+            subset = data[data[feature].notnull()]
+            x = subset[x_col].values
+            y = subset[y_col].values
+            c = subset[feature].values
+
+            if plot_type == 'scatter':
+                sc = ax.scatter(
+                    x,
+                    y,
+                    c=c,
+                    cmap=cmap,
+                    norm=norm,
+                    s=point_size,
+                    marker=marker,
+                    **kwargs
+                )
+            elif plot_type == 'hexbin':
+                sc = ax.hexbin(
+                    x,
+                    y,
+                    C=c,
+                    gridsize=50,
+                    cmap=cmap,
+                    norm=norm,
+                    **kwargs
+                )
+            elif plot_type == 'contour':
+                # Create a grid to interpolate data
+                xi = np.linspace(x.min(), x.max(), 100)
+                yi = np.linspace(y.min(), y.max(), 100)
+                xi, yi = np.meshgrid(xi, yi)
+                # Interpolate using griddata
+                
+                zi = griddata((x, y), c, (xi, yi), method='linear')
+                # Plot contour
+                sc = ax.contourf(
+                    xi,
+                    yi,
+                    zi,
+                    levels=15,
+                    cmap=cmap,
+                    norm=norm,
+                    **kwargs
+                )
+            else:
+                raise ValueError(f"Unsupported plot_type: {plot_type}")
+
+            if titles and feature in titles:
+                title = titles[feature]
+            else:
+                title = f"{feature}"
+
+            ax.set_title(title)
+            if axis_off:
+                ax.axis('off')
+
+            cbar = fig.colorbar(
+                sc,
+                ax=ax,
+                orientation=colorbar_orientation
+            )
+            cbar.ax.tick_params(labelsize=cbar_labelsize)
+
+    plt.tight_layout()
+    plt.show()
+
+@isdf 
+def plot_categorical_feature(
+    data,
+    feature,
+    dates=None,
+    date_col='year',
+    x_col='longitude',
+    y_col='latitude',
+    colormap='tab10',
+    figsize=None,
+    point_size=10,
+    marker='o',
+    axis_off=True,
+    legend_loc='upper left',
+    titles=None,
+    **kwargs
+):
+    """
+    Plot the geographical distribution of a categorical feature.
+
+    This function creates scatter plots showing the spatial
+    distribution of a categorical feature over geographical
+    coordinates. It supports plotting multiple dates or times,
+    creating subplots for each specified date. The function allows
+    extensive customization of the plot's appearance, including
+    colormaps, point sizes, markers, and more.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The input DataFrame containing the data to plot. It must
+        include the specified `feature`, `x_col`, `y_col`, and
+        `date_col` if `dates` are provided.
+
+    feature : str
+        The name of the categorical feature to plot. This feature
+        must exist in `data`.
+
+    dates : scalar, list, or array-like, optional
+        Dates or times to plot. If provided, the function will
+        create subplots for each date specified. If `None`, the
+        feature is plotted without considering dates.
+
+    date_col : str, default ``'year'``
+        The name of the column in `data` to use for date or time
+        filtering.
+
+    x_col : str, default ``'longitude'``
+        Name of the column in `data` to use for the x-axis
+        coordinates.
+
+    y_col : str, default ``'latitude'``
+        Name of the column in `data` to use for the y-axis
+        coordinates.
+
+    colormap : str, default ``'tab10'``
+        The name of the colormap to use for different categories.
+
+    figsize : tuple, optional
+        Figure size in inches, as a tuple ``(width, height)``. If
+        not provided, the figure size is determined based on the
+        number of dates and default settings.
+
+    point_size : int, default 10
+        Size of the points in the scatter plot.
+
+    marker : str, default ``'o'``
+        Marker style for scatter plots.
+
+    axis_off : bool, default ``True``
+        If ``True``, axes are turned off. If ``False``, axes are
+        shown.
+
+    legend_loc : str, default ``'upper left'``
+        Location of the legend in the plot. Valid locations are
+        strings such as ``'upper right'``, ``'lower left'``, etc.
+
+    titles : dict or str, optional
+        Titles for the subplots. If a dictionary, keys should
+        correspond to subplot indices or dates, and values are
+        title strings. If a string, it is used as a title template
+        and can include placeholders like ``{date}`` which will be
+        replaced with the actual date.
+
+    **kwargs
+        Additional keyword arguments passed to the plotting
+        function (`matplotlib.pyplot.scatter`).
+
+    Returns
+    -------
+    None
+        The function displays the plot and does not return any
+        value.
+
+    Notes
+    -----
+    The function plots the spatial distribution of a categorical
+    feature over geographical coordinates specified by `x_col` and
+    `y_col`. If `dates` are provided, it filters the data for each
+    date and creates a subplot for each one.
+
+    The colors for each category are determined using the specified
+    `colormap`. The categories are mapped to colors using:
+
+    .. math::
+
+        \\text{color}_i = \\text{colormap}\\left( \\frac{i}{N} \\right)
+
+    where :math:`i` is the category index and :math:`N` is the total
+    number of categories.
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_categorical_feature
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> # Sample data
+    >>> data = pd.DataFrame({
+    ...     'longitude': np.random.uniform(-10, 10, 100),
+    ...     'latitude': np.random.uniform(-10, 10, 100),
+    ...     'category': np.random.choice(['A', 'B', 'C'], 100),
+    ...     'year': np.random.choice([2018, 2019, 2020], 100)
+    ... })
+    >>> # Plotting without dates
+    >>> plot_categorical_feature(
+    ...     data,
+    ...     feature='category',
+    ...     x_col='longitude',
+    ...     y_col='latitude',
+    ...     point_size=20,
+    ...     legend_loc='upper right'
+    ... )
+    >>> # Plotting with dates
+    >>> plot_categorical_feature(
+    ...     data,
+    ...     feature='category',
+    ...     dates=[2018, 2019, 2020],
+    ...     date_col='year',
+    ...     x_col='longitude',
+    ...     y_col='latitude',
+    ...     point_size=20,
+    ...     legend_loc='upper right',
+    ...     titles='Category Distribution in {date}'
+    ... )
+
+    See Also
+    --------
+    plot_spatial_features : Function to plot spatial distribution of
+        numerical features.
+
+    References
+    ----------
+    .. [1] Hunter, J. D. (2007). Matplotlib: A 2D graphics environment.
+       *Computing in Science & Engineering*, 9(3), 90-95.
+
+    """
+    # Validate that the feature exists in data
+    exist_features(data, features= feature)
+    # Get unique categories
+    categories = data[feature].unique()
+    num_categories = len(categories)
+
+    # Generate colors for each category
+    cmap = plt.get_cmap(colormap, num_categories)
+    colors = [cmap(i) for i in range(num_categories)]
+    category_color_map = dict(zip(categories, colors))
+
+    # Handle dates parameter
+    if dates is not None:
+        if not isinstance(dates, (list, tuple, np.ndarray, pd.Series)):
+            dates = [dates]
+        else:
+            dates = list(dates)
+
+        if date_col not in data.columns:
+            raise ValueError(f"Column '{date_col}' not found in data.")
+
+        if np.issubdtype(data[date_col].dtype, np.datetime64):
+            data[date_col] = pd.to_datetime(data[date_col])
+            dates = [pd.to_datetime(d) for d in dates]
+            data_dates = data[date_col].dt.normalize().unique()
+            dates_normalized = [d.normalize() for d in dates]
+            missing_dates = set(dates_normalized) - set(data_dates)
+            if missing_dates:
+                missing_dates_str = ', '.join(
+                    [d.strftime('%Y-%m-%d') for d in missing_dates]
+                )
+                raise ValueError(f"Dates {missing_dates_str} not found in data.")
+            ncols = len(dates)
+        else:
+            data_dates = data[date_col].unique()
+            missing_dates = set(dates) - set(data_dates)
+            if missing_dates:
+                missing_dates_str = ', '.join(map(str, missing_dates))
+                raise ValueError(f"Dates {missing_dates_str} not found in data.")
+            ncols = len(dates)
+    else:
+        ncols = 1
+
+    nrows = 1
+
+    if figsize is None:
+        figsize = (5 * ncols, 6)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
+    axes = axes.flatten()
+
+    for i in range(ncols):
+        ax = axes[i]
+        if dates is not None:
+            date = dates[i]
+            if np.issubdtype(data[date_col].dtype, np.datetime64):
+                date_normalized = pd.to_datetime(date).normalize()
+                subset = data[data[date_col].dt.normalize() == date_normalized]
+                date_str = date_normalized.strftime('%Y-%m-%d')
+            else:
+                subset = data[data[date_col] == date]
+                date_str = str(date)
+            title = f"{feature} - {date_str}"
+        else:
+            subset = data
+            title = f"Geographical Distribution of '{feature}'"
+
+        for category in categories:
+            cat_subset = subset[subset[feature] == category]
+            x = cat_subset[x_col].values
+            y = cat_subset[y_col].values
+            ax.scatter(
+                x, y,
+                label=category,
+                c=[category_color_map[category]],
+                s=point_size,
+                marker=marker,
+                **kwargs
+            )
+
+        if titles:
+            if isinstance(titles, dict) and i in titles:
+                ax.set_title(titles[i])
+            elif isinstance(titles, str):
+                ax.set_title(titles)
+            else:
+                ax.set_title(title)
+        else:
+            ax.set_title(title)
+
+        if axis_off:
+            ax.axis('off')
+
+        if i == ncols - 1:
+            # Add legend to the last subplot
+            ax.legend(title=feature, bbox_to_anchor=(1.05, 1), loc=legend_loc)
+
+    plt.tight_layout()
+    plt.show()
 
 def boxplot(
     data: ArrayLike | DataFrame, /, 

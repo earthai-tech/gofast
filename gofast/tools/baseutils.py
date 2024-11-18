@@ -487,7 +487,7 @@ def _remove_outliers(data, n_std=3):
     # get the index and select only the index 
     index = df.index 
     # get the data by index then 
-    # concatename 
+    # concatenate 
     df_cat = data [catf].iloc [ index ]
     df = pd.concat ( [df_cat, df ], axis = 1 )
     

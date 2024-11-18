@@ -17,10 +17,10 @@ from ..tools.coreutils import is_iterable
 from ..tools.validator import is_frame 
 
 __all__=[
-    "plot_pie_charts", "create_radar_chart", "create_base_radar_chart"
+    "pie_charts", "radar_chart", "base_radar_chart"
     ]
 
-def plot_pie_charts(
+def pie_charts(
     data: DataFrame, /, 
     columns: Optional[Union[str, List[str]]] = None,
     bin_numerical: bool = True,
@@ -85,12 +85,12 @@ def plot_pie_charts(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.plot.charts import plot_pie_charts
+    >>> from gofast.plot.charts import pie_charts
     >>> df = pd.DataFrame({
     ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'D', 'D'],
     ...     'Values': [1, 2, 3, 4, 5, 6, 7, 8]
     ... })
-    >>> plot_pie_charts(df, bin_numerical=True, num_bins=3)
+    >>> pie_charts(df, bin_numerical=True, num_bins=3)
     
     Notes
     -----
@@ -185,7 +185,7 @@ def _plot_pie_chart(
     ax.set_title(title)
     ax.axis('equal')  # Ensures the pie chart is drawn as a circle
 
-def create_radar_chart(
+def radar_chart(
     d: ArrayLike, /, categories: List[str], 
     cluster_labels: List[str], 
     title: str = "Radar plot Umatrix cluster properties",
@@ -261,13 +261,13 @@ def create_radar_chart(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.plot.charts import create_radar_chart
+    >>> from gofast.plot.charts import radar_chart
     >>> num_clusters = 5
     >>> num_vars = 10
     >>> data = np.random.rand(num_clusters, num_vars)
     >>> categories = [f"Variable {i}" for i in range(num_vars)]
     >>> cluster_labels = [f"Cluster {i}" for i in range(num_clusters)]
-    >>> create_radar_chart(data, categories, cluster_labels)
+    >>> radar_chart(data, categories, cluster_labels)
     
     Notes
     -----
@@ -331,7 +331,7 @@ def create_radar_chart(
     plt.show()
     return fig, ax
 
-def create_base_radar_chart(
+def base_radar_chart(
     d: ArrayLike, /, 
     categories: List[str], 
     cluster_labels: List[str], 
@@ -368,13 +368,13 @@ def create_base_radar_chart(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.plot.charts import create_base_radar_chart
+    >>> from gofast.plot.charts import base_radar_chart
     >>> num_clusters = 5
     >>> num_vars = 10
     >>> data = np.random.rand(num_clusters, num_vars)
     >>> categories = [f"Variable {i}" for i in range(num_vars)]
     >>> cluster_labels = [f"Cluster {i}" for i in range(num_clusters)]
-    >>> create_base_radar_chart(data, categories, cluster_labels)
+    >>> base_radar_chart(data, categories, cluster_labels)
     
     Notes
     -----
