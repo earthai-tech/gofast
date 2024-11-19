@@ -20,10 +20,6 @@ from scipy.stats import entropy, norm
 from scipy.spatial.distance import jensenshannon
 import matplotlib.pyplot as plt
 
-import statsmodels.api as sm
-import statsmodels.tsa.stattools as tsa
-import statsmodels.stats.diagnostic as diag
-
 from sklearn.base import ClassifierMixin, clone
 from sklearn.metrics import accuracy_score, log_loss, brier_score_loss
 from sklearn.calibration import calibration_curve
@@ -186,7 +182,7 @@ class ModelComparison(BaseClass):
         plt.ylabel(metric_name)
         plt.title(f'Model {metric_name} Comparison')
         plt.xticks(rotation=45)
-        plt.ylim(0, 1)  # Assuming accuracy scores; adjust as needed
+        plt.ylim(0, 1)  # accuracy scores; adjust as needed
         plt.tight_layout()
         
         # Adding value labels on top of each bar
@@ -1757,6 +1753,10 @@ References
    in Statistical Inference*. Springer.
 """
 
+@ensure_pkg(
+    "statsmodels", 
+    "'statsmodels' is required for RegressionModels to proceed."
+ )
 class RegressionModel(BaseClass):
     @validate_params(
         {
@@ -1777,6 +1777,8 @@ class RegressionModel(BaseClass):
         self.reduced_model = reduced_model
 
     def fit(self, X_full, y, X_reduced=None):
+        import statsmodels.api as sm
+
         X_full, y = check_X_y (X_full, y, estimator=self, to_frame=True )
         if X_reduced is not None : 
             X_reduced = check_array(
@@ -1923,6 +1925,7 @@ References
 """
 
 @smartFitRun 
+
 class TimeSeriesTests(BaseClass):
     @validate_params ({"lags": [ int, list, None]})
     def __init__(self, lags=None):
@@ -1935,8 +1938,14 @@ class TimeSeriesTests(BaseClass):
         self.time_series_ = time_series
         self._is_runned=True 
         return self
-
+    
+    @ensure_pkg(
+        "statsmodels",
+        "'statsmodels is required for `dickey_fuller` to proceed."
+    )
     def augmented_dickey_fuller(self):
+        import statsmodels.tsa.stattools as tsa
+        
         check_is_runned(self,)
         result = tsa.adfuller(self.time_series_)
         self.adf_stat_ = result[0]
@@ -1947,7 +1956,13 @@ class TimeSeriesTests(BaseClass):
         self.adf_icbest_ = result[5]
         return result
 
+    @ensure_pkg(
+        "statsmodels",
+        "'statsmodels is required for `ljung_box` to proceed."
+    )
     def ljung_box(self):
+        import statsmodels.stats.diagnostic as diag
+        
         check_is_runned(self)
         result = diag.acorr_ljungbox(self.time_series_, 
                                      lags=self.lags, return_df=True)

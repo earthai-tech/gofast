@@ -5864,7 +5864,293 @@ def validate_dtype_selector(dtype_selector: str) -> str:
 
     raise ValueError(
         f"Invalid dtype_selector provided. Valid options are :{types}")
+
+def build_series_if(
+    *arr,
+    series_names=None,
+    indexes=None,
+    dtype=None,
+    dropna=False,
+    fill_value=None,
+    inplace=False,
+    transpose=False,
+    reset_index=False,
+    error_policy='raise',
+):
+    """
+    Constructs one or more pandas Series from the provided input arrays.
+    Handles various input cases, such as single values, arrays, and DataFrames.
+
+    Parameters
+    ----------
+    *arr : array-like or DataFrame
+        The input data(s). Can be a numpy array, pandas DataFrame, or 
+        single value. Each element will be processed individually to build 
+        a pandas Series.
     
+    series_names : str or list of str, optional, default None
+        The name(s) to assign to each resulting Series. If a string is provided,
+        all Series will have the same name. If a list is provided, the list 
+        should have the same length as `arr`. If not provided, the Series will
+        not be given a name.
+
+    indexes : array-like, optional, default None
+        The index to use for the resulting Series. If None, a default integer 
+        index will be used. If specified, it should match the length of the 
+        input data or the number of Series being created.
+
+    dtype : dtype, optional, default None
+        The data type to force on the resulting Series. If None, pandas will 
+        infer the appropriate type based on the data.
+
+    dropna : bool, optional, default False
+        If True, any NaN values will be dropped from the Series. If False, 
+        NaN values will remain in the Series.
+
+    fill_value : scalar, optional, default None
+        If specified, this value will replace any NaN values in the resulting 
+        Series. If None, no filling occurs.
+
+    inplace : bool, optional, default False
+        If True, modifications to the Series will be made in place and no 
+        new object will be returned. If False, a new Series is created and 
+        returned.
+
+    transpose : bool, optional, default False
+        If True, the Series will be transposed. This option is useful when 
+        working with DataFrames where each column needs to be converted into 
+        a Series.
+
+    reset_index : bool, optional, default False
+        If True, resets the index of the resulting Series. This will drop the 
+        current index and replace it with a new default integer index.
+
+    error_policy : {'raise', 'warn', 'ignore'}, optional, default 'raise'
+        Defines how to handle errors during Series construction:
+        - 'raise' will raise an error.
+        - 'warn' will print a warning message.
+        - 'ignore' will suppress errors without any notification.
+
+    Returns
+    -------
+    list of pandas.Series or pandas.Series
+        The constructed pandas Series objects. If only one Series is created,
+        a single Series is returned; otherwise, a list of Series is returned.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import build_series_if
+    >>> data = [1, 2, 3]
+    >>> build_series_if(data)
+    0    1
+    1    2
+    2    3
+    dtype: int64
+
+    >>> data1 = [1, 2, 3]
+    >>> data2 = [4, 5, 6]
+    >>> build_series_if(data1, data2, series_names=["A", "B"])
+    [0    1
+     1    2
+     2    3
+     dtype: int64, 
+     0    4
+     1    5
+     2    6
+     dtype: int64]
+
+    >>> build_series_if(data, fill_value=0, dropna=True)
+    0    1
+    1    2
+    2    3
+    dtype: int64
+
+    Notes
+    -----
+    The function performs the following operations on the input data:
+    1. Validates and converts the input data into a pandas Series.
+    2. Applies optional transformations like changing dtype, 
+       setting index, filling NaN values, or dropping them.
+    3. Handles errors according to the `error_policy` parameter.
+    4. Returns a list of Series or a single Series depending on the input.
+    
+    The function processes each input array (`arr[i]`) as follows:
+
+    1. `data_i = _validate_and_convert_data(arr[i])`  
+       Converts the data to a pandas Series, if needed.
+    
+    2. `series_i = pd.Series(data_i, name=series_names[i])`  
+       Creates a pandas Series with the specified name.
+
+    3. If `dtype` is provided:  
+       `series_i = series_i.astype(dtype)`
+       - Forces the dtype conversion.
+
+    4. If `indexes` is provided:  
+       `series_i.index = indexes`
+       - Sets custom index.
+
+    5. If `dropna` is True:  
+       `series_i = series_i.dropna()`
+       - Drops NaN values.
+
+    6. If `fill_value` is provided:  
+       `series_i = series_i.fillna(fill_value)`
+       - Fills NaN values with the specified value.
+
+    7. If `transpose` is True:  
+       `series_i = series_i.T`
+       - Transposes the Series.
+
+    8. If `reset_index` is True:  
+       `series_i = series_i.reset_index(drop=True)`
+       - Resets the index.
+
+    9. The result is returned as a list of Series or a single Series.
+
+    See Also
+    --------
+    pandas.Series : The pandas Series constructor used to generate Series objects.
+
+    References
+    ----------
+    [1]_ pandas documentation. https://pandas.pydata.org/pandas-docs/stable/
+    """
+    series_list = []
+
+    try:
+        # Iterate over the input data
+        for idx, data in enumerate(arr):
+            # Convert input data to a Series if needed
+            data = _validate_and_convert_data(data)
+
+            # Handle series naming
+            series_names = _check_series_names(
+                series_names, len(arr), error_policy)
+
+            # Create the Series with a name if available
+            if series_names:
+                series = pd.Series(
+                    data, name=series_names[idx] if series_names[idx] else None
+                    )
+            else:
+                series = pd.Series(data)
+            # Apply additional modifications based on parameters
+            if dtype is not None:
+                series = series.astype(dtype)
+
+            if indexes is not None:
+                # Check if indexes length matches the data length
+                series = _check_series_indexes(
+                    series, indexes, data, idx, error_policy  )
+            if dropna:
+                series = series.dropna()
+
+            if fill_value is not None:
+                series = series.fillna(fill_value)
+
+            if inplace:
+                # If inplace is True, modify the series in place
+                continue
+
+            # Apply transpose if needed
+            if transpose:
+                series = series.T
+
+            if reset_index:
+                series = series.reset_index(drop=True)
+
+            # Append series to the list of results
+            series_list.append(series)
+
+        # Return a single Series if only one is constructed
+        if len(series_list) == 1:
+            return series_list[0]
+        
+        return series_list
+
+    except Exception as e:
+        if error_policy == 'raise':
+            raise e
+        elif error_policy == 'warn':
+            warnings.warn(f"{e}")
+        elif error_policy == 'ignore':
+             pass
+         
+    return arr
+
+
+def _check_series_names(series_names, data_len, error_policy):
+    """
+    Helper function to check if the length of series_names matches the
+    length of data.
+    """
+    if isinstance(series_names, (list, tuple)) and len(series_names) != data_len:
+        msg = "Length of series_names does not match the length of input data."
+        if error_policy == "raise":
+            raise ValueError(msg)
+        elif error_policy == "warn":
+            print(f"Warning: {msg}")
+        # Optionally extend series names if needed
+        elif error_policy == "ignore":
+            series_names +=[None] * (data_len - len(series_names) )
+            # return series_names
+    return series_names
+
+def _validate_and_convert_data(data):
+    """
+    Helper function to validate and convert input data to a compatible form.
+    - Converts a list or tuple into a numpy array.
+    - If a pandas DataFrame with a single column is passed, converts it to a Series.
+    - If a numpy array with shape (1, N) is passed, squeezes to a 1D array.
+    - If the input is a scalar, converts it to a 1D numpy array.
+    - If the input is a 2D array (not a single-column DataFrame), raises a ValueError.
+    
+    Parameters:
+    data: The input data to be validated and converted.
+    
+    Returns:
+    A 1D numpy array or pandas Series.
+    
+    Raises:
+    ValueError: If the input data is not 1D when expected.
+    """
+    # Check if the data is a pandas DataFrame with a single column
+    if isinstance(data, pd.DataFrame) and data.shape[1] == 1:
+        return data.iloc[:, 0]  # Return the single column as a Series
+    
+    # Check if the data is a numpy array, and squeeze it if necessary
+    elif isinstance(data, np.ndarray):
+        data = data.squeeze()  # Squeeze to ensure a 1D array
+    
+    # Check if the data is a scalar value (0-dimensional)
+    if np.ndim(data) == 0:  
+        return np.array([data])  # Convert scalar to 1D array
+    
+    # Check if the data is 2D (and not a single-column DataFrame)
+    if np.ndim(data) == 2:
+        # Raise error for 2D array
+        raise ValueError(
+            "Expected 1D data for series construction, but got 2D array.")  
+    
+    # Otherwise, convert the data to a numpy array
+    return np.asarray(data)  # Return data as a 1D numpy array
+
+def _check_series_indexes (series, indexes, data, idx, error_policy ): 
+    """Check if indexes length matches the data length"""
+    if len(indexes) != len(data):
+        if error_policy == "raise":
+            raise ValueError(
+                "Length of indexes does not match the length of input data.")
+        elif error_policy == "warn":
+            warnings.warn(
+                "Length of indexes does not match the length of input data.")
+        # Use default index if error_policy is 'ignore'
+    else:
+        series.index = indexes[idx]
+        
+    return series 
+
 def build_data_if(
     data, 
     columns=None, 

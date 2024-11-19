@@ -38,10 +38,10 @@ from .utils import _get_xticks_formatage, make_mpl_properties, savefigure
 
 __all__=[
     'plot_silhouette',
-    'plot_silhouette2',
+    'plot_silhouette_in',
     'plot_dendrogram',
     'plot_dendroheat',
-    'plot_dendrogram2',
+    'plot_dendrogram_in',
     'plot_clusters',
     'plot_elbow',
     'plot_cluster_comparison',
@@ -491,7 +491,7 @@ def plot_clusters(
          savefigure(savefig, savefig )
     plt.close () if savefig is not None else plt.show() 
 
-def plot_dendrogram2(
+def plot_dendrogram_in(
     X: ArrayLike, 
     *ybounds, 
     fig_size=(12, 5), 
@@ -865,7 +865,7 @@ def _plot_silhouette (X, labels, metric ='euclidean', **kwds ):
 
     plt.show() 
 
-def plot_silhouette2(
+def plot_silhouette_in(
     X, labels, 
     metric='euclidean',
     savefig=None, 
@@ -904,7 +904,7 @@ def plot_silhouette2(
     >>> import numpy as np 
     >>> from sklearn.clusters import KMeans 
     >>> from gofast.datasets import load_iris 
-    >>> from gofast.plot.cluster import plot_silhouette2
+    >>> from gofast.plot.cluster import plot_silhouette_in
     >>> d = load_iris()
     >>> X = d.data[:, 0][:, np.newaxis]  # take the first axis 
     >>> km = KMeans(n_clusters=3, init='k-means++', n_init=10, 

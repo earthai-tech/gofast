@@ -28,9 +28,9 @@ from .utils import prepare_estimators_and_param_grids
 
 
 __all__=[
-    "Optimizer", "Optimizer2" , "OptimizeSearch", "ParallelizeSearch", 
+    "Optimizer", "ThreadedOptimizer" , "OptimizeSearch", "ParallelizeSearch", 
     "OptimizeHyperparams",  "ParallelOptimizer", "optimize_search", 
-    "parallelize_search", "optimize_hyperparams", "optimize_search2", 
+    "parallelize_search", "optimize_hyperparams", "optimize_search_in", 
     ]
 
 @smartFitRun
@@ -1133,9 +1133,9 @@ class ParallelizeSearch(BaseOptimizer):
         return self.summary_
 
 @smartFitRun
-class Optimizer2(BaseOptimizer):
+class ThreadedOptimizer(BaseOptimizer):
     """
-    Optimizer2 class for hyperparameter optimization of multiple estimators 
+    ThreadedOptimizer class for hyperparameter optimization of multiple estimators 
     separately.
 
     This class facilitates the process of hyperparameter optimization for 
@@ -1209,7 +1209,7 @@ class Optimizer2(BaseOptimizer):
     >>> from sklearn.linear_model import SGDClassifier
     >>> from sklearn.datasets import load_iris
     >>> from sklearn.model_selection import train_test_split
-    >>> from gofast.models.optimize import Optimizer2
+    >>> from gofast.models.optimize import ThreadedOptimizer
     >>> X, y = load_iris(return_X_y=True)
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
     ...                                                     test_size=0.2, 
@@ -1218,14 +1218,14 @@ class Optimizer2(BaseOptimizer):
     >>> param_grids = {'SVC': {'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
     ...                'SGDClassifier': {'max_iter': [50, 100], 'alpha': 
     ...                                  [0.0001, 0.001]}}
-    >>> optimizer = Optimizer2(estimators, param_grids, strategy='GSCV', 
+    >>> optimizer = ThreadedOptimizer(estimators, param_grids, strategy='GSCV', 
     ...                        n_jobs=1)
     >>> results = optimizer.fit(X_train, y_train)
     >>> print(results)
 
     Notes
     -----
-    The `Optimizer2` class uses parallel processing to expedite the 
+    The `ThreadedOptimizer` class uses parallel processing to expedite the 
     hyperparameter search process. Each estimator's optimization progress is 
     displayed using tqdm progress bars.
 
@@ -1340,7 +1340,7 @@ class Optimizer2(BaseOptimizer):
         >>> from sklearn.linear_model import SGDClassifier
         >>> from sklearn.datasets import load_iris
         >>> from sklearn.model_selection import train_test_split
-        >>> from gofast.models.optimize import Optimizer2
+        >>> from gofast.models.optimize import ThreadedOptimizer
         >>> X, y = load_iris(return_X_y=True)
         >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
         ...                                                     test_size=0.2, 
@@ -1349,7 +1349,7 @@ class Optimizer2(BaseOptimizer):
         >>> param_grids = {'SVC': {'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
         ...                'SGDClassifier': {'max_iter': [50, 100], 'alpha': 
         ...                                  [0.0001, 0.001]}}
-        >>> optimizer = Optimizer2(estimators, param_grids, strategy='GSCV', 
+        >>> optimizer = ThreadedOptimizer(estimators, param_grids, strategy='GSCV', 
         ...                        n_jobs=1)
         >>> results = optimizer.fit(X_train, y_train)
         >>> print(results)
@@ -1415,7 +1415,7 @@ class Optimizer2(BaseOptimizer):
                     joblib.dump(o[name], file_name)
                     print(f"Results saved to {file_name}")
 
-        self.summary_ = ModelSummary(descriptor="Optimizer2", **o)
+        self.summary_ = ModelSummary(descriptor="ThreadedOptimizer", **o)
         return self.summary_.summary(o)
    
 @smartFitRun
@@ -1789,7 +1789,7 @@ def optimize_search(
         Input features for the model.
     y : ndarray or Series
         Target variable for the model.
-   strategy : str, optional
+    strategy : str, optional
         Type of search to perform. Default is 'RSCV'.
     save_results : bool, optional
         If True, saves the results of the search to a joblib file. Default is False.
@@ -1855,7 +1855,7 @@ def optimize_search(
     summary.summary(result_dict)
     return summary
 
-def optimize_search2(
+def optimize_search_in(
     estimators: Dict[str, BaseEstimator], 
     param_grids: Dict[str, Any],
     X: ArrayLike, 
@@ -1896,7 +1896,7 @@ def optimize_search2(
     y : array-like of shape (n_samples,) or (n_samples, n_outputs)
         Target values corresponding to `X`.
 
-   strategy : str, default='GSCV'
+    strategy : str, default='GSCV'
         The optimization technique to apply. 'GSCV' refers to Grid Search 
         Cross Validation. Additionalstrategys can be implemented and 
         specified here.
@@ -1925,7 +1925,7 @@ def optimize_search2(
     >>> from sklearn.linear_model import SGDClassifier
     >>> from sklearn.datasets import make_classification
     >>> from sklearn.model_selection import train_test_split
-    >>> from gofast.models.optimize import optimize_search2
+    >>> from gofast.models.optimize import optimize_search_in
     >>> X, y = make_classification(n_samples=100, n_features=7, 
                                    random_state=42)
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
@@ -1934,7 +1934,7 @@ def optimize_search2(
     >>> estimators = [SVC(), SGDClassifier()]
     >>> param_grids = [{'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
                        {'max_iter': [50, 100], 'alpha': [0.0001, 0.001]}]
-    >>> result = optimize_search2(estimators, param_grids, X_train, y_train, 
+    >>> result = optimize_search_in(estimators, param_grids, X_train, y_train, 
                           n_jobs=1, n_iter=10)
     >>> print(result)
                       Optimized Results                       
@@ -1991,7 +1991,7 @@ def optimize_search2(
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y)
     >>> estimators = [RandomForestClassifier()]
     >>> param_grids = [{'n_estimators': [100, 200], 'max_depth': [10, 20]}]
-    >>> result_dict=optimize_search2(estimators, param_grids, X_train, y_train)
+    >>> result_dict=optimize_search_in(estimators, param_grids, X_train, y_train)
     
     Notes
     -----
@@ -2018,7 +2018,7 @@ def optimize_search2(
         f"Optimizing {make_estimator_name(name):<{max_length}}")
         for i, name in enumerate(estimators))
     # except: 
-    #     result_dict= _optimize_search2(
+    #     result_dict= _optimize_search_in(
     #         X, y, param_grids=param_grids, estimators=estimators, 
     #          **search_kwargs)
     # else: 

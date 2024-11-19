@@ -39,7 +39,7 @@ from ._config import PlotConfig
 
 __all__= [ 
     'plot_confusion_matrices',
-    'plot_confusion_matrix2', 
+    'plot_confusion_matrix_', 
     'plot_confusion_matrix', 
     'plot_roc_curves',
     'plot_taylor_diagram',
@@ -1338,7 +1338,7 @@ def plot_shap_summary(
     use_conda=PlotConfig.use_conda 
    )
 
-def plot_confusion_matrix2(
+def plot_confusion_matrix_(
     clf: Any, 
     Xt: Union[np.ndarray, DataFrame], 
     yt: Union[np.ndarray, pd.Series], 
@@ -1415,7 +1415,7 @@ def plot_confusion_matrix2(
     >>> from gofast.datasets import fetch_data
     >>> from sklearn.model_selection import train_test_split 
     >>> from gofast.models import pModels 
-    >>> from gofast.plot.mlviz import plot_confusion_matrix2
+    >>> from gofast.plot.mlviz import plot_confusion_matrix_
     >>> X, Xt, y, yt  = train_test_split(*fetch_data('bagoue analysed'), test_size=0.25)  
     >>> pmo = pModels(model='xgboost') 
     >>> pmo.fit(X, y)

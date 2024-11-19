@@ -77,7 +77,10 @@ def test_hammerstein_wiener_regressor_with_nonlinear_estimators2():
     y_pred = regressor.predict(X)
     mse = mean_squared_error(y, y_pred)
     assert mse < 10000, f"Expected MSE < 1000, but got {mse}"
-
+    
+if __name__=='__main__': 
+    pytest.main([__file__])
+#%%
 def test_hammerstein_wiener_classifier_basic():
     X, y = make_classification(n_samples=200, n_features=5, n_informative=3, n_redundant=1, random_state=42)
     classifier = HammersteinWienerClassifier(p=2, verbose=1)
