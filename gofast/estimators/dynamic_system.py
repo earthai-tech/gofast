@@ -1029,6 +1029,163 @@ class HammersteinWienerRegressor(BaseHammersteinWiener, RegressorMixin):
         
         return y
 
+# import numpy as np
+# import psutil
+
+# class HammersteinWeinerRegressor:
+#     # Existing code and initialization...
+
+#     def _compute_loss(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+#         if self.verbose > 0:
+#             print(f"Computing loss using {self.loss} loss function.")
+
+#         # Convert data to float32 to reduce memory usage
+#         y_true = y_true.astype(np.float32)
+#         y_pred = y_pred.astype(np.float32)
+
+#         # Smartly select batch size
+#         batch_size = self._get_batch_size(y_true, y_pred)
+
+#         # Compute loss in batches
+#         loss = self._compute_loss_in_batches(y_true, y_pred, batch_size)
+
+#         if self.verbose > 0:
+#             print(f"Computed loss: {loss}")
+
+#         return loss
+
+#     def _compute_loss_in_batches(self, y_true, y_pred, batch_size):
+#         n_samples = y_true.shape[0]
+
+#         if self.loss == "mse":
+#             total_error = 0.0
+#             for y_true_batch, y_pred_batch in self._batch_generator(y_true, y_pred, batch_size):
+#                 residual_batch = y_true_batch - y_pred_batch
+#                 total_error += np.sum(residual_batch ** 2)
+#             loss = total_error / n_samples
+
+#         elif self.loss == "mae":
+#             total_error = 0.0
+#             for y_true_batch, y_pred_batch in self._batch_generator(y_true, y_pred, batch_size):
+#                 residual_batch = y_true_batch - y_pred_batch
+#                 total_error += np.sum(np.abs(residual_batch))
+#             loss = total_error / n_samples
+
+#         elif self.loss == "huber":
+#             total_loss = 0.0
+#             delta = self.delta
+#             for y_true_batch, y_pred_batch in self._batch_generator(y_true, y_pred, batch_size):
+#                 residual_batch = y_true_batch - y_pred_batch
+#                 abs_residual = np.abs(residual_batch)
+#                 squared_loss = 0.5 * residual_batch ** 2
+#                 linear_loss = delta * (abs_residual - 0.5 * delta)
+#                 huber_loss_batch = np.where(
+#                     abs_residual <= delta,
+#                     squared_loss,
+#                     linear_loss
+#                 )
+#                 total_loss += np.sum(huber_loss_batch)
+#             loss = total_loss / n_samples
+
+#         elif self.loss == "time_weighted_mse":
+#             weights = self._compute_time_weights(n_samples).astype(np.float32)
+#             total_weighted_error = 0.0
+#             total_weight = 0.0
+#             for (y_true_batch, y_pred_batch, weights_batch) in self._batch_generator(y_true, y_pred, weights, batch_size):
+#                 residual_batch = y_true_batch - y_pred_batch
+#                 weighted_error_batch = weights_batch * residual_batch ** 2
+#                 total_weighted_error += np.sum(weighted_error_batch)
+#                 total_weight += np.sum(weights_batch)
+#             loss = total_weighted_error / total_weight
+
+#         else:
+#             raise ValueError(f"Unsupported loss function: {self.loss}")
+
+#         return loss
+
+#     def _batch_generator(self, *arrays, batch_size):
+#         n_samples = arrays[0].shape[0]
+#         for start_idx in range(0, n_samples, batch_size):
+#             end_idx = min(start_idx + batch_size, n_samples)
+#             yield tuple(arr[start_idx:end_idx] for arr in arrays)
+
+#     def _compute_time_weights(self, n: int) -> np.ndarray:
+#         if self.verbose > 0:
+#             print(f"Computing time weights using {self.time_weighting} method.")
+
+#         n = int(n)
+
+#         if self.time_weighting == "linear":
+#             weights = np.linspace(0.1, 1.0, n, dtype=np.float32)
+#         elif self.time_weighting == "exponential":
+#             weights = np.exp(np.linspace(0, 1, n, dtype=np.float32)) - 1
+#             weights /= weights.max()
+#         elif self.time_weighting == "inverse":
+#             weights = 1 / np.arange(1, n + 1, dtype=np.float32)
+#             weights /= weights.max()
+#         else:
+#             weights = np.ones(n, dtype=np.float32)
+
+#         if self.verbose > 0:
+#             print(f"Time weights: {weights}")
+
+#         return weights
+
+#     def _get_batch_size(self, *arrays):
+#         """
+#         Determine an optimal batch size based on available memory.
+#         """
+#         # Get available system memory
+#         available_memory = psutil.virtual_memory().available
+
+#         # Estimate the size of one sample across all arrays
+#         sample_size = sum(arr.strides[0] for arr in arrays)
+#         n_samples = arrays[0].shape[0]
+
+#         # Use up to 10% of available memory
+#         max_memory_usage = available_memory * 0.1
+
+#         # Compute batch size
+#         batch_size = int(max_memory_usage // sample_size)
+#         batch_size = max(1, min(batch_size, n_samples))
+
+#         return batch_size
+
+#     def predict(self, X):
+#         X = X.astype(np.float32)
+#         n_samples = X.shape[0]
+#         batch_size = self._get_batch_size(X)
+
+#         y_pred = []
+#         for X_batch in self._batch_generator(X, batch_size=batch_size):
+#             X_lagged_batch = self._transform_input(X_batch)
+#             y_linear_batch = self.linear_model_.predict(X_lagged_batch)
+#             y_nonlinear_batch = self._apply_nonlinear_output(y_linear_batch)
+#             y_pred.append(y_nonlinear_batch)
+
+#         y_pred = np.concatenate(y_pred, axis=0)
+
+#         return y_pred
+
+#     def fit(self, X, y):
+#         X = X.astype(np.float32)
+#         y = y.astype(np.float32)
+
+#         # Existing preprocessing and fitting code...
+
+#         # Compute initial loss using batch processing
+#         y_pred_initial = self.predict(X)
+#         self.initial_loss_ = self._compute_loss(y, y_pred_initial)
+
+#         if self.verbose > 0:
+#             print(f"Initial loss: {self.initial_loss_}")
+#             print("Fit method completed.")
+
+#         return self
+
+#     # Implement other necessary methods...
+
+
 class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
     """
     Hammerstein-Wiener Classifier.
@@ -1742,169 +1899,5 @@ class HammersteinWienerClassifier(BaseHammersteinWiener, ClassifierMixin):
             )
         
         return step_metrics, epoch_metrics
-
-    def predict_proba(
-        self,
-        X: np.ndarray
-    ) -> np.ndarray:
-        """
-        Predict class probabilities for input samples.
-        
-        This method generates probability estimates for each class for the
-        input samples. It applies nonlinear input transformations, creates
-        lagged features, computes the linear dynamic block output, and then
-        applies a nonlinear output transformation to obtain probabilities.
-        
-        Parameters
-        ----------
-        X : np.ndarray
-            Input features, shape (n_samples, n_features).
-        
-        Returns
-        -------
-        np.ndarray
-            Predicted class probabilities, shape (n_samples, n_classes).
-        """
-        if self.verbose > 0:
-            print("Starting predict_proba method.")
-        
-        # Ensure the model has been fitted
-        check_is_fitted(self, 'linear_model_')
-        
-        # Validate and preprocess input data
-        X = check_array(X)
-        
-        # Apply nonlinear input transformation
-        X_transformed = self._apply_nonlinear_input(X)
-        
-        # Create lagged features for the linear dynamic block
-        X_lagged = self._create_lagged_features(X_transformed)
-        
-        # Get the decision function output from the linear model
-        y_linear = self._apply_linear_dynamic_block(X_lagged)
-        
-        # Apply nonlinear output transformation to obtain transformed output
-        y_transformed = self._apply_nonlinear_output(y_linear)
-        
-        # Convert transformed output to probabilities based on the problem type
-        if self.is_multilabel_:
-            # For multilabel classification, apply sigmoid activation
-            y_pred_proba = activator(
-                y_transformed, activation="sigmoid"
-            )
-        else:
-            if len(self.linear_model_.classes_) == 2:
-                # For binary classification, apply sigmoid activation
-                y_pred_proba = activator(
-                    y_transformed, activation="sigmoid"
-                )
-                # Ensure the output has two columns representing class probabilities
-                y_pred_proba = np.hstack([
-                    1 - y_pred_proba, y_pred_proba
-                ])
-            else:
-                # For multiclass classification, apply softmax activation
-                y_pred_proba = activator(
-                    y_transformed, activation="softmax"
-                )
-        
-        if self.verbose > 0:
-            print("predict_proba method completed.")
-        
-        return y_pred_proba
-
-    def predict(
-        self,
-        X: np.ndarray
-    ) -> np.ndarray:
-        """
-        Predict class labels for input samples.
-        
-        This method generates class predictions for the input samples by first
-        obtaining class probabilities and then converting these probabilities
-        into discrete class labels. It handles both multilabel and multiclass
-        classification scenarios.
-        
-        Parameters
-        ----------
-        X : np.ndarray
-            Input features, shape (n_samples, n_features).
-        
-        Returns
-        -------
-        np.ndarray
-            Predicted class labels, shape (n_samples,).
-        """
-        if self.verbose > 0:
-            print("Starting predict method.")
-        
-        # Obtain class probabilities
-        y_pred_proba = self.predict_proba(X)
-        
-        if self.is_multilabel_:
-            # For multilabel classification, apply threshold to probabilities
-            y_pred = (y_pred_proba >= 0.5).astype(int)
-        else:
-            # For binary and multiclass classification, select class
-            # with highest probability
-            y_pred = np.argmax(y_pred_proba, axis=1)
-        
-        if self.verbose > 0:
-            print("Predict method completed.")
-        
-        return y_pred
-
-    def _compute_loss(
-        self,
-        y_true: np.ndarray,
-        y_pred_proba: np.ndarray
-    ) -> float:
-        """
-        Compute the loss based on the specified loss function.
-        
-        This method calculates the loss between the true labels and the predicted
-        probabilities using the specified loss function. It supports standard
-        cross-entropy loss and time-weighted cross-entropy loss.
-        
-        Parameters
-        ----------
-        y_true : np.ndarray
-            True target labels, shape (n_samples,).
-        y_pred_proba : np.ndarray
-            Predicted class probabilities, shape (n_samples, n_classes).
-        
-        Returns
-        -------
-        float
-            Computed loss value.
-        
-        Raises
-        ------
-        ValueError
-            If an unsupported loss function is specified.
-        """
-        if self.verbose > 0:
-            print(f"Computing loss using {self.loss} loss function.")
-        
-        # Clip probabilities to prevent log of zero
-        y_pred_proba = np.clip(
-            y_pred_proba, self.epsilon, 1 - self.epsilon
-        )
-        
-        # Compute loss based on the specified loss function
-        if self.loss == "cross_entropy":
-            loss = log_loss(y_true, y_pred_proba)
-        elif self.loss == "time_weighted_cross_entropy":
-            # Compute time-based weights
-            weights = self._compute_time_weights(len(y_true))
-            loss = log_loss(
-                y_true, y_pred_proba, sample_weight=weights
-            )
-        else:
-            raise ValueError("Unsupported loss function.")
-        
-        if self.verbose > 0:
-            print(f"Computed loss: {loss}")
-        
-        return loss
+ 
 
