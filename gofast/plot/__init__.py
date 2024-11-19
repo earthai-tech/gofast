@@ -11,8 +11,9 @@ from .explore import EasyPlotter, QuestPlotter
 from .ts import TimeSeriesPlotter 
 from .charts import ( 
     pie_charts, 
-    base_radar_chart, 
-    radar_chart
+    radar_chart_in, 
+    radar_chart, 
+    donut_chart
     )
 from .cluster import ( 
     plot_silhouette, 
@@ -91,7 +92,8 @@ __all__= [
     
     "pie_charts", 
     "radar_chart",
-    "base_radar_chart", 
+    "radar_chart_in", 
+    "donut_chart", 
     
     'plot_silhouette',
     'plot_silhouette_in',
