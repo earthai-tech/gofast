@@ -61,7 +61,7 @@ class KerasDependencies:
             'reduce_sum': ('tensorflow', 'reduce_sum'),
             'stack': ('tensorflow', 'stack'), 
             'reshape': ('tensorflow', 'reshape'), 
-            'tile': ('tensorflow', 'title'), 
+            'tile': ('tensorflow', 'tile'), 
             'concat': ('tensorflow', 'concat'),
             'expand_dims': ('tensorflow', 'expand_dims'), 
             'shape': ('tensorflow', 'shape'), 
@@ -72,7 +72,8 @@ class KerasDependencies:
 
         mapping = {
             **standalone_mapping,
-            'Model': ('layers', 'Model'),
+            'Model': ('models', 'Model'),
+            'Layer': ('layers', 'Layer'), 
             'ELU': ('layers', 'ELU'), 
             'LayerNormalization': ('layers', 'LayerNormalization'), 
             'TimeDistributed': ('layers', 'TimeDistributed'),
