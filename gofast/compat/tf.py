@@ -140,6 +140,11 @@ class KerasDependencies:
             f"'KerasDependencies' object has no attribute '{name}'"
         )
 
+# XXX TODO 
+# WARNING:tensorflow:From C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages
+# \keras\src\losses.py:2976: The name tf.losses.sparse_softmax_cross_entropy is
+#  deprecated. Please use tf.compat.v1.losses.sparse_softmax_cross_entropy instead.
+
 def import_keras_function(
     module_name,
     function_name,

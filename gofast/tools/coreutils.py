@@ -814,7 +814,6 @@ def ensure_non_empty_batch(
 #     batch_size = max(1, min(batch_size, n_samples))
 #     return batch_size
 
-
 def get_batch_size(
     *arrays,
     default_size=None,
@@ -1015,7 +1014,7 @@ def batch_generator(
 
     See Also
     --------
-    _get_batch_size : Function to compute an optimal batch size.
+    get_batch_size : Function to compute an optimal batch size.
 
     References
     ----------

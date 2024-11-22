@@ -225,7 +225,7 @@ def donut_chart(
 
     # Determine labels
     if labels is not None:
-        exist_features(data, features= labels, name="Label")
+        exist_features(data, features= labels, name="Labels")
         if isinstance(labels, str):
             labels = grouped_data[labels].astype(str)
         elif isinstance(labels, list):

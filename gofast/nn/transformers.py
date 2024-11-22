@@ -42,7 +42,7 @@ class GatedResidualNetwork(Layer):
         dropout_rate=0.0,
         use_time_distributed=False
     ):
-        super(GatedResidualNetwork, self).__init__()
+        super().__init__()
         self.use_time_distributed = use_time_distributed
         self.units = units
 
@@ -83,7 +83,7 @@ class VariableSelectionNetwork(Layer):
         dropout_rate=0.0,
         use_time_distributed=False
     ):
-        super(VariableSelectionNetwork, self).__init__()
+        super().__init__()
         self.use_time_distributed = use_time_distributed
         self.num_inputs = num_inputs
         self.units = units
@@ -132,7 +132,7 @@ class TemporalAttentionLayer(Layer):
         num_heads,
         dropout_rate=0.0
     ):
-        super(TemporalAttentionLayer, self).__init__()
+        super().__init__()
         self.units = units
         self.num_heads = num_heads
         self.dropout_rate = dropout_rate
@@ -165,7 +165,7 @@ class TemporalAttentionLayer(Layer):
 
 class StaticEnrichmentLayer(Layer):
     def __init__(self, units):
-        super(StaticEnrichmentLayer, self).__init__()
+        super().__init__()
         self.units = units
         self.grn = GatedResidualNetwork(units)
 
@@ -191,159 +191,7 @@ class StaticEnrichmentLayer(Layer):
 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 class TemporalFusionTransformer(Model):
-    """
-    Temporal Fusion Transformer (TFT) model for time series forecasting.
-
-    The Temporal Fusion Transformer combines high-performance multi-horizon
-    forecasting with interpretable insights into temporal dynamics [1]_.
-    It integrates several advanced mechanisms, including:
-
-    - Variable Selection Networks (VSNs) for static and dynamic features.
-    - Gated Residual Networks (GRNs) for processing inputs.
-    - Static Enrichment Layer to incorporate static features into temporal
-      processing.
-    - LSTM Encoder for capturing sequential dependencies.
-    - Temporal Attention Layer for focusing on important time steps.
-    - Position-wise Feedforward Layer.
-    - Final Output Layer for prediction.
-
-    Parameters
-    ----------
-    static_input_dim : int
-        The input dimension for static variables. This is typically the
-        embedding size for static categorical variables or 1 for continuous
-        variables.
-    dynamic_input_dim : int
-        The input dimension for dynamic variables.
-    num_static_vars : int
-        The number of static variables.
-    num_dynamic_vars : int
-        The number of dynamic variables.
-    hidden_units : int
-        The number of hidden units in the model.
-    num_heads : int
-        The number of attention heads used in the temporal attention layer.
-    dropout_rate : float, optional
-        The dropout rate used in the dropout layers. Default is ``0.1``.
-
-    Methods
-    -------
-    call(inputs)
-        Forward pass of the model.
-
-    Notes
-    -----
-    The TFT model combines the strengths of sequence-to-sequence models and
-    attention mechanisms to handle complex temporal dynamics. It provides
-    interpretability by allowing the examination of variable importance and
-    temporal attention weights.
-
-    **Variable Selection Networks (VSNs):**
-
-    VSNs select relevant variables by applying Gated Residual Networks (GRNs)
-    to each variable and computing variable importance weights.
-
-    **Gated Residual Networks (GRNs):**
-
-    GRNs allow the model to capture complex nonlinear relationships while
-    controlling information flow via gating mechanisms.
-
-    **Static Enrichment Layer:**
-
-    Enriches temporal features with static context, enabling the model to
-    adjust temporal dynamics based on static information.
-
-    **Temporal Attention Layer:**
-
-    Applies multi-head attention over the temporal dimension to focus on
-    important time steps.
-
-    **Mathematical Formulation:**
-
-    Let :math:`\mathbf{x}_{\text{static}} \in \mathbb{R}^{n_s \times d_s}` be the
-    static inputs and :math:`\mathbf{x}_{\text{dynamic}} \in\\
-        \mathbb{R}^{T \times n_d \times d_d}` be the
-    dynamic inputs, where :math:`n_s` and :math:`n_d` are the numbers of static and
-    dynamic variables, :math:`d_s` and :math:`d_d` are their respective input
-    dimensions, and :math:`T` is the number of time steps.
-
-    The VSNs compute:
-
-    .. math::
-        \mathbf{e}_{\text{static}} = \sum_{i=1}^{n_s} \alpha_i \cdot
-        \text{GRN}(\mathbf{x}_{\text{static}, i})
-
-    .. math::
-        \mathbf{E}_{\text{dynamic}} = \sum_{j=1}^{n_d} \beta_j \cdot
-        \text{GRN}(\mathbf{x}_{\text{dynamic}, :, j})
-
-    where :math:`\alpha_i` and :math:`\beta_j` are variable importance weights
-    computed via softmax.
-
-    The LSTM Encoder processes :math:`\mathbf{E}_{\text{dynamic}}` to capture
-    sequential dependencies:
-
-    .. math::
-        \mathbf{H} = \text{LSTM}(\mathbf{E}_{\text{dynamic}})
-
-    The Static Enrichment Layer combines static context with temporal features:
-
-    .. math::
-        \mathbf{H}_{\text{enriched}} = \text{StaticEnrichment}(
-        \mathbf{e}_{\text{static}}, \mathbf{H})
-
-    Temporal Attention is applied to focus on important time steps:
-
-    .. math::
-        \mathbf{Z} = \text{TemporalAttention}(\mathbf{H}_{\text{enriched}})
-
-    The Position-wise Feedforward Layer refines the output:
-
-    .. math::
-        \mathbf{F} = \text{GRN}(\mathbf{Z})
-
-    The final output is produced:
-
-    .. math::
-        \hat{y} = \text{OutputLayer}(\mathbf{F}_{T})
-
-    where :math:`\mathbf{F}_{T}` is the feature vector at the last time step.
-
-    Examples
-    --------
-    >>> from gofast.nn.transformers import TemporalFusionTransformer
-    >>> model = TemporalFusionTransformer(
-    ...     static_input_dim=1,
-    ...     dynamic_input_dim=1,
-    ...     num_static_vars=2,
-    ...     num_dynamic_vars=5,
-    ...     hidden_units=64,
-    ...     num_heads=4,
-    ...     dropout_rate=0.1
-    ... )
-    >>> model.compile(optimizer='adam', loss='mse')
-    >>> # Assume `static_inputs` and `dynamic_inputs` are prepared
-    >>> model.fit(
-    ...     [static_inputs, dynamic_inputs],
-    ...     labels,
-    ...     epochs=10,
-    ...     batch_size=32
-    ... )
-
-    See Also
-    --------
-    VariableSelectionNetwork : Selects relevant variables.
-    GatedResidualNetwork : Processes inputs with gating mechanisms.
-    StaticEnrichmentLayer : Enriches temporal features with static context.
-    TemporalAttentionLayer : Applies attention over time steps.
-
-    References
-    ----------
-    .. [1] Lim, B., & Zohren, S. (2021). "Time-series forecasting with deep
-           learning: a survey." *Philosophical Transactions of the Royal
-           Society A*, 379(2194), 20200209.
-
-    """
+    
     @validate_params({
         "static_input_dim": [int], 
         "dynamic_input_dim": [int], 
@@ -363,7 +211,7 @@ class TemporalFusionTransformer(Model):
         num_heads,
         dropout_rate=0.1
     ):
-        super(TemporalFusionTransformer, self).__init__()
+        super().__init__()
         self.hidden_units = hidden_units
 
         # Variable Selection Networks
@@ -484,7 +332,159 @@ class TemporalFusionTransformer(Model):
 
         return output
 
+TemporalFusionTransformer.__doc__=="""\
+Temporal Fusion Transformer (TFT) model for time series forecasting.
 
+The Temporal Fusion Transformer combines high-performance multi-horizon
+forecasting with interpretable insights into temporal dynamics [1]_.
+It integrates several advanced mechanisms, including:
 
+- Variable Selection Networks (VSNs) for static and dynamic features.
+- Gated Residual Networks (GRNs) for processing inputs.
+- Static Enrichment Layer to incorporate static features into temporal
+  processing.
+- LSTM Encoder for capturing sequential dependencies.
+- Temporal Attention Layer for focusing on important time steps.
+- Position-wise Feedforward Layer.
+- Final Output Layer for prediction.
+
+Parameters
+----------
+static_input_dim : int
+    The input dimension for static variables. This is typically the
+    embedding size for static categorical variables or 1 for continuous
+    variables.
+dynamic_input_dim : int
+    The input dimension for dynamic variables.
+num_static_vars : int
+    The number of static variables.
+num_dynamic_vars : int
+    The number of dynamic variables.
+hidden_units : int
+    The number of hidden units in the model.
+num_heads : int
+    The number of attention heads used in the temporal attention layer.
+dropout_rate : float, optional
+    The dropout rate used in the dropout layers. Default is ``0.1``.
+
+Methods
+-------
+call(inputs)
+    Forward pass of the model.
+
+Notes
+-----
+The TFT model combines the strengths of sequence-to-sequence models and
+attention mechanisms to handle complex temporal dynamics. It provides
+interpretability by allowing the examination of variable importance and
+temporal attention weights.
+
+**Variable Selection Networks (VSNs):**
+
+VSNs select relevant variables by applying Gated Residual Networks (GRNs)
+to each variable and computing variable importance weights.
+
+**Gated Residual Networks (GRNs):**
+
+GRNs allow the model to capture complex nonlinear relationships while
+controlling information flow via gating mechanisms.
+
+**Static Enrichment Layer:**
+
+Enriches temporal features with static context, enabling the model to
+adjust temporal dynamics based on static information.
+
+**Temporal Attention Layer:**
+
+Applies multi-head attention over the temporal dimension to focus on
+important time steps.
+
+**Mathematical Formulation:**
+
+Let :math:`\mathbf{x}_{\text{static}} \in \mathbb{R}^{n_s \times d_s}` be the
+static inputs and :math:`\mathbf{x}_{\text{dynamic}} \in\\
+    \mathbb{R}^{T \times n_d \times d_d}` be the
+dynamic inputs, where :math:`n_s` and :math:`n_d` are the numbers of static and
+dynamic variables, :math:`d_s` and :math:`d_d` are their respective input
+dimensions, and :math:`T` is the number of time steps.
+
+The VSNs compute:
+
+.. math::
+    \mathbf{e}_{\text{static}} = \sum_{i=1}^{n_s} \alpha_i \cdot
+    \text{GRN}(\mathbf{x}_{\text{static}, i})
+
+.. math::
+    \mathbf{E}_{\text{dynamic}} = \sum_{j=1}^{n_d} \beta_j \cdot
+    \text{GRN}(\mathbf{x}_{\text{dynamic}, :, j})
+
+where :math:`\alpha_i` and :math:`\beta_j` are variable importance weights
+computed via softmax.
+
+The LSTM Encoder processes :math:`\mathbf{E}_{\text{dynamic}}` to capture
+sequential dependencies:
+
+.. math::
+    \mathbf{H} = \text{LSTM}(\mathbf{E}_{\text{dynamic}})
+
+The Static Enrichment Layer combines static context with temporal features:
+
+.. math::
+    \mathbf{H}_{\text{enriched}} = \text{StaticEnrichment}(
+    \mathbf{e}_{\text{static}}, \mathbf{H})
+
+Temporal Attention is applied to focus on important time steps:
+
+.. math::
+    \mathbf{Z} = \text{TemporalAttention}(\mathbf{H}_{\text{enriched}})
+
+The Position-wise Feedforward Layer refines the output:
+
+.. math::
+    \mathbf{F} = \text{GRN}(\mathbf{Z})
+
+The final output is produced:
+
+.. math::
+    \hat{y} = \text{OutputLayer}(\mathbf{F}_{T})
+
+where :math:`\mathbf{F}_{T}` is the feature vector at the last time step.
+
+Examples
+--------
+>>> from gofast.nn.transformers import TemporalFusionTransformer
+>>> model = TemporalFusionTransformer(
+...     static_input_dim=1,
+...     dynamic_input_dim=1,
+...     num_static_vars=2,
+...     num_dynamic_vars=5,
+...     hidden_units=64,
+...     num_heads=4,
+...     dropout_rate=0.1
+... )
+>>> model.compile(optimizer='adam', loss='mse')
+>>> # Assume `static_inputs` and `dynamic_inputs` are prepared
+>>> model.fit(
+...     [static_inputs, dynamic_inputs],
+...     labels,
+...     epochs=10,
+...     batch_size=32
+... )
+
+See Also
+--------
+VariableSelectionNetwork : Selects relevant variables.
+GatedResidualNetwork : Processes inputs with gating mechanisms.
+StaticEnrichmentLayer : Enriches temporal features with static context.
+TemporalAttentionLayer : Applies attention over time steps.
+
+References
+----------
+.. [1] Lim, B., & Zohren, S. (2021). "Time-series forecasting with deep
+       learning: a survey." *Philosophical Transactions of the Royal
+       Society A*, 379(2194), 20200209.
+
+"""    
+    
 
 
