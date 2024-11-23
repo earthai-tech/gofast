@@ -42,7 +42,7 @@ from .tools.validator import (
     check_epsilon, check_is_fitted, ensure_non_negative, handle_zero_division,
     parameter_validator, validate_multioutput, validate_nan_policy,
     validate_positive_integer, validate_sample_weights, 
-    check_array, check_consistent_length
+    check_array, check_consistent_length, validate_quantiles
 )
 
 _logger = gofastlog().get_gofast_logger(__name__)
@@ -612,6 +612,428 @@ def twa_score(
         # Average over labels to get overall score
         score = np.mean(score_per_label)
         return score
+
+def analyze_target(
+    y_train,
+    y_test=None,
+    plot_style=None,
+    scaling_threshold=1.0,
+    figsize=(14, 6),
+    bins=30,
+    kde=True,
+    color='blue',
+    font_scale=1.2,
+    acceptable_relative_mae=10.0,
+    print_stats=True
+):
+    """
+    Analyzes the target variable to help determine if scaling is needed.
+
+    Parameters
+    ----------
+    y_train: array-like
+        The training target variable.
+    y_test: array-like, optional
+        The test target variable. Default is ``None``.
+    plot_style : str, optional
+        Type of plot to display. Options are ``'hist'``, ``'box'``, or
+        ``'hist-box'``. If set to ``None``, no plot is displayed. Default
+        is ``None``.
+    scaling_threshold : float, optional
+        Threshold for recommending scaling based on the range of the target
+        variable. Default is ``1.0``.
+    figsize : tuple, optional
+        Figure size for the plots. Default is ``(14, 6)``.
+    bins : int, optional
+        Number of bins for the histogram. Default is ``30``.
+    kde : bool, optional
+        Whether to display the kernel density estimate on the histogram.
+        Default is ``True``.
+    color : str, optional
+        Color for the plots. Default is ``'blue'``.
+    font_scale : float, optional
+        Font scale for the plots. Default is ``1.2``.
+    acceptable_relative_mae : float, optional
+        Threshold for acceptable relative MAE percentage. Default is
+        ``10.0``.
+    print_stats : bool, optional
+        Whether to print the statistics of the target variable. Default is
+        ``True``.
+
+    Returns
+    -------
+    stats : dict
+        A dictionary containing key statistics of the target variable.
+
+    Notes
+    -----
+    This function computes key statistics of the target variable, such as
+    minimum, maximum, mean, standard deviation, median, and range. It also
+    provides a recommendation on whether scaling is needed based on the
+    range of the target variable.
+
+    If ``plot_style`` is specified, it visualizes the distribution of the
+    target variable using the specified plot type.
+
+    Examples
+    --------
+    >>> from gofast.metrics import analyze_target
+    >>> y_train = [1, 2, 3, 4, 5]
+    >>> stats = analyze_target(y_train, plot_style='hist-box')
+
+    See Also
+    --------
+    interpret_loss
+
+    References
+    ----------
+    .. [1] "Understanding Data Distributions", Data Science Handbook.
+
+    """
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    
+    # Convert input to numpy array
+    y = np.concatenate([y_train, y_test]) if y_test is not None else y_train
+    y = np.array(y)
+
+    # Compute statistics
+    stats = {
+        'min': np.min(y),
+        'max': np.max(y),
+        'mean': np.mean(y),
+        'std': np.std(y),
+        'median': np.median(y),
+        'range': np.max(y) - np.min(y)
+    }
+
+    # Print statistics if requested
+    if print_stats:
+        print("Target Variable Statistics:")
+        for key in ['min', 'max', 'mean', 'std', 'median', 'range']:
+            print(f"{key.capitalize()}: {stats[key]:.4f}")
+
+    # Plotting if plot_style is specified
+    if plot_style:
+        sns.set(font_scale=font_scale)
+        if plot_style == 'hist':
+            # Histogram plot
+            plt.figure(figsize=figsize)
+            sns.histplot(y, bins=bins, kde=kde, color=color)
+            plt.title('Histogram of Target Variable')
+            plt.xlabel('Target Value')
+            plt.ylabel('Frequency')
+            plt.show()
+        elif plot_style == 'box':
+            # Boxplot
+            plt.figure(figsize=figsize)
+            sns.boxplot(x=y, color=color)
+            plt.title('Boxplot of Target Variable')
+            plt.xlabel('Target Value')
+            plt.show()
+        elif plot_style == 'hist-box':
+            # Histogram and boxplot side by side
+            plt.figure(figsize=figsize)
+            plt.subplot(1, 2, 1)
+            sns.histplot(y, bins=bins, kde=kde, color=color)
+            plt.title('Histogram of Target Variable')
+            plt.xlabel('Target Value')
+            plt.ylabel('Frequency')
+            plt.subplot(1, 2, 2)
+            sns.boxplot(x=y, color=color)
+            plt.title('Boxplot of Target Variable')
+            plt.xlabel('Target Value')
+            plt.tight_layout()
+            plt.show()
+        else:
+            # Invalid plot_style value
+            raise ValueError("plot_style must be 'hist', 'box', or 'hist-box'")
+
+    # Recommendation on scaling
+    if stats['range'] > scaling_threshold:
+        print(
+            "\nRecommendation: The target variable has a wide range. "
+            "Consider scaling."
+        )
+    else:
+        print(
+            "\nRecommendation: The target variable is within a small range. "
+            "Scaling may not be necessary."
+        )
+
+    return stats
+
+
+def quantile_loss(y_true, y_pred, *, q=0.5, backend='numpy'):
+    r"""
+    Compute the quantile loss between `y_true` and `y_pred` at quantile `q`.
+
+    The quantile loss function is defined as:
+
+    .. math::
+
+        L(y, \hat{y}) = \frac{1}{N} \sum_{i=1}^{N}
+        \left[ q (y_i - \hat{y}_i) \cdot \mathbf{1}_{(y_i - \hat{y}_i) > 0}
+        + (1 - q) (\hat{y}_i - y_i) \cdot \mathbf{1}_{(y_i - \hat{y}_i) \leq 0} \right]
+
+    where:
+
+    - :math:`y_i` is the true value,
+    - :math:`\hat{y}_i` is the predicted value,
+    - :math:`q` is the quantile level (0 < q < 1),
+    - :math:`\mathbf{1}_{(\cdot)}` is the indicator function.
+
+    Parameters
+    ----------
+    y_true : array-like or tensor
+        Ground truth (correct) target values. Shape: (n_samples,) or (n_samples,).
+    y_pred : array-like or tensor
+        Estimated target values. Shape: (n_samples,) or (n_samples,).
+    q : float, optional
+        The quantile to be evaluated, must be between 0 and 1.
+        Default is 0.5 (median quantile).
+    backend : str, optional
+        The backend to use for computation. Can be either 'numpy' or
+        'tensorflow'. Acceptable aliases are 'np' for NumPy and 'tf'
+        or 'keras' for TensorFlow. Default is 'numpy'.
+
+    Returns
+    -------
+    loss : float or tensor
+        The computed quantile loss.
+
+    Examples
+    --------
+    >>> from gofast.metrics import quantile_loss
+    >>> y_true = [1.0, 2.0, 3.0]
+    >>> y_pred = [1.5, 2.5, 2.0]
+    >>> loss = quantile_loss(y_true, y_pred, q=0.5, backend='numpy')
+    >>> print(loss)
+    0.3333333333333333
+
+    Notes
+    -----
+    The quantile loss function is asymmetric and penalizes overestimation
+    and underestimation differently, depending on the quantile level `q`.
+    It is commonly used in quantile regression [1]_.
+
+    See Also
+    --------
+    multi_quantile_loss : Compute quantile loss for multiple quantiles.
+
+    References
+    ----------
+    .. [1] Koenker, R., & Hallock, K. F. (2001). "Quantile Regression."
+           Journal of Economic Perspectives, 15(4), 143-156.
+
+    """
+    if backend in ('tensorflow', 'tf', 'keras'):
+        import tensorflow as tf
+        # Using TensorFlow operations
+        e = y_true - y_pred
+        # Compute the quantile loss using TensorFlow operations
+        loss = tf.reduce_mean(tf.maximum(q * e, (q - 1) * e))
+        return loss
+    else:
+        # Default to NumPy operations
+        y_true = np.asarray(y_true)
+        y_pred = np.asarray(y_pred)
+        e = y_true - y_pred
+        # Compute the quantile loss using NumPy operations
+        loss = np.mean(np.maximum(q * e, (q - 1) * e))
+        return loss
+
+
+def multi_quantile_loss(y_true, y_pred, *,  quantiles, backend='numpy'):
+    r"""
+    Compute the sum of quantile losses for multiple quantiles.
+
+    For a set of quantiles :math:`Q = \{q_1, q_2, ..., q_K\}`, the
+    multi-quantile loss is the sum of quantile losses for each quantile:
+
+    .. math::
+
+        L(y, \hat{y}) = \sum_{k=1}^{K} L_{q_k}(y, \hat{y}^{(k)})
+
+    where:
+
+    - :math:`L_{q_k}` is the quantile loss function at quantile :math:`q_k`,
+    - :math:`\hat{y}^{(k)}` is the predicted value for quantile :math:`q_k`.
+
+    Parameters
+    ----------
+    y_true : array-like or tensor
+        Ground truth (correct) target values. Shape: (n_samples,) or (n_samples,).
+    y_pred : array-like or tensor
+        Estimated target values for each quantile. Shape: (n_samples, n_quantiles).
+    quantiles : list or array-like
+        List of quantile levels to evaluate, each between 0 and 1.
+    backend : str, optional
+        The backend to use for computation. Can be either 'numpy' or
+        'tensorflow'. Acceptable aliases are 'np' for NumPy and 'tf'
+        or 'keras' for TensorFlow. Default is 'numpy'.
+
+    Returns
+    -------
+    total_loss : float or tensor
+        The total quantile loss summed over all quantiles.
+
+    Examples
+    --------
+    >>> from gofast.metrics import multi_quantile_loss
+    >>> y_true = [1.0, 2.0, 3.0]
+    >>> y_pred = [[0.8, 1.0, 1.2], [1.8, 2.0, 2.2], [2.8, 3.0, 3.2]]
+    >>> quantiles = [0.1, 0.5, 0.9]
+    >>> loss = multi_quantile_loss(y_true, y_pred, quantiles, backend='numpy')
+    >>> print(loss)
+    0.3999999999999999
+
+    Notes
+    -----
+    The multi-quantile loss is useful when predicting multiple quantiles
+    simultaneously in quantile regression models [1]_.
+
+    See Also
+    --------
+    quantile_loss : Compute quantile loss for a single quantile.
+
+    References
+    ----------
+    .. [1] Koenker, R., & Hallock, K. F. (2001). "Quantile Regression."
+           Journal of Economic Perspectives, 15(4), 143-156.
+
+    """
+    if str(backend).lower() in ('tensorflow', 'tf', 'keras'):
+        import tensorflow as tf
+        # Using TensorFlow operations
+        losses = []
+        quantiles = validate_quantiles(quantiles)
+        for i, q in enumerate(quantiles):
+            y_p = y_pred[:, i]
+            # Compute quantile loss for each quantile level
+            loss = quantile_loss(y_true, y_p, q=q, backend='tensorflow')
+            losses.append(loss)
+        # Sum the losses for all quantiles
+        total_loss = tf.add_n(losses)
+        return total_loss
+    else:
+        # Default to NumPy operations
+        y_true = np.asarray(y_true).flatten()
+        y_pred = np.asarray(y_pred)
+        losses = []
+        for i, q in enumerate(quantiles):
+            y_p = y_pred[:, i]
+            # Compute quantile loss for each quantile level
+            loss = quantile_loss(y_true, y_p, q=q, backend='numpy')
+            losses.append(loss)
+        # Sum the losses for all quantiles
+        total_loss = np.sum(losses)
+        return total_loss
+
+def interpret_loss(
+    stats,
+    initial_mse,
+    initial_mae,
+    target_metric='mean',
+    acceptable_relative_mae=10.0,
+    print_output=True
+):
+    """
+    Interprets the initial loss values in the context of the target
+    variable's scale.
+
+    Parameters
+    ----------
+    stats : dict
+        A dictionary containing key statistics of the target variable.
+    initial_mse : float
+        The initial Mean Squared Error from training.
+    initial_mae : float
+        The initial Mean Absolute Error from training.
+    target_metric : str, optional
+        The target variable statistic to use for comparison. Options are
+        ``'mean'``, ``'median'``, etc. Default is ``'mean'``.
+    acceptable_relative_mae : float, optional
+        Threshold for acceptable relative MAE percentage. Default is
+        ``10.0``.
+    print_output : bool, optional
+        Whether to print the interpretation output. Default is ``True``.
+
+    Returns
+    -------
+    relative_mae : float or None
+        The relative MAE as a percentage of the target metric. Returns
+        ``None`` if the target metric is zero.
+
+    Notes
+    -----
+    This function calculates the relative Mean Absolute Error (MAE) as a
+    percentage of a specified target variable metric. It helps determine
+    whether the initial loss is acceptable in the context of the target
+    variable's scale.
+
+    The relative MAE is calculated as:
+
+    .. math::
+
+        \\text{Relative MAE (\\%)} = \\left( \\frac{\\text{Initial MAE}}{\\text{Target Metric}} \\right) \\times 100
+
+    Examples
+    --------
+    >>> from gofast.metrics import interpret_loss
+    >>> stats = {'mean': 50.0}
+    >>> interpret_loss(stats, initial_mse=200.0, initial_mae=10.0)
+
+    See Also
+    --------
+    analyze_target
+
+    References
+    ----------
+    .. [1] "Model Evaluation Metrics", Machine Learning Guide.
+
+    """
+    # Retrieve the target metric value from stats
+    target_value = stats.get(target_metric)
+    if target_value == 0:
+        # Cannot compute relative MAE if target metric is zero
+        relative_mae = None
+    else:
+        # Calculate relative MAE as a percentage
+        relative_mae = (initial_mae / target_value) * 100
+
+    if print_output:
+        print("\nInterpreting Initial Loss:")
+        print(f"Initial MSE: {initial_mse:.4f}")
+        print(f"Initial MAE: {initial_mae:.4f}")
+        print(
+            f"Target Variable {target_metric.capitalize()}: "
+            f"{target_value:.4f}"
+        )
+        if relative_mae is not None:
+            print(f"Relative MAE: {relative_mae:.2f}%")
+            if relative_mae < acceptable_relative_mae:
+                print(
+                    "The initial loss is low relative to the target variable. "
+                    "This is acceptable."
+                )
+            elif relative_mae < 2 * acceptable_relative_mae:
+                print(
+                    "The initial loss is moderate relative to the target "
+                    "variable."
+                )
+            else:
+                print(
+                    "The initial loss is high relative to the target variable. "
+                    "Consider investigating further."
+                )
+        else:
+            print(
+                "Cannot compute Relative MAE due to zero target metric in "
+                "target variable."
+            )
+
+    return relative_mae
 
 def log_likelihood_score(
     y_true, y_pred, *, 

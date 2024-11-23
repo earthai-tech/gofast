@@ -452,6 +452,106 @@ def check_is_runned(estimator, attributes=None, *, msg=None, all_or_any=all):
     if not is_runned:
         raise NotRunnedError(msg % {"name": type(estimator).__name__})
 
+
+def validate_quantiles(quantiles, asarray=False):
+    """
+    Validates the input quantiles and optionally returns the output as a 
+    numpy array or list.
+
+    Quantiles are numerical values used in statistical analysis to 
+    divide a distribution into intervals. They must lie within the 
+    range [0, 1] as they represent proportions of data [1]_.
+
+    Parameters
+    ----------
+    quantiles : list or numpy.ndarray
+        Input array-like containing quantile values to be validated. 
+        The values must be numeric and within the range [0, 1].
+        
+    asarray : bool, optional
+        Determines the output format. If `True`, the validated 
+        quantiles are returned as a numpy array. If `False`, they 
+        are returned as a list. Default is `False`.
+
+    Returns
+    -------
+    list or numpy.ndarray
+        A list or numpy array of validated quantile values, depending 
+        on the value of `asarray`.
+
+    Raises
+    ------
+    TypeError
+        If the input `quantiles` is not a list or numpy array.
+
+    ValueError
+        If any element of `quantiles` is not numeric or lies outside 
+        the range [0, 1].
+
+    Notes
+    -----
+    Quantiles, denoted as :math:`q \in [0, 1]`, represent the fraction 
+    of observations below a certain value in a distribution:
+    
+    .. math::
+
+        Q(q) = \inf \{ x \in \mathbb{R} : P(X \leq x) \geq q \}
+
+    where :math:`Q(q)` is the quantile function, and :math:`q` is the 
+    proportion [2]_.
+
+    This function ensures that all values in `quantiles` adhere to 
+    this definition by checking:
+    
+    1. The type of `quantiles`.
+    2. The numerical nature of its elements.
+    3. The range of its values.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import validate_quantiles
+    >>> validate_quantiles([0.1, 0.2, 0.5])
+    [0.1, 0.2, 0.5]
+
+    >>> validate_quantiles(np.array([0.3, 0.7, 0.9]), asarray=True)
+    array([0.3, 0.7, 0.9])
+
+    >>> validate_quantiles([0.5, 1.2])
+    ValueError: All quantile values must be in the range [0, 1].
+
+    See Also
+    --------
+    numpy.percentile : Computes the nth percentile of an array.
+    numpy.quantile : Computes the qth quantile of an array.
+
+    References
+    ----------
+    .. [1] Hyndman, R. J., & Fan, Y. (1996). Sample quantiles in 
+           statistical packages. The American Statistician, 50(4), 361-365.
+    .. [2] Weiss, N. A. (2015). Introductory Statistics. Pearson.
+
+    """
+    # Validate input type: must be list or numpy array
+    if not isinstance(quantiles, (list, np.ndarray)):
+        raise TypeError(
+            "Quantiles must be a list or numpy array. Received "
+            f"{type(quantiles).__name__}."
+        )
+    
+    # Convert input to numpy array for consistent processing
+    quantiles = np.array(quantiles)
+    
+    # Validate that all elements are numeric
+    if not np.issubdtype(quantiles.dtype, np.number):
+        raise ValueError("All quantile values must be numeric.")
+    
+    # Validate that all values are within the range [0, 1]
+    if not np.all((quantiles >= 0) & (quantiles <= 1)):
+        raise ValueError("All quantile values must be in the range [0, 1].")
+    
+    # Return quantiles in the desired format
+    return quantiles if asarray else quantiles.tolist()
+
 def check_has_run_method(estimator, msg=None, method_name="run"):
     """
     Check if the given estimator has a callable `run` method or any other 

@@ -68,11 +68,18 @@ class KerasDependencies:
             'square': ('tensorflow.math', 'square'),
             'GradientTape': ('tensorflow', 'GradientTape'),
             'Dataset': ('tensorflow.data', 'Dataset'),
+            'add_n': ('tensorflow.math', 'add_n'), 
+            'maximum':('tensorflow.math', 'maximum'), 
+            'backend': ('tensorflow.keras', 'backend'), 
+            'add': ('tensorflow.math', 'add'), 
+            'range':('tensorflow', 'range'), 
         }
 
         mapping = {
             **standalone_mapping,
             'Model': ('models', 'Model'),
+            'Add': ('layers', 'Add'), 
+            'Activation': ('layers', 'Activation'), 
             'Layer': ('layers', 'Layer'), 
             'ELU': ('layers', 'ELU'), 
             'LayerNormalization': ('layers', 'LayerNormalization'), 
@@ -108,6 +115,7 @@ class KerasDependencies:
                 'losses',
                 'binary_crossentropy'
             ),
+            'K': ('backend', 'K'), 
             'sum': ('backend', 'sum'),
             'ones': ('backend', 'ones'),
             'zeros': ('backend', 'zeros'),
@@ -127,6 +135,8 @@ class KerasDependencies:
             
             'clone_model': ('models', 'clone_model'),
             'load_model': ('models', 'load_model'),
+            'register_keras_serializable': ('utils', 'register_keras_serializable')
+         
         }
 
         if name in mapping:
