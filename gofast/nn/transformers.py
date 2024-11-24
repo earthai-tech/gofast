@@ -860,19 +860,19 @@ References
 @register_keras_serializable()
 class TemporalFusionTransformer(Model):
     @validate_params({
-            "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
-            "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
-            "num_static_vars": [Interval(Integral, 1, None, closed='left')], 
-            "num_dynamic_vars": [Interval(Integral, 1, None, closed='left')],
-            "hidden_units": [Interval(Integral, 1, None, closed='left')], 
-            "num_heads": [Interval(Integral, 1, None, closed='left')],
-            "dropout_rate": [Interval(Real, 0, 1, closed="both")],
-            "forecast_horizon": [Interval(Integral, 1, None, closed='left')],
-            "quantiles": ['array-like', list,  None],
-            "activation": [StrOptions({"elu", "relu", "tanh", "sigmoid", "linear"})],
-            "use_batch_norm": [bool],
-            "num_lstm_layers": [Interval(Integral, 1, None, closed='left')],
-            "lstm_units": [Interval(Integral, 1, None, closed='left'), None]
+        "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
+        "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
+        "num_static_vars": [Interval(Integral, 1, None, closed='left')], 
+        "num_dynamic_vars": [Interval(Integral, 1, None, closed='left')],
+        "hidden_units": [Interval(Integral, 1, None, closed='left')], 
+        "num_heads": [Interval(Integral, 1, None, closed='left')],
+        "dropout_rate": [Interval(Real, 0, 1, closed="both")],
+        "forecast_horizon": [Interval(Integral, 1, None, closed='left')],
+        "quantiles": ['array-like', list,  None],
+        "activation": [StrOptions({"elu", "relu", "tanh", "sigmoid", "linear"})],
+        "use_batch_norm": [bool],
+        "num_lstm_layers": [Interval(Integral, 1, None, closed='left')],
+        "lstm_units": [Interval(Integral, 1, None, closed='left'), None]
         },
     )
     def __init__(

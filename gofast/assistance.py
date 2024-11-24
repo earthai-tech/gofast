@@ -392,6 +392,7 @@ def _get_gofast_package_descriptions(include_private=False):
         "decorators[m]": "Decorators for various functionalities within the package.",
         "exceptions[m]": "Custom exceptions and error handling.",
         "metrics[m]": "Performance metrics and evaluation tools.",
+        "metrics_special[m]":"Specialized metrics for model evaluation.", 
         "model_selection[m]": "Tools for model selection and validation.",
         "query[m]": "Query utilities for data retrieval and manipulation.",
         "util[m]": "Base package initialization utility functions."

@@ -15,26 +15,32 @@ from sklearn.datasets import make_classification
 from sklearn.metrics import precision_recall_curve, confusion_matrix
 from sklearn.linear_model import LogisticRegression
 
-from gofast.metrics import assess_classifier_metrics 
-from gofast.metrics import assess_regression_metrics  
 from gofast.metrics import mean_squared_log_error, balanced_accuracy
-from gofast.metrics import information_value, geo_information_value 
-from gofast.metrics import mae_flex, mse_flex, rmse_flex, r2_flex
+from gofast.metrics import information_value 
 from gofast.metrics import adjusted_r2_score  
-from gofast.metrics import precision_recall_tradeoff, roc_tradeoff
-from gofast.metrics import evaluate_confusion_matrix, display_precision_recall
-from gofast.metrics import display_confusion_matrix  
 from gofast.metrics import likelihood_score, log_likelihood_score 
 from gofast.metrics import mean_absolute_percentage_error
 from gofast.metrics import explained_variance_score, median_absolute_error
 from gofast.metrics import max_error_score, mean_absolute_deviation
 from gofast.metrics import mean_poisson_deviance, mean_gamma_deviance
-from gofast.metrics import madev_flex, dice_similarity_score, gini_score 
+from gofast.metrics import dice_similarity_score, gini_score 
 from gofast.metrics import hamming_loss, fowlkes_mallows_score
 from gofast.metrics import root_mean_squared_log_error, mean_percentage_error
 from gofast.metrics import spearmans_rank_score, precision_at_k, ndcg_at_k
 from gofast.metrics import ndcg_at_k_with_controls, mean_reciprocal_score
-from gofast.metrics import jaccard_flex, balanced_accuracy_score
+from gofast.metrics import balanced_accuracy_score
+
+from gofast.metrics_special import assess_classifier_metrics 
+from gofast.metrics_special import assess_regression_metrics  
+from gofast.metrics_special import geo_information_value 
+from gofast.metrics_special import mae_flex, mse_flex, rmse_flex, r2_flex
+from gofast.metrics_special import evaluate_confusion_matrix, display_precision_recall
+from gofast.metrics_special import display_confusion_matrix  
+from gofast.metrics_special import precision_recall_tradeoff, roc_tradeoff
+from gofast.metrics_special import madev_flex 
+from gofast.metrics_special import jaccard_flex
+
+#%%
 
 def test_ndcg_at_k_with_controls():
     y_true = [[3, 2, 3], [2, 1, 2]]
