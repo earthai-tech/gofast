@@ -193,7 +193,6 @@ class ModelComparison(BaseClass):
         
         plt.show()
 
-
 ModelComparison.__doc__="""\
 ModelComparison evaluates and compares the performance of multiple 
 machine learning models on the same dataset using various statistical 

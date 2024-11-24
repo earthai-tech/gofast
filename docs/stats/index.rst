@@ -6,7 +6,11 @@ Stats
 
 .. currentmodule:: gofast.stats
 
-The :mod:`gofast.stats` module provides a comprehensive suite of statistical functions and tools tailored for high-performance data analysis. These submodules offer a broad range of functionalities from basic descriptive statistics to advanced probabilistic modeling, designed for efficient and accurate statistical computations.
+The :mod:`gofast.stats` module provides a comprehensive suite of statistical 
+functions and tools tailored for high-performance data analysis. These 
+submodules offer a broad range of functionalities from basic descriptive 
+statistics to advanced probabilistic modeling, designed for efficient and 
+accurate statistical computations.
 
 Submodules
 ----------
@@ -73,7 +77,7 @@ Submodules
 
    descriptive
    inferential
-   model_comparisons
+   comparisons
    probs
    relationships
    survival_reliability

@@ -201,7 +201,7 @@ class GatedResidualNetwork(Layer):
     def from_config(cls, config):
         return cls(**config)
 
-GatedResidualNetwork.__d0c__="""\
+GatedResidualNetwork.__doc__="""\
 Gated Residual Network (GRN) layer for processing inputs in the TFT.
 
 The Gated Residual Network allows the model to capture complex nonlinear
