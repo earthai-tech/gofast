@@ -28,13 +28,16 @@ from sklearn.model_selection import cross_val_predict
 from sklearn.preprocessing import label_binarize
 
 from ._gofastlog import gofastlog
-from .api.formatter import MetricFormatter
+from .api.formatter import MetricFormatter, DescriptionFormatter 
+from .api.summary import TW, ReportFactory, assemble_reports
+from .api.summary import ResultSummary 
 from .compat.sklearn import validate_params, StrOptions, HasMethods, Interval 
 from .tools.coreutils import normalize_string, exist_features
 from .tools.validator import (
     _ensure_y_is_valid, _is_numeric_dtype, check_epsilon, check_is_fitted, 
-    validate_multioutput, validate_nan_policy, check_array
+    validate_multioutput, validate_nan_policy, check_array, build_data_if
 )
+
 
 _logger = gofastlog().get_gofast_logger(__name__)
 
@@ -63,20 +66,21 @@ __all__= [
 @validate_params({
     "model": [HasMethods(["predict"])],
     "X": ['array-like'],
-    "feature_names": [str, list],
+    "feature_names": [str, list, None],
     "perturbation": [Interval(Real, 0, 1, closed='both')],
     "plot_style": [
         StrOptions({"hist", "line", "bar", "scatter", "box"}), None
     ],  
     "cmap": [str],
-    "verbose": [bool]
+    "interpret": [bool]
 })
 def relative_sensitivity_score(
-    model, X, feature_names, *, 
+    model, X, *, feature_names=None,  
     perturbation=0.1,
     plot_style=None, 
     cmap='viridis',
-    verbose=False
+    interpret=False, 
+
 ):
     """
     Compute the Relative Sensitivity (RS) for each feature in the model 
@@ -101,10 +105,10 @@ def relative_sensitivity_score(
         column corresponds to a feature. The features should correspond to the
         names provided in `feature_names`.
 
-    feature_names : str or list of str
+    feature_names : str or list of str, Optional
         The feature(s) for which the relative sensitivity is to be computed. 
-        If a single feature is specified as a string, it will be converted 
-        into a list. Each feature name should correspond to a column in `X`.
+        Each feature name should correspond to a column in `X`. If ``None``, 
+        all features will be used. 
 
     perturbation : float, default=0.1
         The perturbation factor used to adjust the feature values. This value
@@ -125,7 +129,7 @@ def relative_sensitivity_score(
         include 'viridis', 'plasma', 'inferno', etc. This is only relevant 
         if a plot is generated.
 
-    verbose : bool, default=False
+    interpret : bool, default=False
         If `True`, additional analysis details are printed to the console. This 
         includes a ranking of features by their relative sensitivity and key 
         insights into which features are the most sensitive.
@@ -166,13 +170,55 @@ def relative_sensitivity_score(
 
     Example
     -------
-    >>> from gofast.metrics_special_special import relative_sensitivity_score
-    >>> # Assume `model` is a trained model and `X` is a DataFrame with the features
+    >>> import numpy as np 
+    >>> from gofast.metrics_special import relative_sensitivity_score
+    >>> from gofast.estimators.tree import DTBClassifier 
+    >>> np.random.seed (123)
+    >>> X = np.random.randn( 100, 19) 
+    >>> y = np.random.randint(0, 2, size = len(X))
+    >>> dtb_model=DTBClassifier ().fit(X, y) 
+    >>> 
     >>> sensitivity_df = relative_sensitivity_score(
-    >>>     model, X, feature_names=['rainfall', 'GWL'],
-    >>>     perturbation=0.05, plot_style='bar', verbose=True
+    >>>     dtb_model, X, feature_names=['feature_0', 'feature_14'],
+    >>>     perturbation=0.05, plot_style='line', interpret=True
     >>> )
-    >>> print(sensitivity_df)
+    >>> 
+    ================================================================================
+    |                      Relative Sensitivity (RS) Analyses                      |
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    |Feature     | Interpretation                                                  |
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    |feature_0   | rs = 0.00 -> Low sensitivity >>> Changes in feature_0 have      |
+    |            | minimal effect on predictions.                                  |
+    .            .                                                                 .
+    |feature_14  | rs = 0.00 -> Low sensitivity >>> Changes in feature_14 have     |
+    |            | minimal effect on predictions.                                  |
+    ================================================================================
+
+    |==============================================================================|
+    |                              Impactful Feature                               |
+    |------------------------------------------------------------------------------|
+    | No significant sensitivity observed across features.                         |
+    |==============================================================================|
+
+    >>> rs
+    <RelativeSentivityByFeature with 2 entries. Use print() to see detailed contents.>
+    >>> print(rs)
+    RelativeSentivityByFeature(
+      {
+
+           feature_0 : 0.0
+           feature_14 : 0.1079
+
+      }
+    )
+
+    [ 2 entries ]
+    >>> rs.relative_sensitivity_score
+          Feature  RS (Relative Sensitivity)
+    0   feature_0                     0.0000
+    1  feature_14                     0.1079
+    
     
     See Also
     --------
@@ -188,16 +234,26 @@ def relative_sensitivity_score(
     """
     import matplotlib.pyplot as plt
     import seaborn as sns
-
+    
+    # build dataframe if numpy array is passed
+    X = build_data_if(
+        X, input_name ='feature', 
+        raise_exception=True, 
+        force=True  
+        )
+    
     # Ensure feature_names is always a list
     if isinstance(feature_names, str):
         feature_names = [feature_names]
+    
+    if feature_names is None: 
+        feature_names = X.columns.tolist() 
     
     # Validate that the features exist in the DataFrame X
     exist_features(X, feature_names, error="raise")
 
     # Store baseline predictions
-    baseline_predictions = model.predict(X)
+    baseline_predictions = model.predict(X.values)
     
     # Initialize a results dictionary
     sensitivity_results = {
@@ -209,10 +265,11 @@ def relative_sensitivity_score(
     for feature in feature_names:
         # Perturb the selected feature
         X_perturbed = X.copy()
-        X_perturbed[feature] *= (1 + perturbation)  # Increase feature by `perturbation`
+        # Increase feature by `perturbation`
+        X_perturbed[feature] *= (1 + perturbation)  
         
         # Get predictions with perturbed feature
-        perturbed_predictions = model.predict(X_perturbed)
+        perturbed_predictions = model.predict(X_perturbed.values)
         
         # Calculate changes in the predictions and input features
         delta_forecast = np.abs(perturbed_predictions - baseline_predictions)
@@ -226,7 +283,7 @@ def relative_sensitivity_score(
         
         # Store results
         sensitivity_results["Feature"].append(feature)
-        sensitivity_results["RS (Relative Sensitivity)"].append(rs)
+        sensitivity_results["RS (Relative Sensitivity)"].append(round(rs, 4))
     
     # Convert results to DataFrame
     sensitivity_df = pd.DataFrame(sensitivity_results)
@@ -250,7 +307,7 @@ def relative_sensitivity_score(
             sns.scatterplot(
                 x="RS (Relative Sensitivity)", y="Feature", data=sensitivity_df
             )
-        elif plot_style == 'box':  # Added boxplot option
+        elif plot_style == 'box': 
             sns.boxplot(
                 x="Feature", y="RS (Relative Sensitivity)", data=sensitivity_df
             )
@@ -258,68 +315,100 @@ def relative_sensitivity_score(
         plt.title("Sensitivity Analysis: Relative Sensitivity by Feature")
         plt.xlabel("Relative Sensitivity (RS)")
         plt.ylabel("Feature")
+        plt.xticks(rotation=90)
         plt.tight_layout()
         plt.show()
-    
-    # Verbose analysis of results
-    if verbose:
-        print("\n-- Relative Sensitivity Analysis Results --")
-        print("Relative Sensitivity Scores (RS) by Feature:")
-        print(sensitivity_df)
-        
-        # Rank features by RS to highlight the most important ones
-        ranked_features = sensitivity_df.sort_values(
-            "RS (Relative Sensitivity)", ascending=False
-        )
-        
-        print("\nFeatures ranked by Relative Sensitivity:")
-        print(ranked_features)
-        
-        print("\nKey Insights:")
-        
+ 
+    # Rank features by RS to highlight the most important ones
+    ranked_features = sensitivity_df.sort_values(
+        "RS (Relative Sensitivity)", ascending=False
+    )
+    # Show analysis of results
+    if interpret:
+        analyses={}
         for _, row in ranked_features.iterrows():
+            
             feature = row["Feature"]
             rs_score = row["RS (Relative Sensitivity)"]
             
             if rs_score > 1:
-                print(
-                    f"- {feature}: Highly sensitive with RS = {rs_score:.2f}. "
-                    f"Small changes in {feature} result in significant "
-                    f"changes in model predictions."
-                )
+                analyses [f"{feature}"]= ( 
+                    f"rs = {rs_score:.2f} -> Highly sensitive >>> Small"
+                    " changes in {feature} result in significant changes"
+                    " in model predictions."
+                    )
+  
             elif rs_score > 0.5:
-                print(
-                    f"- {feature}: Moderately sensitive with RS = {rs_score:.2f}. "
-                    f"Variations in {feature} cause noticeable but not drastic "
-                    f"changes."
-                )
+                analyses [f"{feature}"]= ( 
+                    f"rs = {rs_score:.2f} -> Moderately sensitive >>> Variations"
+                    " in {feature} cause noticeable but not drastic changes." 
+                    )
             else:
-                print(
-                    f"- {feature}: Low sensitivity with RS = {rs_score:.2f}. "
-                    f"Changes in {feature} have minimal effect on predictions."
-                )
+                analyses [f"{feature}"]= ( 
+                    f"rs = {rs_score:.2f} -> Low sensitivity >>> Changes"
+                    f" in {feature} have minimal effect on predictions."
+                    )
+      
+        description = DescriptionFormatter(
+            title="Relative Sensitivity (RS) Analyses",
+            content=analyses,
+            header_cols = ("Feature", "Interpretation")
+            ) 
+        print(description)
         
         # Optional: Highlight possible outliers or unexpected results
         high_sensitivity = ranked_features[
             ranked_features["RS (Relative Sensitivity)"] > 1
         ]
-        
+       
         if not high_sensitivity.empty:
-            print("\nFeatures with High Sensitivity (RS > 1):")
-            print(high_sensitivity[["Feature", "RS (Relative Sensitivity)"]])
+            dict_hs=high_sensitivity[["Feature", "RS (Relative Sensitivity)"]
+                                     ].set_index ('Feature')[
+                'RS (Relative Sensitivity)'].to_dict()
         
+            hsummary = DescriptionFormatter(
+                title ="Highly Sensitive Features (RS > 1)", 
+                content= dict_hs, 
+                header_cols = ("Feature", "Relative Sensitivity score ")
+                )
+            print()
+            print(hsummary)
+      
         # Optional: Provide a summary of the general trends
-        print("\nSummary:")
-        if len(ranked_features) > 1:
+        if (
+            len(ranked_features) > 1
+            and (ranked_features['RS (Relative Sensitivity)'
+                                 ].iloc[0].round(4).all() != 0)
+        ):
             most_impactful = ranked_features.iloc[0]
-            print(
+            
+            key_insights = (
                 f"The most impactful feature is '{most_impactful['Feature']}' with "
                 f"an RS of {most_impactful['RS (Relative Sensitivity)']:.2f}."
             )
         else:
-            print("No significant sensitivity observed across features.")
+            key_insights= "No significant sensitivity observed across features."
+         
+
+        impact_doc = DescriptionFormatter ( 
+            content = key_insights, title ="Impactful Feature", 
+            )
+            
+        print() 
+        print(impact_doc)
+
+    rs_result=sensitivity_df.set_index ('Feature')[
+        'RS (Relative Sensitivity)'].to_dict()
     
-    return sensitivity_df
+    result = ResultSummary (
+        "RelativeSensitivityByFeature",
+        pad_keys="auto", 
+        relative_sensitivity_score= sensitivity_df,
+        ranked_features= ranked_features,
+        
+        ).add_results(rs_result)
+
+    return result
 
 @validate_params({ 
     "y_pred": ['array-like'], 
@@ -330,7 +419,6 @@ def relative_sensitivity_score(
         ]
     }
   )
-
 def prediction_stability_score(
     y_pred,
     y_true=None,      
@@ -463,9 +551,7 @@ def prediction_stability_score(
                 "output_weights must have the same length as n_outputs"
             )
         return np.average(score, weights=output_weights)
-    else:
-        raise ValueError("Invalid value for multioutput parameter.")
-        
+   
 @validate_params ({ 
     "y_train": ['array-like'], 
     "y_test": ['array-like', None], 
@@ -477,7 +563,7 @@ def prediction_stability_score(
     "color": [str], 
     "font_scale":[Interval( Real, 0, None, closed="left")], 
     "acceptable_relative_mae": [Interval( Real, 0, None, closed="left")], 
-    "print_stats": [bool]
+    "show_recommendations": [bool]
     }
   )
 def analyze_target(
@@ -491,7 +577,7 @@ def analyze_target(
     color='blue',
     font_scale=1.2,
     acceptable_relative_mae=10.0,
-    print_stats=True
+    show_recommendations=True
 ):
     """
     Analyzes the target variable to help determine if scaling is needed.
@@ -523,9 +609,9 @@ def analyze_target(
     acceptable_relative_mae : float, optional
         Threshold for acceptable relative MAE percentage. Default is
         ``10.0``.
-    print_stats : bool, optional
-        Whether to print the statistics of the target variable. Default is
-        ``True``.
+    show_recommendations : bool, optional
+        Whether to print the recommendations based on the statistics of the
+        target variable. Default is ``True``.
 
     Returns
     -------
@@ -574,12 +660,6 @@ def analyze_target(
         'range': np.max(y) - np.min(y)
     }
 
-    # Print statistics if requested
-    if print_stats:
-        print("Target Variable Statistics:")
-        for key in ['min', 'max', 'mean', 'std', 'median', 'range']:
-            print(f"{key.capitalize()}: {stats[key]:.4f}")
-
     # Plotting if plot_style is specified
     if plot_style:
         sns.set(font_scale=font_scale)
@@ -616,19 +696,38 @@ def analyze_target(
             # Invalid plot_style value
             raise ValueError("plot_style must be 'hist', 'box', or 'hist-box'")
 
-    # Recommendation on scaling
-    if stats['range'] > scaling_threshold:
-        print(
-            "\nRecommendation: The target variable has a wide range. "
-            "Consider scaling."
+    if show_recommendations: 
+        key = "Range={} {} threshold={}".format(
+            stats["range"],
+            '>' if stats['range'] > scaling_threshold else '<=', 
+            scaling_threshold
         )
-    else:
-        print(
-            "\nRecommendation: The target variable is within a small range. "
-            "Scaling may not be necessary."
-        )
-
-    return stats
+        s={'results': ' * '.join( [f"{k}={v:.4f}" for k, v in stats.items()])}
+        stats_report = ReportFactory(
+            "Statistics", descriptor ='stat_results').add_mixed_types(
+                s, table_width=TW )
+        # Recommendation on scaling
+        recommendations = ReportFactory(
+            "Recommendations", descriptor="recommendations").add_mixed_types(
+             {key:("The target variable is within a small"
+                   " range. Scaling may not be necessary.")}, 
+             table_width=TW
+            )
+    
+        if stats['range'] > scaling_threshold:
+            recommendations = ReportFactory("Recommendations").add_mixed_types(
+                { key:"The target variable has a wide range. Consider scaling."},
+                table_width= TW, 
+                )
+ 
+        assemble_reports(stats_report, recommendations, display=True  )
+        
+    metric_stats = MetricFormatter(
+        descriptor="Metric", 
+        title="Results",
+        **stats ) 
+    
+    return metric_stats
 
 def precision_recall_tradeoff(
     y_true, 
@@ -767,6 +866,12 @@ def precision_recall_tradeoff(
     
     return y_scores if return_scores else metrics
 
+@validate_params(
+    {"precisions": ['array-like'],
+     "recalls":['array-like'],
+     "thresholds": ['array-like']
+     }
+  )
 def display_precision_recall(precisions, recalls, thresholds):
     """
     Displays a precision-recall tradeoff chart for given precision, recall,

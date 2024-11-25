@@ -60,6 +60,7 @@ def dependency_message(module_name):
     )
 
 if KERAS_BACKEND:
+    
     from .build_models import (
         build_lstm_model, build_mlp_model, create_attention_model, 
         create_autoencoder_model, create_cnn_model, create_lstm_model
@@ -103,5 +104,49 @@ if KERAS_BACKEND:
         "lstm_ts_tuner",
         "cross_validate_lstm",
     ]
+
+    # Get necessary classes and functions from Keras dependencies
+    Layer = KERAS_DEPS.Layer 
+    # Equivalent to: from tensorflow.keras import activations
+    activations = KERAS_DEPS.activations  
+
+    class Activation(Layer):
+        """
+        Custom Activation layer that wraps a Keras activation function
+        and captures its name.
+        """
+        def __init__(self, activation='relu', **kwargs):
+            super(Activation, self).__init__(**kwargs)
+            # Get the activation function; Keras will raise an error if invalid
+            self.activation= activations.get(activation)
+            # self.activation = activation  # Store the original activation parameter
+
+            # Assign activation name
+            if isinstance(activation, str):
+                self.activation_name = activation
+            elif callable(activation):
+                # Try to get the name from the activation function
+                self.activation_name = getattr(
+                    activation, '__name__', activation.__class__.__name__)
+            else:
+                # Fallback to string representation
+                self.activation_name = str(activation)
+
+        def call(self, inputs):
+            return self.activation(inputs)
+
+        def get_config(self):
+            config = super(Activation, self).get_config()
+            # Serialize the activation function properly
+            config.update({
+                'activation': activations.serialize(self.activation)
+            })
+            return config
+
+        def __repr__(self):
+            return f"{self.__class__.__name__}(activation={self.activation_name!r})"
+
+    # Add Activation to the list of public objects if __all__ is defined
+    __all__.extend(["Activation"])
 
     

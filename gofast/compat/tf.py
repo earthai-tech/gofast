@@ -71,6 +71,7 @@ class KerasDependencies:
             'add_n': ('tensorflow.math', 'add_n'), 
             'maximum':('tensorflow.math', 'maximum'), 
             'backend': ('tensorflow.keras', 'backend'), 
+            'activations': ('tensorflow.keras', 'activations'), 
             'add': ('tensorflow.math', 'add'), 
             'range':('tensorflow', 'range'), 
         }
@@ -149,7 +150,7 @@ class KerasDependencies:
         raise AttributeError(
             f"'KerasDependencies' object has no attribute '{name}'"
         )
-
+        
 # XXX TODO 
 # WARNING:tensorflow:From C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages
 # \keras\src\losses.py:2976: The name tf.losses.sparse_softmax_cross_entropy is

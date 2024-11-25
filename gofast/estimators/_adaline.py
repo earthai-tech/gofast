@@ -156,7 +156,7 @@ class BaseAdalineStochastic(BaseEstimator, metaclass=LearnerMeta):
             "eta0_decay": [Interval(Real, 0., 1., closed="neither")],
             "shuffle": [bool],
             "random_state": [Integral, None],
-            "verbose": [bool]
+            "verbose": [bool, int]
         }
     
     @abstractmethod

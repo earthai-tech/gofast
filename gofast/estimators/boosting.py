@@ -23,11 +23,11 @@ from ..tools.validator import check_X_y, get_estimator_name, check_array
 from ..tools.validator import check_is_fitted
 
 __all__=[
-    "BoostingTreeRegressor","BoostingTreeClassifier",
-    "HybridBoostingClassifier","HybridBoostingRegressor",
+    "BoostedTreeRegressor","BoostedTreeClassifier",
+    "HybridBoostClassifier","HybridBoostRegressor",
     ]
 
-class BoostingTreeRegressor(BaseBoostingTree, RegressorMixin):
+class BoostedTreeRegressor(BaseBoostingTree, RegressorMixin):
     """
     Enhanced Boosted Regression Tree (BRT) for Regression Tasks.
 
@@ -171,8 +171,8 @@ class BoostingTreeRegressor(BaseBoostingTree, RegressorMixin):
 
     Examples
     --------
-    >>> from gofast.estimators.boosting import BoostingTreeRegressor
-    >>> brt = BoostingTreeRegressor(n_estimators=100, eta0=0.1, 
+    >>> from gofast.estimators.boosting import BoostedTreeRegressor
+    >>> brt = BoostedTreeRegressor(n_estimators=100, eta0=0.1, 
                                     max_depth=3, loss='linear', subsample=0.8)
     >>> X, y = np.random.rand(100, 4), np.random.rand(100)
     >>> brt.fit(X, y)
@@ -308,9 +308,9 @@ class BoostingTreeRegressor(BaseBoostingTree, RegressorMixin):
         Examples
         --------
         >>> from sklearn.datasets import make_regression
-        >>> from gofast.estimators.tree import BoostingTreeRegressor
+        >>> from gofast.estimators.tree import BoostedTreeRegressor
         >>> X, y = make_regression(n_samples=100, n_features=4)
-        >>> reg = BoostingTreeRegressor(n_estimators=100, max_depth=3, eta0=0.1)
+        >>> reg = BoostedTreeRegressor(n_estimators=100, max_depth=3, eta0=0.1)
         >>> reg.fit(X, y)
         >>> print(reg.estimators_)
     
@@ -394,9 +394,9 @@ class BoostingTreeRegressor(BaseBoostingTree, RegressorMixin):
         Examples
         --------
         >>> from sklearn.datasets import make_regression
-        >>> from gofast.estimators.tree import BoostingTreeRegressor
+        >>> from gofast.estimators.tree import BoostedTreeRegressor
         >>> X, y = make_regression(n_samples=100, n_features=4)
-        >>> reg = BoostingTreeRegressor(n_estimators=100, max_depth=3, eta0=0.1)
+        >>> reg = BoostedTreeRegressor(n_estimators=100, max_depth=3, eta0=0.1)
         >>> reg.fit(X, y)
         >>> y_pred = reg.predict(X)
         >>> print(y_pred)
@@ -423,7 +423,7 @@ class BoostingTreeRegressor(BaseBoostingTree, RegressorMixin):
 
         return y_pred
 
-class BoostingTreeClassifier(BaseBoostingTree, ClassifierMixin):
+class BoostedTreeClassifier(BaseBoostingTree, ClassifierMixin):
     """
     Boosted Decision Tree Classifier.
 
@@ -537,9 +537,9 @@ class BoostingTreeClassifier(BaseBoostingTree, ClassifierMixin):
     Examples
     --------
     >>> from sklearn.datasets import make_classification
-    >>> from gofast.estimators.tree import BoostingTreeClassifier
+    >>> from gofast.estimators.tree import BoostedTreeClassifier
     >>> X, y = make_classification(n_samples=100, n_features=4)
-    >>> clf = BoostingTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
+    >>> clf = BoostedTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
     >>> clf.fit(X, y)
     >>> print(clf.predict(X))
 
@@ -649,9 +649,9 @@ class BoostingTreeClassifier(BaseBoostingTree, ClassifierMixin):
         Examples
         --------
         >>> from sklearn.datasets import make_classification
-        >>> from gofast.estimators.tree import BoostingTreeClassifier
+        >>> from gofast.estimators.tree import BoostedTreeClassifier
         >>> X, y = make_classification(n_samples=100, n_features=4)
-        >>> clf = BoostingTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
+        >>> clf = BoostedTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
         >>> clf.fit(X, y)
         >>> print(clf.estimators_)
     
@@ -734,9 +734,9 @@ class BoostingTreeClassifier(BaseBoostingTree, ClassifierMixin):
         Examples
         --------
         >>> from sklearn.datasets import make_classification
-        >>> from gofast.estimators.tree import BoostingTreeClassifier
+        >>> from gofast.estimators.tree import BoostedTreeClassifier
         >>> X, y = make_classification(n_samples=100, n_features=4)
-        >>> clf = BoostingTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
+        >>> clf = BoostedTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
         >>> clf.fit(X, y)
         >>> y_pred = clf.predict(X)
         >>> print(y_pred)
@@ -788,9 +788,9 @@ class BoostingTreeClassifier(BaseBoostingTree, ClassifierMixin):
         Examples
         --------
         >>> from sklearn.datasets import make_classification
-        >>> from gofast.estimators.tree import BoostingTreeClassifier
+        >>> from gofast.estimators.tree import BoostedTreeClassifier
         >>> X, y = make_classification(n_samples=100, n_features=4)
-        >>> clf = BoostingTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
+        >>> clf = BoostedTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
         >>> clf.fit(X, y)
         >>> proba = clf.predict_proba(X)
         >>> print(proba)
@@ -817,7 +817,7 @@ class BoostingTreeClassifier(BaseBoostingTree, ClassifierMixin):
 
         return np.vstack((proba_negative_class, proba_positive_class)).T
 
-class HybridBoostingClassifier(BaseBoostingTree, ClassifierMixin):
+class HybridBoostClassifier(BaseBoostingTree, ClassifierMixin):
     """
     Hybrid Boosting Classifier.
 
@@ -923,10 +923,10 @@ class HybridBoostingClassifier(BaseBoostingTree, ClassifierMixin):
 
     Examples
     --------
-    >>> from gofast.estimators.boosting import HybridBoostingClassifier
+    >>> from gofast.estimators.boosting import HybridBoostClassifier
     >>> from sklearn.datasets import make_classification
     >>> X, y = make_classification(n_samples=100, n_features=4, n_classes=2, random_state=42)
-    >>> clf = HybridBoostingClassifier(n_estimators=50, eta0=0.1, max_depth=3, random_state=42)
+    >>> clf = HybridBoostClassifier(n_estimators=50, eta0=0.1, max_depth=3, random_state=42)
     >>> clf.fit(X, y)
     >>> y_pred = clf.predict(X)
     
@@ -1123,7 +1123,7 @@ class HybridBoostingClassifier(BaseBoostingTree, ClassifierMixin):
         
         return combined_proba
 
-class HybridBoostingRegressor(BaseEstimator, RegressorMixin):
+class HybridBoostRegressor(BaseEstimator, RegressorMixin):
     """
     Hybrid Boosting Regressor.
 
@@ -1227,10 +1227,10 @@ class HybridBoostingRegressor(BaseEstimator, RegressorMixin):
 
     Examples
     --------
-    >>> from gofast.estimators.boosting import HybridBoostingRegressor
+    >>> from gofast.estimators.boosting import HybridBoostRegressor
     >>> from sklearn.datasets import make_regression
     >>> X, y = make_regression(n_samples=100, n_features=4, noise=0.1, random_state=42)
-    >>> reg = HybridBoostingRegressor(n_estimators=100, eta0=0.1, max_depth=3, random_state=42)
+    >>> reg = HybridBoostRegressor(n_estimators=100, eta0=0.1, max_depth=3, random_state=42)
     >>> reg.fit(X, y)
     >>> y_pred = reg.predict(X)
     

@@ -6,12 +6,16 @@
 architecture for multi-horizon time-series forecasting.
 """
 from numbers import Real, Integral  
+
+from ..api.property import  NNLearner 
 from ..compat.sklearn import validate_params, Interval, StrOptions 
 from ..tools.depsutils import ensure_pkg
 from ..tools.validator import validate_quantiles
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 
 if KERAS_BACKEND:
+    from . import Activation 
+    
     LSTM = KERAS_DEPS.LSTM
     reshape = KERAS_DEPS.reshape
     Dense = KERAS_DEPS.Dense
@@ -31,7 +35,6 @@ if KERAS_BACKEND:
     concat = KERAS_DEPS.concat
     shape = KERAS_DEPS.shape
     Model = KERAS_DEPS.Model 
-    Activation = KERAS_DEPS.Activation
     BatchNormalization = KERAS_DEPS.BatchNormalization
     Input = KERAS_DEPS.Input
     add = KERAS_DEPS.add
@@ -40,6 +43,7 @@ if KERAS_BACKEND:
     add_n = KERAS_DEPS.add_n
     K = KERAS_DEPS.backend
     register_keras_serializable=KERAS_DEPS.register_keras_serializable
+    
 
 DEP_MSG = dependency_message('transformers') 
 
@@ -126,7 +130,7 @@ References
 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
-class GatedResidualNetwork(Layer):
+class GatedResidualNetwork(Layer, NNLearner):
     @validate_params({
             "units": [Interval(Integral, 1, None, closed='left')], 
             "dropout_rate": [Interval(Real, 0, 1, closed="both")],
@@ -148,10 +152,11 @@ class GatedResidualNetwork(Layer):
         self.units = units
         self.dropout_rate = dropout_rate
         self.use_time_distributed = use_time_distributed
-        self.activation_name = activation
-        self.activation = Activation(activation)
         self.use_batch_norm = use_batch_norm
-
+        
+        self.activation = Activation(activation) 
+        self.activation_name = self.activation.activation_name
+        
         self.linear = Dense(units)
         self.linear2 = Dense(units)
         if self.use_batch_norm:
@@ -320,7 +325,7 @@ References
 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
-class VariableSelectionNetwork(Layer):
+class VariableSelectionNetwork(Layer, NNLearner):
     @validate_params({
             "input_dim": [Interval(Integral, 1, None, closed='left')], 
             "num_inputs": [Interval(Integral, 1, None, closed='left')], 
@@ -348,8 +353,10 @@ class VariableSelectionNetwork(Layer):
         self.units = units
         self.dropout_rate = dropout_rate
         self.use_time_distributed = use_time_distributed
-        self.activation_name = activation
         self.use_batch_norm = use_batch_norm
+        
+        self.activation = Activation(activation) 
+        self.activation_name = self.activation.activation_name
 
         self.flatten = Flatten()
         self.softmax = Softmax(axis=-2)
@@ -358,7 +365,7 @@ class VariableSelectionNetwork(Layer):
                 units,
                 dropout_rate,
                 use_time_distributed,
-                activation=activation,
+                activation=self.activation_name,
                 use_batch_norm=use_batch_norm
             )
             for _ in range(num_inputs)
@@ -516,7 +523,7 @@ References
 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
-class TemporalAttentionLayer(Layer):
+class TemporalAttentionLayer(Layer, NNLearner):
     @validate_params({
             "units": [Interval(Integral, 1, None, closed='left')], 
             "num_heads": [Interval(Integral, 1, None, closed='left')],
@@ -538,7 +545,10 @@ class TemporalAttentionLayer(Layer):
         self.units = units
         self.num_heads = num_heads
         self.dropout_rate = dropout_rate
-        self.activation_name = activation
+        
+        self.activation = Activation(activation) 
+        self.activation_name = self.activation.activation_name
+        
         self.use_batch_norm = use_batch_norm
         
         self.multi_head_attention = MultiHeadAttention(
@@ -552,13 +562,13 @@ class TemporalAttentionLayer(Layer):
             units,
             dropout_rate,
             use_time_distributed=True,
-            activation=activation,
+            activation=self.activation_name,
             use_batch_norm=use_batch_norm
         )
         self.context_grn = GatedResidualNetwork(
             units,
             dropout_rate,
-            activation=activation,
+            activation=self.activation_name,
             use_batch_norm=use_batch_norm
         )
 
@@ -709,7 +719,7 @@ References
 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
-class StaticEnrichmentLayer(Layer):
+class StaticEnrichmentLayer(Layer, NNLearner):
     @validate_params({
             "units": [Interval(Integral, 1, None, closed='left')], 
             "activation": [StrOptions({"elu", "relu", "tanh", "sigmoid", "linear"})],
@@ -724,13 +734,15 @@ class StaticEnrichmentLayer(Layer):
             ):
         super().__init__(**kwargs)
         self.units = units
-        self.activation_name = activation
+
         self.use_batch_norm = use_batch_norm
         
+        self.activation = Activation(activation) 
+        self.activation_name = self.activation.activation_name
     
         self.grn = GatedResidualNetwork(
             units, 
-            activation=activation, 
+            activation=self.activation_name, 
             use_batch_norm=use_batch_norm
         )
     
@@ -858,7 +870,7 @@ References
 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
-class TemporalFusionTransformer(Model):
+class TemporalFusionTransformer(Model, NNLearner):
     @validate_params({
         "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
@@ -902,10 +914,13 @@ class TemporalFusionTransformer(Model):
         self.dropout_rate = dropout_rate
         self.forecast_horizon = forecast_horizon
         self.quantiles = quantiles
-        self.activation_name = activation
         self.use_batch_norm = use_batch_norm
         self.num_lstm_layers = num_lstm_layers
         self.lstm_units = lstm_units
+        
+        self.activation = Activation(activation) 
+        self.activation_name = self.activation.activation_name
+        
         
         if quantiles is None:
             self.quantiles = None
@@ -920,7 +935,7 @@ class TemporalFusionTransformer(Model):
             num_inputs=num_static_vars,
             units=hidden_units,
             dropout_rate=dropout_rate,
-            activation=activation,
+            activation=self.activation_name,
             use_batch_norm=use_batch_norm
         )
         self.dynamic_var_sel = VariableSelectionNetwork(
@@ -929,7 +944,7 @@ class TemporalFusionTransformer(Model):
             units=hidden_units,
             dropout_rate=dropout_rate,
             use_time_distributed=True,
-            activation=activation,
+            activation=self.activation_name,
             use_batch_norm=use_batch_norm
         )
 
@@ -940,13 +955,13 @@ class TemporalFusionTransformer(Model):
         self.static_context_grn = GatedResidualNetwork(
             hidden_units,
             dropout_rate,
-            activation=activation,
+            activation=self.activation_name,
             use_batch_norm=use_batch_norm
         )
         self.static_context_enrichment_grn = GatedResidualNetwork(
             hidden_units,
             dropout_rate,
-            activation=activation,
+            activation=self.activation_name,
             use_batch_norm=use_batch_norm
         )
 
@@ -968,7 +983,7 @@ class TemporalFusionTransformer(Model):
         # Static Enrichment Layer
         self.static_enrichment = StaticEnrichmentLayer(
             hidden_units,
-            activation=activation,
+            activation=self.activation_name,
             use_batch_norm=use_batch_norm
         )
 
@@ -977,7 +992,7 @@ class TemporalFusionTransformer(Model):
             hidden_units,
             num_heads,
             dropout_rate,
-            activation=activation,
+            activation=self.activation_name,
             use_batch_norm=use_batch_norm
         )
 
@@ -986,7 +1001,7 @@ class TemporalFusionTransformer(Model):
             hidden_units,
             dropout_rate,
             use_time_distributed=True,
-            activation=activation,
+            activation=self.activation_name,
             use_batch_norm=use_batch_norm
         )
 
@@ -1085,7 +1100,6 @@ class TemporalFusionTransformer(Model):
         return cls(**config)
     
 TemporalFusionTransformer.__doc__=="""\
-
 Temporal Fusion Transformer (TFT) model for time series forecasting.
 
 The Temporal Fusion Transformer combines high-performance multi-horizon

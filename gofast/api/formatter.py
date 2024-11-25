@@ -1034,7 +1034,12 @@ class BoxFormatter:
         is converted to CamelCase and used primarily in the textual 
         representation to provide additional context or categorization. 
         Defaults to "BoxFormatter".
-        
+    header_cols: list 
+       Is a list of two items used to rename the box table. If the value is 
+       more than two items, value should be truncated to fit the two items 
+       without raising any errors. If ``None`` , ``['Name', 'Feature']`` is 
+       used instead. 
+       
     Methods:
     --------
     add_text(text: str, box_width: int = 65):
@@ -1055,11 +1060,23 @@ class BoxFormatter:
     """
     TW= get_table_size()
     
-    def __init__(self, title='', descriptor =None):
+    def __init__(self, title='', descriptor =None, header_cols=None):
         self.title = title
         self.content = ''
         self.has_content = False
+        self.header_cols= header_cols 
         self.descriptor=to_camel_case(descriptor or "BoxFormatter") 
+        
+        default_header_cols = ["Name", "Description"]
+        if header_cols is not None: 
+            if isinstance (header_cols,str): 
+                header_cols = [header_cols]
+            header_cols = (list(header_cols) + default_header_cols) [:2]
+        else: 
+            header_cols = default_header_cols
+            
+        self._name, self._description = [t.title() for t in header_cols]
+        
 
     def __str__(self):
         """
@@ -1312,7 +1329,9 @@ class BoxFormatter:
             return f"{'=' * width}"
 
     def _format_header(self, key_width, desc_width, total_width):
-        header_line = f"|{'Name':<{key_width}}| {'Description':<{desc_width}}|"
+        header_line =( 
+            f"|{self._name:<{key_width}}| {self._description:<{desc_width}}|"
+            )
         return f"{header_line}\n{'~' * total_width}"
         
 class DescriptionFormatter(metaclass=MetaLen):
@@ -1335,7 +1354,12 @@ class DescriptionFormatter(metaclass=MetaLen):
         is converted to CamelCase and used primarily in the textual 
         representation to provide additional context or categorization. 
         Defaults to "DescriptionFormatter".
-        
+    header_cols: list 
+       Is a list of two items used to rename the box table. If the value is 
+       more than two items, value should be truncated to fit the two items 
+       without raising any errors. If ``None`` , ``['Name', 'Feature']`` is 
+       used instead. 
+       
     Methods:
     --------
     description():
@@ -1385,10 +1409,11 @@ class DescriptionFormatter(metaclass=MetaLen):
     # | as age, loan status, and annual income, which... |
     # |==================================================|
     """
-    def __init__(self, content, title='', descriptor=None):
+    def __init__(self, content, title='', descriptor=None, header_cols=None ):
         self.content = content
         self.title = title
         self.descriptor=descriptor 
+        self.header_cols = header_cols 
 
     def __str__(self):
         """
@@ -1435,7 +1460,8 @@ class DescriptionFormatter(metaclass=MetaLen):
         """
         formatter = BoxFormatter(
             title=self.title if self.title else "Feature Descriptions", 
-            descriptor= self.descriptor ) 
+            descriptor= self.descriptor, header_cols= self.header_cols
+            ) 
         
         if isinstance(self.content, dict):
             # If the content is a dictionary, format it as a table of feature
