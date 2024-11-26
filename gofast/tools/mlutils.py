@@ -20,6 +20,7 @@ import shutil
 from six.moves import urllib
 from collections import Counter
 from pathlib import Path
+from numbers import Real
 
 import numpy as np
 import pandas as pd
@@ -44,9 +45,12 @@ from ..api.types import List, Tuple, Any, Dict, Optional, Union, Series
 from ..api.types import _F, ArrayLike, NDArray, DataFrame, Callable
 from ..api.formatter import MetricFormatter
 from ..api.summary import ReportFactory, ResultSummary
-from ..compat.sklearn import get_feature_names, train_test_split
+from ..compat.sklearn import ( 
+    get_feature_names, train_test_split, validate_params, 
+    Interval, HasMethods
+    ) 
 from ..exceptions import DependencyError
-from ..decorators import SmartProcessor
+from ..decorators import SmartProcessor, Dataify
 from .baseutils import select_features
 from .coreutils import (
     _assert_all_types, is_in_if, ellipsis2false, smart_format, is_iterable,
@@ -58,7 +62,8 @@ from .depsutils import ensure_pkg
 from .validator import (
     _is_numeric_dtype, _is_arraylike_1d, get_estimator_name, check_array,
     check_consistent_length, is_frame, build_data_if, check_is_fitted,
-    check_mixed_data_types, validate_data_types, _check_consistency_size
+    check_mixed_data_types, validate_data_types, _check_consistency_size, 
+    validate_numeric 
 )
 
 
@@ -78,6 +83,8 @@ __all__ = [
     'fetch_tgz',
     'fetch_tgz2',
     'format_model_score',
+    'generate_dirichlet_features', 
+    'generate_proxy_feature', 
     'get_correlated_features',
     'get_feature_contributions',
     'get_global_score',
@@ -5016,7 +5023,468 @@ def _smart_mapper(
 
     return np.nan
         
+
+@Dataify(auto_columns=True, prefix='feature_')
+@validate_params ({ 
+    "data": ['array-like'], 
+    "target": [str, 'array-like'], 
+    "model": [HasMethods(['fit', 'predict']), None], 
+    "columns": [str, list, None], 
+    "proxy_name": [str, None], 
+    "infer_data": [bool], 
+    "random_state": ['random_state', None], 
+    'verbose': [bool]
+    })
+def generate_proxy_feature(
+    data,
+    target,
+    model=None,
+    columns=None,
+    proxy_name=None,
+    infer_data=False,
+    random_state=None, 
+    verbose=False
+):
+    """
+    Generate a proxy feature based on the available features in the dataset 
+    (both numeric and categorical).
+
+    The function generates a proxy feature by training a machine learning 
+    model (default: RandomForestRegressor) on the input dataset, using a 
+    subset of features (numeric and categorical) and the specified target. 
+    The model's predictions on the input data are returned as the proxy 
+    feature.
+
+    Parameters:
+    ----------
+    data : pd.DataFrame
+        The input dataset containing both numeric and categorical features.
+
+        - `data` is a pandas DataFrame that includes both numeric and 
+          categorical features, with the target column specified separately.
         
+    target : str or array-like
+        The target column or an array-like object containing the target values.
+
+        - `target` refers to the name of the column in `data` that holds the 
+          target values to be predicted by the model.
+
+    model : estimator object, default=None
+        The machine learning model to use for generating the proxy feature.
+        If None, defaults to RandomForestRegressor.
+
+        - `model` is a scikit-learn estimator used to fit the model on the data. 
+          If no model is provided, a default RandomForestRegressor will be used.
         
+    columns : list of str, optional
+        A list of feature names to use for generating the proxy. 
+        If None, all features except the target column are used.
+
+        - `columns` is an optional parameter specifying which features from 
+          `data` will be used in model training. If not specified, all 
+          columns except the target column are included.
+
+    proxy_name : str, default="Proxy_Feature"
+        The name for the generated proxy feature column.
+
+        - `proxy_name` is the name that will be assigned to the new proxy 
+          feature. The default is "Proxy_Feature".
+
+    infer_data : bool, default=False
+        If True, the proxy feature is added to the original dataframe. 
+        If False, only the generated proxy feature is returned.
+
+        - `infer_data` controls whether the proxy feature is added to the 
+          original dataset (`True`) or returned as a separate series (`False`).
+
+    random_state : int, default=42
+        Random seed for reproducibility of results.
+
+        - `random_state` ensures that the random processes (like train-test 
+          splitting) are reproducible across runs.
+
+    verbose : bool, default=False
+        If True, additional output is printed for model performance and 
+        feature importance.
+
+        - `verbose` controls whether the Mean Squared Error (MSE) on the 
+          test set and feature importances are printed for model evaluation.
+
+    Returns:
+    -------
+    pd.Series or pd.DataFrame
+        - If `infer_data=True`, returns the original dataframe with the new 
+          proxy feature added.
+        - If `infer_data=False`, returns only the generated proxy feature 
+          as a pd.Series.
+
+    Notes
+    ------
+    The proxy feature is generated using the trained model's predictions, 
+    which are made based on the input features. This proxy feature can serve 
+    as a useful representation or summarization of the underlying data, 
+    especially when trying to approximate or predict the target variable based 
+    on existing features. The model is trained on a subset of data (numeric and 
+    categorical features) and then applied to the entire dataset to create the 
+    proxy feature.
+
+    Example:
+    --------
+    >>> from gofast.tools.mlutils import generate_proxy_feature
+    >>> import pandas as pd
+
+    # Create a sample dataframe
+    >>> data = pd.DataFrame({
+    >>>     'col1': [1, 2, 3], 'col2': [4, 5, 6], 'target': [0, 1, 0]
+    >>> })
+    
+    # Generate the proxy feature
+    >>> result = generate_proxy_feature(
+    >>>     data, target='target', proxy_name="Generated_Proxy", infer_data=True
+    >>> )
+    
+    >>> print(result)
+       col1  col2  target  Generated_Proxy
+    0     1     4       0         0.123456
+    1     2     5       1         0.789012
+    2     3     6       0         0.456789
+
+    See Also
+    ---------
+    `sklearn.ensemble.RandomForestRegressor` : Default machine learning 
+         model used for regression tasks.
+    `pandas.DataFrame.join` : Method to combine the original data with the 
+        generated proxy feature.
+    `gofast.tools.mlutils.generate_dirichlet_features`: Generate 
+        synthetic features using the Dirichlet distribution.
+    
+    References
+    -----------
+    .. [1] Breiman, L. (2001). Random Forests. Machine Learning, 45(1), 5-32.
+    """
+
+    from sklearn.metrics import mean_squared_error
+
+    proxy_name = proxy_name or "Proxy_Feature"
+    # Handle model parameter (defaults to RandomForestRegressor if None)
+    if model is None:
+        from sklearn.ensemble import RandomForestRegressor
+        model = RandomForestRegressor(random_state=random_state)
+
+    # Handle data and target through the helper function
+    data, target_column = _manage_target(data, target)
+
+    # Handle columns parameter (defaults to all columns except target_column)
+    if columns is None:
+        columns = data.drop(columns=[target_column]).columns.tolist()
+
+    # For consistency, make sure that columns exist in the dataframe
+    exist_features(data, features=columns)
+
+    # Separate target column from features
+    X = data[columns]
+    y = data[target_column]
+
+    # Split the dataset into training and testing sets
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=random_state
+    )
+
+    # Define preprocessor for both numeric and categorical features
+    numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
+    categorical_features = X.select_dtypes(include=['object']).columns
+
+    # Create a column transformer with imputation, scaling for numeric,
+    # and encoding for categorical features
+    # Handle missing values & Encode categorical features
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', Pipeline([
+                ('imputer', SimpleImputer(strategy='mean')),  # Handle missing values
+                ('scaler', StandardScaler())  # Standardize the numeric features
+            ]), numeric_features),
+            
+            ('cat', Pipeline([
+                ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
+                ('encoder', OneHotEncoder(handle_unknown='ignore'))  
+            ]), categorical_features)
+        ]
+    )
+
+    # Create the model pipeline
+    pipeline = Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('regressor', model)
+    ])
+
+    # Train the model
+    pipeline.fit(X_train, y_train)
+
+    # Make predictions on the test set
+    y_pred = pipeline.predict(X_test)
+
+    # Optionally print the model performance (e.g., Mean Squared Error)
+    mse = mean_squared_error(y_test, y_pred)
+    if verbose: 
+        print(f"Mean Squared Error on test set: {mse:.4f}")
+        if hasattr (model, 'feature_importances_'): 
+            print("Feature importances:\n", model.feature_importances_)
+        if hasattr (model, 'feature_names_in_'): 
+            print("Feature names:\n", model.feature_names_in_)
+
+    # Apply the trained model to the entire dataset to generate the proxy feature
+    proxy_feature = pipeline.predict(X)
+
+    # Convert the proxy feature to a DataFrame or Series
+    proxy_series = pd.Series(proxy_feature, index=data.index, name=proxy_name)
+
+    # If infer_data is True, add the proxy feature to the original dataframe
+    if infer_data:
+        data[proxy_name] = proxy_series
+        return data
+    else:
+        return proxy_series
+
+def _manage_target(data, target):
+    """
+    Helper function to manage the target argument, ensuring that it's in a
+    consistent format (either as a column name or as an array-like object).
+    
+    Parameters:
+    ----------
+    data : pd.DataFrame
+        The input dataset containing features.
+
+    target : str, pd.Series, np.ndarray, or pd.DataFrame
+        The target column name, a pandas Series, or a numpy array containing
+        the target values. If a DataFrame with a single column is passed, 
+        it will be treated as a Series.
+
+    Returns:
+    -------
+    tuple
+        The processed dataframe and the target column name.
+    """
+    
+    # If target is a DataFrame with a single column, squeeze it into a Series
+    if isinstance(target, pd.DataFrame):
+        if target.shape[1] == 1:  # Ensure it's a single column DataFrame
+            target = target.squeeze()
+            target_column = target.name if target.name else 'target_column'
+        else:
+            raise ValueError("DataFrame target must have exactly one column.")
+
+    # If target is a string (assumed to be the name of a column)
+    elif isinstance(target, str):
+        # Ensure the column exists in the dataframe
+        exist_features(data, features=target, error='raise')
+        target_column = target
+
+    # If target is array-like (Series or ndarray)
+    elif isinstance(target, (np.ndarray, pd.Series)):
+        if isinstance(target, pd.Series):
+            target_column = target.name or 'target_column'
+        elif isinstance(target, np.ndarray):
+            target_column = 'target_column'
+
+        # Ensure the target is one-dimensional (flatten if necessary)
+        if target.ndim > 1:
+            target = target.ravel()
+
+        # Check that the target and data have the same length
+        check_consistent_length(data, target)
+        # Ensure that the target is aligned with the dataframe
+        data[target_column] = target
+
+    else:
+        raise ValueError(
+            "Target must be a column name (str), a Series, or an ndarray.")
+
+    return data, target_column
         
 
+
+@Dataify(auto_columns=True, prefix='feature_')
+@validate_params ({ 
+    "data": ['array-like'], 
+    "num_categories": [Interval(Real, 1, None, closed="left")], 
+    "concentration_params": [list, None], 
+    "proxy_name": [str, None], 
+    "infer_data": [bool], 
+    "random_state": ['random_state', None], 
+    })
+def generate_dirichlet_features(
+    data, 
+    num_categories=3, 
+    concentration_params=None, 
+    proxy_name=None, 
+    infer_data=False, 
+    random_state=None
+    ):
+    """
+    Generate synthetic features using the Dirichlet distribution and 
+    add them to the given dataset.
+
+    The function generates synthetic features using the Dirichlet 
+    distribution. The Dirichlet distribution is often used to model 
+    categorical data or proportions, and the function produces synthetic 
+    features representing the proportions of `num_categories` categories. 
+    The concentration parameters control how the probability mass is 
+    allocated across the categories, with larger values leading to more 
+    concentrated or skewed distributions, and smaller values leading to 
+    more uniform distributions.
+
+    Parameters
+    ------------
+    data : pd.DataFrame
+        The input dataset to which the synthetic feature will be added.
+        
+        - `data` is a pandas DataFrame containing the existing dataset 
+          to which synthetic features will be appended.
+        - The index of `data` will be retained in the generated features.
+
+    num_categories : int, default=3
+        The number of categories (or features) to generate for the Dirichlet 
+        distribution.
+        
+        - `num_categories` specifies how many synthetic features (categories) 
+          should be generated using the Dirichlet distribution. The default 
+          value is 3.
+
+    concentration_params : list of float, default=None
+        A list of positive values that determine the concentration of the 
+        Dirichlet distribution. If None, defaults to an equal concentration 
+        for each category (uniform distribution).
+        
+        - `concentration_params` specifies the concentration parameters for 
+          each category. Larger values make the distribution more concentrated, 
+          while smaller values yield more uniform distributions. 
+        - If set to None, the function will use a uniform concentration where 
+          each category has an equal weight.
+        
+    proxy_name : str, default="Feature"
+        The name of the generated synthetic features.
+        
+        - `proxy_name` is a string prefix used to name the generated features. 
+          By default, the synthetic features will be named `Feature_1`, 
+          `Feature_2`, ..., up to `Feature_n`. You can change this prefix 
+          with the `proxy_name` parameter.
+
+    infer_data : bool, default=False
+        If True, the synthetic features are added to the original dataframe. 
+        If False, only the generated features are returned.
+        
+        - When `infer_data` is set to `True`, the original `data` DataFrame 
+          will be updated to include the synthetic features. Otherwise, 
+          only the generated synthetic features are returned.
+
+    random_state : int, default=42
+        The random seed for reproducibility.
+        
+        - `random_state` controls the random seed used for generating random 
+          numbers. This ensures reproducibility when running the function 
+          multiple times with the same input data.
+
+    Returns
+    ---------
+    pd.DataFrame or pd.Series
+        - If `infer_data=True`, the original dataframe with the new features 
+          added. 
+        - If `infer_data=False`, only the synthetic features are returned 
+          as a new DataFrame.
+
+    Notes
+    ------
+    The Dirichlet distribution is a multivariate distribution often used to 
+    model categorical data where the sum of the random variables equals 1. 
+    The synthetic features are generated using the Dirichlet distribution:
+
+    .. math::
+        \mathbf{x} = \text{Dirichlet}(\boldsymbol{\alpha})
+
+    Where:
+    - \( \mathbf{x} \) represents the generated synthetic feature vector.
+    - \( \boldsymbol{\alpha} \) is the vector of concentration parameters, 
+      specifying how the probability mass is distributed across categories.
+    - The resulting feature vector is normalized such that the sum of the 
+      elements is 1.
+
+
+    The Dirichlet distribution is used in a variety of fields to generate 
+    probabilities or proportions that sum to 1, such as modeling topic 
+    distributions in text or proportions of resources in economics. In this 
+    function, it is used to generate synthetic features that can be treated as 
+    proportions across different categories. The concentration parameters 
+    control how strongly the probability mass is concentrated on particular 
+    categories. For instance, if the concentration parameters are large, 
+    the synthetic features will tend to have values close to a single 
+    category, while if they are small, the values will be more uniformly 
+    distributed across categories.
+
+    Example:
+    --------
+    >>> from gofast.tools.mlutils import generate_dirichlet_features
+    >>> import pandas as pd
+    
+    # Create a sample dataframe
+    >>> data = pd.DataFrame({'col1': [1, 2, 3], 'col2': [4, 5, 6]})
+    
+    # Generate synthetic Dirichlet features and add them to the dataframe
+    >>> result = generate_dirichlet_features(
+    >>>     data, num_categories=3, concentration_params=[1, 2, 3], 
+    >>>     proxy_name="Synthetic", infer_data=True
+    >>> )
+    
+    >>> print(result)
+       col1  col2  Synthetic_1  Synthetic_2  Synthetic_3
+    0     1     4     0.259634     0.379842     0.360524
+    1     2     5     0.123573     0.289129     0.587298
+    2     3     6     0.355040     0.279367     0.365593
+
+    See Also:
+    ---------
+    `numpy.random.dirichlet` : The function used to generate Dirichlet-
+          distributed random variables.
+    `pandas.DataFrame.join` : The method used to join the generated features 
+          with the original data.
+    `gofast.tools.mlutils.generate_proxy_feature`: Generate a proxy feature 
+         based on the available features. 
+         
+    References
+    -----------
+    [1]_ Kingma, D.P., & Welling, M. (2013). Auto-Encoding Variational 
+    Bayes. ICLR.
+    """
+    from scipy.stats import dirichlet
+
+    # Set random seed for reproducibility
+    np.random.seed(random_state)
+    proxy_name = proxy_name or "Feature" 
+    # If no concentration parameters are provided, default to uniform concentration
+    if concentration_params is None:
+        concentration_params = [1.0] * num_categories  # Equal concentration for each category
+    
+    concentration_params = [
+        validate_numeric(v, allow_negative=False, ) 
+        for v in concentration_params
+    ]
+    # Ensure the concentration parameters are positive values
+    if any(param <= 0 for param in concentration_params):
+        raise ValueError("Concentration parameters must be positive.")
+    
+    # Generate synthetic features using the Dirichlet distribution
+    synthetic_features = dirichlet.rvs(concentration_params, size=len(data))
+    
+    # Create a DataFrame from the generated Dirichlet samples
+    synthetic_features_df = pd.DataFrame(
+        synthetic_features, 
+        columns=[f"{proxy_name}_{i+1}" for i in range(num_categories)], 
+        index=data.index
+    )
+    
+    # If infer_data is True, add the generated features to the original dataframe
+    if infer_data:
+        data = data.join(synthetic_features_df)
+        return data
+    else:
+        return synthetic_features_df

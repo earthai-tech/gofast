@@ -51,7 +51,8 @@ MODULE_MAPPING = {
         'random_sampling', 
         'random_selector',
         'replace_data', 
-        'resample_data', 
+        'resample_data',
+        'pivot_long_to_wide', 
         
     ], 
     'ioutils':[ 
@@ -115,6 +116,8 @@ MODULE_MAPPING = {
         'evaluate_model',
         'fetch_model', 
         'get_batch_size', 
+        'generate_dirichlet_features', 
+        'generate_proxy_feature', 
         'get_correlated_features',
         'get_feature_contributions',
         'get_global_score',
@@ -145,6 +148,9 @@ MODULE_MAPPING = {
         ], 
     'contextual': [ 
         'WorkflowManager', 
+        ], 
+    'spatialutils': [ 
+        'resample_spatial_data', 
         ]
 }
 

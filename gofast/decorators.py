@@ -80,10 +80,10 @@ __all__= [
     'SmartProcessor',
     'Temp2D',
     'available_if',
-    'example_function',
     'isdf',
     'sanitize_docstring',
     'EnsureFileExists',
+    'copy_doc'
   ]
 
 
@@ -2584,7 +2584,8 @@ class RedirectToNew:
     ...     pass
     ...
     >>> old_function()
-    # This call will be redirected to `new_function`, with a warning issued about the deprecation.
+    # This call will be redirected to `new_function`, with a warning issued
+    # about the deprecation.
 
     """
 
@@ -4207,6 +4208,173 @@ class EnsureFileExists:
 
 # Allow decorator to be used without parentheses
 EnsureFileExists = EnsureFileExists.ensure_file_exists
+
+def copy_doc(
+    source=None, 
+    docstring=None, 
+    replace=False, 
+    copy_attrs=None
+    ):
+    """
+    Class or function decorator to copy the docstring and specified attributes 
+    from a source class or function to the decorated class or function.
+
+    This decorator facilitates the transfer of documentation and attributes, 
+    ensuring consistency and reducing redundancy. It is particularly useful when  
+    creating aliases for deprecated classes or functions, allowing the new 
+    and deprecated entities to share documentation seamlessly.
+
+    .. math::
+        \text{CopyDoc}(S, D) = 
+        \begin{cases} 
+            \text{Replace} & \text{if } \text{replace=True} \\
+            \text{Append}  & \text{if } \text{replace=False}
+        \end{cases}
+
+    Parameters
+    ----------
+    source : class or function, optional
+        The source class or function from which to copy the docstring and attributes.
+        If provided, the decorator will copy the `__doc__` attribute and any attributes
+        specified in `copy_attrs` from this source to the decorated object.
+
+    docstring : str, optional
+        An additional or alternative docstring to include in the decorated object.
+        If `replace` is `False`, this docstring will be appended to the source's docstring.
+        If `replace` is `True`, this docstring will replace the source's docstring.
+
+    replace : bool, default=False
+        Determines how the `docstring` parameter is applied.
+        - If `True`, the existing docstring of the decorated object is replaced entirely 
+          by the `docstring` parameter.
+        - If `False`, the `docstring` parameter is appended to the existing docstring.
+
+    copy_attrs : list of str, optional
+        A list of attribute names to copy from the `source` to the decorated object.
+        Only attributes listed in `copy_attrs` will be copied. If `None`, no additional
+        attributes are copied beyond the docstring.
+
+    Returns
+    -------
+    decorator : function
+        The decorator function that applies the specified docstring and attribute 
+        copying to the decorated class or function.
+
+    Methods
+    -------
+    __call__(obj)
+        Applies the decorator to the given class or function `obj`.
+
+    Examples
+    --------
+    >>> import hwm 
+    >>> from hwm.utils.decorators import copy_doc
+    >>> from hwm.estimators import HWRegressor
+
+    **Copying Docstring from a Class:**
+
+    >>> @copy_doc(source=HWRegressor, docstring="Deprecated. Use HWRegressor instead.",
+    ...              replace=False)
+    ... class HammersteinWienerRegressor(HWRegressor):
+    ...     def __init__(self, *args, **kwargs):
+    ...         import warnings
+    ...         warnings.warn(
+    ...             "HammersteinWienerRegressor is deprecated and will be removed in version 1.1.3. "
+    ...             "Use HWRegressor instead.",
+    ...             DeprecationWarning,
+    ...             stacklevel=2
+    ...         )
+    ...         super().__init__(*args, **kwargs)
+
+    **Copying Docstring from a Function:**
+
+    >>> def source_function():
+    ...     '''Original source function docstring.'''
+    ...     pass
+    ...
+    >>> @copy_doc(source=source_function, docstring="Additional information.", replace=False)
+    ... def decorated_function():
+    ...     pass
+    ...
+    >>> print(decorated_function.__doc__)
+    Original source function docstring.
+
+    Additional information.
+
+    **Replacing Docstring Completely:**
+
+    >>> @copy_doc(docstring="Completely new docstring.", replace=True)
+    ... def new_function():
+    ...     pass
+    ...
+    >>> print(new_function.__doc__)
+    Completely new docstring.
+
+    **Copying Specific Attributes:**
+
+    >>> class Source:
+    ...     attribute = "Copied attribute"
+    ...
+    >>> @copy_doc(source=Source, copy_attrs=["attribute"])
+    ... class Decorated(Source):
+    ...     pass
+    ...
+    >>> print(Decorated.attribute)
+    Copied attribute
+
+    Notes
+    -----
+    - The `copy_doc` decorator does not modify any methods or internal attributes 
+      (those starting with an underscore) of the decorated class or function.
+    - It is recommended to use this decorator primarily for creating aliases 
+      for deprecated classes or functions to maintain documentation consistency.
+
+    See Also
+    --------
+    warnings.warn : Issue warnings to users about deprecated features.
+
+    References
+    ----------
+    .. [1] Python Documentation on [Decorators](https://docs.python.org/3/glossary.html#term-decorator).
+
+    """
+    def decorator(obj):
+        """
+        Apply the `copy_doc` decorator to the given object `obj`.
+
+        Parameters
+        ----------
+        obj : class or function
+            The class or function to which the docstring and attributes 
+            will be copied.
+
+        Returns
+        -------
+        obj : class or function
+            The decorated object with updated docstring and attributes.
+        """
+        # Handle docstring copying
+        if source:
+            source_doc = source.__doc__ or ""
+            if replace:
+                combined_doc = docstring or ""
+            else:
+                combined_doc = f"{source_doc}\n\n{docstring}" if docstring else source_doc
+        else:
+            combined_doc = docstring or ""
+
+        if combined_doc:
+            obj.__doc__ = combined_doc
+
+        # Handle attribute copying
+        if source and copy_attrs:
+            for attr in copy_attrs:
+                if hasattr(source, attr):
+                    setattr(obj, attr, getattr(source, attr))
+
+        return obj
+
+    return decorator
 
 @NumpyDocstringFormatter(include_sections=['Parameters', 'Returns'], validate_with_sphinx=True)
 def example_function(param1, param2=None):

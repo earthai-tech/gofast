@@ -32,6 +32,7 @@ from .api.formatter import MetricFormatter, DescriptionFormatter
 from .api.summary import TW, ReportFactory, assemble_reports
 from .api.summary import ResultSummary 
 from .compat.sklearn import validate_params, StrOptions, HasMethods, Interval 
+from .decorators import AppendDocFrom 
 from .tools.coreutils import normalize_string, exist_features, is_iterable
 from .tools.validator import (
     _ensure_y_is_valid, _is_numeric_dtype, check_epsilon, check_is_fitted, 
@@ -193,12 +194,6 @@ def relative_sensitivity_score(
     0   feature_0                     0.0000
     1  feature_14                     0.1079
     
-    
-    See Also
-    --------
-    `exist_features`: Function used to check if the specified features exist in 
-    the dataset.
-    
     References
     ----------
     .. [1] Saltelli, A., Tarantola, S., & Campolongo, F. (2000). Sensitivity analysis 
@@ -297,6 +292,10 @@ def relative_sensitivity_score(
 
     return result
 
+@AppendDocFrom(
+    relative_sensitivity_score, from_="Parameters",
+    insert_at="See Also"
+ )
 def relative_sensitivity_scores(
     model, X, *, 
     perturbations=None, 
@@ -305,7 +304,18 @@ def relative_sensitivity_scores(
     interpret=False, 
 ): 
     """Compute the Relative Sensitivity (RS) for multiple pertubations
-    for each feature in the model predictions
+    for each feature in the model predictions. 
+    
+    See more in :ref:`User Guide <user_guide>`. 
+    
+    See Also
+    --------
+    `gofast.metric_special.relative_sensitivity_scores`: 
+        Compute the Relative Sensitivity (RS) for each feature in the model 
+        predictions.
+    `gofast.plot.utils.plot_sensitivity`: 
+        Plot the feature sensitivity values.
+        
     """
     # If perturbations are not provided, 
     # use a default value of 10% perturbation
@@ -314,7 +324,7 @@ def relative_sensitivity_scores(
         perturbations = [0.10]  
         
     # for singe pertubation use 
-    # relative_sensitivity_score instead.
+    # `relative_sensitivity_score` instead.
     if len(perturbations) ==1: 
         return relative_sensitivity_score( 
             model=model, 
@@ -404,80 +414,6 @@ def relative_sensitivity_scores(
         )
 
     return result
-
-def _interpretRS (ranked_features): 
-    """ An isolate part of Relative sensitivity Interpretation  """
-    analyses={}
-    for _, row in ranked_features.iterrows():
-        
-        feature = row["Feature"]
-        rs_score = row["RS (Relative Sensitivity)"]
-        
-        if rs_score > 1:
-            analyses [f"{feature}"]= ( 
-                f"rs = {rs_score:.2f} -> Highly sensitive >>> Small"
-                " changes in {feature} result in significant changes"
-                " in model predictions."
-                )
-
-        elif rs_score > 0.5:
-            analyses [f"{feature}"]= ( 
-                f"rs = {rs_score:.2f} -> Moderately sensitive >>> Variations"
-                " in {feature} cause noticeable but not drastic changes." 
-                )
-        else:
-            analyses [f"{feature}"]= ( 
-                f"rs = {rs_score:.2f} -> Low sensitivity >>> Changes"
-                f" in {feature} have minimal effect on predictions."
-                )
-  
-    description = DescriptionFormatter(
-        title="Relative Sensitivity (RS) Analyses",
-        content=analyses,
-        header_cols = ("Feature", "Interpretation")
-        ) 
-    print(description)
-    
-    # Optional: Highlight possible outliers or unexpected results
-    high_sensitivity = ranked_features[
-        ranked_features["RS (Relative Sensitivity)"] > 1
-    ]
-   
-    if not high_sensitivity.empty:
-        dict_hs=high_sensitivity[["Feature", "RS (Relative Sensitivity)"]
-                                 ].set_index ('Feature')[
-            'RS (Relative Sensitivity)'].to_dict()
-    
-        hsummary = DescriptionFormatter(
-            title ="Highly Sensitive Features (RS > 1)", 
-            content= dict_hs, 
-            header_cols = ("Feature", "Relative Sensitivity score ")
-            )
-        print()
-        print(hsummary)
-  
-    # Optional: Provide a summary of the general trends
-    if (
-        len(ranked_features) > 1
-        and (ranked_features['RS (Relative Sensitivity)'
-                             ].iloc[0].round(4).all() != 0)
-    ):
-        most_impactful = ranked_features.iloc[0]
-        
-        key_insights = (
-            f"The most impactful feature is '{most_impactful['Feature']}' with "
-            f"an RS of {most_impactful['RS (Relative Sensitivity)']:.2f}."
-        )
-    else:
-        key_insights= "No significant sensitivity observed across features."
-     
-
-    impact_doc = DescriptionFormatter ( 
-        content = key_insights, title ="Impactful Feature", 
-        )
-    print() 
-    print(impact_doc)
-
 
 @validate_params({ 
     "y_pred": ['array-like'], 
@@ -627,7 +563,7 @@ def prediction_stability_score(
     "plot_type": [StrOptions({"hist", "box", "hist-box"}), None], 
     "scaling_threshold": [Interval(Real, 0, 1, closed ='both')], 
     "figsize": [tuple, list], 
-    "bins": [Interval( Integral, 1, None, closed="left")], 
+    "bins": [Interval(Integral, 1, None, closed="left")], 
     "kde": [bool], 
     "color": [str], 
     "font_scale":[Interval( Real, 0, None, closed="left")], 
@@ -2661,4 +2597,79 @@ def jaccard_flex(
             y_true, y_pred, labels=labels, pos_label=pos_label, 
             average=None, zero_division=zero_division)
     return b
+
+# -- private utilities---
+
+def _interpretRS (ranked_features): 
+    """ An isolate part of Relative sensitivity Interpretation  """
+    analyses={}
+    for _, row in ranked_features.iterrows():
+        
+        feature = row["Feature"]
+        rs_score = row["RS (Relative Sensitivity)"]
+        
+        if rs_score > 1:
+            analyses [f"{feature}"]= ( 
+                f"rs = {rs_score:.2f} -> Highly sensitive >>> Small"
+                " changes in {feature} result in significant changes"
+                " in model predictions."
+                )
+
+        elif rs_score > 0.5:
+            analyses [f"{feature}"]= ( 
+                f"rs = {rs_score:.2f} -> Moderately sensitive >>> Variations"
+                " in {feature} cause noticeable but not drastic changes." 
+                )
+        else:
+            analyses [f"{feature}"]= ( 
+                f"rs = {rs_score:.2f} -> Low sensitivity >>> Changes"
+                f" in {feature} have minimal effect on predictions."
+                )
+  
+    description = DescriptionFormatter(
+        title="Relative Sensitivity (RS) Analyses",
+        content=analyses,
+        header_cols = ("Feature", "Interpretation")
+        ) 
+    print(description)
+    
+    # Optional: Highlight possible outliers or unexpected results
+    high_sensitivity = ranked_features[
+        ranked_features["RS (Relative Sensitivity)"] > 1
+    ]
+   
+    if not high_sensitivity.empty:
+        dict_hs=high_sensitivity[["Feature", "RS (Relative Sensitivity)"]
+                                 ].set_index ('Feature')[
+            'RS (Relative Sensitivity)'].to_dict()
+    
+        hsummary = DescriptionFormatter(
+            title ="Highly Sensitive Features (RS > 1)", 
+            content= dict_hs, 
+            header_cols = ("Feature", "Relative Sensitivity score ")
+            )
+        print()
+        print(hsummary)
+  
+    # Optional: Provide a summary of the general trends
+    if (
+        len(ranked_features) > 1
+        and (ranked_features['RS (Relative Sensitivity)'
+                             ].iloc[0].round(4).all() != 0)
+    ):
+        most_impactful = ranked_features.iloc[0]
+        
+        key_insights = (
+            f"The most impactful feature is '{most_impactful['Feature']}' with "
+            f"an RS of {most_impactful['RS (Relative Sensitivity)']:.2f}."
+        )
+    else:
+        key_insights= "No significant sensitivity observed across features."
+     
+
+    impact_doc = DescriptionFormatter ( 
+        content = key_insights, title ="Impactful Feature", 
+        )
+    print() 
+    print(impact_doc)
 
