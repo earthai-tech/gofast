@@ -32,7 +32,7 @@ from .api.formatter import MetricFormatter, DescriptionFormatter
 from .api.summary import TW, ReportFactory, assemble_reports
 from .api.summary import ResultSummary 
 from .compat.sklearn import validate_params, StrOptions, HasMethods, Interval 
-from .tools.coreutils import normalize_string, exist_features
+from .tools.coreutils import normalize_string, exist_features, is_iterable
 from .tools.validator import (
     _ensure_y_is_valid, _is_numeric_dtype, check_epsilon, check_is_fitted, 
     validate_multioutput, validate_nan_policy, check_array, build_data_if
@@ -59,6 +59,7 @@ __all__= [
      'prediction_stability_score',
      'r2_flex',
      'relative_sensitivity_score',
+     'relative_sensitivity_scores',
      'rmse_flex',
      'roc_tradeoff'
  ]
@@ -68,19 +69,18 @@ __all__= [
     "X": ['array-like'],
     "feature_names": [str, list, None],
     "perturbation": [Interval(Real, 0, 1, closed='both')],
-    "plot_style": [
-        StrOptions({"hist", "line", "bar", "scatter", "box"}), None
+    "plot_type": [
+        StrOptions({'hist', 'bar', 'line', 'boxplot', 'box'}), 
+        None
     ],  
-    "cmap": [str],
     "interpret": [bool]
 })
 def relative_sensitivity_score(
-    model, X, *, feature_names=None,  
+    model, X, *, 
     perturbation=0.1,
-    plot_style=None, 
-    cmap='viridis',
+    feature_names=None,  
+    plot_type=None, 
     interpret=False, 
-
 ):
     """
     Compute the Relative Sensitivity (RS) for each feature in the model 
@@ -105,17 +105,17 @@ def relative_sensitivity_score(
         column corresponds to a feature. The features should correspond to the
         names provided in `feature_names`.
 
-    feature_names : str or list of str, Optional
-        The feature(s) for which the relative sensitivity is to be computed. 
-        Each feature name should correspond to a column in `X`. If ``None``, 
-        all features will be used. 
-
     perturbation : float, default=0.1
         The perturbation factor used to adjust the feature values. This value
         should be between 0 and 1, where 0.1 indicates a 10% increase in the 
         feature value during the sensitivity analysis.
 
-    plot_style : {'hist', 'line', 'bar', 'scatter', 'box'}, optional
+    feature_names : str or list of str, Optional
+        The feature(s) for which the relative sensitivity is to be computed. 
+        Each feature name should correspond to a column in `X`. If ``None``, 
+        all features will be used. 
+
+    plot_type : {'hist', 'line', 'bar', 'scatter', 'box'}, optional
         The type of plot to generate for the sensitivity results. If `None`,
         no plot is generated. Available plot styles include:
         - `'hist'`: A histogram of relative sensitivities with a KDE.
@@ -123,11 +123,6 @@ def relative_sensitivity_score(
         - `'bar'`: A bar plot of relative sensitivities.
         - `'scatter'`: A scatter plot showing relative sensitivities.
         - `'box'`: A box plot to show the distribution of relative sensitivities.
-
-    cmap : str, default='viridis'
-        The colormap to be used in the plot for features. Common options 
-        include 'viridis', 'plasma', 'inferno', etc. This is only relevant 
-        if a plot is generated.
 
     interpret : bool, default=False
         If `True`, additional analysis details are printed to the console. This 
@@ -182,27 +177,6 @@ def relative_sensitivity_score(
     >>>     dtb_model, X, feature_names=['feature_0', 'feature_14'],
     >>>     perturbation=0.05, plot_style='line', interpret=True
     >>> )
-    >>> 
-    ================================================================================
-    |                      Relative Sensitivity (RS) Analyses                      |
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    |Feature     | Interpretation                                                  |
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    |feature_0   | rs = 0.00 -> Low sensitivity >>> Changes in feature_0 have      |
-    |            | minimal effect on predictions.                                  |
-    .            .                                                                 .
-    |feature_14  | rs = 0.00 -> Low sensitivity >>> Changes in feature_14 have     |
-    |            | minimal effect on predictions.                                  |
-    ================================================================================
-
-    |==============================================================================|
-    |                              Impactful Feature                               |
-    |------------------------------------------------------------------------------|
-    | No significant sensitivity observed across features.                         |
-    |==============================================================================|
-
-    >>> rs
-    <RelativeSentivityByFeature with 2 entries. Use print() to see detailed contents.>
     >>> print(rs)
     RelativeSentivityByFeature(
       {
@@ -232,12 +206,11 @@ def relative_sensitivity_score(
     .. [2] Sobol, I. M. (1993). Sensitivity analysis for nonlinear mathematical 
        models. *Mathematical Modelling and Computation*, 4(6), 247-278.
     """
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    
+
     # build dataframe if numpy array is passed
     X = build_data_if(
-        X, input_name ='feature', 
+        X, 
+        input_name ='feature', 
         raise_exception=True, 
         force=True  
         )
@@ -280,7 +253,6 @@ def relative_sensitivity_score(
             delta_forecast.mean() / delta_input
             if delta_input != 0 else 0
         )
-        
         # Store results
         sensitivity_results["Feature"].append(feature)
         sensitivity_results["RS (Relative Sensitivity)"].append(round(rs, 4))
@@ -288,127 +260,224 @@ def relative_sensitivity_score(
     # Convert results to DataFrame
     sensitivity_df = pd.DataFrame(sensitivity_results)
     
-    # Plot results if requested
-    if plot_style is not None:
-        plt.figure(figsize=(10, 6))
-        
-        if plot_style == 'hist':
-            sns.histplot(sensitivity_df['RS (Relative Sensitivity)'], kde=True)
-        elif plot_style == 'line':
-            sns.lineplot(
-                x="Feature", y="RS (Relative Sensitivity)", data=sensitivity_df
-            )
-        elif plot_style == 'bar':
-            sns.barplot(
-                x="RS (Relative Sensitivity)", y="Feature", data=sensitivity_df,
-                palette=cmap
-            )
-        elif plot_style == 'scatter':
-            sns.scatterplot(
-                x="RS (Relative Sensitivity)", y="Feature", data=sensitivity_df
-            )
-        elif plot_style == 'box': 
-            sns.boxplot(
-                x="Feature", y="RS (Relative Sensitivity)", data=sensitivity_df
-            )
-        
-        plt.title("Sensitivity Analysis: Relative Sensitivity by Feature")
-        plt.xlabel("Relative Sensitivity (RS)")
-        plt.ylabel("Feature")
-        plt.xticks(rotation=90)
-        plt.tight_layout()
-        plt.show()
- 
     # Rank features by RS to highlight the most important ones
     ranked_features = sensitivity_df.sort_values(
         "RS (Relative Sensitivity)", ascending=False
     )
     # Show analysis of results
     if interpret:
-        analyses={}
-        for _, row in ranked_features.iterrows():
-            
-            feature = row["Feature"]
-            rs_score = row["RS (Relative Sensitivity)"]
-            
-            if rs_score > 1:
-                analyses [f"{feature}"]= ( 
-                    f"rs = {rs_score:.2f} -> Highly sensitive >>> Small"
-                    " changes in {feature} result in significant changes"
-                    " in model predictions."
-                    )
-  
-            elif rs_score > 0.5:
-                analyses [f"{feature}"]= ( 
-                    f"rs = {rs_score:.2f} -> Moderately sensitive >>> Variations"
-                    " in {feature} cause noticeable but not drastic changes." 
-                    )
-            else:
-                analyses [f"{feature}"]= ( 
-                    f"rs = {rs_score:.2f} -> Low sensitivity >>> Changes"
-                    f" in {feature} have minimal effect on predictions."
-                    )
-      
-        description = DescriptionFormatter(
-            title="Relative Sensitivity (RS) Analyses",
-            content=analyses,
-            header_cols = ("Feature", "Interpretation")
-            ) 
-        print(description)
-        
-        # Optional: Highlight possible outliers or unexpected results
-        high_sensitivity = ranked_features[
-            ranked_features["RS (Relative Sensitivity)"] > 1
-        ]
-       
-        if not high_sensitivity.empty:
-            dict_hs=high_sensitivity[["Feature", "RS (Relative Sensitivity)"]
-                                     ].set_index ('Feature')[
-                'RS (Relative Sensitivity)'].to_dict()
-        
-            hsummary = DescriptionFormatter(
-                title ="Highly Sensitive Features (RS > 1)", 
-                content= dict_hs, 
-                header_cols = ("Feature", "Relative Sensitivity score ")
-                )
-            print()
-            print(hsummary)
-      
-        # Optional: Provide a summary of the general trends
-        if (
-            len(ranked_features) > 1
-            and (ranked_features['RS (Relative Sensitivity)'
-                                 ].iloc[0].round(4).all() != 0)
-        ):
-            most_impactful = ranked_features.iloc[0]
-            
-            key_insights = (
-                f"The most impactful feature is '{most_impactful['Feature']}' with "
-                f"an RS of {most_impactful['RS (Relative Sensitivity)']:.2f}."
-            )
-        else:
-            key_insights= "No significant sensitivity observed across features."
-         
+        _interpretRS(ranked_features)
 
-        impact_doc = DescriptionFormatter ( 
-            content = key_insights, title ="Impactful Feature", 
-            )
-            
-        print() 
-        print(impact_doc)
-
+    sensitivity_values = sensitivity_df.copy()
     rs_result=sensitivity_df.set_index ('Feature')[
         'RS (Relative Sensitivity)'].to_dict()
     
     result = ResultSummary (
-        "RelativeSensitivityByFeature",
+        "RSByFeature",
         pad_keys="auto", 
-        relative_sensitivity_score= sensitivity_df,
+        relative_sensitivity_scores= sensitivity_df,
         ranked_features= ranked_features,
+        relative_sensitivity_by_feature=rs_result, 
+        baseline_predictions= baseline_predictions
         
         ).add_results(rs_result)
+    
+    # Plot results if requested
+    if plot_type is not None:
+        from .plot.utils import plot_sensitivity 
+        plot_sensitivity(
+            sensitivity_values, 
+            baseline= baseline_predictions, 
+            plot_type = plot_type, 
+            title = "Sensitivity Analysis: Relative Sensitivity by Feature", 
+            xlabel="Feature", 
+            ylabel="Relative Sensitivity (RS)", 
+            x_ticks_rotation= 90, 
+            )
 
     return result
+
+def relative_sensitivity_scores(
+    model, X, *, 
+    perturbations=None, 
+    feature_names=None,  
+    plot_type=None, 
+    interpret=False, 
+): 
+    """Compute the Relative Sensitivity (RS) for multiple pertubations
+    for each feature in the model predictions
+    """
+    # If perturbations are not provided, 
+    # use a default value of 10% perturbation
+    if perturbations is None: 
+        # Compute only single perturbation by default
+        perturbations = [0.10]  
+        
+    # for singe pertubation use 
+    # relative_sensitivity_score instead.
+    if len(perturbations) ==1: 
+        return relative_sensitivity_score( 
+            model=model, 
+            X=X, 
+            feature_names=feature_names, 
+            perturbation=perturbations[0], 
+            plot_type=plot_type,  
+            interpret=interpret  
+        )
+    
+    # Ensure perturbations is iterable
+    perturbations = is_iterable(perturbations, transform=True)
+
+    # Initialize a dictionary to store
+    # the sensitivity results for each feature
+    sensitivities = {}
+
+    for idx, perturbation in enumerate(perturbations): 
+        result = relative_sensitivity_score( 
+            model=model, 
+            X=X, 
+            feature_names=feature_names, 
+            perturbation=perturbation, 
+            plot_type=None,  # No need for plot in this function
+            interpret=False  # No need for interpretation 
+        )
+
+        # Extract the relative sensitivity results from the result dictionary
+        rs_dict = result.relative_sensitivity_by_feature
+        
+        # Initialize the sensitivities dictionary with the first set of results
+        if idx == 0:
+            sensitivities = {k: [v] for k, v in rs_dict.items()}
+            continue
+        
+        # Append the results from each perturbation
+        # to the sensitivities dictionary
+        for feature in sensitivities.keys(): 
+            sensitivities[feature].append(rs_dict[feature])
+    
+    # Once all perturbations are processed,
+    # construct a DataFrame to hold the sensitivity values
+    sensitivities_values = pd.DataFrame(sensitivities)
+    
+    # Extract baseline predictions from the result
+    baseline_predictions = result.baseline_predictions
+    
+    # Rank features based on the mean
+    # relative sensitivity across all perturbations
+    mean_values = sensitivities_values.mean() 
+    ranked_features = pd.DataFrame({
+        'Feature': mean_values.index,
+        'RS (Relative Sensitivity)': mean_values.values
+    })
+    
+    # Rank features by RS to highlight the most important ones
+    ranked_features = ranked_features.sort_values(
+        "RS (Relative Sensitivity)", ascending=False
+    )
+    # Interpret the results if requested
+    if interpret: 
+        _interpretRS(ranked_features)
+
+    # Create a result summary
+    result = ResultSummary(
+        "RSByPertubation",
+        pad_keys="auto", 
+        relative_sensitivity_score=sensitivities_values,
+        ranked_features=ranked_features,
+    ).add_results(sensitivities)  
+
+    # Plot results if requested
+    if plot_type is not None:
+        from .plot.utils import plot_sensitivity 
+        
+        plot_sensitivity(
+            sensitivities_values, 
+            baseline=baseline_predictions, 
+            plot_type=plot_type, 
+            title="Sensitivity Analysis: Relative Sensitivity by Feature", 
+            xlabel= 'Sensitivity Value' if plot_type =='hist' else (
+                "Pertubations" if plot_type in ("line", ) else "Features"), 
+            ylabel ="Frequency" if plot_type in (
+                'hist', ) else "Relative Sensitivity (RS)" , 
+            x_ticks_rotation=90, 
+            boxplot_showfliers=True
+        )
+
+    return result
+
+def _interpretRS (ranked_features): 
+    """ An isolate part of Relative sensitivity Interpretation  """
+    analyses={}
+    for _, row in ranked_features.iterrows():
+        
+        feature = row["Feature"]
+        rs_score = row["RS (Relative Sensitivity)"]
+        
+        if rs_score > 1:
+            analyses [f"{feature}"]= ( 
+                f"rs = {rs_score:.2f} -> Highly sensitive >>> Small"
+                " changes in {feature} result in significant changes"
+                " in model predictions."
+                )
+
+        elif rs_score > 0.5:
+            analyses [f"{feature}"]= ( 
+                f"rs = {rs_score:.2f} -> Moderately sensitive >>> Variations"
+                " in {feature} cause noticeable but not drastic changes." 
+                )
+        else:
+            analyses [f"{feature}"]= ( 
+                f"rs = {rs_score:.2f} -> Low sensitivity >>> Changes"
+                f" in {feature} have minimal effect on predictions."
+                )
+  
+    description = DescriptionFormatter(
+        title="Relative Sensitivity (RS) Analyses",
+        content=analyses,
+        header_cols = ("Feature", "Interpretation")
+        ) 
+    print(description)
+    
+    # Optional: Highlight possible outliers or unexpected results
+    high_sensitivity = ranked_features[
+        ranked_features["RS (Relative Sensitivity)"] > 1
+    ]
+   
+    if not high_sensitivity.empty:
+        dict_hs=high_sensitivity[["Feature", "RS (Relative Sensitivity)"]
+                                 ].set_index ('Feature')[
+            'RS (Relative Sensitivity)'].to_dict()
+    
+        hsummary = DescriptionFormatter(
+            title ="Highly Sensitive Features (RS > 1)", 
+            content= dict_hs, 
+            header_cols = ("Feature", "Relative Sensitivity score ")
+            )
+        print()
+        print(hsummary)
+  
+    # Optional: Provide a summary of the general trends
+    if (
+        len(ranked_features) > 1
+        and (ranked_features['RS (Relative Sensitivity)'
+                             ].iloc[0].round(4).all() != 0)
+    ):
+        most_impactful = ranked_features.iloc[0]
+        
+        key_insights = (
+            f"The most impactful feature is '{most_impactful['Feature']}' with "
+            f"an RS of {most_impactful['RS (Relative Sensitivity)']:.2f}."
+        )
+    else:
+        key_insights= "No significant sensitivity observed across features."
+     
+
+    impact_doc = DescriptionFormatter ( 
+        content = key_insights, title ="Impactful Feature", 
+        )
+    print() 
+    print(impact_doc)
+
 
 @validate_params({ 
     "y_pred": ['array-like'], 
@@ -555,7 +624,7 @@ def prediction_stability_score(
 @validate_params ({ 
     "y_train": ['array-like'], 
     "y_test": ['array-like', None], 
-    "plot_style": [StrOptions({"hist", "box", "hist-box"}), None], 
+    "plot_type": [StrOptions({"hist", "box", "hist-box"}), None], 
     "scaling_threshold": [Interval(Real, 0, 1, closed ='both')], 
     "figsize": [tuple, list], 
     "bins": [Interval( Integral, 1, None, closed="left")], 
@@ -569,7 +638,7 @@ def prediction_stability_score(
 def analyze_target(
     y_train,
     y_test=None,
-    plot_style=None,
+    plot_type=None,
     scaling_threshold=1.0,
     figsize=(14, 6),
     bins=30,
@@ -588,7 +657,7 @@ def analyze_target(
         The training target variable.
     y_test: array-like, optional
         The test target variable. Default is ``None``.
-    plot_style : str, optional
+    plot_type : str, optional
         Type of plot to display. Options are ``'hist'``, ``'box'``, or
         ``'hist-box'``. If set to ``None``, no plot is displayed. Default
         is ``None``.
@@ -632,7 +701,7 @@ def analyze_target(
     --------
     >>> from gofast.metrics_special import analyze_target
     >>> y_train = [1, 2, 3, 4, 5]
-    >>> stats = analyze_target(y_train, plot_style='hist-box')
+    >>> stats = analyze_target(y_train, plot_type='hist-box')
 
     See Also
     --------
@@ -661,9 +730,9 @@ def analyze_target(
     }
 
     # Plotting if plot_style is specified
-    if plot_style:
+    if plot_type is not None:
         sns.set(font_scale=font_scale)
-        if plot_style == 'hist':
+        if plot_type == 'hist':
             # Histogram plot
             plt.figure(figsize=figsize)
             sns.histplot(y, bins=bins, kde=kde, color=color)
@@ -671,14 +740,14 @@ def analyze_target(
             plt.xlabel('Target Value')
             plt.ylabel('Frequency')
             plt.show()
-        elif plot_style == 'box':
+        elif plot_type == 'box':
             # Boxplot
             plt.figure(figsize=figsize)
             sns.boxplot(x=y, color=color)
             plt.title('Boxplot of Target Variable')
             plt.xlabel('Target Value')
             plt.show()
-        elif plot_style == 'hist-box':
+        elif plot_type == 'hist-box':
             # Histogram and boxplot side by side
             plt.figure(figsize=figsize)
             plt.subplot(1, 2, 1)
@@ -692,10 +761,7 @@ def analyze_target(
             plt.xlabel('Target Value')
             plt.tight_layout()
             plt.show()
-        else:
-            # Invalid plot_style value
-            raise ValueError("plot_style must be 'hist', 'box', or 'hist-box'")
-
+     
     if show_recommendations: 
         key = "Range={} {} threshold={}".format(
             stats["range"],

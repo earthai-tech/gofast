@@ -169,7 +169,7 @@ def detect_categorical_columns(
         raise_exception=True, 
         input_name='col'
     )
-    data = to_numeric_dtypes(data) 
+  
     # Initialize an empty list to store detected categorical columns.
     categorical_columns = []
 

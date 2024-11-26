@@ -11,6 +11,7 @@ import copy
 import datetime 
 import warnings
 import itertools 
+from numbers import Real, Integral 
 import numpy as np
 import pandas as pd 
 import seaborn as sns 
@@ -28,16 +29,17 @@ from sklearn.utils import resample
 from ..api.types import Optional, Tuple,  Union 
 from ..api.types import Dict, ArrayLike, DataFrame
 from ..api.property import BasePlot
+from .. compat.sklearn import validate_params, StrOptions, Interval 
 from ..decorators import isdf
 from ..tools.coreutils import ( 
     _assert_all_types, is_iterable, str2columns, is_in_if, 
-    exist_features 
+    exist_features  
 )
-from ..tools.validator import  assert_xy_in
+from ..tools.validator import  assert_xy_in, build_data_if
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
 __all__=["boxplot", "plot_r_squared", "plot_text", "plot_spatial_features", 
-         "plot_categorical_feature", 
+         "plot_categorical_feature", 'plot_sensitivity'
          ]
 
 class PlotUtils(BasePlot):
@@ -145,6 +147,297 @@ See also:
     on adjustable parameters.
 """
 # ##################################################
+
+@validate_params ({ 
+    "sensitivity_values": ['array-like'], 
+    "baseline_prediction": ['array-like', Real, None ], 
+    "plot_type": [StrOptions({'hist', 'bar', 'line', 'boxplot', 'box'})], 
+    "x_ticks_rotation": [Interval( Integral, 0, None, closed="left")], 
+    "y_ticks_rotation": [Interval( Integral, 0, None, closed="left")], 
+    })
+def plot_sensitivity(
+    sensitivity_values, *,
+    baseline=None, 
+    plot_type='line',
+    baseline_color='r',
+    baseline_linewidth=2,
+    baseline_linestyle='--',
+    title=None,
+    xlabel=None,
+    ylabel=None,
+    x_ticks_rotation=0,
+    y_ticks_rotation=0,
+    grid=True,
+    legend=True,
+    figsize=(10, 6),
+    color_palette='muted',
+    boxplot_showfliers=False
+):
+    """
+    Plot the feature sensitivity values.
+
+    Parameters
+    ----------
+    sensitivity_values : pandas.DataFrame
+        A DataFrame containing sensitivity values for each feature. Each column 
+        represents the sensitivity values for a specific feature. The index 
+        represents individual observations or instances.
+        
+    baseline: array-like or scalar, optional 
+        The baseline prediction, either a scalar value or an array-like object 
+        (e.g., list, numpy array) representing the baseline prediction to be 
+        compared with feature sensitivities.
+
+    plot_type : {'line', 'bar', 'hist', 'boxplot'}, optional, default='line'
+        The type of plot to generate. Options include:
+        - 'line': Line plot to visualize feature sensitivity trends.
+        - 'bar': Bar plot for visualizing feature sensitivity comparisons.
+        - 'hist': Histogram to show the distribution of sensitivities for 
+          each feature.
+        - 'boxplot': Boxplot to summarize the distribution and outliers 
+          of sensitivities.
+
+    baseline_color : str, optional, default='r'
+        The color for the baseline prediction line. Can be any valid Matplotlib
+         color specification (e.g., named color, hex, RGB tuple).
+
+    baseline_linewidth : float, optional, default=2
+        The line width for the baseline prediction line.
+
+    baseline_linestyle : {'-', '--', '-.', ':'}, optional, default='--'
+        The line style for the baseline prediction line. 
+        Options include solid, dashed, dash-dot, and dotted lines.
+
+    title : str, optional, default=None
+        The title for the plot. If not provided, a default title is generated 
+        based on the plot type.
+
+    xlabel : str, optional, default='Features'
+        The label for the x-axis, which typically corresponds to the feature 
+        names or identifiers in `sensitivity_values`.
+
+    ylabel : str, optional, default='Sensitivity Value'
+        The label for the y-axis, representing the sensitivity value or 
+        measure associated with each feature.
+
+    x_ticks_rotation : int, optional, default=0
+        The angle in degrees to rotate the x-axis tick labels. Helps in cases 
+        where feature names or labels overlap.
+
+    y_ticks_rotation : int, optional, default=0
+        The angle in degrees to rotate the y-axis tick labels.
+
+    grid : bool, optional, default=True
+        Whether to show gridlines on the plot. True will enable gridlines, 
+        False will disable them.
+
+    legend : bool, optional, default=True
+        Whether to display the legend in the plot. Set to True to show the 
+        legend, False to hide it.
+
+    figsize : tuple of two floats, optional, default=(10, 6)
+        The dimensions of the plot as a tuple representing (width, height) 
+        in inches.
+
+    color_palette : str, optional, default='muted'
+        The seaborn color palette to use for the plot. A string specifying 
+        a predefined color palette (e.g., 'deep', 'muted', 'bright').
+
+    boxplot_showfliers : bool, optional, default=False
+        Whether to display outliers in the boxplot when `plot_type='boxplot'`. 
+        Set to False to hide outliers, True to show them.
+
+    Returns
+    -------
+    None
+        The function generates and displays a plot showing the baseline 
+        prediction and feature sensitivity with the specified 
+        customization options.
+
+
+    Notes
+    -----
+    The function will automatically determine whether to construct the 
+    `sensitivity_values` DataFrame if not provided directly as a DataFrame.
+    It uses the `build_data_if` helper function to convert the data into a 
+    DataFrame before proceeding with plotting.
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_sensitivity
+    1. Basic line plot:
+       >>> plot_sensitivity(baseline=0.5, 
+                            sensitivity_values=pd.DataFrame({
+                                'Feature 1': [0.1, 0.2, 0.3],
+                                'Feature 2': [0.05, 0.15, 0.25],
+                                'Feature 3': [0.2, 0.3, 0.4]
+                            }), 
+                            plot_type='line')
+       
+    2. Bar plot with customized appearance:
+       >>> plot_sensitivity(baseline=0.5, 
+                            sensitivity_values=pd.DataFrame({
+                                'Feature 1': [0.1, 0.2, 0.3],
+                                'Feature 2': [0.05, 0.15, 0.25],
+                                'Feature 3': [0.2, 0.3, 0.4]
+                            }), 
+                            plot_type='bar', baseline_color='g', 
+                            baseline_linestyle='-', figsize=(8, 5))
+       
+    3. Histogram plot:
+       >>> plot_sensitivity(baseline=0.5, 
+                            sensitivity_values=pd.DataFrame({
+                                'Feature 1': [0.1, 0.2, 0.3],
+                                'Feature 2': [0.05, 0.15, 0.25],
+                                'Feature 3': [0.2, 0.3, 0.4]
+                            }), 
+                            plot_type='hist')
+    
+    4. Boxplot with outliers:
+       >>> plot_sensitivity(baseline=0.5, 
+                            sensitivity_values=pd.DataFrame({
+                                'Feature 1': [0.1, 0.2, 0.3],
+                                'Feature 2': [0.05, 0.15, 0.25],
+                                'Feature 3': [0.2, 0.3, 0.4]
+                            }), 
+                            plot_type='boxplot', boxplot_showfliers=True)
+    """
+
+    if not isinstance (sensitivity_values, pd.DataFrame): 
+        # build dataframe using the default column name 'feature' 
+        sensitivity_values = build_data_if(
+            sensitivity_values, 
+            force=True, 
+            input_name="feature", 
+            raise_exception=True 
+    ) 
+
+    if len(sensitivity_values) == 1:
+        # Transpose if single perturbation
+        sensitivity_values = sensitivity_values.T  
+    
+    sns.set(style="whitegrid", palette=color_palette)
+    
+    # Default plot title
+    if title is None:
+        title = 'Feature Sensitivity vs Baseline Prediction'
+
+    plt.figure(figsize=figsize)
+
+    if plot_type == 'line':
+        for col in sensitivity_values.columns:
+            plt.plot(
+                sensitivity_values.index, 
+                sensitivity_values[col], 
+                label=col, 
+                marker='o'
+            )
+        if baseline is not None:
+            if isinstance(baseline, (list, np.ndarray)):
+                baseline = baseline[0]  # Use the first element if it's an array-like
+            plt.axhline(
+                y=baseline, 
+                color=baseline_color, 
+                linestyle=baseline_linestyle, 
+                linewidth=baseline_linewidth, 
+                label='Baseline Prediction'
+            )
+        plt.title(title) 
+        plt.xlabel(xlabel or "Pertubations")
+        plt.ylabel(ylabel or 'Sensitivity Value')
+        plt.xticks(rotation=x_ticks_rotation)
+        plt.yticks(rotation=y_ticks_rotation)
+        if grid:
+            plt.grid(True)
+        if legend:
+            plt.legend()
+
+    elif plot_type == 'bar':
+        sensitivity_values_mean = sensitivity_values.mean(axis=0)
+        plt.bar(
+            sensitivity_values_mean.index, 
+            sensitivity_values_mean.values, 
+            label='Feature Sensitivity'
+        )
+        if baseline is not None:
+            if isinstance(baseline, (list, np.ndarray)):
+                baseline = baseline[0]  # Use the first element if it's an array-like
+            plt.axhline(
+                y=baseline, 
+                color=baseline_color, 
+                linestyle=baseline_linestyle, 
+                linewidth=baseline_linewidth, 
+                label='Baseline Prediction'
+            )
+        plt.title(title)
+        plt.xlabel(xlabel or "Pertubations")
+        plt.ylabel(ylabel or 'Sensitivity Value')
+        plt.xticks(rotation=x_ticks_rotation)
+        plt.yticks(rotation=y_ticks_rotation)
+        if grid:
+            plt.grid(True)
+        if legend:
+            plt.legend()
+
+    elif plot_type == 'hist':
+        for col in sensitivity_values.columns:
+            sns.histplot(
+                sensitivity_values[col], 
+                kde=True, 
+                label=col, 
+                element='step', 
+                fill=False
+            )
+        if baseline is not None:
+            if isinstance(baseline, (list, np.ndarray)):
+                baseline = baseline[0]  # Use the first element if it's an array-like
+            plt.axvline(
+                x=baseline, 
+                color=baseline_color, 
+                linestyle=baseline_linestyle, 
+                linewidth=baseline_linewidth, 
+                label='Baseline Prediction'
+            )
+        plt.title(title)
+        plt.xlabel(xlabel or 'Sensitivity Value')
+        plt.ylabel('Frequency')
+        if grid:
+            plt.grid(True)
+        if legend:
+            plt.legend()
+
+    elif plot_type in ['boxplot', 'box']:
+        sns.boxplot(
+            data=sensitivity_values, 
+            showfliers=boxplot_showfliers
+        )
+        if baseline is not None:
+            if isinstance(baseline, (list, np.ndarray)):
+                baseline = baseline[0]  # Use the first element if it's an array-like
+            plt.axhline(
+                y=baseline, 
+                color=baseline_color, 
+                linestyle=baseline_linestyle, 
+                linewidth=baseline_linewidth, 
+                label='Baseline Prediction'
+            )
+        plt.title(title)
+        plt.xlabel(xlabel or "Pertubations")
+        plt.ylabel(ylabel or 'Sensitivity Value')
+        if grid:
+            plt.grid(True)
+        if legend:
+            plt.legend()
+
+    else:
+        raise ValueError(
+            "Unsupported plot type. Choose from 'line', 'bar', 'hist', or 'boxplot'."
+        )
+    
+    plt.xticks(rotation=x_ticks_rotation)
+    plt.yticks(rotation=y_ticks_rotation)
+    plt.tight_layout()
+    plt.show()
 
 @isdf 
 def plot_spatial_features(

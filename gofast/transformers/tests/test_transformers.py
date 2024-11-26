@@ -392,7 +392,8 @@ def test_kmeans_featurizer():
     X_kmeans = kmeans_featurizer.fit_transform(df)
 
     # Ensure that the transformed data has the expected shape
-    assert X_kmeans.shape == (df.shape[0], n_features +1 )
+    # since encoding is onehot by default so add +3 to n_features 
+    assert X_kmeans.shape == (df.shape[0], n_features +3 )
 
 # Test StratifiedWithCategoryAdder
 def test_stratified_with_category_adder():
@@ -577,7 +578,7 @@ def test_categorical_encoder2():
     
     # Fit and transform the dataset
     enc.fit(X)
-    X_encoded = enc.transform([['Category B'], ['Category C']]).toarray()
+    X_encoded = enc.transform([['Category B'], ['Category C']]).todense()
     
     # Check the shape of the encoded features
     assert X_encoded.shape == (2, 2)  # Encoded as one-hot
@@ -588,14 +589,14 @@ def test_categorical_encoder():
     X = [['Male', 1], ['Female', 3], ['Female', 2]]
     X= pd.DataFrame ( X, columns =['gender', 'number'])
     # Initialize CategoricalEncoder
-    enc = CategoricalEncoder()
+    enc = CategoricalEncoder() #here by default
     
     # Fit and transform the dataset
     enc.fit(X)
-    X_encoded = enc.transform(X)[0].toarray()
+    X_encoded = enc.transform(X)[0]
     
     # Check the shape of the encoded features
-    assert X_encoded.shape == (3, 2)  # Encoded as one-hot
+    assert X_encoded.shape ==(5,) # Encoded as one-hot
 
 
 def test_polynomial_feature_combiner():

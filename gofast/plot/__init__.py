@@ -81,6 +81,7 @@ from .utils import (
     plot_text, 
     plot_spatial_features, 
     plot_categorical_feature, 
+    plot_sensitivity
     )
 
 __all__= [
@@ -159,6 +160,7 @@ __all__= [
     "plot_text", 
     "plot_spatial_features", 
     "plot_categorical_feature", 
+    "plot_sensitivity"
                
     ]
 
