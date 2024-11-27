@@ -133,7 +133,7 @@ class KerasDependencies:
                 'callbacks',
                 'LearningRateScheduler'
             ),
-            
+            'Embedding': ('layers', 'Embedding'), 
             'clone_model': ('models', 'clone_model'),
             'load_model': ('models', 'load_model'),
             'register_keras_serializable': ('utils', 'register_keras_serializable')

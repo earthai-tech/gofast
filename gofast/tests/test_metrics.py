@@ -40,7 +40,7 @@ from gofast.metrics_special import precision_recall_tradeoff, roc_tradeoff
 from gofast.metrics_special import madev_flex 
 from gofast.metrics_special import jaccard_flex
 
-#%%
+#%
 
 def test_ndcg_at_k_with_controls():
     y_true = [[3, 2, 3], [2, 1, 2]]
@@ -475,7 +475,7 @@ def test_roc_tradeoff(binary_classification_data, trained_model):
 
 def test_evaluate_confusion_matrix(binary_classification_data, trained_model):
     _, X_test, _, y_test = binary_classification_data
-    result = evaluate_confusion_matrix(y_test, classifier=trained_model, X=X_test, display=False)
+    result = evaluate_confusion_matrix(y_test, model=trained_model, X=X_test, display=False)
     assert 'confusion_matrix' in result, "Confusion matrix missing from results"
 
 def test_display_precision_recall_does_not_raise_error():
@@ -512,7 +512,7 @@ def test_geo_information_value_clip_upper_bound():
     Xp = np.array([1, 2])
     Np = np.array([1e-16, 200])  # Extremely small value that should be clipped
     Sp = np.array([1, 20])
-    geo_iv = geo_information_value(Xp, Np, Sp, clip_upper_bound=100, aggregate=True)
+    geo_iv = geo_information_value(Xp, Np, Sp, clip_value=100, aggregate=True)
     assert isinstance(geo_iv, float), "Output should be a float when aggregate is True"
 
 def test_adjusted_r2_score_basic():

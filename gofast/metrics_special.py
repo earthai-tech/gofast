@@ -32,7 +32,7 @@ from .api.formatter import MetricFormatter, DescriptionFormatter
 from .api.summary import TW, ReportFactory, assemble_reports
 from .api.summary import ResultSummary 
 from .compat.sklearn import validate_params, StrOptions, HasMethods, Interval 
-from .decorators import AppendDocFrom 
+from .decorators import Substitution, Appender
 from .tools.coreutils import normalize_string, exist_features, is_iterable
 from .tools.validator import (
     _ensure_y_is_valid, _is_numeric_dtype, check_epsilon, check_is_fitted, 
@@ -65,17 +65,64 @@ __all__= [
      'roc_tradeoff'
  ]
 
+_shared_doc_kwargs= { 
+    "model_desc": ( 
+        "A trained model with a `.predict()` method. The model"
+        " should accept `X` as input and return predictions for each instance."
+        ), 
+    "X_desc": ( 
+        "The input data to the model. Each row represents an instance, and each"
+        "column corresponds to a feature. The features should correspond to the"
+        "names provided in `feature_names`."
+        ), 
+    "feature_names_desc": ( 
+        "The feature(s) for which the relative sensitivity"
+        " is to be computed. Each feature name should correspond to a column"
+        " in `X`. If `None`, all features will be used."
+        ), 
+    "plot_type_desc": ( 
+        "The type of plot to generate for the sensitivity results. If `None`,"
+        "no plot is generated. Available plot styles include:"
+        "- `'hist'`: A histogram of relative sensitivities with a KDE."
+        "- `'line'`: A line plot of relative sensitivities for each feature."
+        "- `'bar'`: A bar plot of relative sensitivities."
+        "- `'scatter'`: A scatter plot showing relative sensitivities."
+        "- `'box'`: A box plot to show the distribution of relative sensitivities."
+        ), 
+    "interpret_desc": ( 
+        "If `True`, additional analysis details are printed to"
+        " the console. This includes a ranking of features by their relative "
+        "sensitivity and key insights into which features are the most sensitive."
+        )
+    }
+
+_shared_params= """
+Parameters
+----------
+model : object
+    %(model_desc)s
+X : array-like, shape (n_samples, n_features)
+    %(X_desc)s
+feature_names : str or list of str, Optional
+    %(feature_names_desc)s
+plot_type : {'hist', 'line', 'bar', 'scatter', 'boxplot', 'box'}, optional
+    %(plot_type_desc)s
+interpret : bool, default=False
+    %(interpret_desc)s
+"""
+
+@Substitution (**_shared_doc_kwargs)
+@Appender(_shared_params, join='\n', indents=0)
 @validate_params({
     "model": [HasMethods(["predict"])],
     "X": ['array-like'],
-    "feature_names": [str, list, None],
+    "feature_names": ['array-like', None],
     "perturbation": [Interval(Real, 0, 1, closed='both')],
     "plot_type": [
-        StrOptions({'hist', 'bar', 'line', 'boxplot', 'box'}), 
-        None
-    ],  
+        StrOptions({'hist', 'bar', 'line', 'boxplot', 'box'}), None],
     "interpret": [bool]
-})
+   }, 
+)
 def relative_sensitivity_score(
     model, X, *, 
     perturbation=0.1,
@@ -95,105 +142,77 @@ def relative_sensitivity_score(
     
     See more in :ref:`User Guide <user_guide>`. 
 
-    Parameters
-    ----------
-    model : object
-        A trained model with a `.predict()` method. The model should be able
-        to take `X` as input and output predictions for each instance.
-    
-    X : array-like, shape (n_samples, n_features)
-        The input data to the model. Each row represents an instance, and each
-        column corresponds to a feature. The features should correspond to the
-        names provided in `feature_names`.
+    %(_shared_params)s
 
     perturbation : float, default=0.1
-        The perturbation factor used to adjust the feature values. This value
-        should be between 0 and 1, where 0.1 indicates a 10% increase in the 
-        feature value during the sensitivity analysis.
-
-    feature_names : str or list of str, Optional
-        The feature(s) for which the relative sensitivity is to be computed. 
-        Each feature name should correspond to a column in `X`. If ``None``, 
-        all features will be used. 
-
-    plot_type : {'hist', 'line', 'bar', 'scatter', 'box'}, optional
-        The type of plot to generate for the sensitivity results. If `None`,
-        no plot is generated. Available plot styles include:
-        - `'hist'`: A histogram of relative sensitivities with a KDE.
-        - `'line'`: A line plot of relative sensitivities for each feature.
-        - `'bar'`: A bar plot of relative sensitivities.
-        - `'scatter'`: A scatter plot showing relative sensitivities.
-        - `'box'`: A box plot to show the distribution of relative sensitivities.
-
-    interpret : bool, default=False
-        If `True`, additional analysis details are printed to the console. This 
-        includes a ranking of features by their relative sensitivity and key 
-        insights into which features are the most sensitive.
+        The amount by which to perturb each feature when calculating sensitivity.
+        Should be a small fraction between 0 and 1. For instance, 0.1 indicates
+        a 10% increase in the feature value during the sensitivity analysis.
 
     Returns
     -------
-    pd.DataFrame
-        A DataFrame containing the computed relative sensitivity for each 
-        feature in the model. The DataFrame has two columns:
-        - `'Feature'`: The name of the feature.
-        - `'RS (Relative Sensitivity)'`: The relative sensitivity score.
+    gofast.api.summary.ResultSummary
+        A summary object containing the computed relative sensitivity for each 
+        feature in the model:
+
+        - `relative_sensitivity_scores` : pd.DataFrame
+            The RS values computed for each feature perturbation.
+
+        - `ranked_features` : pd.DataFrame
+            Features ranked from highly sensitive to less sensitive.
+
+        - `relative_sensitivity_by_feature` : pd.DataFrame
+            Detailed sensitivity scores grouped by feature.
+
+        - `baseline_predictions` : array-like
+            The model's baseline predictions before any perturbations.
 
     Notes
-    -------
+    -----
     The relative sensitivity (RS) of a feature is computed by perturbing 
     the feature value and observing the impact on the model's output. The RS 
     for each feature is calculated using the formula:
 
     .. math::
-        RS = \frac{\Delta \text{Forecast}}{\Delta \text{Input}}
+        RS = \\frac{\\Delta \\text{Forecast}}{\\Delta \\text{Input}}
 
     where:
-        - :math:`\Delta \text{Forecast}` is the change in the predicted output
+        - :math:`\\Delta \\text{Forecast}` is the change in the predicted output
           after perturbing the feature.
-        - :math:`\Delta \text{Input}` is the change in the input feature 
+        - :math:`\\Delta \\text{Input}` is the change in the input feature 
           after perturbation.
 
     If the change in input is zero (i.e., no perturbation), the relative 
     sensitivity is set to zero [2]_.
-    
-    The function uses a simple "one-at-a-time" (OAT) sensitivity analysis approach.
-    For each feature, the function perturbs its value, computes the model's prediction
-    with the perturbed feature, and then calculates the relative sensitivity score.
-    
-    In the case where `verbose=True`, the function prints a detailed analysis of the 
-    sensitivity scores, including feature rankings and insights on which features have 
-    the greatest impact on model predictions.
 
-    Example
-    -------
+    The function uses a simple "one-at-a-time" (OAT) sensitivity analysis 
+    approach. For each feature, the function perturbs its value, computes 
+    the model's prediction with the perturbed feature, and then calculates
+    the relative sensitivity score.
+    
+    If `interpret=True`, the function prints a detailed analysis
+    of the sensitivity scores, including feature rankings and insights on
+    which features have the greatest impact on model predictions.
+
+    Examples
+    --------
     >>> import numpy as np 
     >>> from gofast.metrics_special import relative_sensitivity_score
     >>> from gofast.estimators.tree import DTBClassifier 
-    >>> np.random.seed (123)
-    >>> X = np.random.randn( 100, 19) 
-    >>> y = np.random.randint(0, 2, size = len(X))
-    >>> dtb_model=DTBClassifier ().fit(X, y) 
+    >>> np.random.seed(123)
+    >>> X = np.random.randn(100, 19) 
+    >>> y = np.random.randint(0, 2, size=len(X))
+    >>> dtb_model = DTBClassifier().fit(X, y) 
     >>> 
     >>> sensitivity_df = relative_sensitivity_score(
-    >>>     dtb_model, X, feature_names=['feature_0', 'feature_14'],
-    >>>     perturbation=0.05, plot_style='line', interpret=True
-    >>> )
-    >>> print(rs)
-    RelativeSentivityByFeature(
-      {
+    ...     dtb_model, X, feature_names=['feature_0', 'feature_14'],
+    ...     perturbation=0.05, plot_type='line', interpret=True
+    ... )
+    >>> print(sensitivity_df)
+       Feature  RS (Relative Sensitivity)
+    0  feature_0                     0.0000
+    1 feature_14                     0.1079
 
-           feature_0 : 0.0
-           feature_14 : 0.1079
-
-      }
-    )
-
-    [ 2 entries ]
-    >>> rs.relative_sensitivity_score
-          Feature  RS (Relative Sensitivity)
-    0   feature_0                     0.0000
-    1  feature_14                     0.1079
-    
     References
     ----------
     .. [1] Saltelli, A., Tarantola, S., & Campolongo, F. (2000). Sensitivity analysis 
@@ -201,7 +220,6 @@ def relative_sensitivity_score(
     .. [2] Sobol, I. M. (1993). Sensitivity analysis for nonlinear mathematical 
        models. *Mathematical Modelling and Computation*, 4(6), 247-278.
     """
-
     # build dataframe if numpy array is passed
     X = build_data_if(
         X, 
@@ -292,10 +310,21 @@ def relative_sensitivity_score(
 
     return result
 
-@AppendDocFrom(
-    relative_sensitivity_score, from_="Parameters",
-    insert_at="See Also"
- )
+@Substitution (**_shared_doc_kwargs)
+@Appender(_shared_params, join='\n', indents=0)
+@Appender(
+    """
+    See Also
+    --------
+    `gofast.metrics_special.relative_sensitivity_score` :
+        Compute the Relative Sensitivity (RS) for each feature in the model 
+        predictions.
+    `gofast.plot.utils.plot_sensitivity` :
+        Plot the feature sensitivity values.
+    """,
+    join='\n',
+    indents=0
+)
 def relative_sensitivity_scores(
     model, X, *, 
     perturbations=None, 
@@ -303,19 +332,46 @@ def relative_sensitivity_scores(
     plot_type=None, 
     interpret=False, 
 ): 
-    """Compute the Relative Sensitivity (RS) for multiple pertubations
+    """
+    Compute the Relative Sensitivity (RS) for multiple perturbations
     for each feature in the model predictions. 
     
     See more in :ref:`User Guide <user_guide>`. 
-    
-    See Also
-    --------
-    `gofast.metric_special.relative_sensitivity_scores`: 
-        Compute the Relative Sensitivity (RS) for each feature in the model 
-        predictions.
-    `gofast.plot.utils.plot_sensitivity`: 
-        Plot the feature sensitivity values.
+
+    %(_shared_params)s
+
+    perturbations : list of float, optional
+        A list of perturbation amounts to use when calculating sensitivity.
+        Each value should be a small fraction between 0 and 1.
         
+    Returns
+    -------
+    gofast.api.summary.ResultSummary
+        A summary object containing the computed relative sensitivity for each 
+        perturbation performed on each feature in the model:
+        
+        - `relative_sensitivity_score` : pd.DataFrame
+            The RS values computed for each perturbation of each feature.
+        
+        - `ranked_features` : pd.DataFrame
+            The impactful features ranked from highly sensitive to less 
+            sensitive.
+
+    Example
+    -------
+    >>> import numpy as np 
+    >>> from gofast.metrics_special import relative_sensitivity_scores
+    >>> from gofast.estimators.tree import DTBClassifier 
+    >>> np.random.seed(123)
+    >>> X = np.random.randn(100, 19) 
+    >>> y = np.random.randint(0, 2, size=len(X))
+    >>> dtb_model = DTBClassifier().fit(X, y) 
+    >>> 
+    >>> sensitivity_df = relative_sensitivity_scores(
+    ...     dtb_model, X, feature_names=['feature_11', 'feature_15'],
+    ...     perturbations=[0.5, 0.8, 0.7], plot_type='line', interpret=True
+    ... )
+    >>> print(sensitivity_df)
     """
     # If perturbations are not provided, 
     # use a default value of 10% perturbation
@@ -731,6 +787,20 @@ def analyze_target(
     
     return metric_stats
 
+@validate_params({
+    'y_true': ['array-like'],  
+    'y_scores': ['array-like', None], 
+    'X': ['array-like', None], 
+    'estimator': [HasMethods (['fit', 'predict']), None],  
+    'cv': ['cv_object', None],  
+    'label': [int, None],  
+    'scoring_method': [StrOptions({"decision_function", "predict_proba"})], 
+    'pos_label': [int, None], 
+    'sample_weight': ['array-like', None],  
+    'threshold': [Interval(Real, 0, 1, closed='right'), None],  
+    'return_scores': [bool],  
+    'display_chart': [bool], 
+})
 def precision_recall_tradeoff(
     y_true, 
     y_scores=None, 
@@ -956,11 +1026,22 @@ def display_precision_recall(precisions, recalls, thresholds):
     plt.tight_layout()
     plt.show()
 
+@validate_params({
+    'y_true': ['array-like'],  
+    'y_scores': ['array-like', None], 
+    'X': ['array-like', None], 
+    'model': [HasMethods (['fit', 'predict']), None],  
+    'cv': ['cv_object', None],  
+    'pos_label': [int, None], 
+    'sample_weight': ['array-like', None],  
+    'return_scores': [bool],  
+    'display_chart': [bool], 
+})
 def roc_tradeoff(
     y_true, 
     y_scores=None, 
     X=None, 
-    estimator=None, 
+    model=None, 
     *,
     cv=None,
     pos_label=None, 
@@ -984,7 +1065,7 @@ def roc_tradeoff(
         are provided.
     X : {array-like, sparse matrix}, shape (n_samples, n_features), optional
         Input features, required if `y_scores` is not provided.
-    estimator : estimator object implementing 'fit', optional
+    model : estimator object implementing 'fit', optional
         The classification estimator. Required if `y_scores` is not provided.
     cv : int, cross-validation generator or an iterable, optional
         Determines the cross-validation splitting strategy.
@@ -1055,22 +1136,22 @@ def roc_tradeoff(
     This will display the ROC curve for the RandomForestClassifier on the test data.
     """
     if y_scores is None:
-        if X is None or estimator is None:
+        if X is None or model is None:
             raise ValueError("When 'y_scores' is None, both 'X' and"
                              " 'estimator' must be provided.")
         # Check if the estimator is fitted and predict the scores
-        check_is_fitted(estimator)
-        if hasattr(estimator, "decision_function"):
+        check_is_fitted(model)
+        if hasattr(model, "decision_function"):
             y_scores = cross_val_predict(
-                estimator, X, y_true, cv=cv, method="decision_function", **cv_kwargs)
-        elif hasattr(estimator, "predict_proba"):
+                model, X, y_true, cv=cv, method="decision_function", **cv_kwargs)
+        elif hasattr(model, "predict_proba"):
             y_scores = cross_val_predict(
-                estimator, X, y_true, cv=cv, method="predict_proba", **cv_kwargs)[:, 1]
-        elif hasattr ( estimator, 'predict'): 
+                model, X, y_true, cv=cv, method="predict_proba", **cv_kwargs)[:, 1]
+        elif hasattr ( model, 'predict'): 
             y_scores = cross_val_predict(
-                estimator, X, y_true, cv=cv, **cv_kwargs)
+                model, X, y_true, cv=cv, **cv_kwargs)
         else:
-            raise ValueError("Estimator must have a 'decision_function',"
+            raise ValueError("Model must have a 'decision_function',"
                              " 'predict_proba' or 'predict' method .")
 
     y_true, y_scores = _ensure_y_is_valid(y_true, y_scores, y_numeric=True)
@@ -1089,6 +1170,11 @@ def roc_tradeoff(
 
     return y_scores if return_scores else scores
 
+@validate_params({
+    'fpr': ['array-like'],  
+    'tpr': ['array-like'], 
+    'auc_score': [Interval(Real, 0, 1, closed ='both')],  
+})
 def display_roc(fpr, tpr, auc_score, *, title=None, figsize=None):
     """
     Visualize the Receiver Operating Characteristic (ROC) curve along with the
@@ -1175,10 +1261,19 @@ def display_roc(fpr, tpr, auc_score, *, title=None, figsize=None):
     plt.tight_layout()
     plt.show()
 
+@validate_params({
+    'y_true': ['array-like'],  
+    'y_pred': ['array-like', None], 
+    'X': ['array-like', None], 
+    'model': [HasMethods (['fit', 'predict_proba']), None],  
+    'cv': ['cv_object', None],  
+    'labels': ['array-like', None],  
+    'sample_weight': ['array-like', None],  
+})
 def evaluate_confusion_matrix(
     y_true, 
     y_pred=None, 
-    classifier=None, 
+    model=None, 
     X=None, 
     *, 
     cv=None, 
@@ -1201,7 +1296,7 @@ def evaluate_confusion_matrix(
     y_pred : array-like of shape (n_samples,), optional
         Predicted labels. If None, predictions will be made using the
         classifier and X.
-    classifier : object implementing 'fit', optional
+    model : object implementing 'fit', optional
         The classifier instance to use if `y_pred` is None.
     X : array-like of shape (n_samples, n_features), optional
         Input features, required if `y_pred` is None.
@@ -1250,7 +1345,7 @@ def evaluate_confusion_matrix(
     >>> clf = RandomForestClassifier(random_state=42)
     >>> clf.fit(X_train, y_train)
     >>> results = evaluate_confusion_matrix(
-    ...    y_test, classifier=clf, X=X_test, display=True, normalize=True)
+    ...    y_test, model=clf, X=X_test, display=True, normalize=True)
     >>> print(results)
     This will output a Bunch object containing the confusion matrix and display
     the normalized confusion matrix.
@@ -1262,10 +1357,10 @@ def evaluate_confusion_matrix(
     """
 
     if y_pred is None:
-        if not (X is not None and classifier is not None):
+        if not (X is not None and model is not None):
             raise ValueError("Provide 'y_pred' or both 'X' and 'classifier'.")
-        check_is_fitted(classifier, 'predict')
-        y_pred = cross_val_predict(classifier, X, y_true, cv=cv, **cv_kwargs)
+        check_is_fitted(model, 'predict')
+        y_pred = cross_val_predict(model, X, y_true, cv=cv, **cv_kwargs)
     
     y_true, y_pred =_ensure_y_is_valid(y_true, y_pred, y_numeric=True )
     cm = confusion_matrix(y_true, y_pred, labels=labels, sample_weight=sample_weight)
@@ -1279,6 +1374,10 @@ def evaluate_confusion_matrix(
 
     return MetricFormatter(confusion_matrix=cm)
 
+@validate_params ({
+    "cm": ['array-like'], 
+    "labels": ['array-like', None], 
+    })
 def display_confusion_matrix(cm, labels=None, cmap='viridis', normalize=False):
     """
     Displays a confusion matrix using matplotlib, providing options for 
@@ -1312,6 +1411,7 @@ def display_confusion_matrix(cm, labels=None, cmap='viridis', normalize=False):
     Examples
     --------
     >>> from sklearn.metrics import confusion_matrix
+    >>> from gofast.metrics_special import display_confusion_matrix
     >>> y_true = [2, 0, 2, 2, 0, 1]
     >>> y_pred = [0, 0, 2, 2, 0, 2]
     >>> cm = confusion_matrix(y_true, y_pred)
@@ -1362,8 +1462,17 @@ def display_confusion_matrix(cm, labels=None, cmap='viridis', normalize=False):
     plt.tight_layout()
     plt.show()
 
+@validate_params ({ 
+    'Xp': ['array-like'],
+    'Np': ['array-like'], 
+    'Sp': ['array-like'], 
+    'clip_value': [Interval(Real, 0, None, closed="left"), None], 
+    'epsilon': [Interval(Real, 0, 1, closed="neither"), 
+                StrOptions({"auto"})], 
+    }
+  )
 def geo_information_value(
-        Xp, Np, Sp, *, aggregate=True, epsilon=1e-15, clip_upper_bound=None):
+        Xp, Np, Sp, *, aggregate=True, epsilon=1e-15, clip_value=None):
     """
     Calculate the Geographic Information Value (Geo-IV) for assessing the influence
     of various factors on landslide occurrences. Geo-IV quantifies the sensitivity 
@@ -1389,7 +1498,7 @@ def geo_information_value(
         information values.
     epsilon : float, optional, default=1e-15
         A small value added to avoid division by zero during calculations.
-    clip_upper_bound : float, optional
+    clip_value : float, optional
         An upper bound for clipping `Np` values to prevent excessively high
         ratios. If None, clipping is only applied at the lower bound (`epsilon`).
 
@@ -1433,6 +1542,7 @@ def geo_information_value(
     >>> print(f"Overall Geographic Information Value: {geo_iv}")
     """
     # Ensure inputs are numpy arrays and convert single numbers to arrays
+    
     try: 
         Xp, Np, Sp = map(lambda x: np.asarray(x, dtype=float), [Xp, Np, Sp])
     except ValueError:
@@ -1447,9 +1557,10 @@ def geo_information_value(
     # Validate inputs are not empty
     if Xp.size == 0 or Np.size == 0 or Sp.size == 0:
         raise ValueError("Inputs Xp, Np, and Sp must not be empty.")
-    
+  
+    epsilon= check_epsilon(epsilon, Np, base_epsilon = 1e-15 )
     # Apply clipping with epsilon as lower bound and clip_upper_bound as upper bound
-    Np = np.clip(Np, epsilon, clip_upper_bound if clip_upper_bound is not None else np.max(Np))
+    Np = np.clip(Np, epsilon, clip_value if clip_value is not None else np.max(Np))
     total_N = np.sum(Np)
     if total_N <= 0:
         raise ValueError("Sum of Np must be greater than zero after applying epsilon.")
@@ -1464,6 +1575,19 @@ def geo_information_value(
     # Aggregate the Geo-IV values if requested
     return np.sum(Iv) if aggregate else Iv
 
+@validate_params({
+    'y_true': ['array-like'],  
+    'y_pred': ['array-like', None], 
+    'X': ['array-like', None], 
+    'model': [HasMethods (['fit', 'predict']), None],  
+    'sample_weight': ['array-like', None],  
+    "multioutput": [
+        StrOptions({"uniform_average","raw_values"})
+        ],
+    'clip_value': [Interval(Real, 0, None, closed="left"), None], 
+    'epsilon': [Interval(Real, 0, 1, closed="neither"), 
+                StrOptions({"auto"})], 
+})
 def assess_regression_metrics(
     y_true, 
     y_pred=None, 
@@ -1599,11 +1723,29 @@ def assess_regression_metrics(
     )
     return scores
 
+@validate_params({
+    'y_true': ['array-like'],  
+    'y_pred': ['array-like', None], 
+    'X': ['array-like', None], 
+    'model': [HasMethods (['fit', 'predict']), None],  
+    'average': [
+        StrOptions({'micro', 'macro', 'samples', 'weighted', 'binary'}), None], 
+    'multi_class': [StrOptions({'raise', 'ovr', 'ovo'})], 
+    'normalize': [bool], 
+    'sample_weight': ['array-like', None],  
+    }
+ )
 def assess_classifier_metrics(
-    y_true, y_pred=None, X=None, model=None, *,
-    average="binary", multi_class="raise", 
-    normalize=True, sample_weight=None, 
-    **scorer_kws):
+    y_true, 
+    y_pred=None, 
+    X=None, 
+    model=None, *,
+    average="binary", 
+    multi_class="raise", 
+    normalize=True, 
+    sample_weight=None, 
+    **scorer_kws
+    ):
     """
     Evaluate classification model performance through a comprehensive 
     set of metrics, including accuracy, recall, precision, F1 score, and 
@@ -1740,6 +1882,16 @@ def assess_classifier_metrics(
 
     return scores
 
+@validate_params({
+    'y_true': ['array-like'],  
+    'y_pred': ['array-like'], 
+    'detailed': ['boolean'], 
+    'scale_errors': ['boolean'],  
+    'epsilon': [Interval(Real, 0, 1, closed="neither"), 
+                StrOptions({"auto"})], 
+    'zero_division': [StrOptions({'warn', 'ignore'})],  
+    }
+ )
 def mse_flex(
     y_true, y_pred, *, 
     detailed=False, 
@@ -1866,6 +2018,16 @@ def mse_flex(
                 scaled_squared_errors, where=y_true != 0)
     return result
 
+@validate_params({
+    'y_true': ['array-like'],  
+    'y_pred': ['array-like'], 
+    'detailed': ['boolean'], 
+    'scale_errors': ['boolean'],  
+    'epsilon': [Interval(Real, 0, 1, closed="neither"), 
+                StrOptions({"auto"})], 
+    'zero_division': [StrOptions({'warn', 'ignore'})],  
+    }
+ )
 def rmse_flex(
     y_true, y_pred, *, 
     detailed=False, 
@@ -1993,6 +2155,14 @@ def rmse_flex(
     
     return result
 
+@validate_params({
+    'y_true': ['array-like'],  
+    'y_pred': ['array-like'], 
+    'adjust_for_n': ['boolean'],  
+    'epsilon': [Interval(Real, 0, 1, closed="neither"), StrOptions({"auto"})], 
+    'n_predictions': [Interval(Integral, 1, None, closed='left'), None],  
+    }
+ )
 def r2_flex(
     y_true, y_pred, *, 
     epsilon=1e-15, 
@@ -2180,6 +2350,15 @@ def _assert_binary_classification_args(y, target_class=None):
                 " not exist in the target labels."
             )
 
+@validate_params({
+    'y_true': ['array-like'],  
+    'y_pred': ['array-like'], 
+    'detailed': ['boolean'], 
+    'scale_errors': ['boolean'],  
+    'epsilon': [Interval(Real, 0, 1, closed="neither"), StrOptions({"auto"})], 
+    'zero_division': [StrOptions({'warn', 'ignore'})],  
+    }
+ )
 def mae_flex(
     y_true, y_pred, *, 
     detailed=False, 
@@ -2301,6 +2480,17 @@ def mae_flex(
     
     return result
 
+@validate_params({
+    'data': ['array-like'],  
+    'sample_weight': ['array-like', None], 
+    'nan_policy': [StrOptions({'omit', 'propagate', 'raise'})], 
+    'detailed': ['boolean'], 
+    'axis': [Interval(Integral, 0, 1, closed="both"), None], 
+    'scale_errors': ['boolean'],  
+    'epsilon': [Interval(Real, 0, 1, closed="neither"), StrOptions({"auto"})], 
+    'zero_division': [StrOptions({'warn', 'ignore'})],  
+    }
+ )
 def madev_flex(
     data, *, 
     sample_weight=None,
@@ -2476,6 +2666,19 @@ def madev_flex(
     
     return result
 
+@validate_params({
+    'y_true': ['array-like'],  
+    'y_pred': ['array-like'],  
+    'labels': ['array-like', None], 
+    'pos_label': [Interval(Integral, 0, None, closed='left')], 
+    'average': [StrOptions({'binary', 'micro', 'macro', 'samples', 'weighted'})], 
+    'detailed': ['boolean'], 
+    'scale_errors': ['boolean'],  
+    'epsilon': [Interval(Real, 0, 1, closed="neither"), StrOptions({"auto"})], 
+    'zero_division': [StrOptions({'warn', 'ignore'}), int], 
+    'multioutput': [StrOptions({'average_uniform', 'raw_values'})]
+   }
+ )
 def jaccard_flex(
     y_true, y_pred, *, 
     labels=None,

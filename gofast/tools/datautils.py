@@ -16,6 +16,7 @@ import copy
 import shutil
 import warnings 
 from typing import Any, List, Union, Dict, Optional, Set, Tuple   
+from functools import reduce
 
 import scipy 
 import numpy as np 
@@ -24,13 +25,13 @@ import pandas as pd
 from .._gofastlog import gofastlog 
 from ..api.types import _F, ArrayLike, NDArray, DataFrame 
 from ..api.property import BaseClass
-from ..compat.sklearn import validate_params 
+from ..compat.sklearn import validate_params, StrOptions
 from ..decorators import Deprecated, RunReturn, isdf 
 from .coreutils import ( 
     _assert_all_types, _isin, _validate_name_in, assert_ratio,
     is_iterable, sanitize_frame_cols, to_numeric_dtypes, 
 )
-from .validator import check_is_runned
+from .validator import check_is_runned, is_frame, validate_positive_integer  
 
 logger = gofastlog().get_gofast_logger(__name__) 
 
@@ -48,7 +49,9 @@ __all__= [
     'read_worksheets',
     'resample_data', 
     'replace_data', 
-    'pivot_long_to_wide', 
+    'long_to_wide', 
+    'wide_to_long', 
+    'repeat_feature_accross', 
     ]
 
 class DataManager(BaseClass):
@@ -2071,13 +2074,29 @@ def replace_data(
     return concat_data(X)
 
 @isdf 
-def pivot_long_to_wide(
-    data,
+@validate_params ({ 
+    "long_df": ['array-like'], 
+    'index_columns': ['array-like', str, None], 
+    'pivot_column': [str], 
+    'value_column': [str], 
+    'aggfunc': [StrOptions({'first', })], 
+    'rename_columns': [list], 
+    'rename-dict': [dict], 
+    'error': [StrOptions({'raise', 'warn', 'ignore'})]
+    }
+ )
+def long_to_wide(
+    long_df,
     index_columns=None,
     pivot_column='year',
     value_column='subsidence',
     aggfunc='first',
-    savefile=None
+    sep='_', 
+    name_prefix=None, 
+    new_columns=None, 
+    error ='warn', 
+    exclude_value_from_name=False, 
+    savefile=None, 
 ):
     """
     Convert a DataFrame from long to wide format by pivoting.
@@ -2090,7 +2109,7 @@ def pivot_long_to_wide(
 
     Parameters
     ----------
-    data : pandas.DataFrame
+    long_df : pandas.DataFrame
         The input DataFrame in long format containing the data to be
         pivoted.
 
@@ -2109,7 +2128,46 @@ def pivot_long_to_wide(
     aggfunc : str or callable, default ``'first'``
         The aggregation function to apply if there are duplicate
         entries for the same index and pivot column values.
+        
+    sep : str, default='_'
+        The string used to separate the value of `value_column` and
+        `pivot_column` in the column names of the resulting wide-format
+        DataFrame.
+    
+        For example, if `value_column='subsidence'` and `pivot_column='year'`,
+        setting `separator='[]'` results in column names like
+        `subsidence[2020]`, `subsidence[2021]`.
+    
+        This parameter allows customizing the naming convention for
+        the wide-format DataFrame, which may be useful for specific
+        analysis or presentation needs.
+        
+    name_prefix : str, optional
+        If provided, this value will replace `value_column` in the
+        column names (e.g., ``name_prefix_2020`` or ``name_prefix[2020]``).
 
+    new_columns : list of str, optional
+        If provided, this list will replace the column names of the
+        resulting wide-format DataFrame. The length of the list must
+        match the number of columns in the resulting DataFrame,
+        otherwise a `ValueError` is raised.
+        
+    error : {'raise', 'warn', 'ignore'}, default='warn'
+        Defines the behavior when the provided `new_columns` does not match
+        the number of columns in the resulting `wide_df`.
+    
+        - `'raise'`: Raises a `ValueError` if the length of `new_columns`
+          does not match the number of columns in `wide_df`.
+        - `'warn'`: Issues a warning and skips renaming if the lengths do
+          not match.
+        - `'ignore'`: Silently ignores the mismatch and skips renaming.
+
+    exclude_value_from_name : bool, default ``False``
+        If True, the `value_column` name is excluded from the resulting
+        column names, leaving only the `pivot_column` values as column
+        names (e.g., ``2020``, ``2021``). When True, the `separator`
+        parameter is ignored.
+        
     savefile : str, optional
         If provided, the resulting wide-format DataFrame will be saved
         to this file path in CSV format.
@@ -2174,12 +2232,12 @@ def pivot_long_to_wide(
 
     # Check that required columns exist in DataFrame
     required_columns = index_columns + [pivot_column, value_column]
-    missing_columns = set(required_columns) - set(data.columns)
+    missing_columns = set(required_columns) - set(long_df.columns)
     if missing_columns:
         raise ValueError(f"Missing columns in DataFrame: {missing_columns}")
 
     # Pivot the DataFrame
-    wide_df = data.pivot_table(
+    wide_df = long_df.pivot_table(
         index=index_columns,
         columns=pivot_column,
         values=value_column,
@@ -2188,14 +2246,41 @@ def pivot_long_to_wide(
 
     # Flatten the multi-level columns if necessary
     if isinstance(wide_df.columns, pd.MultiIndex):
-        wide_df.columns = [
-            f'{value_column}_{col}' for col in wide_df.columns
-        ]
+        col_names = wide_df.columns.get_level_values(1)
     else:
-        wide_df.columns = [
-            f'{value_column}_{wide_df.columns}'
-        ]
+        col_names = wide_df.columns
 
+    if exclude_value_from_name:
+        wide_df.columns = [f'{col}' for col in col_names]
+    else:
+        name_to_use = name_prefix if name_prefix is not None else value_column
+        if sep =='[]':
+            wide_df.columns = [
+                f'{name_to_use}[{col}]' for col in col_names
+            ]
+        else:
+            wide_df.columns = [
+            f'{name_to_use}{sep}{col}' for col in wide_df.columns
+            ]
+ 
+    # Apply column renaming if provided
+    if new_columns is not None:
+        new_columns = is_iterable (
+            new_columns, exclude_string=True, transform=True ) 
+        err_msg =( 
+            f"The length of rename_columns ({len(new_columns)}) "
+            "does not match the number of columns in the DataFrame"
+            f" ({len(wide_df.columns)})."
+            )
+        if len(new_columns) != len(wide_df.columns):
+            if error =="warn": 
+                warnings.warn(err_msg) 
+            elif error =='raise': 
+                raise ValueError(err_msg)  
+            # ignore and pass 
+        else: 
+            wide_df.columns = new_columns
+        
     # Reset the index to convert back to a normal DataFrame
     wide_df = wide_df.reset_index()
 
@@ -2203,3 +2288,571 @@ def pivot_long_to_wide(
         wide_df.to_csv(savefile, index=False)
 
     return wide_df
+
+@isdf
+@validate_params ({ 
+    "wide_df": ['array-like'], 
+    'id_vars': ['array-like', str, None], 
+    'value_vars': ['array-like', str, None], 
+    'value_name': [str], 
+    'var_name': [str], 
+    'rename_columns': [list], 
+    'rename-dict': [dict], 
+    'error': [StrOptions({'raise', 'warn', 'ignore'})]
+    }
+ )
+def wide_to_long(
+    wide_df, 
+    id_vars=None, 
+    value_vars=None,
+    value_name='value', 
+    var_name='variable', 
+    rename_columns=None, 
+    rename_dict=None,
+    error='raise',
+    **kwargs
+):
+    """
+    Convert a wide-format DataFrame to a long-format DataFrame.
+
+    Parameters
+    ----------
+    wide_df : pandas.DataFrame
+        The input DataFrame in wide format.
+
+    id_vars : list of str, optional
+        Column names to use as identifier variables (columns to keep as is).
+        If None, all columns not specified in `value_vars` will be used.
+
+    value_vars : list of str, optional
+        Column names to unpivot. If None, all columns not in `id_vars` will be used.
+
+    value_name : str, default='value'
+        Name of the column that will contain the values from the wide DataFrame.
+
+    var_name : str, default='variable'
+        Name of the column that will contain the variable names from the
+        wide DataFrame (e.g., the wide-format column headers).
+
+    rename_columns : list of str, optional
+        If provided, this list will replace the column names of the resulting
+        DataFrame. The length of `rename_columns` must match the number of 
+        resulting columns.
+
+    rename_dict : dict, optional
+        A dictionary mapping existing column names to new names. This allows
+        selective renaming without needing to specify all column names.
+
+    error : {'raise', 'warn', 'ignore'}, default='raise'
+        Defines the behavior when the provided `rename_columns` or keys in
+        `rename_dict` do not match the existing columns:
+        - `'raise'`: Raise a `ValueError` if there is a mismatch.
+        - `'warn'`: Issue a warning and skip renaming for mismatched entries.
+        - `'ignore'`: Silently ignore mismatches and proceed.
+
+    **kwargs
+        Additional keyword arguments to pass to `pd.melt`, such as `col_level`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A long-format DataFrame with one row per unique combination of
+        `id_vars` and the original wide-format columns.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.datautils import wide_to_long 
+    >>> wide_df = pd.DataFrame({
+    ...     'id': [1, 2],
+    ...     'longitude': [10, 20],
+    ...     'latitude': [30, 40],
+    ...     '2015': [0.1, 0.15],
+    ...     '2016': [0.2, 0.25]
+    ... })
+    >>> long_df = wide_to_long(
+    ...     wide_df, 
+    ...     id_vars=['id', 'longitude', 'latitude'], 
+    ...     value_name='subsidence', 
+    ...     var_name='year'
+    ... )
+    >>> print(long_df)
+       id  longitude  latitude  year  subsidence
+    0   1         10        30  2015        0.10
+    1   2         20        40  2015        0.15
+    2   1         10        30  2016        0.20
+    3   2         20        40  2016        0.25
+
+    >>> # Using rename_columns
+    >>> renamed_df = wide_to_long(
+    ...     wide_df, 
+    ...     id_vars=['id', 'longitude', 'latitude'], 
+    ...     value_name='subsidence', 
+    ...     var_name='year',
+    ...     rename_columns=['ID', 'Lon', 'Lat', 'Year', 'Subsidence']
+    ... )
+    >>> print(renamed_df)
+       ID  Lon  Lat  Year  Subsidence
+    0   1   10   30  2015        0.10
+    1   2   20   40  2015        0.15
+    2   1   10   30  2016        0.20
+    3   2   20   40  2016        0.25
+
+    >>> # Using rename_dict
+    >>> renamed_dict_df = wide_to_long(
+    ...     wide_df, 
+    ...     id_vars=['id', 'longitude', 'latitude'], 
+    ...     value_name='subsidence', 
+    ...     var_name='year',
+    ...     rename_dict={'id': 'ID', 'longitude': 'Lon', 'latitude': 'Lat'}
+    ... )
+    >>> print(renamed_dict_df)
+       ID  Lon  Lat  year  subsidence
+    0   1   10   30  2015        0.10
+    1   2   20   40  2015        0.15
+    2   1   10   30  2016        0.20
+    3   2   20   40  2016        0.25
+    """
+    # Input Validation
+    if not isinstance(wide_df, pd.DataFrame):
+        raise TypeError(
+            "wide_df must be a pandas DataFrame,"
+            f" got {type(wide_df)} instead.")
+    
+    if id_vars is not None:
+        id_vars= is_iterable(id_vars, exclude_string= True, transform =True )
+        missing_id_vars = set(id_vars) - set(wide_df.columns)
+        if missing_id_vars:
+            raise ValueError(
+                "The following id_vars are not in"
+                f" the DataFrame columns: {missing_id_vars}")
+    
+    if value_vars is not None:
+        value_vars= is_iterable(value_vars, exclude_string= True, 
+                                transform =True )
+        missing_value_vars = set(value_vars) - set(wide_df.columns)
+        if missing_value_vars:
+            raise ValueError(
+                f"The following value_vars are not"
+                f" in the DataFrame columns: {missing_value_vars}")
+    
+    if rename_columns is not None and not isinstance(rename_columns, list):
+        raise TypeError(
+            "rename_columns must be a list of strings,"
+            f" got {type(rename_columns)} instead.")
+    
+    if rename_dict is not None and not isinstance(rename_dict, dict):
+        raise TypeError(
+            "rename_dict must be a dictionary,"
+            f" got {type(rename_dict)} instead.")
+    
+    # Determine id_vars and value_vars if not provided
+    if id_vars is None:
+        if value_vars is not None:
+            id_vars = [col for col in wide_df.columns if col not in value_vars]
+        else:
+            # If neither id_vars nor value_vars are provided, melt all columns except one
+            if wide_df.shape[1] < 2:
+                raise ValueError(
+                    "wide_df must have at least two columns to perform melt.")
+            id_vars = [wide_df.columns[0]]
+            value_vars = list(wide_df.columns[1:])
+    else:
+        if value_vars is None:
+            value_vars = [col for col in wide_df.columns if col not in id_vars]
+        elif not value_vars:
+            raise ValueError("value_vars cannot be an empty list.")
+
+    # Perform the melt operation
+    try:
+        long_df = pd.melt(
+            wide_df,
+            id_vars=id_vars,
+            value_vars=value_vars,
+            var_name=var_name,
+            value_name=value_name,
+            **kwargs
+        )
+    except Exception as e:
+        raise ValueError(f"Error during melting the DataFrame: {e}")
+
+    # Apply renaming if rename_columns or rename_dict is provided
+    if rename_columns is not None:
+        if len(rename_columns) != len(long_df.columns):
+            err_msg = (
+                f"The length of rename_columns ({len(rename_columns)}) "
+                "does not match the number of columns in"
+                f" the resulting DataFrame ({len(long_df.columns)})."
+            )
+            if error == 'warn':
+                warnings.warn(err_msg)
+            elif error == 'raise':
+                raise ValueError(err_msg)
+            # 'ignore' will silently skip renaming
+        else:
+            long_df.columns = rename_columns
+
+    if rename_dict is not None:
+        # Check if keys in rename_dict exist in the DataFrame
+        existing_keys = set(rename_dict.keys()).intersection(long_df.columns)
+        if not existing_keys and error == 'raise':
+            raise ValueError(
+                "None of the keys in rename_dict match the DataFrame columns.")
+        if existing_keys != set(rename_dict.keys()):
+            missing_keys = set(rename_dict.keys()) - existing_keys
+            err_msg = (
+                "The following keys in rename_dict do not match"
+                f" any DataFrame columns and will be skipped: {missing_keys}"
+            )
+            if error == 'warn':
+                warnings.warn(err_msg)
+            elif error == 'raise':
+                raise ValueError(err_msg)
+            # 'ignore' will silently skip renaming these keys
+        # Perform the renaming
+        long_df = long_df.rename(
+            columns={k: v for k, v in rename_dict.items() if k in long_df.columns})
+
+    return long_df
+
+@isdf 
+def repeat_feature_accross(
+    data: DataFrame,
+    date_col: str = 'date',
+    start_date: Union[int, pd.Timestamp] = None,
+    end_date: Union[int, pd.Timestamp] = None,
+    n_times: int = None,
+    custom_dates: List[Union[int, pd.Timestamp]] = None,
+    drop_existing_date: bool = True,
+    sort: bool = False,
+    inplace: bool = False
+) -> DataFrame:
+    """
+    Repeat static feature across multiple years or specified dates.
+
+    This function duplicates each row in the input DataFrame across a range of
+    years, specific dates, or for a defined number of repetitions (`n_times`). 
+    It is designed to handle various scenarios, ensuring flexibility and 
+    robustness.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The input DataFrame containing static data to be repeated across dates.
+    
+    date_col : str, default='date'
+        The name of the date column in the resulting DataFrame.
+    
+    start_date : int or pd.Timestamp, optional
+        The starting date for duplication. Must be specified if 
+        `end_date` is provided.
+    
+    end_date : int or pd.Timestamp, optional
+        The ending date for duplication. Must be specified if 
+        `start_date` is provided.
+    
+    n_times : int, optional
+        The number of times to repeat the data. Overrides `start_date` 
+        and `end_date` if provided.
+    
+    custom_dates : list of int or pd.Timestamp, optional
+        A custom list of dates to duplicate the data across. Overrides 
+        `start_date`, `end_date`, and `n_times` if provided.
+    
+    drop_existing_date : bool, default=True
+        If `True`, drops the existing `date_col` in `data` before duplication
+        to avoid conflicts.
+    
+    sort : bool, default=False
+        If `True`, sorts the resulting DataFrame by the `date_col`.
+    
+    inplace : bool, default=False
+        If `True`, modifies the input DataFrame `data` in place and returns it.
+        If `False`, returns a new DataFrame with the duplicated data.
+    
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame with the static data repeated across the specified dates. The
+        resulting DataFrame includes the `date_col` indicating the date for each
+        duplicated entry.
+
+    Raises
+    ------
+    ValueError
+        - If neither `custom_dates`, (`start_date` and `end_date`), nor 
+          `n_times` is provided.
+        - If `start_date` is provided without `end_date`, or vice versa.
+        - If `n_times` is not a positive integer.
+        - If `custom_dates` is not a list of integers or pandas Timestamps.
+    
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from datetime import datetime
+    >>> from gofast.tools.datautils import repeat_feature_accross
+    >>> data = {
+    ...     'longitude': [113.291328, 113.291847, 113.291847],
+    ...     'latitude': [22.862476, 22.865587, 22.865068],
+    ...     'geology': ['Triassic', 'Carboniferous', 'Tertiary']
+    ... }
+    >>> data = pd.DataFrame(data)
+    >>> repeated_df = repeat_feature_accross(
+    ...     data, 
+    ...     date_col='year', 
+    ...     start_date=2015, 
+    ...     end_date=2022
+    ... )
+    >>> print(repeated_df)
+         longitude   latitude        geology  year
+    0   113.291328  22.862476       Triassic  2015
+    1   113.291328  22.862476       Triassic  2016
+    2   113.291328  22.862476       Triassic  2017
+    3   113.291328  22.862476       Triassic  2018
+    4   113.291328  22.862476       Triassic  2019
+    5   113.291328  22.862476       Triassic  2020
+    ...
+    19  113.291847  22.865068       Tertiary  2018
+    20  113.291847  22.865068       Tertiary  2019
+    21  113.291847  22.865068       Tertiary  2020
+    22  113.291847  22.865068       Tertiary  2021
+    23  113.291847  22.865068       Tertiary  2022
+    
+    >>> # Using n_times
+    >>> repeated_df = repeat_feature_accross(
+    ...     data, 
+    ...     date_col='year', 
+    ...     n_times=3
+    ... )
+    >>> print(repeated_df)
+        longitude   latitude        geology  year
+    0  113.291328  22.862476       Triassic     1
+    1  113.291847  22.865587  Carboniferous     1
+    2  113.291847  22.865068       Tertiary     1
+    3  113.291328  22.862476       Triassic     2
+    4  113.291847  22.865587  Carboniferous     2
+    5  113.291847  22.865068       Tertiary     2
+    6  113.291328  22.862476       Triassic     3
+    7  113.291847  22.865587  Carboniferous     3
+    8  113.291847  22.865068       Tertiary     3
+    """
+    # Input Validation
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError(
+            f"Expected 'data' to be a pandas DataFrame, got {type(data)} instead."
+        )
+    
+    # Determine the list of dates/years
+    if custom_dates is not None:
+        if (not isinstance(custom_dates, list) or 
+            not all(isinstance(
+                date, (int, pd.Timestamp)) for date in custom_dates)):
+            raise ValueError(
+                "'custom_dates' must be a list of integers or pandas Timestamps."
+            )
+        dates = sorted(set(custom_dates))
+    elif n_times is not None:
+        n_times = validate_positive_integer(
+            n_times, "n_times", msg= "'n_times' must be a positive integer."
+            )
+        if start_date is None and end_date is None:
+            # Default to 1 to n_times
+            dates = list(range(1, n_times + 1))
+        elif start_date is not None and end_date is not None:
+            if not isinstance(start_date, (int, pd.Timestamp)) or not isinstance(
+                    end_date, (int, pd.Timestamp)):
+                raise ValueError(
+                    "'start_date' and 'end_date' must be integers or pandas Timestamps."
+                )
+            if isinstance(start_date, int) and isinstance(end_date, int):
+                if start_date > end_date:
+                    raise ValueError(
+                        "'start_date' must be less than or equal to 'end_date'."
+                    )
+                dates = list(range(start_date, end_date + 1))
+            elif isinstance(start_date, pd.Timestamp) and isinstance(
+                    end_date, pd.Timestamp):
+                if start_date > end_date:
+                    raise ValueError(
+                        "'start_date' must be earlier than or equal to 'end_date'."
+                    )
+                dates = pd.date_range(start=start_date, end=end_date, freq='Y').tolist()
+            else:
+                raise ValueError(
+                    "'start_date' and 'end_date' must both"
+                    " be integers or both be pandas Timestamps."
+                )
+        else:
+            raise ValueError(
+                "Both 'start_date' and 'end_date' must be provided together."
+            )
+    elif start_date is not None and end_date is not None:
+        if not isinstance(start_date, (int, pd.Timestamp)) or not isinstance(
+                end_date, (int, pd.Timestamp)):
+            raise ValueError(
+                "'start_date' and 'end_date' must be integers or pandas Timestamps.")
+        if isinstance(start_date, int) and isinstance(end_date, int):
+            if start_date > end_date:
+                raise ValueError(
+                    "'start_date' must be less than or equal to 'end_date'.")
+            dates = list(range(start_date, end_date + 1))
+        elif isinstance(
+                start_date, pd.Timestamp) and isinstance(end_date, pd.Timestamp):
+            if start_date > end_date:
+                raise ValueError(
+                    "'start_date' must be earlier than or equal to 'end_date'.")
+            dates = pd.date_range(
+                start=start_date, end=end_date, freq='Y').tolist()
+        else:
+            raise ValueError(
+                "'start_date' and 'end_date' must both"
+                " be integers or both be pandas Timestamps."
+            )
+    else:
+        raise ValueError(
+            "Must provide either 'custom_dates', "
+            "('start_date' and 'end_date'), or 'n_times'."
+        )
+    
+    # Validate date_col type consistency
+    if isinstance(dates[0], pd.Timestamp):
+        if not pd.api.types.is_datetime64_any_dtype(
+                data.get(date_col, pd.Series(dtype='object'))):
+            pass  # Allow creation of date_col as datetime
+    elif isinstance(dates[0], int):
+        if not pd.api.types.is_integer_dtype(
+                data.get(date_col, pd.Series(dtype='object'))):
+            pass  # Allow creation of date_col as integer
+    
+    # Handle existing date column
+    if drop_existing_date and date_col in data.columns:
+        data = data.drop(columns=[date_col])
+    
+    # Create a DataFrame with the dates to merge
+    dates_df = pd.DataFrame({date_col: dates})
+    
+    # Perform cross join to duplicate rows across dates
+    df_repeated = data.merge(dates_df, how='cross')
+    
+    # Sort if required
+    if sort:
+        df_repeated = df_repeated.sort_values(by=date_col).reset_index(drop=True)
+    
+    if inplace:
+        data.drop(columns=data.columns, inplace=True)
+        for col in df_repeated.columns:
+            data[col] = df_repeated[col]
+        return data
+    else:
+        return df_repeated.reset_index(drop=True)
+
+def merge_datasets(
+    *data, 
+    on=None, 
+    how='inner', 
+    fill_missing=False, 
+    fill_value=None, 
+    keep_duplicates=False, 
+    suffixes=('_x', '_y')
+):
+    """
+    Merge multiple datasets into a single DataFrame.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        Variable-length arguments of DataFrames to be merged.
+
+    on : list of str or None, default None
+        The list of columns to join on. If None, the intersection of
+        columns across datasets is used.
+
+    how : {'inner', 'outer', 'left', 'right'}, default 'inner'
+        Type of merge to be performed:
+        - 'inner': Only include rows with matching keys in all datasets.
+        - 'outer': Include all rows from all datasets, filling missing
+          values with NaN.
+        - 'left': Include all rows from the first dataset and matching
+          rows from others.
+        - 'right': Include all rows from the last dataset and matching
+          rows from others.
+
+    fill_missing : bool, default False
+        If True, fills missing values with a default value.
+
+    fill_value : any, default None
+        The value to use when `fill_missing` is True. If None, numeric
+        columns are filled with 0, and non-numeric columns are filled
+        with an empty string.
+
+    keep_duplicates : bool, default False
+        If True, keeps duplicate rows across datasets after merging. If
+        False, removes duplicates from the merged DataFrame.
+
+    suffixes : tuple of (str, str), default ('_x', '_y')
+        Suffixes to apply to overlapping column names when merging.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A merged DataFrame containing all the data.
+
+    Examples
+    --------
+    >>> import pandas as pd 
+    >>> from gofast.tools.datautils import merge_datasets
+    >>> df1 = pd.DataFrame({'longitude': [1, 2], 'latitude': [3, 4],
+    ...                     'year': [2020, 2021], 'value1': [10, 20]})
+    >>> df2 = pd.DataFrame({'longitude': [1, 2], 'latitude': [3, 4],
+    ...                     'year': [2020, 2021], 'value2': [100, 200]})
+    >>> merged = merge_datasets(df1, df2, on=['longitude', 'latitude',
+    ...                                       'year'], how='inner')
+    >>> print(merged)
+       longitude  latitude  year  value1  value2
+    0          1         3  2020      10     100
+    1          2         4  2021      20     200
+    """
+    [ is_frame (d, df_only=True, raise_exception=True, objname='Dataset')
+            for d in data 
+    ]
+    if len(data) < 2:
+        raise ValueError(
+            "At least two DataFrames are required for merging."
+        )
+    # Ensure all arguments are DataFrames
+    for df in data:
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError(f"Expected DataFrame, got {type(df)}.")
+
+    if on is None:
+        # Use the intersection of all datasets' columns for merging
+        common_columns = set(data[0].columns)
+        for df in data[1:]:
+            common_columns.intersection_update(df.columns)
+        on = list(common_columns)
+    
+    if not on:
+        raise ValueError(
+            "No common columns found for merging. Specify the 'on' parameter."
+        )
+
+    # Perform iterative merging
+    merged_df = reduce(lambda left, right: pd.merge(
+        left, right, on=on, how=how, suffixes=suffixes), data)
+
+    # Fill missing values if required
+    if fill_missing:
+        if fill_value is None:
+            for column in merged_df:
+                if merged_df[column].dtype.kind in 'biufc':  # Numeric types
+                    merged_df[column].fillna(0, inplace=True)
+                else:  # Categorical or string types
+                    merged_df[column].fillna('', inplace=True)
+        else:
+            merged_df.fillna(fill_value, inplace=True)
+
+    # Remove duplicates if specified
+    if not keep_duplicates:
+        merged_df.drop_duplicates(inplace=True)
+
+    return merged_df
