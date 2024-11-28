@@ -271,19 +271,6 @@ hidden_units: int
     complexity of the problem and available resources.
     """,
 
-num_heads = """
-num_heads: int, optional
-    The number of attention heads in the temporal attention layer. Attention 
-    heads allow the model to focus on different aspects of the input data, 
-    each attending to different parts of the sequence in parallel. Multiple 
-    attention heads enable the model to capture a richer set of features from 
-    the temporal dynamics. More heads provide better representational power, 
-    improving the model's ability to capture complex temporal relationships. 
-    However, the number of heads affects computational efficiency; more heads 
-    can increase the computational cost of training and inference. Default is 
-    ``4``.
-    """,
-
 quantiles = """
 quantiles: list of float or None, optional
     A list of quantiles to predict for each time step. For example, 

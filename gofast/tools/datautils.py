@@ -52,7 +52,8 @@ __all__= [
     'long_to_wide', 
     'wide_to_long', 
     'repeat_feature_accross', 
-    'merge_datasets'
+    'merge_datasets', 
+    'swap_ic'
     ]
 
 class DataManager(BaseClass):
@@ -2857,3 +2858,144 @@ def merge_datasets(
         merged_df.drop_duplicates(inplace=True)
 
     return merged_df
+
+@isdf 
+def swap_ic(
+    data, sort: bool = False, 
+    ascending: bool = True, 
+    inplace: bool = False, 
+    reset_index: bool = False, 
+    dropna: bool = False, 
+    fillna: bool = None, 
+    axis: int = 0, 
+    order: list = None,
+    **kwargs
+    ):
+    """
+    Align the index and columns of a DataFrame so that they follow the 
+    same order.
+
+    This function ensures that if the values in the index and columns 
+    are the same, the DataFrame will align its index and columns in 
+    the same order. Optionally, the index and columns can be sorted, reset,
+    and cleaned with additional parameters for flexibility.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame whose index and columns need to be aligned.
+
+    sort : bool, optional, default=False
+        Whether to sort the index and columns in ascending order. If `True`, both 
+        index and columns will be sorted in ascending order.
+
+    ascending : bool, optional, default=True
+        If `sort=True`, this specifies the sorting order. If `True`, the 
+        index and columns will be sorted in ascending order. Otherwise, 
+        descending order will be applied.
+
+    inplace : bool, optional, default=False
+        If `True`, modifies the DataFrame in place. If `False`, 
+        returns a new DataFrame.
+
+    reset_index : bool, optional, default=False
+        If `True`, resets the index after aligning the index and columns.
+
+    dropna : bool, optional, default=False
+        If `True`, rows or columns with NaN values will be dropped.
+
+    fillna : scalar or dict, optional, default=None
+        Value to replace NaNs with. If `None`, no filling is performed. 
+        If a scalar, all NaNs will be replaced with that value. If a dict, 
+        it should provide mappings for index and columns.
+
+    axis : int, optional, default=0
+        Axis along which to perform alignment. `0` for index, `1` for columns.
+        
+    order : list, optional, default=None
+        Custom order for the index and columns. If specified, the index
+        and columns will be ordered according to the provided list. If the
+        order is not present in either index or columns, it will be ignored. 
+        If `None`, no custom order is applied.
+
+    kwargs : additional keyword arguments
+        Any additional arguments that might be passed to the DataFrame operations.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A new DataFrame (or the original, if `inplace=True`) with aligned index 
+        and columns, with optional sorting, resetting, and cleaning applied.
+    
+    Raises
+    ------
+    ValueError
+        If the index and columns are not the same, the function will 
+        raise an error  or allow custom handling if required.
+    
+    Examples
+    --------
+    Example of using the function without sorting:
+
+    >>> from gofast.tools.datautils import swap_ic 
+    >>> data = pd.DataFrame({
+    >>>     'A': [1, 2, 3],
+    >>>     'B': [4, 5, 6],
+    >>>     'C': [7, 8, 9]
+    >>> }, index=['B', 'A', 'C'])
+    >>> swap_ic(data, sort=False)
+    >>> swap_ic(data, sort=True, ascending=True)
+
+    Example of using the function with sorting and filling NaNs:
+
+    >>> swap_ic(data, sort=True, fillna=0)
+    
+    Example of using the function with custom order:
+
+    >>> swap_ic(data, order=['B', 'A', 'C'])
+    >>> swap_ic(data, order=['C', 'A', 'B'])
+    
+    """
+    # Validate that index and columns have the same elements
+    if not set(data.columns).issubset(data.index) or not set(
+            data.index).issubset(data.columns):
+        raise ValueError("Index and columns must contain the same values.")
+    
+    # Optionally, apply custom order to both index and columns
+    if order:
+        # Ensure custom_order is a valid subset of index and columns
+        if not set(order).issubset(data.columns) or not set(order).issubset(data.index):
+            raise ValueError(
+                "Custom order contains values not present in both index and columns.")
+        
+        # Apply custom order to index and columns
+        data = data.loc[order, order]
+        
+    # Align index and columns by ensuring they are in the same order
+    aligned_data = data.loc[data.columns, data.columns]
+
+    # Sort the index and columns if requested
+    if sort:
+        aligned_data = aligned_data.sort_index(ascending=ascending, axis=0)
+        aligned_data = aligned_data.sort_index(ascending=ascending, axis=1)
+
+    # Reset index if requested
+    if reset_index:
+        aligned_data = aligned_data.reset_index(drop=True)
+
+    # Drop NaN values if requested
+    if dropna:
+        aligned_data = aligned_data.dropna(axis=axis, how='any')
+
+    # Fill NaN values if requested
+    if fillna is not None:
+        aligned_data = aligned_data.fillna(fillna)
+
+    # Apply changes in place if requested
+    if inplace:
+        data[:] = aligned_data
+        return None  # None is returned if inplace=True
+    else:
+        return aligned_data
+    
+

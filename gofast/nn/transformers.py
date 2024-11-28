@@ -425,7 +425,11 @@ num_inputs : int
     
 {params.base.units} 
 {params.base.dropout_rate} 
-{params.base.use_time_distributed} 
+
+use_time_distributed : bool, optional
+    Whether to apply the layer over the temporal dimension using
+    ``TimeDistributed`` wrapper. Default is ``False``.
+    
 {params.base.activation} 
 {params.base.use_batch_norm} 
 

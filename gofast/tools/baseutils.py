@@ -5065,7 +5065,8 @@ def update_df(
     updated_df[common_columns] = new_df[common_columns]
     
     return updated_df
-        
+
+
 
 
         
