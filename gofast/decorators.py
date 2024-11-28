@@ -87,7 +87,6 @@ __all__= [
     'copy_doc'
   ]
 
-
 class EnsureMethod:
     """
     Decorator class to ensure the prioritized execution of a specified 
@@ -871,8 +870,6 @@ def smartFitRun(cls):
         setattr(cls, 'fit', fit)
         
     return cls
-
-
 
 class SmartProcessor:
     """
@@ -4470,10 +4467,397 @@ def indent(text: str | None, indents: int = 1) -> str:
     jointext = "".join(["\n"] + ["    "] * indents)
     return jointext.join(text.split("\n"))
 
-@NumpyDocstringFormatter(include_sections=['Parameters', 'Returns'], validate_with_sphinx=True)
+# doc are derived from pandas._decorators module.  
+# module https://pandas.org/users/license.html
+
+def doc(*docstrings: str | Callable, **params) -> Callable[[callable], callable]:
+    """
+    A decorator take docstring templates, concatenate them and perform string
+    substitution on it.
+
+    This decorator will add a variable "_docstring_components" to the wrapped
+    callable to keep track the original docstring template for potential usage.
+    If it should be consider as a template, it will be saved as a string.
+    Otherwise, it will be saved as callable, and later user __doc__ and dedent
+    to get docstring.
+
+    Parameters
+    ----------
+    *docstrings : str or callable
+        The string / docstring / docstring template to be appended in order
+        after default docstring under callable.
+    **params
+        The string which would be used to format docstring template.
+    """
+
+    def decorator(decorated: callable) -> callable:
+        # collecting docstring and docstring templates
+        docstring_components: list[str | Callable] = []
+        if decorated.__doc__:
+            docstring_components.append(dedent(decorated.__doc__))
+
+        for docstring in docstrings:
+            if hasattr(docstring, "_docstring_components"):
+                # error: Item "str" of "Union[str, Callable[..., Any]]" has no attribute
+                # "_docstring_components"
+                # error: Item "function" of "Union[str, Callable[..., Any]]" has no
+                # attribute "_docstring_components"
+                docstring_components.extend(
+                    docstring._docstring_components  # type: ignore[union-attr]
+                )
+            elif isinstance(docstring, str) or docstring.__doc__:
+                docstring_components.append(docstring)
+
+        # formatting templates and concatenating docstring
+        decorated.__doc__ = "".join(
+            [
+                component.format(**params)
+                if isinstance(component, str)
+                else dedent(component.__doc__ or "")
+                for component in docstring_components
+            ]
+        )
+
+        # error: "F" has no attribute "_docstring_components"
+        decorated._docstring_components = (  # type: ignore[attr-defined]
+            docstring_components
+        )
+        return decorated
+
+    return decorator
+
+# Substitution and Appender are derived from matplotlib.docstring (1.1.0)
+# module https://matplotlib.org/users/license.html
+class ValidateXy:
+    """
+    A class-based decorator that validates and converts the input data `X` 
+    and optionally `y`. It checks for numeric data types, reshapes the 
+    data if needed, and applies additional checks based on preferences.
+    
+    Parameters
+    ----------
+    check_y : bool or str, optional, default='auto'
+        If True, the decorator will check `y` for validity (numeric type).
+        If 'auto', `y` will be checked only if it is not None.
+    
+    ensure_y_2d : bool, optional, default=False
+        If False, `y` is expected to be 1D. If True, `y` can be 1D or 2D.
+    
+    allow_sparse_matrix : bool, optional, default=False
+        If True, the decorator will allow sparse matrix inputs for `X`.
+    
+    check_1d_input : bool, optional, default=False
+        If True, checks whether `X` is 1D and reshapes it accordingly.
+    
+    allow_negative_values : bool, optional, default=True
+        If False, raises a warning if `X` or `y` contains negative values.
+    
+    raise_on_non_numeric : bool, optional, default=True
+        If True, raises an error when non-numeric data is encountered in 
+        `X` or `y`.
+    
+    Examples
+    --------
+    >>> from gofast.decorators import ValidateXy 
+    >>> @ValidateXy(check_y=True, ensure_y_2d=True, check_1d_input=True)
+    >>> def my_model(X, y):
+    >>>     # Model processing here
+    >>>     return X, y
+    
+    >>> X = [[1, 2], [3, 4]]
+    >>> y = [5, 6]
+    >>> my_model(X, y)  # Valid data
+    
+    >>> X_invalid = [[1, 'a'], [3, 4]]
+    >>> my_model(X_invalid, y)  # Raises ValueError due to non-numeric data
+    
+    >>> X_negative = [[-1, 2], [3, 4]]
+    >>> my_model(X_negative, y)  # Will raise a valueError if allow_negative_values=False
+    """
+
+    def __init__(
+        self, 
+        check_y="auto", 
+        ensure_y_2d=False, 
+        allow_sparse_matrix=False, 
+        check_1d_input=False, 
+        allow_negative_values=True, 
+        raise_on_non_numeric=True
+    ):
+        self.check_y = check_y
+        self.ensure_y_2d = ensure_y_2d
+        self.allow_sparse_matrix = allow_sparse_matrix
+        self.check_1d_input = check_1d_input
+        self.allow_negative_values = allow_negative_values
+        self.raise_on_non_numeric = raise_on_non_numeric
+
+    def __call__(self, func=None):
+        """
+        Callable method to wrap the function/method.
+        """
+        if func is None:
+            return lambda func: self.__call__(func)
+
+        # Identify if the decorated function is part of a class (i.e., a method)
+        if hasattr(func, '__self__'):
+            # For methods (bound functions), check self argument
+            @functools.wraps(func)
+            def wrapper(self, X, y=None):
+                # Process data (X, y) before calling the original function
+                X = self._check_and_convert_X(X)
+                if self.check_y and y is not None:
+                    y = self._check_and_convert_y(y)
+                elif self.check_y == 'auto' and y is not None:
+                    y = self._check_and_convert_y(y)
+                return func(self, X, y)
+        else:
+            # For standalone functions
+            @functools.wraps(func)
+            def wrapper(X, y=None):
+                X = self._check_and_convert_X(X)
+                if self.check_y and y is not None:
+                    y = self._check_and_convert_y(y)
+                elif self.check_y == 'auto' and y is not None:
+                    y = self._check_and_convert_y(y)
+                return func(X, y)
+        
+        return wrapper
+
+    def _check_and_convert_X(self, X):
+        """
+        Helper function to check and convert X.
+        
+        Parameters
+        ----------
+        X : array-like
+            The input data to be checked and converted.
+        
+        Returns
+        -------
+        X : array-like
+            The validated and converted input data.
+        """
+        import scipy.sparse as sp
+        
+        if not isinstance (X, pd.DataFrame): 
+            X =  np.asarray (X )
+        # Check if X is a pandas DataFrame
+        if isinstance(X, pd.DataFrame):
+            # Ensure DataFrame contains numeric values
+            if X.select_dtypes(include=[np.number]).shape[1] == 0:
+                raise ValueError(
+                    "DataFrame contains no numeric values."
+                    " Only numeric data is supported."
+                )
+            else:
+                # Warn the user if there are non-numeric columns
+                non_numeric_columns = X.select_dtypes(exclude=[np.number]).columns
+                if len(non_numeric_columns) > 0:
+                    warnings.warn(
+                        "The following non-numeric columns will be ignored: "
+                        f"{', '.join(non_numeric_columns)}"
+                    )
+                # Use only numeric columns
+                X = X.select_dtypes(include=[np.number])
+
+        # If X is not numeric (and not a DataFrame), try to convert it
+        elif not np.issubdtype(np.array(X).dtype, np.number):
+            try:
+                X = np.array(X, dtype=np.float64)
+            except ValueError:
+                if self.raise_on_non_numeric:
+                    raise ValueError(
+                        "X contains non-numeric values and could"
+                        " not be converted to numeric."
+                    )
+                else:
+                    warnings.warn(
+                        "X contains non-numeric values and will be ignored.")
+                    return np.array([])
+
+        # Ensure X is 2D (reshape if it's 1D)
+        if self.check_1d_input and X.ndim == 1:
+            X = X.reshape(-1, 1)
+        
+        # Allow sparse matrices if enabled
+        if not self.allow_sparse_matrix and isinstance(
+                X, (sp.csr_matrix, sp.csc_matrix, sp.bsr_matrix)):
+            raise ValueError(
+                "Sparse matrices are not supported by this transformer.")
+        
+        # Check for negative values if allowed
+        if not self.allow_negative_values and np.any(X < 0):
+            raise ValueError("Negative values are not allowed in X.")
+
+        return X
+
+    def _check_and_convert_y(self, y):
+        """
+        Helper function to check and convert y.
+        
+        Parameters
+        ----------
+        y : array-like
+            The target labels to be checked and converted.
+        
+        Returns
+        -------
+        y : array-like
+            The validated and converted target labels.
+        """
+        if not isinstance (y, (pd.Series, pd.DataFrame)): 
+             y = np.asarray (y )
+        if not np.issubdtype(np.array(y).dtype, np.number):
+            try:
+                y = np.array(y, dtype=np.float64)
+            except ValueError:
+                if self.raise_on_non_numeric:
+                    raise ValueError(
+                        "y contains non-numeric values and"
+                        " could not be converted to numeric."
+                    )
+                else:
+                    warnings.warn(
+                        "y contains non-numeric values and will be ignored.")
+                    return np.array([])
+
+        # Ensure y is 2D if ensure_y_2d is True
+        if self.ensure_y_2d:
+            if y.ndim == 1:
+                y = y.reshape(-1, 1)
+        elif y.ndim != 1:
+            raise ValueError("If ensure_y_2d is False, y must be 1D.")
+        
+        # Check for negative values in y if allowed
+        if not self.allow_negative_values and np.any(y < 0):
+            raise ValueError(
+                "Negative values found in y. Expect non-negatives only.")
+
+        return y
+
+def _read_data(func=None, *, data_to_read=None, params=None):
+    """
+    A decorator to automatically read data if it is not explicitly passed
+    to the decorated function.
+
+    This decorator ensures that the specified data (either passed explicitly 
+    or as the first positional argument) is read and processed before being 
+    passed to the decorated function. If the data is not explicitly passed, 
+    the decorator automatically attempts to read it from the first positional 
+    argument (usually `args[0]`).
+
+    The data is passed to the `read_data` function from the 
+    `gofast.dataops.management` module for processing before being returned 
+    to the decorated function.
+
+    Parameters
+    ----------
+    func : callable, optional
+        The function to decorate. If the decorator is used without parentheses 
+        (i.e., `@_read_data`), this argument will be `None` and the `params` 
+        and `data_to_read` arguments will be used to process the data. 
+
+    data_to_read : str, optional
+        The name of the keyword argument (or positional argument) to read the 
+        data from. If `None` (default), the first positional argument (`args[0]`) 
+        will be read. If a specific keyword argument is provided
+        (e.g., `data_to_read='data2'`), the decorator will attempt to read 
+        that argument.
+
+    params : dict, optional
+        A dictionary of parameters to pass to the `read_data` function (from 
+        the `gofast.dataops.management` module). These parameters are used 
+        when processing the data before passing it to the decorated function.
+
+    Returns
+    -------
+    callable
+        A wrapper function that checks if the specified `data` argument is 
+        provided. If not, the data is automatically read and processed before 
+        being passed to the decorated function.
+
+    Notes
+    -----
+    - If `data_to_read` is specified, the decorator will look for that argument 
+      in either the keyword arguments (`kwargs`) or the first positional argument 
+      (`args[0]`), depending on whether it is explicitly passed.
+    - If no `data_to_read` is provided, the decorator defaults to reading 
+      the first positional argument (`args[0]`).
+    - The decorator will automatically handle cases where the data is passed 
+      explicitly and will skip processing if the data is `None`.
+    - The decorator should be used with or without parentheses. If used without 
+      parentheses, the `params` and `data_to_read` arguments must be provided 
+      as keyword arguments.
+
+    Examples
+    --------
+    Example 1: Using the decorator without parentheses:
+
+    >>> @_read_data(params={"sanitize": True, "reset_index": True})
+    >>> def process_data(data):
+    >>>     print(data.head())
+
+    >>> process_data('my_data.csv')
+    # This will read and process the file 'my_data.csv' using read_data.
+
+    Example 2: Using the decorator with parentheses and specifying the data argument to read:
+
+    >>> @_read_data(data_to_read="data2", params={"sanitize": True})
+    >>> def process_data(data1, data2=None):
+    >>>     print(data2)
+
+    >>> process_data(data2="my_data2.csv")
+    # This will read and process the file 'my_data2.csv' using read_data.
+
+    Example 3: Using the decorator with a keyword argument for the data argument:
+
+    >>> @_read_data(data_to_read="data1", params={"sanitize": True})
+    >>> def process_data(data1, data2=None):
+    >>>     print(data1)
+
+    >>> process_data(data1="my_data1.csv")
+    # This will read and process the file 'my_data1.csv' using _read_data.
+    """
+
+    # Handle the case where the decorator is used without parentheses
+    # (i.e., with params or data_to_read).
+    if func is None:
+        return lambda func: _read_data(
+            func, data_to_read=data_to_read, params=params)
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        from gofast.dataops.management import read_data
+        # Check if the specified data (either through keyword or positional)
+        # should be read
+        data = kwargs.get(data_to_read, None) if data_to_read else None
+
+        # If data is not explicitly passed, check the first positional argument
+        if data is None and args:
+            data = args[0]
+
+        # If we have data to read, apply the `read_data` transformation
+        if data is not None:
+            data = read_data(data, **(params or {}))
+
+        # Update the arguments with the transformed data
+        if data_to_read:
+            kwargs[data_to_read] = data
+        elif args:
+            args = (data,) + args[1:]
+
+        # Call the decorated function with the updated arguments
+        return func(*args, **kwargs)
+
+    return wrapper
+    
+@NumpyDocstringFormatter(
+    include_sections=['Parameters', 'Returns'],
+    validate_with_sphinx=True)
 def example_function(param1, param2=None):
     """
-    This is an example function that demonstrates the usage of the NumpyDocstringFormatter.
+    This is an example function that demonstrates the usage of
+    the NumpyDocstringFormatter.
 
     Parameters
     ----------

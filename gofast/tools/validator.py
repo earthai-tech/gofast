@@ -12,6 +12,7 @@ ensuring proper data types, and handling various validation scenarios.
 
 from functools import wraps
 from typing import Any, Callable, Optional, Union
+from collections.abc import Iterable
 import re
 import inspect 
 import types 
@@ -4382,6 +4383,33 @@ def validate_numeric(
             f"Value {value} is greater than the maximum allowed value {max_value}.")
 
     return value
+
+def is_array_like(obj, numpy_check=False):
+    """
+    Check if an object is array-like (
+        e.g., a list, tuple, numpy array, pandas Series).
+
+    Parameters
+    ----------
+    obj : object
+        The object to check.
+    
+    numpy_check : bool, optional, default=False
+        If True, checks for numpy array-like objects (
+            including numpy.ndarray, np.generic, list, and tuple).
+        If False, checks for iterable objects (excluding strings).
+
+    Returns
+    -------
+    bool
+        True if the object is array-like, False otherwise.
+    """
+    if numpy_check:
+        # Check for numpy array-like objects (ndarray, np.generic, list, tuple)
+        return isinstance(obj, (np.ndarray, list, tuple, np.generic))
+
+    # Check for iterable objects, excluding strings
+    return isinstance(obj, Iterable) and not isinstance(obj, str)
 
 
 def _validate_input(ignore: str, x, y, _is_arraylike_1d):

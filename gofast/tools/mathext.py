@@ -2706,7 +2706,6 @@ def compute_effort_yield(
 
     return effort, yield_
 
-
 def label_importance(y, include_nan=False):
     """
     Compute the importance of each label in a target array.

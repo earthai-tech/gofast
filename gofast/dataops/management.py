@@ -26,8 +26,7 @@ from ..tools.baseutils import save_or_load
 from ..tools.coreutils import is_iterable, ellipsis2false, smart_format
 from ..tools.coreutils import to_numeric_dtypes
 from ..tools.depsutils import ensure_pkg
- 
-from ..tools.validator import  parameter_validator  
+from ..tools.validator import is_array_like, parameter_validator  
 
 
 TW = get_table_size() 
@@ -198,7 +197,8 @@ def _visualize_unique_changes(unique_counts_before, unique_counts_after,
 
     plt.tight_layout()
     plt.show()
-    
+ 
+
 @EnsureFileExists(action ='ignore')
 def read_data(
     f: str | pathlib.PurePath, 
@@ -314,7 +314,8 @@ def read_data(
                 raise TypeError (msg)
         elif not isinstance (f,  (str , pathlib.PurePath)): 
              raise TypeError (msg)
-        if isinstance(f, str): f =f.strip() # for consistency 
+        if isinstance(f, str): 
+            f =f.strip() # for consistency 
         return f 
     
     sanitize, reset_index, verbose = ellipsis2false (
@@ -344,6 +345,10 @@ def read_data(
         if sanitize: 
             f = min_sanitizer (f)
         return  f 
+    
+    if is_array_like(f): 
+        # just return nparray
+        return np.asarray(f )
     
     cpObj= PandasDataHandlers().parsers 
     f= _check_readable_file(f)

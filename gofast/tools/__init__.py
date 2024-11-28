@@ -52,7 +52,10 @@ MODULE_MAPPING = {
         'random_selector',
         'replace_data', 
         'resample_data',
-        'pivot_long_to_wide', 
+        'long_to_wide', 
+        'wide_to_long', 
+        'merge_datasets', 
+        'repeat_feature_accross', 
         
     ], 
     'ioutils':[ 

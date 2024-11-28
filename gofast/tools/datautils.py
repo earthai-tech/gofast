@@ -52,6 +52,7 @@ __all__= [
     'long_to_wide', 
     'wide_to_long', 
     'repeat_feature_accross', 
+    'merge_datasets'
     ]
 
 class DataManager(BaseClass):

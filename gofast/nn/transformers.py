@@ -7,8 +7,10 @@ architecture for multi-horizon time-series forecasting.
 """
 from numbers import Real, Integral  
 
+from ..api.docstring import DocstringComponents, _shared_nn_params 
 from ..api.property import  NNLearner 
 from ..compat.sklearn import validate_params, Interval, StrOptions 
+from ..decorators import Appender 
 from ..tools.depsutils import ensure_pkg
 from ..tools.validator import validate_quantiles
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
@@ -46,13 +48,78 @@ if KERAS_BACKEND:
     Embedding =KERAS_DEPS.Embedding 
     Concatenate=KERAS_DEPS.Concatenate 
     
-
 DEP_MSG = dependency_message('transformers') 
 
 __all__ = ["TemporalFusionTransformer"]
 
+_param_docs = DocstringComponents.from_nested_components(
+    base=DocstringComponents(_shared_nn_params), 
+    )
 
 class _PositionalEncoding(Layer):
+    """
+    Positional Encoding layer for incorporating temporal positions.
+
+    The Positional Encoding layer adds information about the positions of
+    elements in a sequence, which helps the model to capture the order of
+    time steps. This is especially important in models that rely on attention
+    mechanisms, as they do not inherently consider the sequence order [1]_.
+
+    Methods
+    -------
+    call(inputs)
+        Forward pass of the positional encoding layer.
+
+        Parameters
+        ----------
+        inputs : Tensor
+            Input tensor of shape ``(batch_size, time_steps, feature_dim)``.
+
+        Returns
+        -------
+        Tensor
+            Output tensor of shape ``(batch_size, time_steps, feature_dim)``.
+
+    Notes
+    -----
+    This layer adds a positional encoding to the input tensor:
+
+    1. Compute position indices:
+       .. math::
+           \text{Positions} = [0, 1, 2, \dots, T - 1]
+
+    2. Expand and tile position indices to match input shape.
+
+    3. Add positional encoding to inputs:
+       .. math::
+           \mathbf{Z} = \mathbf{X} + \text{PositionEncoding}
+
+    This simple addition allows the model to be aware of the position of each
+    time step in the sequence.
+
+    Examples
+    --------
+    >>> from gofast.nn.transformers import PositionalEncoding
+    >>> import tensorflow as tf
+    >>> # Define input tensor
+    >>> inputs = tf.random.normal((32, 10, 64))
+    >>> # Instantiate positional encoding layer
+    >>> pe = PositionalEncoding()
+    >>> # Forward pass
+    >>> outputs = pe(inputs)
+
+    See Also
+    --------
+    TemporalFusionTransformer : Incorporates positional encoding in dynamic features.
+
+    References
+    ----------
+    .. [1] Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L.,
+           Gomez, A. N., Kaiser, Ł., & Polosukhin, I. (2017). "Attention is all
+           you need." In *Advances in Neural Information Processing Systems*
+           (pp. 5998-6008).
+    
+    """
     def call(self, inputs):
         batch_size, seq_len, feature_dim = shape(
             inputs)[0], shape(inputs)[1], shape(inputs)[2]
@@ -67,69 +134,6 @@ class _PositionalEncoding(Layer):
             config = super().get_config().copy()
             return config
         
-_PositionalEncoding.__doc__="""\
-Positional Encoding layer for incorporating temporal positions.
-
-The Positional Encoding layer adds information about the positions of
-elements in a sequence, which helps the model to capture the order of
-time steps. This is especially important in models that rely on attention
-mechanisms, as they do not inherently consider the sequence order [1]_.
-
-Methods
--------
-call(inputs)
-    Forward pass of the positional encoding layer.
-
-    Parameters
-    ----------
-    inputs : Tensor
-        Input tensor of shape ``(batch_size, time_steps, feature_dim)``.
-
-    Returns
-    -------
-    Tensor
-        Output tensor of shape ``(batch_size, time_steps, feature_dim)``.
-
-Notes
------
-This layer adds a positional encoding to the input tensor:
-
-1. Compute position indices:
-   .. math::
-       \text{Positions} = [0, 1, 2, \dots, T - 1]
-
-2. Expand and tile position indices to match input shape.
-
-3. Add positional encoding to inputs:
-   .. math::
-       \mathbf{Z} = \mathbf{X} + \text{PositionEncoding}
-
-This simple addition allows the model to be aware of the position of each
-time step in the sequence.
-
-Examples
---------
->>> from gofast.nn.transformers import PositionalEncoding
->>> import tensorflow as tf
->>> # Define input tensor
->>> inputs = tf.random.normal((32, 10, 64))
->>> # Instantiate positional encoding layer
->>> pe = PositionalEncoding()
->>> # Forward pass
->>> outputs = pe(inputs)
-
-See Also
---------
-TemporalFusionTransformer : Incorporates positional encoding in dynamic features.
-
-References
-----------
-.. [1] Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L.,
-       Gomez, A. N., Kaiser, Ł., & Polosukhin, I. (2017). "Attention is all
-       you need." In *Advances in Neural Information Processing Systems*
-       (pp. 5998-6008).
-"""
-
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class GatedResidualNetwork(Layer, NNLearner):
@@ -219,21 +223,15 @@ information flow [1]_.
 
 Parameters
 ----------
-units : int
-    The number of units in the GRN layer. This defines the dimensionality
-    of the output space.
-dropout_rate : float, optional
-    The dropout rate used in the dropout layers to prevent overfitting.
-    Default is ``0.0``.
+{params.base.units}
+{params.base.dropout_rate}
+
 use_time_distributed : bool, optional
     Whether to apply the layer over the temporal dimension using
     ``TimeDistributed`` wrapper. Default is ``False``.
-activation : str, optional
-    Activation function to use. Supported values are ``'elu'``, ``'relu'``,
-    ``'tanh'``, ``'sigmoid'``, and ``'linear'``. Default is ``'elu'``.
-use_batch_norm : bool, optional
-    Whether to use batch normalization in the layer. Batch normalization
-    can help stabilize and accelerate training. Default is ``False``.
+    
+{params.base.activation}
+{params.base.use_batch_norm}
 
 Methods
 -------
@@ -260,37 +258,39 @@ from_config(config)
 
 Notes
 -----
+
 The GRN processes the input through a series of transformations:
 
 1. Linear transformation:
    .. math::
-       \mathbf{h} = \mathbf{W}_1 \mathbf{x} + \mathbf{b}_1
+       \mathbf{{h}} = \mathbf{{W}}_1 \mathbf{{x}} + \mathbf{{b}}_1
 
 2. Nonlinear activation:
    .. math::
-       \mathbf{h} = \text{Activation}(\mathbf{h})
+       \mathbf{{h}} = \text{{Activation}}(\mathbf{{h}})
 
 3. Optional batch normalization:
    .. math::
-       \mathbf{h} = \text{BatchNorm}(\mathbf{h})
+       \mathbf{{h}} = \text{{BatchNorm}}(\mathbf{{h}})
 
 4. Second linear transformation:
    .. math::
-       \mathbf{h} = \mathbf{W}_2 \mathbf{h} + \mathbf{b}_2
+       \mathbf{{h}} = \mathbf{{W}}_2 \mathbf{{h}} + \mathbf{{b}}_2
 
 5. Dropout:
    .. math::
-       \mathbf{h} = \text{Dropout}(\mathbf{h})
+       \mathbf{{h}} = \text{{Dropout}}(\mathbf{{h}})
 
 6. Gating mechanism:
    .. math::
-       \mathbf{g} = \sigma(\mathbf{W}_g \mathbf{h} + \mathbf{b}_g)
+       \mathbf{{g}} = \sigma(\mathbf{{W}}_g \mathbf{{h}} + \mathbf{{b}}_g)
        \\
-       \mathbf{h} = \mathbf{h} \odot \mathbf{g}
+       \mathbf{{h}}= \mathbf{{h}} \odot \mathbf{{g}}
 
 7. Residual connection and layer normalization:
    .. math::
-       \mathbf{h} = \text{LayerNorm}(\mathbf{h} + \text{Projection}(\mathbf{x}))
+       \mathbf{{h}} = \text{{LayerNorm}}(\mathbf{{h}} + \text{{Projection}}(\mathbf{{x}}))
+
 
 The gating mechanism controls the flow of information, and the residual
 connection helps in training deeper networks by mitigating the vanishing
@@ -323,7 +323,8 @@ References
 .. [1] Lim, B., & Zohren, S. (2021). "Time-series forecasting with deep
        learning: a survey." *Philosophical Transactions of the Royal
        Society A*, 379(2194), 20200209.
-"""
+""".format(params=_param_docs) 
+
 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
@@ -417,25 +418,16 @@ by assigning higher weights to them [1]_.
 
 Parameters
 ----------
-input_dim : int
-    The input dimension per variable. Typically ``1`` for scalar features
-    or higher for embeddings.
+{params.base.input_dim} 
+
 num_inputs : int
     The number of input variables.
-units : int
-    The number of hidden units in the GRNs.
-dropout_rate : float, optional
-    The dropout rate used in dropout layers to prevent overfitting.
-    Default is ``0.0``.
-use_time_distributed : bool, optional
-    Whether to apply the layer over the temporal dimension using
-    ``TimeDistributed`` wrapper. Default is ``False``.
-activation : str, optional
-    Activation function to use in GRNs. Supported values are ``'elu'``,
-    ``'relu'``, ``'tanh'``, ``'sigmoid'``, and ``'linear'``. Default is
-    ``'elu'``.
-use_batch_norm : bool, optional
-    Whether to use batch normalization in GRNs. Default is ``False``.
+    
+{params.base.units} 
+{params.base.dropout_rate} 
+{params.base.use_time_distributed} 
+{params.base.activation} 
+{params.base.use_batch_norm} 
 
 Methods
 -------
@@ -475,19 +467,19 @@ variable importance weights:
 
 1. Apply GRN to each variable:
    .. math::
-       \mathbf{h}_i = \text{GRN}(\mathbf{x}_i), \quad i = 1, \dots, n
+       \mathbf{{h}}_i = \text{{GRN}}(\mathbf{{x}}_i), \quad i = 1, \dots, n
 
 2. Stack GRN outputs:
    .. math::
-       \mathbf{H} = [\mathbf{h}_1, \mathbf{h}_2, \dots, \mathbf{h}_n]
+       \mathbf{{H}} = [\mathbf{{h}}_1, \mathbf{{h}}_2, \dots, \mathbf{{h}}_n]
 
 3. Compute variable importance weights:
    .. math::
-       \boldsymbol{\alpha} = \text{Softmax}(\mathbf{W}_v \mathbf{H})
+       \boldsymbol{{\alpha}} = \text{{Softmax}}(\mathbf{{W}}_v \mathbf{{H}})
 
 4. Weighted sum of GRN outputs:
    .. math::
-       \mathbf{e} = \sum_{i=1}^{n} \alpha_i \mathbf{h}_i
+       \mathbf{{e}} = \sum_{{i=1}}^{{n}} \alpha_i \mathbf{{h}}_i
 
 This results in a single representation that emphasizes the most important
 variables.
@@ -520,7 +512,7 @@ References
 .. [1] Lim, B., & Zohren, S. (2021). "Time-series forecasting with deep
        learning: a survey." *Philosophical Transactions of the Royal
        Society A*, 379(2194), 20200209.
-"""
+""".format( params=_param_docs) 
 
 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
@@ -618,20 +610,11 @@ differently, capturing temporal dependencies more effectively [1]_.
 
 Parameters
 ----------
-units : int
-    The number of units in the attention layer.
-num_heads : int
-    The number of attention heads. Multiple heads allow the model to focus
-    on different aspects of the temporal dynamics simultaneously.
-dropout_rate : float, optional
-    The dropout rate used in the dropout layers to prevent overfitting.
-    Default is ``0.0``.
-activation : str, optional
-    Activation function to use in GRNs. Supported values are ``'elu'``,
-    ``'relu'``, ``'tanh'``, ``'sigmoid'``, and ``'linear'``. Default is
-    ``'elu'``.
-use_batch_norm : bool, optional
-    Whether to use batch normalization in GRNs. Default is ``False``.
+{params.base.units} 
+{params.base.num_heads}
+{params.base.dropout_rate} 
+{params.base.activation} 
+{params.base.use_batch_norm}
 
 Methods
 -------
@@ -665,28 +648,28 @@ The Temporal Attention Layer performs the following steps:
 
 1. Enrich context vector using GRN:
    .. math::
-       \mathbf{c} = \text{GRN}(\mathbf{c})
+       \mathbf{{c}} = \text{{GRN}}(\mathbf{{c}})
 
 2. Expand and repeat context vector over time:
    .. math::
-       \mathbf{C} = \text{Tile}(\mathbf{c}, T)
+       \mathbf{{C}} = \text{{Tile}}(\mathbf{{c}}, T)
 
 3. Compute query by combining inputs and context:
    .. math::
-       \mathbf{Q} = \mathbf{X} + \mathbf{C}
+       \mathbf{{Q}} = \mathbf{{X}} + \mathbf{{C}}
 
 4. Apply multi-head attention:
    .. math::
-       \mathbf{Z} = \text{MultiHeadAttention}(\mathbf{Q}, \mathbf{X},
-       \mathbf{X})
+       \mathbf{{Z}} = \text{{MultiHeadAttention}}(\mathbf{{Q}}, \mathbf{{X}},
+       \mathbf{{X}})
 
 5. Apply dropout and layer normalization:
    .. math::
-       \mathbf{Z} = \text{LayerNorm}(\mathbf{Z} + \mathbf{X})
+       \mathbf{{Z}} = \text{{LayerNorm}}(\mathbf{{Z}} + \mathbf{{X}})
 
 6. Pass through GRN:
    .. math::
-       \mathbf{Z} = \text{GRN}(\mathbf{Z})
+       \mathbf{{Z}} = \text{{GRN}}(\mathbf{{Z}})
 
 Examples
 --------
@@ -716,7 +699,7 @@ References
 .. [1] Lim, B., & Zohren, S. (2021). "Time-series forecasting with deep
        learning: a survey." *Philosophical Transactions of the Royal
        Society A*, 379(2194), 20200209.
-"""
+""".format( params =_param_docs )
 
 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
@@ -788,14 +771,9 @@ representations through a Gated Residual Network (GRN) [1]_.
 
 Parameters
 ----------
-units : int
-    The number of units in the GRN used within the layer.
-activation : str, optional
-    Activation function to use in the GRN. Supported values are ``'elu'``,
-    ``'relu'``, ``'tanh'``, ``'sigmoid'``, and ``'linear'``. Default is
-    ``'elu'``.
-use_batch_norm : bool, optional
-    Whether to use batch normalization in the GRN. Default is ``False``.
+{params.base.units} 
+{params.base.activation}
+{params.base.use_batch_norm}
 
 Methods
 -------
@@ -829,15 +807,15 @@ The Static Enrichment Layer performs the following steps:
 
 1. Expand and repeat static context vector over time:
    .. math::
-       \mathbf{C} = \text{Tile}(\mathbf{c}, T)
+       \mathbf{{C}} = \text{{Tile}}(\mathbf{{c}}, T)
 
 2. Concatenate static context with temporal features:
    .. math::
-       \mathbf{H} = \text{Concat}[\mathbf{C}, \mathbf{X}]
+       \mathbf{{H}} = \text{{Concat}}[\mathbf{{C}}, \mathbf{{X}}]
 
 3. Pass through GRN:
    .. math::
-       \mathbf{Z} = \text{GRN}(\mathbf{H})
+       \mathbf{{Z}} = \text{{GRN}}(\mathbf{{H}})
 
 This allows the model to adjust temporal representations based on static
 information.
@@ -868,11 +846,279 @@ References
 .. [1] Lim, B., & Zohren, S. (2021). "Time-series forecasting with deep
        learning: a survey." *Philosophical Transactions of the Royal
        Society A*, 379(2194), 20200209.
-"""
+""".format( params =_param_docs )
 
+
+@Appender(
+    """
+    Notes
+    -----
+    The Temporal Fusion Transformer (TFT) model combines the strengths of
+    sequence-to-sequence models and attention mechanisms to handle complex
+    temporal dynamics. It provides interpretability by allowing examination
+    of variable importance and temporal attention weights.
+
+    **Variable Selection Networks (VSNs):**
+
+    VSNs select relevant variables by applying Gated Residual Networks (GRNs)
+    to each variable and computing variable importance weights via a softmax
+    function. This allows the model to focus on the most informative features.
+
+    **Gated Residual Networks (GRNs):**
+
+    GRNs allow the model to capture complex nonlinear relationships while
+    controlling information flow via gating mechanisms. They consist of a
+    nonlinear layer followed by gating and residual connections.
+
+    **Static Enrichment Layer:**
+
+    Enriches temporal features with static context, enabling the model to
+    adjust temporal dynamics based on static information. This layer combines
+    static embeddings with temporal representations.
+
+    **Temporal Attention Layer:**
+
+    Applies multi-head attention over the temporal dimension to focus on
+    important time steps. This mechanism allows the model to weigh different
+    time steps differently when making predictions.
+
+    **Mathematical Formulation:**
+
+    Let:
+
+    - :math:`\mathbf{x}_{\text{static}} \in \mathbb{R}^{n_s \times d_s}` be the
+      static inputs,
+    - :math:`\mathbf{x}_{\text{dynamic}} \in \mathbb{R}^{T \times n_d \times d_d}`
+      be the dynamic inputs,
+    - :math:`n_s` and :math:`n_d` are the numbers of static and dynamic variables,
+    - :math:`d_s` and :math:`d_d` are their respective input dimensions,
+    - :math:`T` is the number of time steps.
+
+    **Variable Selection Networks (VSNs):**
+
+    For static variables:
+
+    .. math::
+
+        \mathbf{e}_{\text{static}} = \sum_{i=1}^{n_s} \alpha_i \cdot
+        \text{GRN}(\mathbf{x}_{\text{static}, i})
+
+    For dynamic variables:
+
+    .. math::
+
+        \mathbf{E}_{\text{dynamic}} = \sum_{j=1}^{n_d} \beta_j \cdot
+        \text{GRN}(\mathbf{x}_{\text{dynamic}, :, j})
+
+    where :math:`\alpha_i` and :math:`\beta_j` are variable importance weights
+    computed via softmax.
+
+    **LSTM Encoder:**
+
+    Processes dynamic embeddings to capture sequential dependencies:
+
+    .. math::
+
+        \mathbf{H} = \text{LSTM}(\mathbf{E}_{\text{dynamic}})
+
+    **Static Enrichment Layer:**
+
+    Combines static context with temporal features:
+
+    .. math::
+
+        \mathbf{H}_{\text{enriched}} = \text{StaticEnrichment}(
+        \mathbf{e}_{\text{static}}, \mathbf{H})
+
+    **Temporal Attention Layer:**
+
+    Applies attention over time steps:
+
+    .. math::
+
+        \mathbf{Z} = \text{TemporalAttention}(\mathbf{H}_{\text{enriched}})
+
+    **Position-wise Feedforward Layer:**
+
+    Refines the output:
+
+    .. math::
+
+        \mathbf{F} = \text{GRN}(\mathbf{Z})
+
+    **Final Output:**
+
+    For point forecasting:
+
+    .. math::
+
+        \hat{y} = \text{OutputLayer}(\mathbf{F}_{T})
+
+    For quantile forecasting (if quantiles are specified):
+
+    .. math::
+
+        \hat{y}_q = \text{OutputLayer}_q(\mathbf{F}_{T}), \quad q \in \text{quantiles}
+
+    where :math:`\mathbf{F}_{T}` is the feature vector at the last time step.
+
+    Examples
+    --------
+    >>> from gofast.nn.transformers import TemporalFusionTransformer
+    >>> # Define model parameters
+    >>> model = TemporalFusionTransformer(
+    ...     static_input_dim=1,
+    ...     dynamic_input_dim=1,
+    ...     num_static_vars=2,
+    ...     num_dynamic_vars=5,
+    ...     hidden_units=64,
+    ...     num_heads=4,
+    ...     dropout_rate=0.1,
+    ...     forecast_horizon=1,
+    ...     quantiles=[0.1, 0.5, 0.9],
+    ...     activation='relu',
+    ...     use_batch_norm=True,
+    ...     num_lstm_layers=2,
+    ...     lstm_units=[64, 32]
+    ... )
+    >>> model.compile(optimizer='adam', loss='mse')
+    >>> # Assume `static_inputs`, `dynamic_inputs`, and `labels` are prepared
+    >>> model.fit(
+    ...     [static_inputs, dynamic_inputs],
+    ...     labels,
+    ...     epochs=10,
+    ...     batch_size=32
+    ... )
+
+    Notes
+    -----
+    When using quantile regression by specifying the ``quantiles`` parameter,
+    ensure that your loss function is compatible with quantile prediction,
+    such as the quantile loss function. Additionally, the model output will
+    have multiple predictions per time step, corresponding to each quantile.
+
+    See Also
+    --------
+    VariableSelectionNetwork : Selects relevant variables.
+    GatedResidualNetwork : Processes inputs with gating mechanisms.
+    StaticEnrichmentLayer : Enriches temporal features with static context.
+    TemporalAttentionLayer : Applies attention over time steps.
+
+    References
+    ----------
+    .. [1] Lim, B., & Zohren, S. (2021). "Time-series forecasting with deep
+           learning: a survey." *Philosophical Transactions of the Royal
+           Society A*, 379(2194), 20200209.
+    """,
+    join='\n',
+    indents=0
+)
+    
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class TemporalFusionTransformer(Model, NNLearner):
+    """
+    Temporal Fusion Transformer (TFT) model for time series forecasting.
+
+    The Temporal Fusion Transformer combines high-performance multi-horizon
+    forecasting with interpretable insights into temporal dynamics [1]_.
+    It integrates several advanced mechanisms, including:
+
+    - Variable Selection Networks (VSNs) for static and dynamic features.
+    - Gated Residual Networks (GRNs) for processing inputs.
+    - Static Enrichment Layer to incorporate static features into temporal
+      processing.
+    - LSTM Encoder for capturing sequential dependencies.
+    - Temporal Attention Layer for focusing on important time steps.
+    - Position-wise Feedforward Layer.
+    - Final Output Layer for prediction.
+
+    Parameters
+    ----------
+    static_input_dim : int
+        The input dimension per static variable. Typically ``1`` for scalar
+        features or higher for embeddings. This defines the number of features
+        for each static variable. For example, if static variables are
+        represented using embeddings of size 16, then ``static_input_dim``
+        would be ``16``.
+
+    dynamic_input_dim : int
+        The input dimension per dynamic variable. This defines the number of
+        features for each dynamic variable at each time step. For instance, if
+        dynamic variables are represented using embeddings or multiple features,
+        specify the appropriate dimension.
+
+    num_static_vars : int
+        The number of static variables. Static variables are features that do
+        not change over time, such as location identifiers, categories, or
+        other constants. This parameter indicates how many static variables are
+        being used in the model.
+
+    num_dynamic_vars : int
+        The number of dynamic variables. Dynamic variables are features that
+        change over time, such as historical measurements, external
+        influences, or other time-varying data. This parameter indicates how
+        many dynamic variables are being used at each time step.
+
+    {params.base.hidden_units} 
+    {params.base.num_heads}
+    {params.base.dropout_rate} 
+    
+    forecast_horizon : int, optional
+        The number of time steps to forecast. Default is ``1``. This parameter
+        defines the number of future time steps the model will predict. For
+        multi-step forecasting, set ``forecast_horizon`` to the desired number
+        of future steps.
+
+    {params.base.quantiles} 
+    {params.base.activation} 
+    {params.base.use_batch_norm} 
+
+    num_lstm_layers : int, optional
+        Number of LSTM layers in the encoder. Default is ``1``. Adding more
+        layers can help the model capture more complex sequential patterns.
+        Each additional layer processes the output of the previous LSTM layer.
+
+    lstm_units : list of int or None, optional
+        List containing the number of units for each LSTM layer. If ``None``,
+        all LSTM layers have ``hidden_units`` units. Default is ``None``.
+        This parameter allows customizing the size of each LSTM layer. For
+        example, to specify different units for each layer, provide a list like
+        ``[64, 32]``.
+
+    Methods
+    -------
+    call(inputs, training=False)
+        Forward pass of the model.
+
+        Parameters
+        ----------
+        inputs : tuple of tensors
+            A tuple containing ``(static_inputs, dynamic_inputs)``.
+
+            - ``static_inputs``: Tensor of shape ``(batch_size, num_static_vars,
+              static_input_dim)`` representing the static features.
+            - ``dynamic_inputs``: Tensor of shape ``(batch_size, time_steps,
+              num_dynamic_vars, dynamic_input_dim)`` representing the dynamic
+              features.
+
+        training : bool, optional
+            Whether the model is in training mode. Default is ``False``.
+
+        Returns
+        -------
+        Tensor
+            The output predictions of the model. The shape depends on the
+            ``forecast_horizon`` and whether ``quantiles`` are used.
+
+    get_config()
+        Returns the configuration of the model for serialization.
+
+    from_config(config)
+        Instantiates the model from a configuration dictionary.
+    
+    """.format( params=_param_docs) 
+    
     @validate_params({
         "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
@@ -886,7 +1132,7 @@ class TemporalFusionTransformer(Model, NNLearner):
         "activation": [StrOptions({"elu", "relu", "tanh", "sigmoid", "linear"})],
         "use_batch_norm": [bool],
         "num_lstm_layers": [Interval(Integral, 1, None, closed='left')],
-        "lstm_units": [Interval(Integral, 1, None, closed='left'), None]
+        "lstm_units": [list, Interval(Integral, 1, None, closed='left'), None]
         },
     )
     def __init__(
@@ -1101,294 +1347,8 @@ class TemporalFusionTransformer(Model, NNLearner):
     def from_config(cls, config):
         return cls(**config)
     
-TemporalFusionTransformer.__doc__=="""\
-Temporal Fusion Transformer (TFT) model for time series forecasting.
 
-The Temporal Fusion Transformer combines high-performance multi-horizon
-forecasting with interpretable insights into temporal dynamics [1]_.
-It integrates several advanced mechanisms, including:
-
-- Variable Selection Networks (VSNs) for static and dynamic features.
-- Gated Residual Networks (GRNs) for processing inputs.
-- Static Enrichment Layer to incorporate static features into temporal
-  processing.
-- LSTM Encoder for capturing sequential dependencies.
-- Temporal Attention Layer for focusing on important time steps.
-- Position-wise Feedforward Layer.
-- Final Output Layer for prediction.
-
-Parameters
-----------
-static_input_dim : int
-    The input dimension per static variable. Typically ``1`` for scalar
-    features or higher for embeddings. This defines the number of features
-    for each static variable. For example, if static variables are
-    represented using embeddings of size 16, then ``static_input_dim``
-    would be ``16``.
-
-dynamic_input_dim : int
-    The input dimension per dynamic variable. This defines the number of
-    features for each dynamic variable at each time step. For instance, if
-    dynamic variables are represented using embeddings or multiple features,
-    specify the appropriate dimension.
-
-num_static_vars : int
-    The number of static variables. Static variables are features that do
-    not change over time, such as location identifiers, categories, or
-    other constants. This parameter indicates how many static variables are
-    being used in the model.
-
-num_dynamic_vars : int
-    The number of dynamic variables. Dynamic variables are features that
-    change over time, such as historical measurements, external
-    influences, or other time-varying data. This parameter indicates how
-    many dynamic variables are being used at each time step.
-
-hidden_units : int
-    The number of hidden units in the model's layers. This parameter
-    defines the dimensionality of the hidden layers throughout the model,
-    including GRNs, LSTM layers, and fully connected layers. Increasing
-    ``hidden_units`` can allow the model to capture more complex patterns
-    but may increase computational cost.
-
-num_heads : int, optional
-    The number of attention heads used in the temporal attention layer.
-    Default is ``4``. Multiple attention heads allow the model to focus on
-    different aspects of the temporal dynamics simultaneously, which can
-    enhance the model's ability to capture complex temporal relationships.
-
-dropout_rate : float, optional
-    The dropout rate used in dropout layers to prevent overfitting.
-    Default is ``0.1``. This value should be between ``0`` and ``1``. A
-    higher value increases regularization but may lead to underfitting.
-
-forecast_horizon : int, optional
-    The number of time steps to forecast. Default is ``1``. This parameter
-    defines the number of future time steps the model will predict. For
-    multi-step forecasting, set ``forecast_horizon`` to the desired number
-    of future steps.
-
-quantiles : list of float or None, optional
-    List of quantiles to predict (e.g., ``[0.1, 0.5, 0.9]``). If ``None``,
-    the model performs point forecasting and predicts a single value for
-    each time step. When quantiles are specified, the model outputs a
-    prediction for each quantile, which is useful for estimating prediction
-    intervals.
-
-activation : str, optional
-    Activation function to use throughout the model. Supported values are
-    ``'elu'``, ``'relu'``, ``'tanh'``, ``'sigmoid'``, and ``'linear'``.
-    Default is ``'elu'``. The activation function introduces non-linearity
-    into the model, allowing it to learn complex patterns.
-
-use_batch_norm : bool, optional
-    Whether to use batch normalization in the model layers. Batch
-    normalization can help stabilize and accelerate training by
-    normalizing layer inputs. Default is ``False``.
-
-num_lstm_layers : int, optional
-    Number of LSTM layers in the encoder. Default is ``1``. Adding more
-    layers can help the model capture more complex sequential patterns.
-    Each additional layer processes the output of the previous LSTM layer.
-
-lstm_units : list of int or None, optional
-    List containing the number of units for each LSTM layer. If ``None``,
-    all LSTM layers have ``hidden_units`` units. Default is ``None``.
-    This parameter allows customizing the size of each LSTM layer. For
-    example, to specify different units for each layer, provide a list like
-    ``[64, 32]``.
-
-Methods
--------
-call(inputs, training=False)
-    Forward pass of the model.
-
-    Parameters
-    ----------
-    inputs : tuple of tensors
-        A tuple containing ``(static_inputs, dynamic_inputs)``.
-
-        - ``static_inputs``: Tensor of shape ``(batch_size, num_static_vars,
-          static_input_dim)`` representing the static features.
-        - ``dynamic_inputs``: Tensor of shape ``(batch_size, time_steps,
-          num_dynamic_vars, dynamic_input_dim)`` representing the dynamic
-          features.
-
-    training : bool, optional
-        Whether the model is in training mode. Default is ``False``.
-
-    Returns
-    -------
-    Tensor
-        The output predictions of the model. The shape depends on the
-        ``forecast_horizon`` and whether ``quantiles`` are used.
-
-get_config()
-    Returns the configuration of the model for serialization.
-
-from_config(config)
-    Instantiates the model from a configuration dictionary.
-
-Notes
------
-The Temporal Fusion Transformer (TFT) model combines the strengths of
-sequence-to-sequence models and attention mechanisms to handle complex
-temporal dynamics. It provides interpretability by allowing examination
-of variable importance and temporal attention weights.
-
-**Variable Selection Networks (VSNs):**
-
-VSNs select relevant variables by applying Gated Residual Networks (GRNs)
-to each variable and computing variable importance weights via a softmax
-function. This allows the model to focus on the most informative features.
-
-**Gated Residual Networks (GRNs):**
-
-GRNs allow the model to capture complex nonlinear relationships while
-controlling information flow via gating mechanisms. They consist of a
-nonlinear layer followed by gating and residual connections.
-
-**Static Enrichment Layer:**
-
-Enriches temporal features with static context, enabling the model to
-adjust temporal dynamics based on static information. This layer combines
-static embeddings with temporal representations.
-
-**Temporal Attention Layer:**
-
-Applies multi-head attention over the temporal dimension to focus on
-important time steps. This mechanism allows the model to weigh different
-time steps differently when making predictions.
-
-**Mathematical Formulation:**
-
-Let:
-
-- :math:`\mathbf{x}_{\text{static}} \in \mathbb{R}^{n_s \times d_s}` be the
-  static inputs,
-- :math:`\mathbf{x}_{\text{dynamic}} \in \mathbb{R}^{T \times n_d \times d_d}`
-  be the dynamic inputs,
-- :math:`n_s` and :math:`n_d` are the numbers of static and dynamic variables,
-- :math:`d_s` and :math:`d_d` are their respective input dimensions,
-- :math:`T` is the number of time steps.
-
-**Variable Selection Networks (VSNs):**
-
-For static variables:
-
-.. math::
-
-    \mathbf{e}_{\text{static}} = \sum_{i=1}^{n_s} \alpha_i \cdot
-    \text{GRN}(\mathbf{x}_{\text{static}, i})
-
-For dynamic variables:
-
-.. math::
-
-    \mathbf{E}_{\text{dynamic}} = \sum_{j=1}^{n_d} \beta_j \cdot
-    \text{GRN}(\mathbf{x}_{\text{dynamic}, :, j})
-
-where :math:`\alpha_i` and :math:`\beta_j` are variable importance weights
-computed via softmax.
-
-**LSTM Encoder:**
-
-Processes dynamic embeddings to capture sequential dependencies:
-
-.. math::
-
-    \mathbf{H} = \text{LSTM}(\mathbf{E}_{\text{dynamic}})
-
-**Static Enrichment Layer:**
-
-Combines static context with temporal features:
-
-.. math::
-
-    \mathbf{H}_{\text{enriched}} = \text{StaticEnrichment}(
-    \mathbf{e}_{\text{static}}, \mathbf{H})
-
-**Temporal Attention Layer:**
-
-Applies attention over time steps:
-
-.. math::
-
-    \mathbf{Z} = \text{TemporalAttention}(\mathbf{H}_{\text{enriched}})
-
-**Position-wise Feedforward Layer:**
-
-Refines the output:
-
-.. math::
-
-    \mathbf{F} = \text{GRN}(\mathbf{Z})
-
-**Final Output:**
-
-For point forecasting:
-
-.. math::
-
-    \hat{y} = \text{OutputLayer}(\mathbf{F}_{T})
-
-For quantile forecasting (if quantiles are specified):
-
-.. math::
-
-    \hat{y}_q = \text{OutputLayer}_q(\mathbf{F}_{T}), \quad q \in \text{quantiles}
-
-where :math:`\mathbf{F}_{T}` is the feature vector at the last time step.
-
-Examples
---------
->>> from gofast.nn.transformers import TemporalFusionTransformer
->>> # Define model parameters
->>> model = TemporalFusionTransformer(
-...     static_input_dim=1,
-...     dynamic_input_dim=1,
-...     num_static_vars=2,
-...     num_dynamic_vars=5,
-...     hidden_units=64,
-...     num_heads=4,
-...     dropout_rate=0.1,
-...     forecast_horizon=1,
-...     quantiles=[0.1, 0.5, 0.9],
-...     activation='relu',
-...     use_batch_norm=True,
-...     num_lstm_layers=2,
-...     lstm_units=[64, 32]
-... )
->>> model.compile(optimizer='adam', loss='mse')
->>> # Assume `static_inputs`, `dynamic_inputs`, and `labels` are prepared
->>> model.fit(
-...     [static_inputs, dynamic_inputs],
-...     labels,
-...     epochs=10,
-...     batch_size=32
-... )
-
-Notes
------
-When using quantile regression by specifying the ``quantiles`` parameter,
-ensure that your loss function is compatible with quantile prediction,
-such as the quantile loss function. Additionally, the model output will
-have multiple predictions per time step, corresponding to each quantile.
-
-See Also
---------
-VariableSelectionNetwork : Selects relevant variables.
-GatedResidualNetwork : Processes inputs with gating mechanisms.
-StaticEnrichmentLayer : Enriches temporal features with static context.
-TemporalAttentionLayer : Applies attention over time steps.
-
-References
-----------
-.. [1] Lim, B., & Zohren, S. (2021). "Time-series forecasting with deep
-       learning: a survey." *Philosophical Transactions of the Royal
-       Society A*, 379(2194), 20200209.
-"""
-
+#XXX TODO 
 
 # 1. Enhanced Variable Embeddings
 class LearnedNormalization(Layer):
@@ -1675,7 +1635,8 @@ class XTFT(Model):
         # Enhanced Attention Mechanisms
         self.hierarchical_attention = HierarchicalAttention(
             attention_units, num_heads=self.num_heads)
-        self.cross_attention = CrossAttention(attention_units, num_heads=self.num_heads)
+        self.cross_attention = CrossAttention(
+            attention_units, num_heads=self.num_heads)
         self.memory_augmented_attention = MemoryAugmentedAttention(
             attention_units, memory_size, num_heads=self.num_heads)
 
