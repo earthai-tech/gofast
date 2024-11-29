@@ -19,8 +19,8 @@ from ..api.box import KeyBox
 from ..api.types import Any, Dict, List,Union, Optional, ArrayLike
 from ..api.types import _F, Array1D, NDArray, Callable 
 from ..api.summary import ModelSummary
+from ..core.utils import ellipsis2false 
 from ..decorators import smartFitRun 
-from ..tools.coreutils import ellipsis2false 
 from ..tools.validator import get_estimator_name , check_X_y 
 from ._optimize import BaseOptimizer, _perform_search, _validate_parameters
 from .utils import get_strategy_method, params_combinations # noqa

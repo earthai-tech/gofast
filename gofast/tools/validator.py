@@ -2498,7 +2498,7 @@ def parameter_validator(
         Specifies whether an exception should be raised if validation fails. 
         Defaults to True, raising an exception on failure.
     **kws: dict, 
-       Keyword arguments passed to :func:`gofast.tools.coreutils.normalize_string`. 
+       Keyword arguments passed to :func:`gofast.core.utils.normalize_string`. 
     Returns
     -------
     function
@@ -2525,7 +2525,7 @@ def parameter_validator(
     Notes
     -----
     - The function leverages a custom utility function `normalize_string` 
-      from a module named `.coreutils`. This utility is assumed to handle 
+      from a module named `gofast.core.utils`. This utility is assumed to handle 
       string normalization and matching based on the provided `match_method`.
     - If `raise_exception` is set to False and the input does not match any 
       target string, the input string is returned unchanged. This behavior 
@@ -2534,7 +2534,7 @@ def parameter_validator(
       normalize parameters for configuration settings or function arguments 
       where only specific values are allowed.
     """
-    from .coreutils import normalize_string 
+    from ..core.utils import normalize_string 
     def validator(param_value):
         """Validate param value from :func:`~normalize_string`"""
         if param_value:
@@ -3384,7 +3384,7 @@ def _check_y(y, strategy='auto'):
       'auto' for automatic detection based on unique values or explicitly using
       `type_of_target` for more nuanced determination.
     """
-    from .coreutils import type_of_target 
+    from ..core.utils import type_of_target 
     # Convert y to a numpy array of objects to handle mixed types
     y = np.array(y, dtype=object)
     
@@ -3463,7 +3463,7 @@ def validate_yy(
     tuple
         The validated y_true and y_pred arrays, potentially flattened.
     """
-    from .coreutils import type_of_target
+    from ..core.utils import type_of_target
     
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
@@ -4190,7 +4190,7 @@ def assert_xy_in (
     6    6
     Name: y, dtype: int32)
     """
-    from .coreutils import exist_features
+    from ..core.checks import exist_features
     if to_frame : 
         data = array_to_frame(data , to_frame = True ,  input_name ='Data', 
                               columns =columns , **kws)
@@ -5415,27 +5415,41 @@ def convert_array_to_pandas(X, *, to_frame=False, columns=None, input_name='X'):
 
     return X, columns
  
-def is_frame (arr, df_only =False, raise_exception: bool=False,
-              objname=None  ): 
-    """ Return bool wether array is a frame ( pd.Series or pd.DataFrame )
-    
-    To verify whether `arr` is typically a dataframe, set ``df_only =True``. 
+def is_frame(arr, df_only=False, raise_exception=False, objname=None):
+    """
+    Return a bool indicating whether `arr` is a pandas DataFrame or Series.
     Isolated part of :func:`~.array_to_frame` dedicated to X and y frame
     reconversion validation.
-    """
-    isf= ( hasattr (arr, '__array__') and (
-                (hasattr ( arr, 'name') or hasattr (arr, 'columns'))
-                ) if not df_only else ( 
-                hasattr (arr, '__array__') and hasattr(arr, 'columns'))
-            )
-    if not isf and raise_exception : 
-        # then check only 
-        objname='Expect' if not objname else f'{objname!r} parameter expects'
-        raise TypeError(
-            f"{objname} a {'DataFrame' if df_only else 'data frame or series'}."
-              f" Got {type(arr).__name__!r}")
-    return isf 
+    
+    Parameters:
+    - arr: The object to check (could be a pandas DataFrame, Series, or other objects).
+    - df_only (bool): If True, only checks for DataFrame type, not Series.
+    - raise_exception (bool): If True, raises a TypeError if `arr` is 
+      not a valid DataFrame/Series.
+    - objname (str or None): The name to use in the error message if
+      `raise_exception=True`.
 
+    Returns:
+    - bool: True if `arr` is a pandas DataFrame or Series (based on `df_only` flag).
+    
+    If `df_only=True`, the function checks only for a DataFrame.
+    """
+    # Check if the object has the necessary attributes to be a DataFrame or Series
+    is_frame = (hasattr(arr, '__array__') and 
+                (hasattr(arr, 'name') or hasattr(arr, 'columns'))) if not df_only else (
+                hasattr(arr, '__array__') and hasattr(arr, 'columns')
+                )
+
+    # If it's not a valid frame and raise_exception is True, raise an error
+    if not is_frame and raise_exception:
+        objname = objname or 'Expect'
+        objname = f"{objname!r} parameter expects"
+        raise TypeError(
+            f"{objname} a {'DataFrame' if df_only else 'DataFrame or Series'}."
+            f" Got {type(arr).__name__!r}"
+        )
+    
+    return is_frame
 
 def check_array(
     array,

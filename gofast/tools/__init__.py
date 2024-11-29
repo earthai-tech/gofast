@@ -39,12 +39,6 @@ MODULE_MAPPING = {
          'soft_bin_stat',
          'speed_rowwise_process'
     ],
-    'coreutils': [
-        'features_in', 
-        'find_features_in',
-        'split_train_test',
-        'split_train_test_by_id',
-    ],
     'datautils': [ 
         'cleaner', 
         'pair_data',

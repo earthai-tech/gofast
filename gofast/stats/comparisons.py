@@ -26,8 +26,8 @@ from ..api.formatter import (
     DataFrameFormatter, MultiFrameFormatter, formatter_validator
 )
 from ..compat.sklearn import validate_params, StrOptions
+from ..core.checks import validate_ratio 
 from ..decorators import isdf, IsPerformanceData, smartFitRun
-from ..tools.coreutils import validate_ratio 
 from ..tools.depsutils import ensure_pkg 
 from ..tools.validator import ( 
     _is_arraylike_1d, validate_comparison_data, parameter_validator,
@@ -231,7 +231,7 @@ class CPlot(BaseClass):
         self.verbose = verbose
         self.params = kwargs
         
-    def fit(self, data: pd.DataFrame):
+    def fit(self, data: DataFrame):
         # Validate the 'score_preference' parameter
         self.score_preference = normalize_preference(self.score_preference)
         
@@ -410,11 +410,10 @@ class CPlot(BaseClass):
         plt.tight_layout()
         plt.show()
         
-
 def compute_cd(
     num_models: Optional[int] = None,
     num_splits: Optional[int] = None,
-    performance_data: Optional[pd.DataFrame] = None,
+    performance_data: Optional[DataFrame] = None,
     alpha: float = 0.05,
     q_alpha_values: Optional[Dict[int, float]] = None,
 ) -> float:
@@ -556,7 +555,6 @@ def compute_cd(
     )
     return cd
 
-
 @IsPerformanceData
 def friedman_test(
     performance_data: DataFrame, 
@@ -657,10 +655,7 @@ def friedman_test(
     the datasets. This may prompt further analysis with posthoc tests to identify
     specific differences between models.
     """
-
-    if not isinstance(performance_data, pd.DataFrame):
-        raise TypeError("performance_data must be a pandas DataFrame.")
-
+    
     if performance_data.empty:
         raise ValueError("performance_data DataFrame cannot be empty.")
 
@@ -716,7 +711,8 @@ def friedman_test(
                 " `DataFrameFormatter` for effective pandas dataframe."
                 )
 
-    formatted_result= MultiFrameFormatter( titles=titles,
+    formatted_result= MultiFrameFormatter( 
+       titles=titles,
        keywords=['friedman_result', 'post_hoc_result'], 
        descriptor="FriedmanTest", 
        max_rows = _MAXROWS,
@@ -725,7 +721,6 @@ def friedman_test(
     
     return formatted_result
  
-
 def friedman_test_in(
     performance_data: Union[Dict[str, List[float]], DataFrame], 
     alpha: float = 0.05

@@ -36,7 +36,7 @@ from concurrent.futures import (
 from .._gofastlog import gofastlog
 from ..api.summary import ReportFactory 
 from ..api.util import get_table_size
-from .coreutils import is_iterable
+from ..core.checks import is_iterable
 from .depsutils import ( 
     import_optional_dependency, ensure_pkgs, is_module_installed
 )

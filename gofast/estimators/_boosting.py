@@ -4,6 +4,7 @@ from abc import abstractmethod
 from numbers import Integral, Real
 from sklearn.base import BaseEstimator
 from sklearn.utils._param_validation import Interval, StrOptions
+
 from ..api.property import LearnerMeta 
 
 class BaseBoostingTree(BaseEstimator, metaclass=LearnerMeta):

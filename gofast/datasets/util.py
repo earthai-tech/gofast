@@ -21,14 +21,9 @@ import pandas as pd
 from ..api.formatter import DescriptionFormatter
 from ..api.structures import Boxspace
 from ..compat.sklearn import train_test_split
-from ..tools.coreutils import (
-    add_noises_to,
-    generate_id,
-    is_in_if,
-    is_iterable,
-    smart_format,
-    validate_ratio
-)
+from ..core.checks import is_in_if, is_iterable, validate_ratio
+from ..core.handlers import add_noises_to, generate_id 
+from ..core.utils import smart_format
 from .metadata import SimulationMetadata
 
 __all__ = [

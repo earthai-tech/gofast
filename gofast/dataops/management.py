@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+
 """Deals with data storage, retrieval, and dataset handling."""
 
 from __future__ import annotations, print_function 
 import os
 import h5py
 import shutil 
-import pathlib
-import warnings 
 
 from six.moves import urllib 
 import numpy as np 
@@ -16,17 +15,13 @@ import pandas as pd
 import matplotlib.pyplot as plt 
 from tqdm import tqdm
 
-from ..api.property import  PandasDataHandlers
 from ..api.types import Any,  List,  DataFrame, Optional, Dict, Union
 from ..api.types import BeautifulSoupTag , Tuple, ArrayLike, Callable
 from ..api.util import get_table_size 
+from ..core.utils import ellipsis2false 
 from ..decorators import Deprecated, Dataify, EnsureFileExists 
-from ..exceptions import FileHandlingError 
-from ..tools.baseutils import save_or_load
-from ..tools.coreutils import is_iterable, ellipsis2false, smart_format
-from ..tools.coreutils import to_numeric_dtypes
 from ..tools.depsutils import ensure_pkg
-from ..tools.validator import is_array_like, parameter_validator  
+from ..tools.validator import parameter_validator  
 
 
 TW = get_table_size() 
@@ -36,7 +31,6 @@ __all__=[
     "handle_datasets_with_hdfstore",
     "handle_unique_identifiers",
     "handle_datasets_in_h5", 
-    "read_data",
     "request_data",
     "store_or_retrieve_data", 
     "scrape_web_data", 
@@ -198,176 +192,6 @@ def _visualize_unique_changes(unique_counts_before, unique_counts_after,
     plt.tight_layout()
     plt.show()
  
-
-@EnsureFileExists(action ='ignore')
-def read_data(
-    f: str | pathlib.PurePath, 
-    sanitize: bool = ..., 
-    reset_index: bool = ..., 
-    comments: str = "#", 
-    delimiter: str = None, 
-    columns: List[str] = None,
-    npz_objkey: str = None, 
-    verbose: bool = ..., 
-    **read_kws
-) -> DataFrame:
-    """
-    Read all specific files and URLs allowed by the package.
-
-    Readable files are systematically converted to a DataFrame.
-
-    Parameters
-    ----------
-    f : str, Path-like object
-        File path or Pathlib object. Must contain a valid file name and 
-        should be a readable file or URL.
-
-    sanitize : bool, default=False
-        Push a minimum sanitization of the data such as:
-        - Replace non-alphabetic column items with a pattern '_'
-        - Cast data values to numeric if applicable
-        - Drop full NaN columns and rows in the data
-
-    reset_index : bool, default=False
-        Reset index if full NaN columns are dropped after sanitization. 
-        Apply minimum data sanitization after reading data.
-
-    comments : str or sequence of str or None, default='#'
-        The characters or list of characters used to indicate the start 
-        of a comment. None implies no comments. For backwards compatibility, 
-        byte strings will be decoded as 'latin1'.
-
-    delimiter : str, optional
-        The character used to separate the values. For backwards 
-        compatibility, byte strings will be decoded as 'latin1'. The default 
-        is whitespace.
-
-    columns : list of str, optional
-        List of column names to use. If the file has a header row, then 
-        you should explicitly pass ``header=0`` to override the column 
-        names.
-
-    npz_objkey : str, optional
-        Dataset key to identify array in multiple array storages in '.npz' 
-        format. If key is not set during 'npz' storage, ``arr_0`` should 
-        be used. Capable of reading text and numpy formats ('.npy' and 
-        '.npz') data. Note that when data is stored in compressed ".npz" 
-        format, provide the '.npz' object key as an argument of parameter 
-        `npz_objkey`. If None, only the first array should be read and 
-        ``npz_objkey='arr_0'``.
-
-    verbose : bool, default=0
-        Outputs message for user guide.
-
-    read_kws : dict
-        Additional keyword arguments passed to pandas readable file keywords.
-
-    Returns
-    -------
-    DataFrame
-        A dataframe with head contents by default.
-
-    Notes
-    -----
-    This function reads various file formats and converts them into a 
-    pandas DataFrame. It supports sanitization of the data which includes 
-    replacing non-alphabetic column names, casting data to numeric types 
-    where applicable, and removing fully NaN columns and rows. The function 
-    also supports reading numpy arrays from '.npy' and '.npz' files.
-
-    Examples
-    --------
-    >>> from gofast.dataops.management import read_data
-    >>> df = read_data('data.csv', sanitize=True, reset_index=True)
-    >>> print(df.head())
-
-    See Also
-    --------
-    np.loadtxt : Load text file.
-    np.load : Load uncompressed or compressed numpy `.npy` and `.npz` formats.
-    gofast.dataops.management.save_or_load : Save or load numpy arrays.
-
-    References
-    ----------
-    .. [1] McKinney, W. (2010). Data Structures for Statistical Computing in 
-           Python. Proceedings of the 9th Python in Science Conference, 51-56.
-    .. [2] Harris, C. R., Millman, K. J., van der Walt, S. J., et al. (2020). 
-           Array programming with NumPy. Nature, 585(7825), 357-362.
-    """
-
-    def min_sanitizer ( d, /):
-        """ Apply a minimum sanitization to the data `d`."""
-        return to_numeric_dtypes(
-            d, sanitize_columns= True, 
-            drop_nan_columns= True, 
-            reset_index=reset_index, 
-            verbose = verbose , 
-            fill_pattern='_', 
-            drop_index = True
-            )
-    def _check_readable_file (f): 
-        """ Return file name from path objects """
-        msg =(f"Expects a Path-like object or URL. Please, check your"
-              f" file: {os.path.basename(f)!r}")
-        if not os.path.isfile (f): # force pandas read html etc 
-            if not ('http://'  in f or 'https://' in f ):  
-                raise TypeError (msg)
-        elif not isinstance (f,  (str , pathlib.PurePath)): 
-             raise TypeError (msg)
-        if isinstance(f, str): 
-            f =f.strip() # for consistency 
-        return f 
-    
-    sanitize, reset_index, verbose = ellipsis2false (
-        sanitize, reset_index, verbose )
-    if ( isinstance ( f, str ) 
-            and str(os.path.splitext(f)[1]).lower()in (
-                '.txt', '.npy', '.npz')
-            ): 
-        f = save_or_load(f, task = 'load', comments=comments, 
-                         delimiter=delimiter )
-        # if extension is .npz
-        if isinstance(f, np.lib.npyio.NpzFile):
-            npz_objkey = npz_objkey or "arr_0"
-            f = f[npz_objkey] 
-
-        if columns is not None: 
-            columns = is_iterable(columns, exclude_string= True, 
-                                  transform =True, parse_string =True 
-                                  )
-            if len( columns )!= f.shape [1]: 
-                warnings.warn(f"Columns expect {f.shape[1]} attributes."
-                              f" Got {len(columns)}")
-            
-        f = pd.DataFrame(f, columns=columns )
-        
-    if isinstance (f, pd.DataFrame): 
-        if sanitize: 
-            f = min_sanitizer (f)
-        return  f 
-    
-    if is_array_like(f): 
-        # just return nparray
-        return np.asarray(f )
-    
-    cpObj= PandasDataHandlers().parsers 
-    f= _check_readable_file(f)
-    _, ex = os.path.splitext(f) 
-    if ex.lower() not in tuple (cpObj.keys()):
-        raise TypeError(f"Can only parse the {smart_format(cpObj.keys(), 'or')} files"
-                        )
-    try : 
-        f = cpObj[ex](f, **read_kws)
-    except FileNotFoundError:
-        raise FileNotFoundError (
-            f"No such file in directory: {os.path.basename (f)!r}")
-    except BaseException as e : 
-        raise FileHandlingError (
-            f"Cannot parse the file : {os.path.basename (f)!r}. "+  str(e))
-    if sanitize: 
-        f = min_sanitizer (f)
-        
-    return f 
 
 @EnsureFileExists
 @ensure_pkg("requests")

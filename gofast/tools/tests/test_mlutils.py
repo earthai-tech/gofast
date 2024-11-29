@@ -28,7 +28,7 @@ from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 
 from gofast.datasets.load import load_bagoue, load_hlogs 
-from gofast.tools.coreutils import find_features_in
+from gofast.core.checks import find_features_in
 from gofast.tools.datautils import cleaner
 from gofast.tools.ioutils import fetch_tgz_from_url, load_csv, serialize_data 
 from gofast.tools.ioutils import deserialize_data 

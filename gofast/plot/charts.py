@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 from ..api.types import ArrayLike, DataFrame 
 from ..api.types import List, Tuple, Optional, Union 
-from ..tools.coreutils import is_iterable, exist_features 
+from ..core.checks import is_iterable, exist_features 
 from ..tools.validator import is_frame 
 
 __all__=[

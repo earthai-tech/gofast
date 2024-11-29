@@ -37,22 +37,24 @@ from ..api.types import (
     _SP, 
     _T,
 )
-
+from ..core.array_manager import reshape 
+from ..core.checks import ( 
+    _assert_all_types, 
+    is_iterable,
+    str2columns, 
+    exist_features, 
+    smart_format, 
+    assert_ratio 
+    
+    )
+from ..core.utils import ellipsis2false 
 from ..decorators import isdf, AppendDocReferences
+
 from .validator import ( 
     _is_arraylike_1d, 
     assert_xy_in, check_y, 
     validate_positive_integer
     )
-from .coreutils import (
-    reshape, 
-    is_iterable, 
-    _assert_all_types, 
-    ellipsis2false, 
-    smart_format, 
-    assert_ratio,
-)
-
 
 __all__ = [
      'adaptive_moving_average',
@@ -80,7 +82,8 @@ __all__ = [
      'show_stats',
      'station_id',
      'torres_verdin_filter', 
-     'resample_spatial_data'
+     'resample_spatial_data', 
+     'extract_coordinates'
  ]
 
 
@@ -1152,7 +1155,160 @@ def convert_distance_to_m(
                )
             
     return value
-       
+
+def extract_coordinates(X, Xt=None, columns=None):
+    """
+    Extracts 'x' and 'y' coordinate arrays from training (X) and optionally
+    test (Xt) datasets. 
+    
+    Supports input as NumPy arrays or pandas DataFrames. When dealing
+    with DataFrames, `columns` can specify which columns to use for coordinates.
+
+    Parameters
+    ----------
+    X : ndarray or DataFrame
+        Training dataset with shape (M, N) where M is the number of samples and
+        N is the number of features. It represents the observed data used as
+        independent variables in learning.
+    Xt : ndarray or DataFrame, optional
+        Test dataset with shape (M, N) where M is the number of samples and
+        N is the number of features. It represents the data observed at testing
+        and prediction time, used as independent variables in learning.
+    columns : list of str or int, optional
+        Specifies the columns to use for 'x' and 'y' coordinates. Necessary when
+        X or Xt are DataFrames with more than 2 dimensions or when selecting specific
+        features from NumPy arrays.
+
+    Returns
+    -------
+    tuple of arrays
+        A tuple containing the 'x' and 'y' coordinates from the training set and, 
+        if provided, the test set. Formatted as (x, y, xt, yt).
+    tuple of str or None
+        A tuple containing the names or indices of the 'x' and 'y' columns 
+        for the training and test sets. Formatted as (xname, yname, xtname, ytname).
+        Values are None if not applicable or not provided.
+
+    Raises
+    ------
+    ValueError
+        If `columns` is not iterable, not provided for DataFrames with more 
+        than 2 dimensions, or if X or Xt cannot be validated as coordinate arrays.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> from gofast.tools.spatialutils import extract_coordinates
+    >>> X = np.array([[1, 2], [3, 4]])
+    >>> Xt = np.array([[5, 6], [7, 8]])
+    >>> extract_coordinates(X, Xt )
+    ((array([1, 3]), array([2, 4]), array([5, 7]), array([6, 8])), (0, 1, 0, 1))
+    """
+    if columns is None: 
+        if not isinstance ( X, pd.DataFrame) and X.shape[1]!=2: 
+            raise ValueError("Columns cannot be None when array is passed.")
+        if isinstance(X, np.ndarray) and X.shape[1]==2: 
+            columns =[0, 1] 
+    
+    columns = columns or ( list(X.columns) if isinstance (
+        X, pd.DataFrame ) else columns )
+    
+    if columns is None :
+        raise ValueError("Columns parameter is required to specify"
+                         " 'x' and 'y' coordinates.")
+    
+    if not isinstance(columns, (list, tuple)) or len(columns) != 2:
+        raise ValueError("Columns parameter must be a list or tuple with "
+                         "exactly two elements for 'x' and 'y' coordinates.")
+    
+    # Process training dataset
+    x, y, xname, yname = _process_dataset(X, columns)
+    
+    # Process test dataset, if provided
+    if Xt is not None:
+        xt, yt, xtname, ytname = _process_dataset(Xt, columns)
+    else:
+        xt, yt, xtname, ytname = None, None, None, None
+
+    return (x, y, xt, yt), (xname, yname, xtname, ytname)    
+
+
+def _process_dataset(dataset, columns):
+    """
+    Processes the dataset (X or Xt) to extract 'x' and 'y' coordinates based 
+    on provided column names or indices.
+    
+    Parameters
+    ----------
+    dataset : pandas.DataFrame or numpy.ndarray
+        The dataset from which to extract 'x' and 'y' coordinates.
+    columns : list of str or int
+        The names or indices of the columns to extract as coordinates. 
+        For ndarray, integers are expected.
+    
+    Returns
+    -------
+    x, y, xname, yname : (numpy.array or pandas.Series, numpy.array or 
+                          pandas.Series, str/int, str/int)
+        The extracted 'x' and 'y' coordinates, along with their column names 
+        or indices.
+    
+    Raises
+    ------
+    ValueError
+        If the dataset or columns are not properly specified.
+    """
+    if isinstance(dataset, pd.DataFrame):
+        x, xname, y, yname = _validate_columns(dataset, columns)
+        return x.to_numpy(), y.to_numpy(), xname, yname
+    elif isinstance(dataset, np.ndarray):
+        if not isinstance(columns, (list, tuple)) or len(columns) < 2:
+            raise ValueError("For ndarray, columns must be a list or tuple "
+                             "with at least two indices.")
+        xindex, yindex = columns[0], columns[1]
+        x, y = dataset[:, xindex], dataset[:, yindex]
+        return x, y, xindex, yindex
+    else:
+        raise ValueError("Dataset must be a pandas.DataFrame or numpy.ndarray.")
+
+
+def _validate_columns(df, columns):
+    """
+    Validates and extracts x, y coordinates from a DataFrame based on column 
+    names or indices.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame from which to extract coordinate columns.
+    columns : list of str or int
+        The names or indices of the columns to extract as coordinates.
+    
+    Returns
+    -------
+    x, xname, y, yname : (pandas.Series, str/int, pandas.Series, str/int)
+        The extracted x and y coordinate Series along with their column
+        names or indices.
+    
+    Raises
+    ------
+    ValueError
+        If the specified columns are not found in the DataFrame or if the 
+        columns list is not correctly specified.
+    """
+    if not isinstance(columns, (list, tuple)) or len(columns) < 2:
+        raise ValueError("Columns parameter must be a list or tuple with at"
+                         " least two elements.")
+    
+    try:
+        xname, yname = columns[0], columns[1]
+        x = df[xname] if isinstance(xname, str) else df.iloc[:, xname]
+        y = df[yname] if isinstance(yname, str) else df.iloc[:, yname]
+    except Exception as e:
+        raise ValueError(f"Error extracting columns: {e}")
+    
+    return x, xname, y, yname
+
 def get_station_number (
         dipole:float,
         distance:float , 
@@ -2402,3 +2558,209 @@ def numstr2dms(
     
     return tuple(map(float, [deg, mm, sec])) if return_values \
         else ':'.join([deg, mm, sec])
+        
+        
+def projection_validator (X, Xt=None, columns =None ):
+    """ Retrieve x, y coordinates of a datraframe ( X, Xt ) from columns 
+    names or indexes. 
+    
+    If X or Xt are given as arrays, `columns` may hold integers from 
+    selecting the the coordinates 'x' and 'y'. 
+    
+    Parameters 
+    ---------
+    X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
+        training set; Denotes data that is observed at training and prediction 
+        time, used as independent variables in learning. The notation 
+        is uppercase to denote that it is ordinarily a matrix. When a matrix, 
+        each sample may be represented by a feature vector, or a vector of 
+        precomputed (dis)similarity with each training sample. 
+
+    Xt: Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
+        Shorthand for "test set"; data that is observed at testing and 
+        prediction time, used as independent variables in learning. The 
+        notation is uppercase to denote that it is ordinarily a matrix.
+    columns: list of str or index, optional 
+        columns is usefull when a dataframe is given  with a dimension size 
+        greater than 2. If such data is passed to `X` or `Xt`, columns must
+        hold the name to consider as 'easting', 'northing' when UTM 
+        coordinates are given or 'latitude' , 'longitude' when latlon are 
+        given. 
+        If dimension size is greater than 2 and columns is None , an error 
+        will raises to prevent the user to provide the index for 'y' and 'x' 
+        coordinated retrieval. 
+      
+    Returns 
+    -------
+    ( x, y, xt, yt ), (xname, yname, xtname, ytname), Tuple of coordinate 
+        arrays and coordinate labels 
+ 
+    """
+    # initialize arrays and names 
+    init_none = [None for i in range (4)]
+    x,y, xt, yt = init_none
+    xname,yname, xtname, ytname = init_none 
+    
+    m="{0} must be an iterable object, not {1!r}"
+    ms= ("{!r} is given while columns are not supplied. set the list of "
+        " feature names or indexes to fetch 'x' and 'y' coordinate arrays." )
+    
+    # validate X if X is np.array or dataframe 
+    X =_assert_all_types(X, np.ndarray, pd.DataFrame ) 
+    
+    if Xt is not None: 
+        # validate Xt if Xt is np.array or dataframe 
+        Xt = _assert_all_types(Xt, np.ndarray, pd.DataFrame)
+        
+    if columns is not None: 
+        if isinstance (columns, str): 
+            columns = str2columns(columns )
+        
+        if not is_iterable(columns): 
+            raise ValueError(m.format('columns', type(columns).__name__))
+        
+        columns = list(columns) + [ None for i in range (5)]
+        xname , yname, xtname, ytname , *_= columns 
+
+    if isinstance(X, pd.DataFrame):
+        x, xname, y, yname = _validate_columns(X, [xname, yname])
+        
+    elif isinstance(X, np.ndarray):
+        x, y = _is_valid_coordinate_arrays (X, xname, yname )    
+        
+        
+    if isinstance (Xt, pd.DataFrame) :
+        # the test set holds the same feature names
+        # as the train set 
+        if xtname is None: 
+            xtname = xname
+        if ytname is None: 
+            ytname = yname 
+            
+        xt, xtname, yt, ytname = _validate_columns(Xt, [xname, yname])
+
+    elif isinstance(Xt, np.ndarray):
+        
+        if xtname is None: 
+            xtname = xname
+        if ytname is None: 
+            ytname = yname 
+            
+        xt, yt = _is_valid_coordinate_arrays (Xt, xtname, ytname , 'test')
+        
+    if (x is None) or (y is None): 
+        raise ValueError (ms.format('X'))
+    if Xt is not None: 
+        if (xt is None) or (yt is None): 
+            warnings.warn (ms.format('Xt'))
+
+    return  (x, y , xt, yt ) , (
+        xname, yname, xtname, ytname ) 
+    
+def _validate_columns0 (df, xni, yni ): 
+    """ Validate the feature name  in the dataframe using either the 
+    string litteral name of the index position in the columns.
+    
+    :param df: pandas.DataFrame- Dataframe with feature names as columns. 
+    :param xni: str, int- feature name  or position index in the columns for 
+        x-coordinate 
+    :param yni: str, int- feature name  or position index in the columns for 
+        y-coordinate 
+    
+    :returns: (x, ni) Tuple of (pandas.Series, and names) for x and y 
+        coordinates respectively.
+    
+    """
+    def _r (ni): 
+        if isinstance(ni, str): # feature name
+            exist_features(df, ni ) 
+            s = df[ni]  
+        elif isinstance (ni, (int, float)):# feature index
+            s= df.iloc[:, int(ni)] 
+            ni = s.name 
+        return s, ni 
+        
+    xs , ys = [None, None ]
+    if df.ndim ==1: 
+        raise ValueError ("Expect a dataframe of two dimensions, got '1'")
+        
+    elif df.shape[1]==2: 
+       warnings.warn("columns are not specify while array has dimension"
+                     "equals to 2. Expect indexes 0 and 1 for (x, y)"
+                     "coordinates respectively.")
+       xni= df.iloc[:, 0].name 
+       yni= df.iloc[:, 1].name 
+    else: 
+        ms = ("The matrix of features is greater than 2. Need column names or"
+              " indexes to  retrieve the 'x' and 'y' coordinate arrays." ) 
+        e =' Only {!r} is given.' 
+        me=''
+        if xni is not None: 
+            me =e.format(xni)
+        if yni is not None: 
+            me=e.format(yni)
+           
+        if (xni is None) or (yni is None ): 
+            raise ValueError (ms + me)
+            
+    xs, xni = _r (xni) ;  ys, yni = _r (yni)
+  
+    return xs, xni , ys, yni 
+
+def _validate_array_indexer (arr, index): 
+    """ Select the appropriate coordinates (x,y) arrays from indexes.  
+    
+    Index is used  to retrieve the array of (x, y) coordinates if dimension 
+    of `arr` is greater than 2. Since we expect x, y coordinate for projecting 
+    coordinates, 1-d  array `X` is not acceptable. 
+    
+    :param arr: ndarray (n_samples, n_features) - if nfeatures is greater than 
+        2 , indexes is needed to fetch the x, y coordinates . 
+    :param index: int, index to fetch x, and y coordinates in multi-dimension
+        arrays. 
+    :returns: arr- x or y coordinates arrays. 
+
+    """
+    if arr.ndim ==1: 
+        raise ValueError ("Expect an array of two dimensions.")
+    if not isinstance (index, (float, int)): 
+        raise ValueError("index is needed to coordinate array with "
+                         "dimension greater than 2.")
+        
+    return arr[:, int (index) ]
+
+def _is_valid_coordinate_arrays (arr, xind, yind, ptype ='train'): 
+    """ Check whether array is suitable for projecting i.e. whether 
+    x and y (both coordinates) can be retrived from `arr`.
+    
+    :param arr: ndarray (n_samples, n_features) - if nfeatures is greater than 
+        2 , indexes is needed to fetch the x, y coordinates . 
+        
+    :param xind: int, index to fetch x-coordinate in multi-dimension
+        arrays. 
+    :param yind: int, index to fetch y-coordinate in multi-dimension
+        arrays
+    :param ptype: str, default='train', specify whether the array passed is 
+        training or test sets. 
+    :returns: (x, y)- array-like of x and y coordinates. 
+    
+    """
+    xn, yn =('x', 'y') if ptype =='train' else ('xt', 'yt') 
+    if arr.ndim ==1: 
+        raise ValueError ("Expect an array of two dimensions.")
+        
+    elif arr.shape[1] ==2 : 
+        x, y = arr[:, 0], arr[:, 1]
+        
+    else :
+        msg=("The matrix of features is greater than 2; Need index to  "
+             " retrieve the {!r} coordinate array in param 'column'.")
+        
+        if xind is None: 
+            raise ValueError(msg.format(xn))
+        else : x = _validate_array_indexer(arr, xind)
+        if yind is None : 
+            raise ValueError(msg.format(yn))
+        else : y = _validate_array_indexer(arr, yind)
+        
+    return x, y 

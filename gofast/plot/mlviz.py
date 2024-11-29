@@ -28,7 +28,8 @@ except :
     pass 
 from ..api.types import Optional, Tuple, Any, List, Union, Callable, NDArray 
 from ..api.types import Dict, ArrayLike, DataFrame, Series, SparseMatrix
-from ..tools.coreutils import is_iterable, make_obj_consistent_if
+from ..core.checks import is_iterable 
+from ..core.utils import make_obj_consistent_if
 from ..tools.depsutils import ensure_pkg 
 from ..tools.validator import _is_cross_validated, validate_yy, validate_keras_model
 from ..tools.validator import assert_xy_in, get_estimator_name, check_is_fitted

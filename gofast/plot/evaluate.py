@@ -46,12 +46,12 @@ from ..api.docstring import _core_docs, _baseplot_params, DocstringComponents
 from ..api.property import BasePlot
 from ..api.types import  Optional, List, Union, Tuple,  Series
 from ..api.types import  ArrayLike, DataFrame
+from ..core.array_manager import to_numeric_dtypes, reshape 
+from ..core.checks import str2columns, is_iterable
+from ..core.handlers import make_ids 
+from ..core.utils import type_of_target 
 from ..exceptions import NotFittedError
 from ..tools.baseutils import categorize_target, extract_target
-from ..tools.coreutils import (
-    to_numeric_dtypes, reshape, str2columns, make_ids, type_of_target,
-    is_iterable
-)
 from ..tools.depsutils import ensure_pkg
 from ..tools.validator import (
     _check_consistency_size, build_data_if, _is_numeric_dtype,
@@ -64,7 +64,6 @@ __all__ = ["MetricPlotter", "EvalPlotter", "plot_model_scores",
            "plot_reg_scoring", "plot_model"]
 
 _logger = gofastlog.get_gofast_logger(__name__)
-
 
 
 class MetricPlotter (BasePlot):

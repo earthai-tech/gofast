@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 from gofast.datasets.load import load_bagoue
 from gofast.tools.baseutils import normalizer, interpolate_grid
-from gofast.tools.coreutils import reshape, to_numeric_dtypes
+from gofast.core.array_manager import reshape, to_numeric_dtypes
 from gofast.tools.datautils import (
     cleaner, random_selector,
 )

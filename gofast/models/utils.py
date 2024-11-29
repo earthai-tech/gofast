@@ -30,7 +30,7 @@ from sklearn.utils.multiclass import type_of_target
 from ..api.types import Tuple,_F, ArrayLike, NDArray, Dict, Union, Any
 from ..api.types import  List, Optional, Type, DataFrame, Series 
 from ..api.summary import ModelSummary 
-from ..tools.coreutils import smart_format
+from ..core.utils import smart_format
 from ..tools.validator import get_estimator_name, check_X_y 
 from ..tools.depsutils import import_optional_dependency 
 

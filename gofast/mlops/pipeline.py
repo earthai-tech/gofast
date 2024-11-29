@@ -28,7 +28,7 @@ from ..decorators import (
     RunReturn, smartFitRun, executeWithFallback 
 )
 from ..compat.sklearn import validate_params
-from ..tools.coreutils import validate_ratio
+from ..core.checks import validate_ratio
 from ..tools.depsutils import ensure_pkg
 from ..tools.validator import check_is_runned
 

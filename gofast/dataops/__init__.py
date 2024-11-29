@@ -21,7 +21,6 @@ from .management import (
     fetch_remote_data,
     handle_datasets_with_hdfstore,
     handle_unique_identifiers,
-    read_data,
     request_data,
     store_or_retrieve_data, 
     )
@@ -97,7 +96,6 @@ __all__=[
         'inspect_data',
         'outlier_performance_impact',
         'prepare_data',
-        'read_data', 
         'quality_control',
         'request_data', 
         'sanitize', 

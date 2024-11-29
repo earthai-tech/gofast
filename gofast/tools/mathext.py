@@ -8,7 +8,7 @@ This module provides a range of tools and utilities for processing and
 computing mathematical parameters, particularly useful in algebraic 
 calculations and data science workflows.
 """
-
+import re 
 import copy
 import warnings
 import itertools
@@ -29,15 +29,9 @@ from ..api.types import (
     ArrayLike, DataFrame, Dict, List, Optional, Tuple, Union, NDArray, 
 )
 from ..api.summary import ResultSummary
-
-from .coreutils import (
-    _validate_name_in,
-    concat_array_from_list,
-    normalize_string,
-    to_numeric_dtypes,
-    smart_format,
-    type_of_target,
-)
+from ..core.array_manager import to_numeric_dtypes, concat_array_from_list
+from ..core.checks  import  _assert_all_types, _validate_name_in
+from ..core.utils import normalize_string, type_of_target, smart_format 
 
 from .validator import (
     _is_numeric_dtype,
@@ -3749,8 +3743,60 @@ def linkage_matrix(
                                      )
     return row_clusters 
      
+def convert_value_in (v, unit ='m'): 
+    """Convert value based on the reference unit.
+    
+    Parameters 
+    ------------
+    v: str, float, int, 
+      value to convert 
+    unit: str, default='m'
+      Reference unit to convert value in. Default is 'meters'. Could be 
+      'kg' or else. 
+      
+    Returns
+    -------
+    v: float, 
+       Value converted. 
+       
+    Examples 
+    ---------
+    >>> from gofast.tools.mathext import convert_value_in 
+    >>> convert_value_in (20) 
+    20.0
+    >>> convert_value_in ('20mm') 
+    0.02
+    >>> convert_value_in ('20kg', unit='g') 
+    20000.0
+    >>> convert_value_in ('20') 
+    20.0
+    >>> convert_value_in ('20m', unit='g')
+    ValueError: Unknwon unit 'm'...
+    """
+    c= { 'k':1e3 , 
+        'h':1e2 , 
+        'dc':1e1 , 
+        '':1e0 , 
+        'd':1e-1, 
+        'c':1e-2 , 
+        'm':1e-3  
+        }
+    c = {k +str(unit).lower(): v for k, v in c.items() }
 
+    v = str(v).lower()  
 
+    regex = re.findall(r'[a-zA-Z]', v) 
+    
+    if len(regex) !=0: 
+        unit = ''.join( regex ) 
+        v = v.replace (unit, '')
+
+    if unit not in c.keys(): 
+        raise ValueError (
+            f"Unknwon unit {unit!r}. Expect {smart_format(c.keys(), 'or' )}."
+            f" Or rename the `unit` parameter maybe to {unit[-1]!r}.")
+    
+    return float ( v) * (c.get(unit) or 1e0)    
     
    
     

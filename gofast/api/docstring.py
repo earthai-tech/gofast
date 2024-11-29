@@ -781,6 +781,13 @@ cb_drawedges: bool,
     draw edges inside of the colorbar. *default* is ``False`` 
     """     
 )
+return_docstring = """
+        Returns
+        -------
+        str or None
+            If buf is None, returns the result as a string. Otherwise returns
+            None.
+    """
 
 refglossary =type ('refglossary', (), dict (
     __doc__="""\

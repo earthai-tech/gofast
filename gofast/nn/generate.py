@@ -12,7 +12,7 @@ import numpy as np
 from ..api.types import  Optional,  Tuple
 from ..api.types import ArrayLike , Callable, Generator
 
-from ..tools.coreutils import is_iterable
+from ..core.checks import is_iterable
 from ..tools.validator import check_X_y
 from ..tools.validator import check_array
 

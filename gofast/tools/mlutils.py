@@ -49,15 +49,20 @@ from ..compat.sklearn import (
     get_feature_names, train_test_split, validate_params, 
     Interval, HasMethods
     ) 
-from ..exceptions import DependencyError
-from ..decorators import SmartProcessor, Dataify
-from .baseutils import select_features
-from .coreutils import (
-    _assert_all_types, is_in_if, ellipsis2false, smart_format, is_iterable,
-    get_valid_kwargs, is_classification_task, to_numeric_dtypes,
-    validate_feature, exist_features, contains_delimiter, 
-    str2columns 
+from ..core.array_manager import to_numeric_dtypes 
+from ..core.checks import (
+    is_in_if, is_iterable, is_classification_task, 
+    validate_feature, exist_features,  str2columns 
 )
+from ..core.handlers import get_valid_kwargs 
+from ..core.utils import smart_format, ellipsis2false, contains_delimiter 
+from ..exceptions import DependencyError
+from ..decorators import ( 
+    SmartProcessor, Dataify,
+    EnsureFileExists, 
+    is_data_readable
+    )
+from .baseutils import select_features
 from .depsutils import ensure_pkg
 from .validator import (
     _is_numeric_dtype, _is_arraylike_1d, get_estimator_name, check_array,
@@ -907,6 +912,7 @@ def dynamic_batch_size(
                 )
             return current_batch_size
 
+@is_data_readable
 def one_click_prep (
     data: DataFrame, 
     target_columns=None,
@@ -1102,6 +1108,7 @@ def one_click_prep (
     # Return the preprocessed DataFrame.
     return data_processed
 
+@is_data_readable
 def soft_encoder(
     data: Union[DataFrame, ArrayLike], 
     columns: List[str] = None, 
@@ -1468,6 +1475,7 @@ def resampling(
         
     return Xs, ys 
 
+@is_data_readable
 def bin_counting(
     data: DataFrame, 
     bin_columns: Union[str, List[str]], 
@@ -1816,6 +1824,7 @@ def laplace_smoothing_word(word, class_,  word_counts, class_counts, V):
     probability = (word_class_count + 1) / (class_word_count + V)
     return probability
 
+@is_data_readable
 def laplace_smoothing_categorical(
         data, feature_col, class_col, V=None):
     """
@@ -1882,6 +1891,7 @@ def laplace_smoothing_categorical(
 
     return probability_table
 
+@is_data_readable
 def laplace_smoothing(
     data: Union[ArrayLike, DataFrame], 
     alpha: float = 1.0, 
@@ -2071,6 +2081,7 @@ def evaluate_model(
 
     return y_pred
 
+@is_data_readable
 def get_correlated_features(
     data:DataFrame ,
     corr:str ='pearson', 
@@ -2371,6 +2382,8 @@ def save_dataframes(
         else:
             raise ValueError("Unsupported output format. Choose 'excel' or 'csv'.")
 
+
+@EnsureFileExists(file_param="data_url") 
 def fetch_tgz(
     data_url: str,
     tgz_filename: str,
@@ -2449,6 +2462,8 @@ def fetch_tgz(
     if show_progress:
         print("Download and extraction complete.")
 
+
+@is_data_readable
 def process_data_types(
     data,
     target_name=None, 
@@ -2625,6 +2640,7 @@ def process_data_types(
         else:
             return numeric_df.columns.tolist(), categorical_df.columns.tolist()
 
+@is_data_readable
 def discretize_categories(
     data: Union[DataFrame, Series],
     in_cat: str,
@@ -2687,6 +2703,7 @@ def discretize_categories(
     
     return data
 
+@is_data_readable
 def stratify_categories(
     data: Union[DataFrame, ArrayLike],
     cat_name: str, 
@@ -2763,6 +2780,7 @@ def stratify_categories(
 
     return strat_train_set, strat_test_set
 
+@EnsureFileExists
 def fetch_model(
     file: str,
     path: Optional[str] = None,
@@ -2858,6 +2876,7 @@ def fetch_model(
 
     return model_data
 
+@EnsureFileExists(file_param="tgz_file") 
 def fetch_tgz2(
     tgz_file: str, 
     filename: str, 
@@ -2918,8 +2937,6 @@ def fetch_tgz2(
           f"and saved to '{save_path}'.")
     return str(final_file_path)
 
-
-     
 def _assert_sl_target (target,  df=None, obj=None): 
     """ Check whether the target name into the dataframe for supervised 
     learning.
@@ -3474,8 +3491,14 @@ def load_model(
 
     return loaded_data
      
-def bi_selector (d,  features =None, return_frames = False,
-                 parse_features:bool=... ):
+@Dataify
+@is_data_readable
+def bi_selector (
+    data,  
+    features =None, 
+    return_frames = False,
+    parse_features:bool=... 
+    ):
     """ Auto-differentiates the numerical from categorical attributes.
     
     This is usefull to select the categorial features from the numerical 
@@ -3547,17 +3570,17 @@ def bi_selector (d,  features =None, return_frames = False,
          'pumping_level']
     """
     parse_features, = ellipsis2false(parse_features )
-    _assert_all_types( d, pd.DataFrame, objname=" unfunc'bi-selector'")
+
     if features is None: 
-        d, diff_features, features = to_numeric_dtypes(
-            d,  return_feature_types= True ) 
+        data, diff_features, features = to_numeric_dtypes(
+            data,  return_feature_types= True ) 
     if features is not None: 
         features = is_iterable(features, exclude_string= True, transform =True, 
                                parse_string=parse_features )
-        diff_features = is_in_if( d.columns, items =features, return_diff= True )
+        diff_features = is_in_if( data.columns, items =features, return_diff= True )
         if diff_features is None: diff_features =[]
     return  ( diff_features, features ) if not return_frames else  (
-        d [diff_features] , d [features ] ) 
+        data [diff_features] , data [features ] ) 
 
 def make_pipe(
     X, 
@@ -5025,6 +5048,7 @@ def _smart_mapper(
         
 
 @Dataify(auto_columns=True, prefix='feature_')
+@is_data_readable
 @validate_params ({ 
     "data": ['array-like'], 
     "target": [str, 'array-like'], 
@@ -5303,8 +5327,8 @@ def _manage_target(data, target):
     return data, target_column
         
 
-
 @Dataify(auto_columns=True, prefix='feature_')
+@is_data_readable 
 @validate_params ({ 
     "data": ['array-like'], 
     "num_categories": [Interval(Real, 1, None, closed="left")], 

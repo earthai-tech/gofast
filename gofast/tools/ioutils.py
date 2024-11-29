@@ -36,6 +36,9 @@ from zipfile import ZipFile
 import numpy as np 
 import pandas as pd 
 
+from ..core.array_manager import to_numeric_dtypes 
+from ..core.checks import exist_features  
+
 __all__ = [
     'cparser_manager',
     'cpath',
@@ -217,7 +220,7 @@ def zip_extractor(
      
     Examples 
     ----------
-    >>> from gofast.tools.coreutils import zip_extractor 
+    >>> from gofast.tools.ioutils import zip_extractor 
     >>> zip_extractor ('gofast/datasets/data/edis/e.E.zip')
     
     """
@@ -323,8 +326,9 @@ def to_hdf5(d, fn, objname =None, close =True,  **hdf5_kws):
     Examples 
     ------------
     >>> import os 
-    >>> from gofast.tools.coreutils import sanitize_frame_cols, to_hdf5 
-    >>> from gofast.tools import read_data 
+    >>> from gofast.core.utils import sanitize_frame_cols
+    >>> from gofast.tools.ioutils import  to_hdf5 
+    >>> from gofast.core.io import read_data 
     >>> data = read_data('data/boreholes/H502.xlsx') 
     >>> sanitize_frame_cols (data, fill_pattern='_', inplace =True ) 
     >>> store_path = os.path.join('gofast/datasets/data', 'h') # 'h' is the name of the data 
@@ -517,8 +521,7 @@ def store_or_write_hdf5 (
     >>> store_or_write_hdf5 ( d, key='test0', path_or_buf= 'test_data', 
                           kind ='export')
     """
-    # XXX revise imports 
-    from .coreutils import to_numeric_dtypes,  exist_features  
+    
     
     kind= key_search (str(kind), default_keys=(
         "none", "store", "write", "export", "tocsv"), 
@@ -616,7 +619,7 @@ def key_checker (
     Examples
     --------
     
-    >>> from gofast.tools.coreutils import key_checker
+    >>> from gofast.tools.ioutils import key_checker
     >>> key_checker('h502', valid_keys= ['h502', 'h253','h2601'])  
     Out[68]: 'h502'
     >>> key_checker('h502+h2601', valid_keys= ['h502', 'h253','h2601'])
@@ -701,7 +704,7 @@ def is_in_if (o: iter,  items: Union [str , iter], error = 'raise',
         
     :example: 
         >>> from gofast.datasets import load_hlogs 
-        >>> from gofast.tools.coreutils import is_in_if 
+        >>> from gofast.tools.ioutils import is_in_if 
         >>> X0, _= load_hlogs (as_frame =True )
         >>> is_in_if  (X0 , items= ['depth_top', 'top']) 
         ... ValueError: Item 'top' is missing in the object 
@@ -781,7 +784,7 @@ def str2columns (text,  regex=None , pattern = None):
     
     Examples
     ---------
-    >>> from gofast.tools.coreutils import str2columns 
+    >>> from gofast.tools.ioutils import str2columns 
     >>> text = ('this.is the text to split. It is an: example of; splitting str - to text.')
     >>> str2columns (text )  
     ... ['this',
@@ -860,7 +863,7 @@ def key_search (
 
     Examples
     ---------
-    >>> from gofast.tools.coreutils import key_search 
+    >>> from gofast.tools.ioutils import key_search 
     >>> key_search('h502-hh2601', default_keys= ['h502', 'h253','HH2601'])
     Out[44]: ['h502']
     >>> key_search('h502-hh2601', default_keys= ['h502', 'h253','HH2601'], 
@@ -2631,7 +2634,7 @@ def get_valid_key(input_key, default_key, substitute_key_dict=None,
     
     Example
     -------
-    >>> from gofast.tools.coreutils import get_valid_key
+    >>> from gofast.tools.ioutils import get_valid_key
     >>> substitute_key_dict = {'valid_key1': ['vk1', 'key1'], 'valid_key2': ['vk2', 'key2']}
     >>> get_valid_key('vk1', 'default_key', substitute_key_dict)
     'valid_key1'

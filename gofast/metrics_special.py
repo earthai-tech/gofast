@@ -31,9 +31,10 @@ from ._gofastlog import gofastlog
 from .api.formatter import MetricFormatter, DescriptionFormatter 
 from .api.summary import TW, ReportFactory, assemble_reports
 from .api.summary import ResultSummary 
+from .core.checks import exist_features, is_iterable
+from .core.utils import normalize_string
 from .compat.sklearn import validate_params, StrOptions, HasMethods, Interval 
 from .decorators import Substitution, Appender
-from .tools.coreutils import normalize_string, exist_features, is_iterable
 from .tools.validator import (
     _ensure_y_is_valid, _is_numeric_dtype, check_epsilon, check_is_fitted, 
     validate_multioutput, validate_nan_policy, check_array, build_data_if
@@ -358,7 +359,7 @@ def relative_sensitivity_scores(
             sensitive.
 
     Example
-    -------
+    ---------
     >>> import numpy as np 
     >>> from gofast.metrics_special import relative_sensitivity_scores
     >>> from gofast.estimators.tree import DTBClassifier 

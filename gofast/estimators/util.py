@@ -24,7 +24,7 @@ from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import RobustScaler, MinMaxScaler, StandardScaler
 
 try:from sklearn.utils import type_of_target
-except: from ..tools.coreutils import type_of_target 
+except: from ..core.utils import type_of_target 
 from ..api.types import DataFrame, Series, Tuple, Union, Dict, Optional 
 from ..tools.validator import check_array, check_X_y
 from ..tools.validator import validate_fit_weights, get_estimator_name

@@ -37,14 +37,16 @@ from ..api.types import (
     Union, List, Optional, Tuple, Iterable, Any, Set, 
     _T, _F, DataFrame, ArrayLike, Series, NDArray
 )
+from ..core.array_manager import  to_numeric_dtypes, reshape 
+from ..core.checks import( 
+    _assert_all_types,  is_iterable, exist_features, validate_feature 
+    )
+from ..core.utils import ellipsis2false, smart_format 
+from ..core.io import is_data_readable 
 from ..compat.scipy import check_scipy_interpolate
 from ..decorators import Dataify
 from ..exceptions import FileHandlingError
 from ._dependency import import_optional_dependency
-from .coreutils import (
-    is_iterable, ellipsis2false, smart_format, to_numeric_dtypes, 
-    validate_feature, _assert_all_types, exist_features, reshape
-)
 from .validator import (
     check_consistent_length, get_estimator_name, _is_arraylike_1d, 
     array_to_frame, build_data_if, _is_numeric_dtype, check_y, 
@@ -58,11 +60,12 @@ __all__ = [
     'extract_target', 'fancier_downloader', 'fillNaN', 'get_target', 
     'interpolate_grid', 'interpolate_data', 'labels_validator', 
     'make_df', 'normalizer', 'remove_outliers', 'remove_target_from_array', 
-    'rename_labels_in', 'save_or_load', 'scale_y', 'select_features', 
+    'rename_labels_in', 'scale_y', 'select_features', 
     'smooth1d', 'smoothing', 'soft_bin_stat', 'speed_rowwise_process', 
     'nan_to_mode'
 ]
 
+@is_data_readable 
 def detect_categorical_columns(
     data,
     detect_integer_as_categorical=True,
@@ -532,7 +535,7 @@ def interpolate_grid (
     Examples
     ---------
     >>> import numpy as np
-    >>> from gofast.tools.coreutils import interpolate_grid 
+    >>> from gofast.tools.baseutils import interpolate_grid 
     >>> x = [28, np.nan, 50, 60] ; y = [np.nan, 1000, 2000, 3000]
     >>> xy = np.vstack ((x, y))._T
     >>> xyi = interpolate_grid (xy, view=True ) 
@@ -2014,198 +2017,6 @@ def is_readable (
             f" Can not parse the file : {os.path.basename (f)!r}")
 
     return f 
-
-def lowertify(
-    *values,
-    strip: bool = True, 
-    return_origin: bool = False, 
-    unpack: bool = False
-    ) -> Union[Tuple[str, ...], Tuple[Tuple[str, Any], ...], Tuple[Any, ...]]:
-    """
-    Convert all input values to lowercase strings, optionally stripping 
-    whitespace, and optionally return the original values alongside the 
-    lowercased versions.
-    
-    Can also unpack the tuples of lowercased and original values into a single
-    flat tuple.
-
-    Parameters
-    ----------
-    *values : Any
-        Arbitrary number of values to be converted to lowercase. Non-string 
-        values will be converted to strings before processing.
-    strip : bool, optional
-        If True (default), leading and trailing whitespace will be removed 
-        from the strings.
-    return_origin : bool, optional
-        If True, each lowercased string is returned as a tuple with its 
-        original value; otherwise, only the lowercased strings are returned.
-    unpack : bool, optional
-        If True, and `return_origin` is also True, the function returns a 
-        single flat tuple containing all lowercased and original values 
-        alternatively. This parameter is ignored if `return_origin` is False.
-
-    Returns
-    -------
-    Union[Tuple[str, ...], Tuple[Tuple[str, Any], ...], Tuple[Any, ...]]
-        Depending on `return_origin` and `unpack` flags, returns either:
-        - A tuple of lowercased (and optionally stripped) strings.
-        - A tuple of tuples, each containing the lowercased string and its 
-          original value.
-        - A single flat tuple containing all lowercased and original values 
-          alternatively (if `unpack` is True).
-
-    Examples
-    --------
-    >>> from gofast.tools.baseutils import lowertify
-    >>> lowertify('KIND')
-    ('kind',)
-    
-    >>> lowertify("KIND", return_origin=True)
-    (('kind', 'KIND'),)
-    
-    >>> lowertify("args1", 120, 'ArG3')
-    ('args1', '120', 'arg3')
-    
-    >>> lowertify("args1", 120, 'ArG3', return_origin=True)
-    (('args1', 'args1'), ('120', 120), ('arg3', 'ArG3'))
-    
-    >>> lowertify("KIND", "task ", return_origin=True, unpack=True)
-    ('kind', 'KIND', 'task', 'task ')
-    """
-    processed_values = [(str(val).strip().lower() if strip 
-                         else str(val).lower(), val) for val in values]
-    if return_origin:
-        if unpack:
-            # Flatten the list of tuples into a single tuple for unpacking
-            return tuple(item for pair in processed_values for item in pair)
-        else:
-            return tuple(processed_values)
-    else:
-        return tuple(lowered for lowered, _ in processed_values)
-
-
-def save_or_load(
-    fname:str, 
-    arr: NDArray=None,  
-    task: str='save', 
-    format: str='.txt', 
-    compressed: bool=...,  
-    comments: str="#",
-    delimiter: str=None, 
-    **kws 
-): 
-    """Save or load Numpy array. 
-    
-    Parameters 
-    -----------
-    fname: file, str, or pathlib.Path
-       File or filename to which the data is saved. 
-       - >.npy , .npz: If file is a file-object, then the filename is unchanged. 
-       If file is a string or Path, a .npy extension will be appended to the 
-       filename if it does not already have one. 
-       - >.txt: If the filename ends in .gz, the file is automatically saved in 
-       compressed gzip format. loadtxt understands gzipped files transparently.
-       
-    arr: 1D or 2D array_like
-      Data to be saved to a text, npy or npz file.
-      
-    task: str {"load", "save"}
-      Action to perform. "Save" for storing file into the format 
-      ".txt", "npy", ".npz". "load" for loading the data from storing files. 
-      
-    format: str {".txt", ".npy", ".npz"}
-       The kind of format to save and load.  Note that when loading the 
-       compressed data saved into `npz` format, it does not return 
-       systematically the array rather than `np.lib.npyio.NpzFile` files. 
-       Use either `files` attributes to get the list of registered files 
-       or `f` attribute dot the data name to get the loaded data set. 
-
-    compressed: bool, default=False 
-       Compressed the file especially when file format is set to `.npz`. 
-
-    comments: str or sequence of str or None, default='#'
-       The characters or list of characters used to indicate the start 
-       of a comment. None implies no comments. For backwards compatibility, 
-       byte strings will be decoded as 'latin1'. This is useful when `fname`
-       is in `txt` format. 
-      
-     delimiter: str,  optional
-        The character used to separate the values. For backwards compatibility, 
-        byte strings will be decoded as 'latin1'. The default is whitespace.
-        
-    kws: np.save ,np.savetext,  np.load , np.loadtxt 
-       Additional keywords arguments for saving and loading data. 
-       
-    Return 
-    ------
-    None| data: ArrayLike 
-    
-    Examples 
-    ----------
-    >>> import numpy as np 
-    >>> from gofast.tools.baseutils import save_or_load 
-    >>> data = np.random.randn (2, 7)
-    >>> # save to txt 
-    >>> save_or_load ( "test.txt" , data)
-    >>> save_or_load ( "test",  data, format='.npy')
-    >>> save_or_load ( "test",  data, format='.npz')
-    >>> save_or_load ( "test_compressed",  data, format='.npz', compressed=True )
-    >>> # load files 
-    >>> save_or_load ( "test.txt", task ='load')
-    Out[36]: 
-    array([[ 0.69265852,  0.67829574,  2.09023489, -2.34162127,  0.48689125,
-            -0.04790965,  1.36510779],
-           [-1.38349568,  0.63050939,  0.81771051,  0.55093818, -0.43066737,
-            -0.59276321, -0.80709192]])
-    >>> save_or_load ( "test.npy", task ='load')
-    Out[39]: array([-2.34162127,  0.55093818])
-    >>> save_or_load ( "test.npz", task ='load')
-    <numpy.lib.npyio.NpzFile at 0x1b0821870a0>
-    >>> npzo = save_or_load ( "test.npz", task ='load')
-    >>> npzo.files
-    Out[44]: ['arr_0']
-    >>> npzo.f.arr_0
-    Out[45]: 
-    array([[ 0.69265852,  0.67829574,  2.09023489, -2.34162127,  0.48689125,
-            -0.04790965,  1.36510779],
-           [-1.38349568,  0.63050939,  0.81771051,  0.55093818, -0.43066737,
-            -0.59276321, -0.80709192]])
-    >>> save_or_load ( "test_compressed.npz", task ='load')
-    ...
-    """
-    r_formats = {"npy", "txt", "npz"}
-   
-    (kind, kind0), ( task, task0 ) = lowertify(
-        format, task, return_origin =True )
-    
-    assert  kind.replace ('.', '') in r_formats, (
-        f"File format expects {smart_format(r_formats, 'or')}. Got {kind0!r}")
-    kind = '.' + kind.replace ('.', '')
-    assert task in {'save', 'load'}, ( 
-        "Wrong task {task0!r}. Valid tasks are 'save' or 'load'") 
-    
-    save= {'.txt': np.savetxt, '.npy':np.save,  
-           ".npz": np.savez_compressed if ellipsis2false(
-               compressed)[0] else np.savez 
-           }
-    if task =='save': 
-        arr = np.array (is_iterable( arr, exclude_string= True, 
-                                    transform =True ))
-        save.get(kind) (fname, arr, **kws )
-        
-    elif task =='load': 
-         ext = os.path.splitext(fname)[1].lower() 
-         if ext not in (".txt", '.npy', '.npz', '.gz'): 
-             raise ValueError ("Unrecognized file format {ext!r}."
-                               " Expect '.txt', '.npy', '.gz' or '.npz'")
-         if ext in ('.txt', '.gz'): 
-            arr = np.loadtxt ( fname , comments= comments, 
-                              delimiter= delimiter,   **kws ) 
-         else : 
-            arr = np.load(fname,**kws )
-         
-    return arr if task=='load' else None 
 
 def array2hdf5 (
     filename: str, 

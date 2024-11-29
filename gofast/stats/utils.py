@@ -12,7 +12,7 @@ import pandas as pd
 
 from ..api.types import Optional, List, Union, Tuple, Callable, Any
 from ..api.types import DataFrame, ArrayLike
-from ..tools.coreutils import normalize_string, smart_format
+from ..core.utils import normalize_string, smart_format
 
 
 __all__=["fix_rm_anova_dataset" ]

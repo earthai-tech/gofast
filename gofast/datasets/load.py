@@ -20,21 +20,11 @@ import numpy as np
 import pandas as pd
 
 from ..api.structures import Boxspace
-from ..tools.baseutils import ( 
-    check_file_exists, 
-    fancier_downloader, 
-    update_df
-    )
-from ..tools.coreutils import (
-    assert_ratio,
-    convert_to_structured_format,
-    format_to_datetime,
-    is_in_if,
-    smart_format,
-    split_train_test_by_id,
-    to_numeric_dtypes,
-    validate_feature
-)
+from ..core.array_manager import to_numeric_dtypes, convert_to_structured_format 
+from ..core.array_manager import split_train_test_by_id 
+from ..core.checks import assert_ratio, is_in_if, validate_feature 
+from ..core.utils import smart_format, format_to_datetime, type_of_target
+from ..tools.baseutils import check_file_exists, fancier_downloader 
 from ..tools.ioutils import get_valid_key, key_checker
 from .io import DMODULE, RemoteDataURL, _to_dataframe, csv_data_loader
 from .io import DESCR, description_loader
@@ -2092,7 +2082,6 @@ def _get_target_classes(target, target_columns):
     type. Designed to distinguish between classification and regression
     tasks for appropriate model selection and preprocessing.
     """
-    from ..tools.coreutils import type_of_target
     try:
         target_type = type_of_target(target)
         unique_classes = np.unique(target)

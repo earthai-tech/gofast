@@ -15,10 +15,10 @@ import pandas as pd
 from pathlib import Path 
 from importlib import resources
 from collections import namedtuple
+
 from ..api.structures import Boxspace  
+from ..core.checks import random_state_validator, is_iterable, exist_features
 from ..tools.baseutils import is_readable 
-from ..tools.coreutils import random_state_validator, is_iterable
-from ..tools.coreutils import exist_features
 
 __all__=[
     'csv_data_loader',

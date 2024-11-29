@@ -17,22 +17,14 @@ import pandas as pd
 
 from .._gofastlog import gofastlog
 from ..api.property import BaseClass 
+from ..core.array_manager import to_numeric_dtypes
+from ..core.checks import exist_features 
+from ..core.utils import sanitize_frame_cols
 from ..decorators import executeWithFallback
-from ..tools.depsutils import ( 
-    is_module_installed, ensure_pkg
-    )
-from ..tools.baseutils import ( 
-    is_readable, select_features
-)
-from ..tools.coreutils import (
-    sanitize_frame_cols,
-    exist_features,
-    to_numeric_dtypes, 
-)
-from ..tools.validator import ( 
-    array_to_frame, 
-    check_array, 
-)
+from ..tools.depsutils import is_module_installed, ensure_pkg
+from ..tools.baseutils import is_readable, select_features
+from ..tools.validator import array_to_frame, check_array
+
 
 __all__ = ["Data", "Missing", "MergeableSeries", "MergeableFrames", "Frames"]
 

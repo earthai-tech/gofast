@@ -29,12 +29,12 @@ from sklearn.utils import resample
 from ..api.types import Optional, Tuple,  Union 
 from ..api.types import Dict, ArrayLike, DataFrame
 from ..api.property import BasePlot
-from .. compat.sklearn import validate_params, StrOptions, Interval 
-from ..decorators import isdf
-from ..tools.coreutils import ( 
+from ..core.checks import ( 
     _assert_all_types, is_iterable, str2columns, is_in_if, 
     exist_features  
 )
+from ..compat.sklearn import validate_params, StrOptions, Interval 
+from ..decorators import isdf
 from ..tools.validator import  assert_xy_in, build_data_if
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 

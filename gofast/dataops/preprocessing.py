@@ -22,6 +22,10 @@ from ..api.summary import ReportFactory
 from ..api.types import List, DataFrame, Optional, Series
 from ..api.types import Dict, Union, Tuple, ArrayLike
 from ..api.util import get_table_size 
+from ..core.array_manager import to_numeric_dtypes, reshape 
+from ..core.checks import is_iterable, assert_ratio, exist_features 
+from ..core.utils import format_to_datetime
+from ..tools.depsutils import ensure_pkg
 from ..decorators import ( 
     Dataify, 
     DynamicMethod, 
@@ -29,15 +33,6 @@ from ..decorators import (
     smartFitRun, 
 )
 from ..exceptions import NotFittedError
-from ..tools.coreutils import ( 
-    reshape, 
-    is_iterable, 
-    assert_ratio, 
-    exist_features, 
-    format_to_datetime, 
-    to_numeric_dtypes, 
-)
-from ..tools.depsutils import ensure_pkg
 from ..tools.validator import ( 
     parameter_validator, 
     check_consistent_length, 

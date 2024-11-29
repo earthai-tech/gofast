@@ -26,11 +26,14 @@ from .._gofastlog import gofastlog
 from ..api.types import _F, ArrayLike, NDArray, DataFrame 
 from ..api.property import BaseClass
 from ..compat.sklearn import validate_params, StrOptions
-from ..decorators import Deprecated, RunReturn, isdf 
-from .coreutils import ( 
-    _assert_all_types, _isin, _validate_name_in, assert_ratio,
-    is_iterable, sanitize_frame_cols, to_numeric_dtypes, 
+from ..decorators import Deprecated, RunReturn, isdf
+from ..core.array_manager import to_numeric_dtypes 
+from ..core.checks import ( 
+    _assert_all_types, _isin, _validate_name_in, 
+    is_iterable, assert_ratio
 )
+from ..core.io import is_data_readable 
+from ..core.utils import sanitize_frame_cols 
 from .validator import check_is_runned, is_frame, validate_positive_integer  
 
 logger = gofastlog().get_gofast_logger(__name__) 
@@ -295,13 +298,12 @@ class DataManager(BaseClass):
             shutil.copy2(file_path, target_path)
             logger.debug(f"Copied {file_path} to {target_path}")
           
-# --- function utilities -----
-
+@is_data_readable 
 def nan_to_na(
     data: DataFrame, 
-    cat_missing_value: Optional[Union[Any,  float]]=pd.NA, 
-    nan_spec:Optional[Union[Any, float]]=np.nan
-    ):
+    cat_missing_value: Optional[Union[Any,  float]] = pd.NA, 
+    nan_spec: Optional[Union[Any, float]] = np.nan,
+):
     """
     Converts specified NaN values in categorical columns of a pandas 
     DataFrame or Series to `pd.NA` or another specified missing value.
@@ -348,6 +350,11 @@ def nan_to_na(
     >>> import numpy as np
     >>> df = pd.DataFrame({'A': [1.0, 2.0, np.nan], 'B': ['x', np.nan, 'z']})
     >>> df['B'] = df['B'].astype('category')
+         A    B
+    0  1.0    x
+    1  2.0  NaN
+    2  NaN    z
+    
     >>> df = nan_to_na(df)
     >>> df
          A     B
@@ -370,10 +377,8 @@ def nan_to_na(
            357-362.
 
     """
-    if not isinstance (data, (pd.Series, pd.DataFrame)): 
-        raise ValueError("Input must be a pandas DataFrame or Series."
-                         f" Got {type(data).__name__!r} instead.")
-        
+    is_frame(data, raise_exception= True, objname ='data')
+
     def has_nan_values(series, nan_spec):
         """Check if nan_spec exists in the series."""
         return series.isin([nan_spec]).any()
@@ -381,7 +386,8 @@ def nan_to_na(
     if isinstance(data, pd.Series):
         if has_nan_values(data, nan_spec):
             if pd.api.types.is_categorical_dtype(data):
-                return data.replace({nan_spec: cat_missing_value})
+                data=data.astype(str)
+                return data.replace({str(nan_spec): cat_missing_value})
         return data
     
     elif isinstance(data, pd.DataFrame):
@@ -389,9 +395,10 @@ def nan_to_na(
         for column in df_copy.columns:
             if has_nan_values(df_copy[column], nan_spec):
                 if pd.api.types.is_categorical_dtype(df_copy[column]):
-                    df_copy[column] = df_copy[column].replace({nan_spec: cat_missing_value})
+                    df_copy[column]=df_copy[column].astype(str)
+                    df_copy[column] = df_copy[column].replace(
+                        {str(nan_spec): cat_missing_value})
         return df_copy
-
 
 def resample_data(
     *data: Any,
@@ -555,7 +562,7 @@ def _perform_sampling(d: Any, n_samples: int, replace: bool,
     
 
 def pair_data(
-    *d: Union[pd.DataFrame, List[pd.DataFrame]],
+    *data: Union[pd.DataFrame, List[pd.DataFrame]],
     on: Union[str, List[str]] = None,
     parse_on: bool = False,
     mode: str = 'strict',
@@ -570,7 +577,7 @@ def pair_data(
 
     Parameters
     ----------
-    d : List[Union[pd.DataFrame, List[pd.DataFrame]]]
+    data : List[Union[pd.DataFrame, List[pd.DataFrame]]]
         A variable-length argument of pandas DataFrames for merging.
         
     on : Union[str, List[str]], optional
@@ -666,7 +673,7 @@ def pair_data(
 
     # Filter only DataFrames if `mode` is set to 'soft'
     if str(mode).lower() == 'soft':
-        d = [df for df in d if isinstance(df, pd.DataFrame)]
+        d = [df for df in data if isinstance(df, pd.DataFrame)]
 
     # Ensure all provided data is DataFrame if `mode` is 'strict'
     is_dataframe = all(isinstance(df, pd.DataFrame) for df in d)
@@ -871,7 +878,6 @@ def random_sampling(
     d = d[indices] if d.ndim == 1 else d[indices, :]
 
     return d
-
 
 def read_from_excelsheets(erp_file: str) -> List[pd.DataFrame]:
     """
@@ -1332,7 +1338,7 @@ def random_selector(
     
     return arr
 
-
+@is_data_readable 
 def cleaner(
     data: Union[DataFrame, NDArray],
     columns: List[str] = None,
@@ -1490,7 +1496,7 @@ def cleaner(
     # Return as numpy array if original input was array-like
     return np.array(data) if objtype == 'array' else data
 
-
+@is_data_readable
 def data_extractor(
     data: pd.DataFrame,
     columns: Union[str, List[str]] = None,
@@ -2518,6 +2524,7 @@ def wide_to_long(
     return long_df
 
 @isdf 
+@is_data_readable
 def repeat_feature_accross(
     data: DataFrame,
     date_col: str = 'date',
@@ -2861,7 +2868,8 @@ def merge_datasets(
 
 @isdf 
 def swap_ic(
-    data, sort: bool = False, 
+    data, 
+    sort: bool = False, 
     ascending: bool = True, 
     inplace: bool = False, 
     reset_index: bool = False, 

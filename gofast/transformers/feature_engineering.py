@@ -31,11 +31,13 @@ from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 
 from .._gofastlog import gofastlog 
 from ..api.types import _F, Union, Optional
+from ..core.array_manager import to_numeric_dtypes 
+from ..core.checks import assert_ratio, validate_feature
+from ..core.checks import is_iterable, exist_features 
+from ..core.handlers import parse_attrs 
+from ..core.utils import ellipsis2false, type_of_target 
 from ..exceptions import EstimatorError, NotFittedError 
 from ..tools.baseutils import detect_categorical_columns 
-from ..tools.coreutils import  parse_attrs, assert_ratio, validate_feature
-from ..tools.coreutils import  ellipsis2false, to_numeric_dtypes, is_iterable
-from ..tools.coreutils import exist_features, type_of_target
 from ..tools.validator import  get_estimator_name, check_X_y, is_frame
 from ..tools.validator import _is_arraylike_1d, build_data_if, check_array 
 from ..tools.validator import check_is_fitted, check_consistent_length 

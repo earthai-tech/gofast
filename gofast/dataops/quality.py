@@ -20,11 +20,11 @@ from ..api.summary import ResultSummary, assemble_reports
 from ..api.types import Any, List, DataFrame, Optional, Series
 from ..api.types import Dict, Union, Tuple, ArrayLike, Callable
 from ..api.util import get_table_size , to_snake_case
+from ..core.utils import ellipsis2false, smart_format
+from ..core.checks import assert_ratio, validate_ratio 
 from ..decorators import isdf, Dataify
 from ..decorators import Extract1dArrayOrSeries 
 from ..tools.baseutils import reshape_to_dataframe
-from ..tools.coreutils import ellipsis2false, smart_format
-from ..tools.coreutils import assert_ratio, validate_ratio 
 from ..tools.validator import is_frame, parameter_validator, validate_numeric  
 from ..tools.validator import _is_numeric_dtype, filter_valid_kwargs
 

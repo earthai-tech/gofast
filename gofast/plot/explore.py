@@ -16,10 +16,7 @@ import numpy as np
 import  matplotlib.pyplot  as plt
 import matplotlib.ticker as mticker
 import pandas as pd 
-from pandas.plotting import ( 
-    radviz , 
-    parallel_coordinates
-    )
+from pandas.plotting import radviz , parallel_coordinates
 import seaborn as sns 
 
 from .._gofastlog import gofastlog 
@@ -39,20 +36,11 @@ from ..api.types import (
     DataFrame, 
     Series  
     )
-from ..exceptions import( 
-    PlotError, 
-    FeatureError, 
-    NotFittedError
-    )
+from ..core.array_manager import reshape
+from ..core.checks import  _assert_all_types , _isin, exist_features  
+from ..core.utils import shrunkformat, smart_format 
+from ..exceptions import  PlotError, FeatureError, NotFittedError
 from ..tools._dependency import import_optional_dependency 
-from ..tools.coreutils import ( 
-    _assert_all_types , 
-    _isin, 
-    smart_format,
-    reshape, 
-    shrunkformat,
-    exist_features  
-)
 from ..tools.baseutils import ( 
     is_readable, 
     select_features, 

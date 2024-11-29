@@ -26,11 +26,11 @@ from sklearn.utils.multiclass import type_of_target, unique_labels
 
 from ._gofastlog import gofastlog
 from .api.formatter import MetricFormatter
+from .core.utils import normalize_string
 from .tools.baseutils import (
     convert_array_dimensions, filter_nan_from, standardize_input
 )
 from .compat.sklearn import validate_params, Interval 
-from .tools.coreutils import normalize_string
 from .tools.mathext import (
     calculate_binary_iv, calculate_multiclass_avg_lr, calculate_multiclass_lr,
     compute_balance_accuracy, compute_sensitivity_specificity, 
@@ -306,8 +306,6 @@ def twa_score(
         score_per_label = numerator / denominator
         score = np.mean(score_per_label)
         return score
-
-
 
 def quantile_loss(y_true, y_pred, *, q=0.5, backend='numpy'):
     r"""
@@ -1117,7 +1115,13 @@ def percentage_bias(
         return np.mean(weighted_percentage_bias) * 100
     elif multioutput == 'raw_values':
         return weighted_percentage_bias * 100
-    
+
+#XXX TODO     
+# @doc ( 
+#       y_true = _shared_docs['y_true'], 
+#       y_pred = _shared_docs ['y_pred'], 
+      
+#   )
 def mean_squared_log_error(
     y_true, y_pred, *,  
     sample_weight=None, 
@@ -1139,14 +1143,15 @@ def mean_squared_log_error(
 
     Parameters
     ----------
-    y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
+    {y_true} : array-like of shape (n_samples,) or (n_samples, n_outputs)
         True target values. Must be non-negative.
-    y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
+    {y_pred}y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
         Predicted target values. Can contain any real numbers.
     sample_weight : array-like of shape (n_samples,), optional
         Individual weights for each sample.
     clip_value : float, optional
-        The value to clip `y_pred` values at minimum. This ensures that
+        The value to clip `y_pred` valu
+        es at minimum. This ensures that
         the logged values are not negative, by default 0.
     epsilon : float or "auto", optional
         A small value added to `y_pred` and `y_true` after clipping, to

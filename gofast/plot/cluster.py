@@ -30,7 +30,8 @@ from sklearn.metrics import silhouette_samples
   
 from ..api.types import NDArray, ArrayLike, DataFrame 
 from ..api.types import List, Tuple, Optional
-from ..tools.coreutils import is_iterable, to_numeric_dtypes 
+from ..core.array_manager import to_numeric_dtypes 
+from ..core.checks import is_iterable 
 from ..tools.mathext import linkage_matrix 
 from ..tools.validator import check_X_y, check_array, check_y 
 from ..tools.validator import validate_positive_integer, is_frame

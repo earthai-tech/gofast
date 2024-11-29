@@ -79,8 +79,7 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 
 # Setup logging configuration
-from .util import initialize_logging
-
+from .util import initialize_logging 
 initialize_logging()
 
 # Public API flag
@@ -92,7 +91,9 @@ def check_public_api():
     if config._set_public:
         from . import _public  # noqa
         from .assistance import assist_me, explore 
-        __all__.extend(["assist_me", "explore"])
+        from .core.io import read_data 
+        
+        __all__.extend(["assist_me", "explore", "read_data"])
         globals().update({"assist_me": assist_me, "explore": explore})
         # print("Public API has been enabled.")
         warnings.warn("Public API has been enabled.", UserWarning)
