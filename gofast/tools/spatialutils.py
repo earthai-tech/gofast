@@ -43,11 +43,9 @@ from ..core.checks import (
     is_iterable,
     str2columns, 
     exist_features, 
-    smart_format, 
     assert_ratio 
-    
     )
-from ..core.utils import ellipsis2false 
+from ..core.utils import ellipsis2false, smart_format 
 from ..decorators import isdf, AppendDocReferences
 
 from .validator import ( 
