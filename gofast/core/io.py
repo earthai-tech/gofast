@@ -634,7 +634,7 @@ def is_data_readable(func=None, *, data_to_read=None, params=None):
 
     @wraps(func)
     def wrapper(*args, **kwargs):
-        from gofast.dataops.management import read_data
+        
         # Check if the specified data (either through keyword or positional)
         # should be read
         data = kwargs.get(data_to_read, None) if data_to_read else None

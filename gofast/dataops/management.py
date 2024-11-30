@@ -18,8 +18,9 @@ from tqdm import tqdm
 from ..api.types import Any,  List,  DataFrame, Optional, Dict, Union
 from ..api.types import BeautifulSoupTag , Tuple, ArrayLike, Callable
 from ..api.util import get_table_size 
+from ..core.io import EnsureFileExists 
 from ..core.utils import ellipsis2false 
-from ..decorators import Deprecated, Dataify, EnsureFileExists 
+from ..decorators import Deprecated, Dataify
 from ..tools.depsutils import ensure_pkg
 from ..tools.validator import parameter_validator  
 

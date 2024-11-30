@@ -90,58 +90,72 @@ _shared_docs[
 _shared_docs[
     "y_true"
 ] = """y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
-    True labels or binary label indicators for the classification problem.
-
-    The `y_true` parameter represents the ground truth values. It can be either:
-    - A 1D array for binary classification or single-label classification, 
-      where each element represents the true class label for a sample.
-    - A 2D array for multilabel classification, where each row corresponds to 
-      the true labels for a sample in a multi-output problem.
-
-    Example:
-    1. **Binary classification (1D array)**:
+        True labels or binary label indicators for the regression or 
+        classification problem.
     
-    >>> y_true = [0, 1, 0, 1]
-    >>> print(y_true)
-    [0, 1, 0, 1]
+        The `y_true` parameter represents the ground truth values. It can be either:
+        - A 1D array for binary classification or single-label classification, 
+          where each element represents the true class label for a sample.
+        - A 2D array for multilabel classification, where each row corresponds to 
+          the true labels for a sample in a multi-output problem.
 
-    2. **Multilabel classification (2D array)**:
+        Example:
+        1. ** Regression problem 
+        
+        >>> y_true = [1.20, 0.62, 0.78, 0.02]
+        >>> print(y_true)
+        [1.20, 0.62, 0.78, 0.02]
+        
+        2. **Binary classification (1D array)**:
     
-    >>> y_true = [[0, 1], [1, 0], [0, 1], [1, 0]]
-    >>> print(y_true)
-    [[0, 1], [1, 0], [0, 1], [1, 0]]
+        >>> y_true = [0, 1, 0, 1]
+        >>> print(y_true)
+        [0, 1, 0, 1]
+
+        3. **Multilabel classification (2D array)**:
+    
+        >>> y_true = [[0, 1], [1, 0], [0, 1], [1, 0]]
+        >>> print(y_true)
+        [[0, 1], [1, 0], [0, 1], [1, 0]]
 """
 
 _shared_docs[
     "y_pred"
 ] = """y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
-    Predicted labels or probabilities, as returned by a classifier.
-
-    The `y_pred` parameter contains the predictions made by a classifier. It can be:
-    - Predicted class labels (in the case of classification).
-    - Probabilities representing the likelihood that each sample belongs 
-      to each class. If probabilities are provided, a threshold can be used 
-      to convert these into binary labels (e.g., class 1 if the probability 
-      exceeds the threshold, otherwise class 0).
-
-    Example:
-    1. **Predicted class labels for binary classification (1D array)**:
+        Predicted labels or probabilities, as returned by a classifier.
+        
+        The `y_pred` parameter contains the predictions made by a classifier. 
+        It can be:
+        - Predicted class labels (in the case of classification).
+        - Probabilities representing the likelihood that each sample belongs 
+        to each class. If probabilities are provided, a threshold can be used 
+        to convert these into binary labels (e.g., class 1 if the probability 
+        exceeds the threshold, otherwise class 0).
+        
+        Example:
+        1. **Predicted regression labels 
+        
+        >>> y_pred = [1.21, 0.60, 0.76, 0.50]
+        >>> print(y_pred)
+        [1.21, 0.60, 0.76, 0.50]
+        
+        1. **Predicted class labels for binary classification (1D array)**:
+       
+        >>> y_pred = [0, 1, 0, 1]
+        >>> print(y_pred)
+        [0, 1, 0, 1]
+        
+        2. **Predicted probabilities for binary classification (1D array)**:
+       
+        >>> y_pred = [0.1, 0.9, 0.2, 0.7]
+        >>> print(y_pred)
+        [0.1, 0.9, 0.2, 0.7]
     
-    >>> y_pred = [0, 1, 0, 1]
-    >>> print(y_pred)
-    [0, 1, 0, 1]
-
-    2. **Predicted probabilities for binary classification (1D array)**:
-    
-    >>> y_pred = [0.1, 0.9, 0.2, 0.7]
-    >>> print(y_pred)
-    [0.1, 0.9, 0.2, 0.7]
-    
-    3. **Predicted class labels for multilabel classification (2D array)**:
-    
-    >>> y_pred = [[0.1, 0.9], [0.8, 0.2], [0.2, 0.8], [0.7, 0.3]]
-    >>> print(y_pred)
-    [[0.1, 0.9], [0.8, 0.2], [0.2, 0.8], [0.7, 0.3]]
+        3. **Predicted class labels for multilabel classification (2D array)**:
+        
+        >>> y_pred = [[0.1, 0.9], [0.8, 0.2], [0.2, 0.8], [0.7, 0.3]]
+        >>> print(y_pred)
+        [[0.1, 0.9], [0.8, 0.2], [0.2, 0.8], [0.7, 0.3]]
 """
 
 _shared_docs[
@@ -371,3 +385,44 @@ _shared_docs[
     >>> nan_policy = 'propagate'  # Let NaNs propagate; if any NaN is 
     >>> nan_policy = 'raise'  # Raise an error if NaNs are found in the 
 """
+
+def filter_docs(keys, input_dict=None):
+    """
+    Filters a dictionary to include only the key-value pairs where 
+    the key is present in the specified list of keys. By default, 
+    filters from the global `_shared_docs` dictionary.
+
+    Parameters
+    ----------
+    keys : list of str
+        A list of keys to keep in the resulting filtered dictionary.
+
+    input_dict : dict, optional, default=_shared_docs
+        The dictionary to be filtered. If not provided, uses the global 
+        `_shared_docs` dictionary.
+
+    Returns
+    -------
+    dict
+        A new dictionary containing only the key-value pairs where the 
+        key is present in the specified `keys` list.
+
+    Examples
+    --------
+    >>> _shared_docs = {
+    >>>     'y_true': [1, 2, 3],
+    >>>     'y_pred': [1, 2, 3],
+    >>>     'y_t': [1, 2, 3]
+    >>> }
+    >>> filtered_dict = filter_dict_by_keys(['y_true', 'y_pred'])
+    >>> print(filtered_dict)
+    {'y_true': [1, 2, 3], 'y_pred': [1, 2, 3]}
+
+    Notes
+    -----
+    This function returns a new dictionary with only the specified keys
+    and their corresponding values. If a key is not found in the original 
+    dictionary, it is ignored.
+    """
+    input_dict = input_dict or _shared_docs  # Default to _shared_docs if None
+    return dict(filter(lambda item: item[0] in keys, input_dict.items()))

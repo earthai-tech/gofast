@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 
 from ..api.types import (
     Any, Callable, Union,Tuple, Optional, Iterable, 
-    _Sub, _F, ArrayLike, List, DataFrame
+    _Sub, _F, List, DataFrame
 )
 from ..compat.scipy import check_scipy_interpolate
 from .checks import _assert_all_types, is_iterable
@@ -1530,26 +1530,6 @@ def fr_en_parser (f, delimiter =':'):
             fr, en = row.strip().split(delimiter)
             yield([fr, en])
 
-
-def _isin (
-        arr: Union [ArrayLike, List [float]] ,
-        subarr:Union[ _Sub [ArrayLike] , _Sub[List[float]] ,float], 
-        return_mask:bool=False, 
-) -> bool : 
-    """ Check whether the subset array `subcz` is in  `cz` array. 
-    
-    :param arr: Array-like - Array of item elements 
-    :param subarr: Array-like, float - Subset array containing a subset items.
-    :param return_mask: bool, return the mask where the element is in `arr`.
-    
-    :return: True if items in  test array `subarr` are in array `arr`. 
-    
-    """
-    arr = np.array (arr );  subarr = np.array(subarr )
-
-    return (True if True in np.isin (arr, subarr) else False
-            ) if not return_mask else np.isin (arr, subarr) 
-
 def drawn_boundaries(erp_data, appRes, index):
     """
     Function to drawn anomaly boundary 
@@ -2021,61 +2001,6 @@ def convert_value_in (v, unit ='m'):
     
     return float ( v) * (c.get(unit) or 1e0) 
 
-def _validate_name_in (name, defaults = '', expect_name= None, 
-                         exception = None , deep=False ): 
-    """ Assert name in multiples given default names. 
-    
-    Parameters 
-    -----------
-    name: str, 
-      given name to assert 
-    default: list, str, default =''
-      default values used for assertion 
-    expect_name: str, optional 
-      name to return in case assertion is verified ( as ``True``)
-    deep: bool, default=False 
-      Find item in a litteral default string. If set  to ``True``, 
-      `defaults` are joined and check whether an occurence of `name` is in the 
-      defaults 
-      
-    exception: Exception 
-      Error to raise if name is not found in the default values. 
-      
-    Returns
-    -------
-    name: str, 
-      Verified name or boolean if expect name if ``None``. 
-      
-    Examples 
-    -------
-    >>> from gofast.core.utils import _validate_name_in 
-    >>> dnames = ('NAME', 'FIST NAME', 'SUrname')
-    >>> _validate_name_in ('name', defaults=dnames )
-    False 
-    >>> _validate_name_in ('name', defaults= dnames, deep =True )
-    True
-    >>> _validate_name_in ('name', defaults=dnames , expect_name ='NAM')
-    False 
-    >>> _validate_name_in ('name', defaults=dnames , expect_name ='NAM', deep=True)
-    'NAM'
-    """
-    
-    name = str(name).lower().strip() 
-    defaults = is_iterable(defaults, 
-            exclude_string= True, parse_string= True, transform=True )
-    if deep : 
-        defaults = ''.join([ str(i) for i in defaults] ) 
-        
-    # if name in defaults: 
-    name = ( True if expect_name is None  else expect_name 
-            ) if name in defaults else False 
-    
-    #name = True if name in defaults else ( expect_name if expect_name else False )
-    
-    if not name and exception: 
-        raise exception 
-        
-    return name 
 
 def get_confidence_ratio (
     ar, 

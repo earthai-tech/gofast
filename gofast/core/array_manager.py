@@ -14,7 +14,6 @@ import copy
 import hashlib
 import itertools
 import warnings 
-import scipy.sparse as ssp 
 
 import numpy as np
 import pandas as pd
@@ -27,7 +26,7 @@ from .utils import (
     is_iterable, _assert_all_types, ellipsis2false, 
     sanitize_frame_cols, listing_items_format,  
     )
-from .checks import assert_ratio, is_in_if, str2columns  
+from .checks import assert_ratio, is_in_if, str2columns, is_numeric_dtype  
 
 __all__ = [ 
     'convert_to_structured_format',
@@ -42,9 +41,7 @@ __all__ = [
     'process_and_extract_data',
     'to_series_if',
     'test_set_check_id',
-    'decode_sparse_data', 
-    'is_sparse_matrix', 
-    'has_sparse_format', 
+    'decode_sparse_data',  
     'map_specific_columns'
     ]
 
@@ -173,176 +170,6 @@ def decode_sparse_data(sparse_data: pd.Series) -> pd.DataFrame:
     df = pd.DataFrame(dense_array)
     
     return df
-
-def is_sparse_matrix(
-    data: pd.Series, 
-    threshold: float = 0.9, 
-    verbose=False
-    ) -> bool:
-    """
-    Checks if the data is a sparse matrix, either as a scipy sparse matrix 
-    or a pandas Series containing string-encoded sparse matrix data.
-    
-    This function identifies sparse data structures, considering both 
-    actual scipy sparse matrix types and string-encoded representations 
-    of sparse matrices, such as those commonly found in pandas Series.
-    
-    Parameters
-    ----------
-    data : object
-        The data to check. This can be a scipy sparse matrix or a pandas 
-        Series containing string-encoded sparse matrix data.
-    
-    threshold : float, optional, default 0.9
-        The minimum proportion of entries that must match the sparse 
-        pattern (i.e., be non-zero) for the data to be considered sparse. 
-        This value should lie between 0 and 1.
-    
-    verbose : bool, optional, default False
-        If set to True, the function will print the sparsity ratio for a 
-        scipy sparse matrix and the proportion of matching entries for a 
-        pandas Series. This is useful for debugging or monitoring the 
-        function’s behavior.
-    
-    Returns
-    -------
-    bool
-        True if the data is a sparse matrix (either scipy sparse matrix or 
-        string-encoded sparse matrix), False otherwise.
-    
-    Notes
-    -----
-    - The function first checks if the data is a scipy sparse matrix 
-      (e.g., `csr_matrix`, `coo_matrix`).
-    - If the data is a pandas Series, it assumes the Series may contain 
-      string-encoded sparse matrix data and checks if each entry in the 
-      Series follows the expected sparse format.
-    - The `threshold` determines how many non-zero elements (or matching 
-      string-encoded sparse entries) are required to consider the data sparse.
-    
-    Examples
-    --------
-    1. Check if a scipy sparse matrix is sparse:
-    
-       ```python
-       sparse_matrix = sp.csr_matrix([[0, 0, 1], [0, 2, 0], [0, 0, 3]])
-       result = is_sparse_matrix(sparse_matrix)
-       print(result)  # Expected: True (based on sparsity ratio)
-       ```
-
-    2. Check if a pandas Series with string-encoded sparse matrix data is sparse:
-    
-       ```python
-       sparse_series = pd.Series([
-           "(0, 0)\t1.0\n(1, 1)\t2.0\n(2, 2)\t3.0",
-           "(0, 1)\t1.5\n(1, 0)\t1.0\n(2, 1)\t2.5"
-       ])
-       result = is_sparse_matrix(sparse_series)
-       print(result)  # Expected: True or False (based on threshold)
-       ```
-
-    References
-    ----------
-    - SciPy Sparse Matrices Documentation:
-      https://docs.scipy.org/doc/scipy/reference/sparse.html
-    - pandas Series Documentation:
-      https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.html
-    """
-    if isinstance ( data, pd.DataFrame) :
-        data = data.squeeze () 
-        
-    # Check if the data is a scipy sparse matrix
-    if isinstance(data, ssp.spmatrix):
-        # Number of non-zero elements in the sparse matrix
-        non_zero_elements = data.nnz
-        
-        # Total number of elements in the matrix (rows * columns)
-        total_elements = data.shape[0] * data.shape[1]
-        
-        # Calculate the sparsity ratio (non-zero elements / total elements)
-        sparsity_ratio = non_zero_elements / total_elements
-        
-        # Print the sparsity ratio if verbose flag is True
-        if verbose:
-            print(f"Sparsity ratio: {sparsity_ratio:.2f}")
-        
-        # If the sparsity ratio meets the threshold, return True (sparse)
-        return sparsity_ratio >= threshold
-    
-    # Check if the data is a pandas Series
-    if isinstance(data, pd.Series):
-        # Check if each entry in the Series follows the expected sparse format
-        matches = data.apply(has_sparse_format)
-        
-        # Calculate the proportion of entries that match the sparse format
-        proportion = matches.mean()
-        
-        # Print the proportion of matching entries if verbose flag is True
-        if verbose:
-            print(f"Proportion of matching entries: {proportion:.2f}")
-        
-        # If the proportion of matching entries
-        # meets the threshold, return True (sparse)
-        return proportion >= threshold
-    
-    # If data is neither a scipy sparse matrix
-    # nor a string-encoded pandas Series
-    if verbose:
-        print("Data is neither a scipy sparse matrix"
-              " nor a string-encoded pandas Series.")
-    
-    return False
-
-def has_sparse_format(s):
-    """
-    Checks if a string follows the expected sparse matrix format for entries
-    (i.e., coordinate-value pairs like (i, j)\tvalue).
-    
-    This function uses a regular expression to identify if a given string 
-    represents a sparse matrix entry with coordinate-value pairs. This is 
-    particularly useful when checking if the entries in a pandas Series 
-    follow the sparse matrix format.
-    
-    Parameters
-    ----------
-    s : str
-        A string entry to check. This should contain coordinates and values 
-        separated by tabs, e.g., "(i, j)\tvalue".
-    
-    Returns
-    -------
-    bool
-        True if the string follows the sparse matrix format, False otherwise.
-    
-    Examples
-    --------
-    1. Check if a string represents a sparse matrix entry:
-    
-       ```python
-       entry = "(0, 0)\t1.0"
-       result = has_sparse_format(entry)
-       print(result)  # Expected: True
-       ```
-    """
-    # Regex pattern for the expected sparse format: (i, j)\tvalue
-    pattern = re.compile(r'\(\d+, \d+\)\t-?\d+(\.\d+)?')
-    
-    if isinstance(s, (ssp.coo_matrix, ssp.csr_matrix, ssp.csc_matrix)):
-        return True 
-    
-    # Return False if s is not a string
-    if not isinstance(s, str):
-        return False
-    
-    # Split the string into individual entries
-    entries = s.split()
-    
-    # Check if each entry matches the sparse matrix format
-    for entry in entries:
-        if not pattern.match(entry):
-            return False
-    
-    return True
 
 def process_and_extract_data(
     *args: ArrayLike, 
@@ -1068,7 +895,6 @@ def to_numeric_dtypes(
         dtype: object
     """
 
-    from .validator import _is_numeric_dtype
     # pass ellipsis argument to False 
     ( sanitize_columns, reset_index, 
      verbose,return_feature_types, 
@@ -1096,7 +922,7 @@ def to_numeric_dtypes(
     # sanitize columns 
     if sanitize_columns: 
         # Pass in the case columns are all integer values. 
-        if not _is_numeric_dtype(df.columns , to_array=True): 
+        if not is_numeric_dtype(df.columns , to_array=True): 
            # for consistency reconvert to str 
            df.columns = df.columns.astype(str) 
            df = sanitize_frame_cols(
@@ -1133,7 +959,7 @@ def to_numeric_dtypes(
     # collect numeric and non-numeric data 
     nf, cf =[], []    
     for serie in df.columns: 
-        if _is_numeric_dtype(df[serie], to_array =True ): 
+        if is_numeric_dtype(df[serie], to_array =True ): 
             nf.append(serie)
         else: cf.append(serie)
 

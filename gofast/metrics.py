@@ -25,12 +25,14 @@ from sklearn.preprocessing import label_binarize
 from sklearn.utils.multiclass import type_of_target, unique_labels
 
 from ._gofastlog import gofastlog
+from .api.shared_docs import filter_docs 
 from .api.formatter import MetricFormatter
+from .decorators import Substitution 
 from .core.utils import normalize_string
 from .tools.baseutils import (
     convert_array_dimensions, filter_nan_from, standardize_input
 )
-from .compat.sklearn import validate_params, Interval 
+from .compat.sklearn import validate_params, Interval, StrOptions 
 from .tools.mathext import (
     calculate_binary_iv, calculate_multiclass_avg_lr, calculate_multiclass_lr,
     compute_balance_accuracy, compute_sensitivity_specificity, 
@@ -307,7 +309,21 @@ def twa_score(
         score = np.mean(score_per_label)
         return score
 
-def quantile_loss(y_true, y_pred, *, q=0.5, backend='numpy'):
+# XXX 
+
+@Substitution(**filter_docs(['y_true', 'y_pred']))
+@validate_params({ 
+    "y_pred": ['array-like'], 
+    "y_true": ['array-like'], 
+    "q": [Interval(Real, 0, 1, closed='neither')], 
+    "backend":[StrOptions({"numpy", "np", 'tensorflow', 'tf', 'keras'})], 
+    }
+  )
+def quantile_loss(
+    y_true, 
+    y_pred, *, 
+    q=0.5, backend='numpy'
+    ):
     r"""
     Compute the quantile loss between `y_true` and `y_pred` at quantile `q`.
 
@@ -325,16 +341,17 @@ def quantile_loss(y_true, y_pred, *, q=0.5, backend='numpy'):
     - :math:`\hat{y}_i` is the predicted value,
     - :math:`q` is the quantile level (0 < q < 1),
     - :math:`\mathbf{1}_{(\cdot)}` is the indicator function.
-
-    Parameters
-    ----------
-    y_true : array-like or tensor
-        Ground truth (correct) target values. Shape: (n_samples,) or (n_samples,).
-    y_pred : array-like or tensor
-        Estimated target values. Shape: (n_samples,) or (n_samples,).
+    
+    Parameters 
+    -----------
+    %(y_true)s
+    
+    %(y_pred)s
+ 
     q : float, optional
         The quantile to be evaluated, must be between 0 and 1.
         Default is 0.5 (median quantile).
+        
     backend : str, optional
         The backend to use for computation. Can be either 'numpy' or
         'tensorflow'. Acceptable aliases are 'np' for NumPy and 'tf'
@@ -1116,12 +1133,7 @@ def percentage_bias(
     elif multioutput == 'raw_values':
         return weighted_percentage_bias * 100
 
-#XXX TODO     
-# @doc ( 
-#       y_true = _shared_docs['y_true'], 
-#       y_pred = _shared_docs ['y_pred'], 
-      
-#   )
+
 def mean_squared_log_error(
     y_true, y_pred, *,  
     sample_weight=None, 

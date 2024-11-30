@@ -45,6 +45,7 @@ from ..core.checks import (
     exist_features, 
     assert_ratio 
     )
+from ..core.io import is_data_readable 
 from ..core.utils import ellipsis2false, smart_format 
 from ..decorators import isdf, AppendDocReferences
 
@@ -86,6 +87,7 @@ __all__ = [
 
 
 @isdf
+@is_data_readable 
 def resample_spatial_data(
     data,
     sample_size=0.01,

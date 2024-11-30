@@ -29,7 +29,7 @@ from ..compat.sklearn import validate_params, StrOptions
 from ..decorators import Deprecated, RunReturn, isdf
 from ..core.array_manager import to_numeric_dtypes 
 from ..core.checks import ( 
-    _assert_all_types, _isin, _validate_name_in, 
+    _assert_all_types, validate_name_in, is_in,  
     is_iterable, assert_ratio
 )
 from ..core.io import is_data_readable 
@@ -1329,7 +1329,7 @@ def random_selector(
     arr = arr.ravel() if arr.ndim != 1 else arr
         
     # Select specified elements in `value`
-    mask = _isin(arr, value, return_mask=True)
+    mask = is_in(arr, value, return_mask=True)
     arr = arr[mask]
     
     # Shuffle the array if specified
@@ -1458,7 +1458,7 @@ def cleaner(
     pd.DataFrame.drop : Removes specified labels from rows or columns.
     """
     # Validate and set mode operation.
-    mode = _validate_name_in(
+    mode = validate_name_in(
         mode, defaults=("drop", 'clean'), expect_name='drop'
     )
     

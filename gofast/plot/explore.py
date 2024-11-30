@@ -37,7 +37,7 @@ from ..api.types import (
     Series  
     )
 from ..core.array_manager import reshape
-from ..core.checks import  _assert_all_types , _isin, exist_features  
+from ..core.checks import  _assert_all_types , is_in, exist_features  
 from ..core.utils import shrunkformat, smart_format 
 from ..exceptions import  PlotError, FeatureError, NotFittedError
 from ..tools._dependency import import_optional_dependency 
@@ -1021,7 +1021,7 @@ class QuestPlotter(BasePlot):
             if self.y_ is None: 
                 raise ValueError ("target name is missing. Specify the `target_name`"
                                   f" and refit {self.__class__.__name__!r} ")
-            if not _isin(self.y_, c ): 
+            if not is_in(self.y_, c ): 
                 raise ValueError (f"c-value should be a class label, got '{c}'"
                                   )
             mask = self.y_ == c 

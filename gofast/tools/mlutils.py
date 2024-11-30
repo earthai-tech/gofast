@@ -36,11 +36,13 @@ from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import (
     OneHotEncoder, RobustScaler, OrdinalEncoder, StandardScaler,
-    MinMaxScaler, LabelBinarizer, LabelEncoder, Normalizer, PolynomialFeatures
+    MinMaxScaler, LabelBinarizer, LabelEncoder, Normalizer,
+    PolynomialFeatures
 )
 from sklearn.utils import resample
 
 from .._gofastlog import gofastlog
+from ..api.docstring import DocstringComponents, _core_docs 
 from ..api.types import List, Tuple, Any, Dict, Optional, Union, Series
 from ..api.types import _F, ArrayLike, NDArray, DataFrame, Callable
 from ..api.formatter import MetricFormatter
@@ -55,13 +57,10 @@ from ..core.checks import (
     validate_feature, exist_features,  str2columns 
 )
 from ..core.handlers import get_valid_kwargs 
+from ..core.io import EnsureFileExists, is_data_readable
 from ..core.utils import smart_format, ellipsis2false, contains_delimiter 
 from ..exceptions import DependencyError
-from ..decorators import ( 
-    SmartProcessor, Dataify,
-    EnsureFileExists, 
-    is_data_readable
-    )
+from ..decorators import SmartProcessor, Dataify
 from .baseutils import select_features
 from .depsutils import ensure_pkg
 from .validator import (
@@ -71,15 +70,18 @@ from .validator import (
     validate_numeric 
 )
 
-
 # Logger Configuration
 _logger = gofastlog().get_gofast_logger(__name__)
+# Parametrize the documentation 
+_param_docs = DocstringComponents.from_nested_components(
+    core=_core_docs["params"],
+)
 
 __all__ = [
     'bi_selector',
     'bin_counting',
     'build_data_preprocessor',
-    'compute_smart_batch_size', 
+    'compute_batch_size', 
     'discretize_categories',
     'display_feature_contributions',
     'dynamic_batch_size', 
@@ -377,7 +379,7 @@ def get_batch_size(
                 )
                 heuristic_batch_size = max(1, dataset_size // 4)
             else:
-                heuristic_batch_size = compute_smart_batch_size(
+                heuristic_batch_size = compute_batch_size(
                     dataset_size, num_features, max_batch_size)
 
             if verbose:
@@ -655,7 +657,7 @@ def get_tf_dataset_size(tf_dataset):
     except Exception:
         raise ValueError("Unable to determine TensorFlow dataset size.")
 
-def compute_smart_batch_size( 
+def compute_batch_size( 
         dataset_size=None, num_features=None, data=None, max_batch_size=512):
     """
     Compute a smart batch size based on dataset size and number of features.
@@ -690,7 +692,7 @@ def compute_smart_batch_size(
     
     Examples
     --------
-    >>> from gofast.tools.mlutils import compute_smart_batch_size
+    >>> from gofast.tools.mlutils import compute_batch_size
     >>> batch_size = compute_smart_batch_size(1000, 50, 512)
     >>> print(batch_size)
     32
@@ -1292,7 +1294,8 @@ def soft_encoder(
         return (pd.get_dummies(df, columns=columns), mapresult
                 ) if return_cat_codes else pd.get_dummies(df, columns=columns)
 
-    # Automatically select numeric and categorical columns if not manually specified
+    # Automatically select numeric and categorical columns
+    # if not manually specified
     num_columns, cat_columns = bi_selector(df)
 
     # Apply provided function to categorical columns if func is given
@@ -1972,6 +1975,18 @@ def laplace_smoothing(
     else:
         return np.column_stack(smoothed_probs_list)
 
+
+@validate_params ({
+    'model': [HasMethods (['fit', 'predict']), None], 
+    'X': ['array-like', None], 
+    'Xt':['array-like', None], 
+    'y': ['array-like', None], 
+    'yt':['array-like', None], 
+    'y_pred':['array-like', None], 
+    'scorer': [ str, callable ], 
+    'eval': [bool] 
+    }
+ )
 def evaluate_model(
     model: Optional[_F] = None,
     X: Optional[Union[NDArray, DataFrame]] = None,
@@ -1979,35 +1994,49 @@ def evaluate_model(
     y: Optional[Union[NDArray, Series]] = None, 
     yt: Optional[Union[NDArray, Series]] = None,
     y_pred: Optional[Union[NDArray, Series]] = None,
-    scorer: Union[str, _F] = 'accuracy_score',
+    scoring: Union[str, _F] = 'accuracy_score',
     eval: bool = False,
     **kws: Any
 ) -> Union[Tuple[Optional[Union[NDArray, Series]], Optional[float]],
            Optional[Union[NDArray, Series]]]:
     """
-    Evaluates a predictive model's performance or the effectiveness of predictions 
-    using a specified scoring metric.
+    Evaluates a predictive model's performance or the effectiveness of 
+    predictions using a specified scoring metric.
 
     Parameters
     ----------
-    model : Callable, optional
-        A machine learning model that implements fit and predict methods.
-        Required if `y_pred` is not provided.
-    X : np.ndarray or pd.DataFrame, optional
-        Training data features. Required if `model` is provided and `y_pred` is None.
-    Xt : np.ndarray or pd.DataFrame, optional
-        Test data features. Required if `model` is provided and `y_pred` is None.
-    y : np.ndarray or pd.Series, optional
-        Training data labels. Required if `model` is provided and `y_pred` is None.
-    yt : np.ndarray or pd.Series, optional
-        Test data labels. Required if `eval` is True.
-    y_pred : np.ndarray or pd.Series, optional
-        Predictions for test data. Required if `model` is None.
-    scorer : str or Callable, default='accuracy'
-        The scoring metric name or a scorer callable object/function with signature 
-        scorer(y_true, y_pred, **kws). 
-    eval : bool, default=False
-        If True, performs evaluation using `scorer` on `yt` and `y_pred`.
+    {params.core.model} 
+    {params.core.X}
+    {params.core.Xt}
+    {params.core.y} 
+    {params.core.yt}
+
+    y_pred : array-like, optional
+        The predicted labels or values generated by the model, or provided 
+        directly as input. This can be a one-dimensional array or series of 
+        predicted values for classification or regression tasks. If not provided, 
+        the model's predictions will be computed using the `model.predict` method. 
+
+        If `eval=True`, `y_pred` is compared against the true labels (`yt`) using 
+        the specified scoring metric (e.g., accuracy, precision, etc.).
+
+        Note that if `y_pred` is provided directly, the `model`'s `fit` and `
+        predict` methods will not be called. This is useful when you want to 
+        evaluate pre-computed predictions, such as when predictions are already 
+        available from another process or dataset.
+
+    {params.core.scoring}
+    
+    eval : bool, optional, default=False
+        If True, the function will evaluate the model's predictions (`y_pred`) 
+        against the true labels (`yt`) using the specified scoring function 
+        (`scorer`). The score, computed by the `scorer`, is returned along
+        with the predictions.
+        
+        If False, only the predictions are returned without evaluation. 
+        This is useful when you want to obtain the model's predictions without
+        performing any evaluation or scoring.
+
     **kws : Any
         Additional keyword arguments to pass to the scoring function.
 
@@ -2016,7 +2045,8 @@ def evaluate_model(
     predictions : np.ndarray or pd.Series
         The predicted labels or probabilities.
     score : float, optional
-        The score of the predictions based on `scorer`. Only returned if `eval` is True.
+        The score of the predictions based on `scorer`. Only returned if 
+        `eval` is True.
 
     Raises
     ------
@@ -2027,6 +2057,7 @@ def evaluate_model(
 
     Examples
     --------
+    >>> import numpy as np 
     >>> from sklearn.datasets import load_iris
     >>> from sklearn.model_selection import train_test_split
     >>> from sklearn.linear_model import LogisticRegression
@@ -2035,15 +2066,42 @@ def evaluate_model(
     >>> X, y = iris.data, iris.target
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
     >>> model = LogisticRegression()
+    
+    # Case 1: Model predicts y_pred using model.fit and model.predict
     >>> y_pred, score = evaluate_model(model=model, X=X_train, Xt=X_test,
     ...                                y=y_train, yt=y_test, eval=True)
-    >>> print(f'Score: {score:.2f}')
+    >>> print(f'Score: {{score:.2f}}')
+
+    # Case 2: Provide y_pred directly (e.g., pre-computed predictions)
+    >>> y_pred = np.array([0, 1, 2, 2, 0])  # Pre-computed predictions
+    >>> y_test_2 = y_test [: len(y_pred)]
+    >>> y_pred, score = evaluate_model(y_pred=y_pred, yt=y_test_2,
+                                       scoring='accuracy',
+    ...                                eval=True)
+    >>> print(f'Accuracy: {{score:.2f}}')
+    
+    >>> y_pred, score = evaluate_model(model=model, X=X_train, Xt=X_test,
+    ...                                y=y_train, yt=y_test, eval=True)
+    >>> print(f'Score: {{score:.2f}}')
     
     >>> # Providing predictions directly
-    >>> y_pred, _ = evaluate_model(y_pred=y_pred, yt=y_test, scorer='accuracy',
+    >>> y_pred, _ = evaluate_model(y_pred=y_pred, yt=y_test, 
+                                   scoring='accuracy',
     ...                            eval=True)
-    >>> print(f'Accuracy: {score:.2f}')
-    """
+    >>> print(f'Accuracy: {{score:.2f}}')
+    
+    # Case 3: Perform evaluation using the specified scorer
+    >>> y_pred, score = evaluate_model(model=model, X=X_train, Xt=X_test,
+    ...                                y=y_train, yt=y_test, eval=True)
+    >>> print(f'Score: {{score:.2f}}')
+
+    # Case 4: Get predictions without evaluation
+    >>> y_pred = evaluate_model(model=model, X=X_train, Xt=X_test,
+    ...                         y=y_train, eval=False)
+    >>> print(f'Predictions: {{y_pred}}')
+    
+    """.format (params= _param_docs )
+    
     from ..metrics import fetch_scorers
     
     if y_pred is None:
@@ -2070,13 +2128,13 @@ def evaluate_model(
     if eval:
         if yt is None:
             raise ValueError("yt must be provided when eval is True.")
-        if not isinstance(scorer, (str, callable)):
+        if not isinstance(scoring, (str, callable)):
             raise TypeError("scorer must be a string or a callable,"
-                            f" got {type(scorer).__name__}.")
-        if isinstance (scorer, str): 
-            scorer= fetch_scorers (scorer) 
+                            f" got {type(scoring).__name__}.")
+        if isinstance (scoring, str): 
+            scoring= fetch_scorers (scoring) 
         # score_func = get_scorer(scorer, include_sklearn= True )
-        score = scorer(yt, y_pred, **kws)
+        score = scoring(yt, y_pred, **kws)
         return y_pred, score
 
     return y_pred
@@ -3391,6 +3449,7 @@ def soft_data_split(
         return  train_test_split(
             X, test_size=test_size,random_state=random_state, **split_kwargs)
  
+@EnsureFileExists
 def load_model(
     file_path: str, *,
     retrieve_default: bool = True,
@@ -3491,14 +3550,14 @@ def load_model(
 
     return loaded_data
      
-@Dataify
+@Dataify(auto_columns=True)
 @is_data_readable
 def bi_selector (
     data,  
     features =None, 
     return_frames = False,
     parse_features:bool=... 
-    ):
+   ):
     """ Auto-differentiates the numerical from categorical attributes.
     
     This is usefull to select the categorial features from the numerical 
@@ -4697,7 +4756,6 @@ def get_feature_contributions(X, model=None, view=False):
 
     return shap_values
 
-          
 def smart_label_classifier(
     y: ArrayLike, *,
     values: Union[float, List[float], None] = None,

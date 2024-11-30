@@ -14,7 +14,7 @@ from __future__ import annotations
 from numbers import Real, Integral 
 import itertools
 import warnings
-
+from textwrap import dedent
 import numpy as np
 import pandas as pd 
 
@@ -27,7 +27,6 @@ from sklearn.metrics import (
 from sklearn.model_selection import cross_val_predict
 from sklearn.preprocessing import label_binarize
 
-from ._gofastlog import gofastlog
 from .api.formatter import MetricFormatter, DescriptionFormatter 
 from .api.summary import TW, ReportFactory, assemble_reports
 from .api.summary import ResultSummary 
@@ -40,8 +39,6 @@ from .tools.validator import (
     validate_multioutput, validate_nan_policy, check_array, build_data_if
 )
 
-
-_logger = gofastlog().get_gofast_logger(__name__)
 
 __all__= [
     
@@ -66,6 +63,7 @@ __all__= [
      'roc_tradeoff'
  ]
 
+# doc templates 
 _shared_doc_kwargs= { 
     "model_desc": ( 
         "A trained model with a `.predict()` method. The model"
@@ -97,7 +95,7 @@ _shared_doc_kwargs= {
         )
     }
 
-_shared_params= """
+_shared_params= """\
 Parameters
 ----------
 model : object
@@ -112,8 +110,90 @@ interpret : bool, default=False
     %(interpret_desc)s
 """
 
-@Substitution (**_shared_doc_kwargs)
-@Appender(_shared_params, join='\n', indents=0)
+@Appender(dedent( 
+    """
+perturbation : float, default=0.1
+    The amount by which to perturb each feature when calculating sensitivity.
+    Should be a small fraction between 0 and 1. For instance, 0.1 indicates
+    a 10% increase in the feature value during the sensitivity analysis.
+
+Returns
+-------
+gofast.api.summary.ResultSummary
+    A summary object containing the computed relative sensitivity for each 
+    feature in the model:
+
+    - `relative_sensitivity_scores` : pd.DataFrame
+        The RS values computed for each feature perturbation.
+
+    - `ranked_features` : pd.DataFrame
+        Features ranked from highly sensitive to less sensitive.
+
+    - `relative_sensitivity_by_feature` : pd.DataFrame
+        Detailed sensitivity scores grouped by feature.
+
+    - `baseline_predictions` : array-like
+        The model's baseline predictions before any perturbations.
+
+Notes
+-----
+The relative sensitivity (RS) of a feature is computed by perturbing 
+the feature value and observing the impact on the model's output. The RS 
+for each feature is calculated using the formula:
+
+.. math::
+    RS = \\frac{\\Delta \\text{Forecast}}{\\Delta \\text{Input}}
+
+where:
+    - :math:`\\Delta \\text{Forecast}` is the change in the predicted output
+      after perturbing the feature.
+    - :math:`\\Delta \\text{Input}` is the change in the input feature 
+      after perturbation.
+
+If the change in input is zero (i.e., no perturbation), the relative 
+sensitivity is set to zero [2]_.
+
+The function uses a simple "one-at-a-time" (OAT) sensitivity analysis 
+approach. For each feature, the function perturbs its value, computes 
+the model's prediction with the perturbed feature, and then calculates
+the relative sensitivity score.
+
+If `interpret=True`, the function prints a detailed analysis
+of the sensitivity scores, including feature rankings and insights on
+which features have the greatest impact on model predictions.
+
+Examples
+--------
+>>> import numpy as np 
+>>> from gofast.metrics_special import relative_sensitivity_score
+>>> from gofast.estimators.tree import DTBClassifier 
+>>> np.random.seed(123)
+>>> X = np.random.randn(100, 19) 
+>>> y = np.random.randint(0, 2, size=len(X))
+>>> dtb_model = DTBClassifier().fit(X, y) 
+>>> 
+>>> sensitivity_df = relative_sensitivity_score(
+...     dtb_model, X, feature_names=['feature_0', 'feature_14'],
+...     perturbation=0.05, plot_type='line', interpret=True
+... )
+>>> print(sensitivity_df)
+    Feature  RS (Relative Sensitivity)
+0  feature_0                     0.0000
+1 feature_14                     0.1079
+
+References
+----------
+.. [1] Saltelli, A., Tarantola, S., & Campolongo, F. (2000). Sensitivity analysis 
+    as an ingredient of modeling. *Statistical Science, 15*(4), 377-395.
+.. [2] Sobol, I. M. (1993). Sensitivity analysis for nonlinear mathematical 
+    models. *Mathematical Modelling and Computation*, 4(6), 247-278.    
+    
+    """
+    ), 
+    join ='\n', 
+ )
+@Substitution ( **_shared_doc_kwargs)
+@Appender( _shared_params,join='\n')
 @validate_params({
     "model": [HasMethods(["predict"])],
     "X": ['array-like'],
@@ -140,86 +220,9 @@ def relative_sensitivity_score(
     in predictions. This is useful in understanding how sensitive a model is
     to variations in its input features [1]_. It computes the sensitivity score 
     for each feature and optionally visualizes the results with various plots.
-    
-    See more in :ref:`User Guide <user_guide>`. 
 
-    %(_shared_params)s
+    See more in :ref:`User Guide <user_guide>`.
 
-    perturbation : float, default=0.1
-        The amount by which to perturb each feature when calculating sensitivity.
-        Should be a small fraction between 0 and 1. For instance, 0.1 indicates
-        a 10% increase in the feature value during the sensitivity analysis.
-
-    Returns
-    -------
-    gofast.api.summary.ResultSummary
-        A summary object containing the computed relative sensitivity for each 
-        feature in the model:
-
-        - `relative_sensitivity_scores` : pd.DataFrame
-            The RS values computed for each feature perturbation.
-
-        - `ranked_features` : pd.DataFrame
-            Features ranked from highly sensitive to less sensitive.
-
-        - `relative_sensitivity_by_feature` : pd.DataFrame
-            Detailed sensitivity scores grouped by feature.
-
-        - `baseline_predictions` : array-like
-            The model's baseline predictions before any perturbations.
-
-    Notes
-    -----
-    The relative sensitivity (RS) of a feature is computed by perturbing 
-    the feature value and observing the impact on the model's output. The RS 
-    for each feature is calculated using the formula:
-
-    .. math::
-        RS = \\frac{\\Delta \\text{Forecast}}{\\Delta \\text{Input}}
-
-    where:
-        - :math:`\\Delta \\text{Forecast}` is the change in the predicted output
-          after perturbing the feature.
-        - :math:`\\Delta \\text{Input}` is the change in the input feature 
-          after perturbation.
-
-    If the change in input is zero (i.e., no perturbation), the relative 
-    sensitivity is set to zero [2]_.
-
-    The function uses a simple "one-at-a-time" (OAT) sensitivity analysis 
-    approach. For each feature, the function perturbs its value, computes 
-    the model's prediction with the perturbed feature, and then calculates
-    the relative sensitivity score.
-    
-    If `interpret=True`, the function prints a detailed analysis
-    of the sensitivity scores, including feature rankings and insights on
-    which features have the greatest impact on model predictions.
-
-    Examples
-    --------
-    >>> import numpy as np 
-    >>> from gofast.metrics_special import relative_sensitivity_score
-    >>> from gofast.estimators.tree import DTBClassifier 
-    >>> np.random.seed(123)
-    >>> X = np.random.randn(100, 19) 
-    >>> y = np.random.randint(0, 2, size=len(X))
-    >>> dtb_model = DTBClassifier().fit(X, y) 
-    >>> 
-    >>> sensitivity_df = relative_sensitivity_score(
-    ...     dtb_model, X, feature_names=['feature_0', 'feature_14'],
-    ...     perturbation=0.05, plot_type='line', interpret=True
-    ... )
-    >>> print(sensitivity_df)
-       Feature  RS (Relative Sensitivity)
-    0  feature_0                     0.0000
-    1 feature_14                     0.1079
-
-    References
-    ----------
-    .. [1] Saltelli, A., Tarantola, S., & Campolongo, F. (2000). Sensitivity analysis 
-       as an ingredient of modeling. *Statistical Science, 15*(4), 377-395.
-    .. [2] Sobol, I. M. (1993). Sensitivity analysis for nonlinear mathematical 
-       models. *Mathematical Modelling and Computation*, 4(6), 247-278.
     """
     # build dataframe if numpy array is passed
     X = build_data_if(
@@ -311,21 +314,54 @@ def relative_sensitivity_score(
 
     return result
 
-@Substitution (**_shared_doc_kwargs)
-@Appender(_shared_params, join='\n', indents=0)
-@Appender(
+@Appender(dedent( 
     """
-    See Also
-    --------
-    `gofast.metrics_special.relative_sensitivity_score` :
-        Compute the Relative Sensitivity (RS) for each feature in the model 
-        predictions.
-    `gofast.plot.utils.plot_sensitivity` :
-        Plot the feature sensitivity values.
-    """,
-    join='\n',
-    indents=0
-)
+perturbations : list of float, optional
+    A list of perturbation amounts to use when calculating sensitivity.
+    Each value should be a small fraction between 0 and 1.
+    
+Returns
+-------
+gofast.api.summary.ResultSummary
+    A summary object containing the computed relative sensitivity for each 
+    perturbation performed on each feature in the model:
+    
+    - `relative_sensitivity_score` : pd.DataFrame
+        The RS values computed for each perturbation of each feature.
+    
+    - `ranked_features` : pd.DataFrame
+        The impactful features ranked from highly sensitive to less 
+        sensitive.
+
+Example
+-------
+>>> import numpy as np 
+>>> from gofast.metrics_special import relative_sensitivity_scores
+>>> from gofast.estimators.tree import DTBClassifier 
+>>> np.random.seed(123)
+>>> X = np.random.randn(100, 19) 
+>>> y = np.random.randint(0, 2, size=len(X))
+>>> dtb_model = DTBClassifier().fit(X, y) 
+>>> 
+>>> sensitivity_df = relative_sensitivity_scores(
+...     dtb_model, X, feature_names=['feature_11', 'feature_15'],
+...     perturbations=[0.5, 0.8, 0.7], plot_type='line', interpret=True
+... )
+>>> print(sensitivity_df)
+
+See Also
+--------
+`gofast.metrics_special.relative_sensitivity_score` :
+    Compute the Relative Sensitivity (RS) for each feature in the model 
+    predictions.
+`gofast.plot.utils.plot_sensitivity` :
+    Plot the feature sensitivity values.
+    """
+    ), 
+    join ='\n', 
+ )
+@Substitution ( **_shared_doc_kwargs)
+@Appender( _shared_params,join='\n')
 def relative_sensitivity_scores(
     model, X, *, 
     perturbations=None, 
@@ -338,41 +374,7 @@ def relative_sensitivity_scores(
     for each feature in the model predictions. 
     
     See more in :ref:`User Guide <user_guide>`. 
-
-    %(_shared_params)s
-
-    perturbations : list of float, optional
-        A list of perturbation amounts to use when calculating sensitivity.
-        Each value should be a small fraction between 0 and 1.
-        
-    Returns
-    -------
-    gofast.api.summary.ResultSummary
-        A summary object containing the computed relative sensitivity for each 
-        perturbation performed on each feature in the model:
-        
-        - `relative_sensitivity_score` : pd.DataFrame
-            The RS values computed for each perturbation of each feature.
-        
-        - `ranked_features` : pd.DataFrame
-            The impactful features ranked from highly sensitive to less 
-            sensitive.
-
-    Example
-    ---------
-    >>> import numpy as np 
-    >>> from gofast.metrics_special import relative_sensitivity_scores
-    >>> from gofast.estimators.tree import DTBClassifier 
-    >>> np.random.seed(123)
-    >>> X = np.random.randn(100, 19) 
-    >>> y = np.random.randint(0, 2, size=len(X))
-    >>> dtb_model = DTBClassifier().fit(X, y) 
-    >>> 
-    >>> sensitivity_df = relative_sensitivity_scores(
-    ...     dtb_model, X, feature_names=['feature_11', 'feature_15'],
-    ...     perturbations=[0.5, 0.8, 0.7], plot_type='line', interpret=True
-    ... )
-    >>> print(sensitivity_df)
+    
     """
     # If perturbations are not provided, 
     # use a default value of 10% perturbation

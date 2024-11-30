@@ -22,8 +22,9 @@ from ..api.summary import ReportFactory
 from ..api.types import List, DataFrame, Optional, Series
 from ..api.types import Dict, Union, Tuple, ArrayLike
 from ..api.util import get_table_size 
-from ..core.array_manager import to_numeric_dtypes, reshape 
+from ..core.array_manager import to_numeric_dtypes, reshape, decode_sparse_data 
 from ..core.checks import is_iterable, assert_ratio, exist_features 
+from ..core.checks import is_sparse_matrix
 from ..core.utils import format_to_datetime
 from ..tools.depsutils import ensure_pkg
 from ..decorators import ( 
@@ -2818,8 +2819,7 @@ def transform(
     from sklearn.impute import SimpleImputer
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import OneHotEncoder, StandardScaler
-    from ..tools.coreutils import is_sparse_matrix
-    
+
     # collect the target if target_columns is passed 
     # then concatenated later to build original 
     # dataset.
@@ -3008,7 +3008,7 @@ def _decode_sparse_processed_data(
     - **FloatCategoricalToInt Transformer**:
       Assumed to be implemented in `gofast.tools.transformers.feature_engineering`.
     """
-    from ..tools.coreutils import decode_sparse_data
+    
     from ..transformers.feature_engineering import FloatCategoricalToInt
 
     try:

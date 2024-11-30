@@ -30,7 +30,7 @@ from ..api.types import (
 )
 from ..api.summary import ResultSummary
 from ..core.array_manager import to_numeric_dtypes, concat_array_from_list
-from ..core.checks  import  _assert_all_types, _validate_name_in
+from ..core.checks  import  _assert_all_types, validate_name_in
 from ..core.utils import normalize_string, type_of_target, smart_format 
 
 from .validator import (
@@ -3307,7 +3307,7 @@ def compute_errors (
      DailyProduction_tonnes      10720.929814
      dtype: float64)
     """
-    error = _validate_name_in(error , defaults =('error', 'se'),
+    error = validate_name_in(error , defaults =('error', 'se'),
                               deep =True, expect_name ='se')
     # keep only the numeric values.
     if hasattr (arr, '__array__') and hasattr(arr, 'columns'): 

@@ -12,12 +12,13 @@ import re
 import numbers 
 import warnings
 import itertools
-
+import scipy.sparse as ssp 
 from typing import Any,  Union,List, Tuple, Optional
 import numpy as np
 import pandas as pd
 
 from ..api.types import Series, Iterable, _F,  DataFrame 
+from ..api.types import _Sub, ArrayLike 
 
 __all__= [ 
     'assert_ratio',
@@ -32,10 +33,14 @@ __all__= [
     'is_classification_task',
     'is_depth_in',
     'is_in_if',
+    'is_in', 
+    'is_numeric_dtype', 
     'find_by_regex',
     'find_closest',
     'str2columns',
     'random_state_validator', 
+    'is_sparse_matrix', 
+    'has_sparse_format', 
     ]
 
    
@@ -1398,3 +1403,450 @@ def random_state_validator(seed):
     raise ValueError(
         "%r cannot be used to seed a numpy.random.RandomState instance" % seed
     )
+    
+def is_numeric_dtype(o, to_array=False):
+    """
+    Determine whether the argument has a numeric datatype when
+    converted to a NumPy array.
+
+    Parameters
+    ----------
+    o : object or array-like
+        The object (or iterable) to check for a numeric datatype. 
+        This can be a list, tuple, or any other iterable object.
+    to_array : bool, optional, default=False
+        If `o` is passed as a non-array-like object (e.g., list, tuple,
+        or other iterable), setting `to_array` to `True` will convert 
+        `o` into a NumPy array before checking its datatype.
+
+    Returns
+    -------
+    bool
+        `True` if `o` has a numeric dtype, and `False` otherwise.
+
+    Raises
+    ------
+    TypeError
+        If `o` is not an iterable object.
+    ValueError
+        If `o` is not an array-like object after conversion (if `to_array=True`).
+
+    Examples
+    --------
+    >>> from gofast.core.checks import _is_numeric_dtypes
+    >>> is_numeric_dtype([1, 2, 3])
+    True
+
+    >>> is_numeric_dtype(['a', 'b', 'c'])
+    False
+
+    >>> is_numeric_dtype((1.5, 2.3, 3.1), to_array=True)
+    True
+
+    >>> is_numeric_dtype({'a': 1, 'b': 2})
+    False
+
+    Notes
+    -----
+    This function checks if the dtype of `o` (or its NumPy array 
+    conversion) is one of the numeric types: boolean, unsigned integers, 
+    signed integers, floats, or complex numbers. It uses the `dtype.kind`
+    attribute to determine this.
+
+    The function will raise an error if `o` is not iterable, or if it 
+    cannot be converted into an array-like structure.
+
+    The check for numeric types is performed using the `_NUMERIC_KINDS` set,
+    which includes the following types:
+        - 'b' : boolean
+        - 'u' : unsigned integer
+        - 'i' : signed integer
+        - 'f' : float
+        - 'c' : complex number
+    """
+    _NUMERIC_KINDS = set('buifc')
+
+    # Check if 'o' is iterable
+    if not hasattr(o, '__iter__'):
+        raise TypeError("'o' is expected to be an iterable object. "
+                         f"Got: {type(o).__name__!r}")
+    
+    # Convert to array if specified
+    if to_array:
+        o = np.array(o)
+
+    # Check if 'o' is an array-like object
+    if not hasattr(o, '__array__'):
+        raise ValueError(f"Expect type array-like, got: {type(o).__name__!r}")
+
+    # Check for numeric dtype using _NUMERIC_KINDS
+    return (o.values.dtype.kind if (hasattr(o, 'columns') or hasattr(o, 'name'))
+            else o.dtype.kind) in _NUMERIC_KINDS
+
+def is_in(
+    arr: Union[ArrayLike, List[float]],
+    subarr: Union[_Sub[ArrayLike], _Sub[List[float]], float],
+    return_mask: bool = False,
+) -> bool:
+    """
+    Check whether the subset array `subarr` is present in the array `arr`.
+
+    Parameters
+    ----------
+    arr : array-like
+        Array of item elements to check against. This can be a list,
+        numpy array, or any other array-like structure.
+    subarr : array-like, float
+        Subset array or individual item to check for presence in `arr`.
+        This can be a list, numpy array, or float.
+    return_mask : bool, optional
+        If True, returns a boolean mask indicating where the elements of
+        `subarr` are found in `arr`. Default is False, which returns a
+        single boolean value (True if any element of `subarr` is in `arr`,
+        False otherwise).
+
+    Returns
+    -------
+    bool or ndarray
+        If `return_mask` is False, returns `True` if any item in `subarr`
+        is present in `arr`, otherwise returns `False`. If `return_mask` is
+        True, returns a boolean mask (ndarray) where `True` indicates that
+        the corresponding element in `arr` is found in `subarr`.
+
+    Examples
+    --------
+    >>> from gofast.core.checks import is_in 
+    >>> is_in([1, 2, 3, 4, 5], [2, 4])
+    True
+    
+    >>> is_in([1, 2, 3, 4, 5], [6, 7], return_mask=True)
+    array([False, False, False, False, False])
+    
+    >>> is_in([1, 2, 3, 4, 5], 3)
+    True
+    
+    >>> is_in([1, 2, 3, 4, 5], 6)
+    False
+
+    Notes
+    -----
+    This function uses `np.isin` internally to check whether elements
+    from `subarr` are present in `arr`. The `return_mask` argument
+    allows for flexibility in the return type. If `return_mask` is False,
+    the function simply checks if any elements of `subarr` are present in
+    `arr` and returns a boolean result.
+    """
+    arr = np.array(arr)
+    subarr = np.array(subarr)
+
+    return (True if True in np.isin(arr, subarr) else False
+            ) if not return_mask else np.isin(arr, subarr)
+
+
+def is_sparse_matrix(
+    data: pd.Series, 
+    threshold: float = 0.9, 
+    verbose=False
+    ) -> bool:
+    """
+    Checks if the data is a sparse matrix, either as a scipy sparse matrix 
+    or a pandas Series containing string-encoded sparse matrix data.
+    
+    This function identifies sparse data structures, considering both 
+    actual scipy sparse matrix types and string-encoded representations 
+    of sparse matrices, such as those commonly found in pandas Series.
+    
+    Parameters
+    ----------
+    data : object
+        The data to check. This can be a scipy sparse matrix or a pandas 
+        Series containing string-encoded sparse matrix data.
+    
+    threshold : float, optional, default 0.9
+        The minimum proportion of entries that must match the sparse 
+        pattern (i.e., be non-zero) for the data to be considered sparse. 
+        This value should lie between 0 and 1.
+    
+    verbose : bool, optional, default False
+        If set to True, the function will print the sparsity ratio for a 
+        scipy sparse matrix and the proportion of matching entries for a 
+        pandas Series. This is useful for debugging or monitoring the 
+        function’s behavior.
+    
+    Returns
+    -------
+    bool
+        True if the data is a sparse matrix (either scipy sparse matrix or 
+        string-encoded sparse matrix), False otherwise.
+    
+    Notes
+    -----
+    - The function first checks if the data is a scipy sparse matrix 
+      (e.g., `csr_matrix`, `coo_matrix`).
+    - If the data is a pandas Series, it assumes the Series may contain 
+      string-encoded sparse matrix data and checks if each entry in the 
+      Series follows the expected sparse format.
+    - The `threshold` determines how many non-zero elements (or matching 
+      string-encoded sparse entries) are required to consider the data sparse.
+    
+    Examples
+    --------
+    1. Check if a scipy sparse matrix is sparse:
+    
+       ```python
+       sparse_matrix = sp.csr_matrix([[0, 0, 1], [0, 2, 0], [0, 0, 3]])
+       result = is_sparse_matrix(sparse_matrix)
+       print(result)  # Expected: True (based on sparsity ratio)
+       ```
+
+    2. Check if a pandas Series with string-encoded sparse matrix data is sparse:
+    
+       ```python
+       sparse_series = pd.Series([
+           "(0, 0)\t1.0\n(1, 1)\t2.0\n(2, 2)\t3.0",
+           "(0, 1)\t1.5\n(1, 0)\t1.0\n(2, 1)\t2.5"
+       ])
+       result = is_sparse_matrix(sparse_series)
+       print(result)  # Expected: True or False (based on threshold)
+       ```
+
+    References
+    ----------
+    - SciPy Sparse Matrices Documentation:
+      https://docs.scipy.org/doc/scipy/reference/sparse.html
+    - pandas Series Documentation:
+      https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.html
+    """
+    if isinstance ( data, pd.DataFrame) :
+        data = data.squeeze () 
+        
+    # Check if the data is a scipy sparse matrix
+    if isinstance(data, ssp.spmatrix):
+        # Number of non-zero elements in the sparse matrix
+        non_zero_elements = data.nnz
+        
+        # Total number of elements in the matrix (rows * columns)
+        total_elements = data.shape[0] * data.shape[1]
+        
+        # Calculate the sparsity ratio (non-zero elements / total elements)
+        sparsity_ratio = non_zero_elements / total_elements
+        
+        # Print the sparsity ratio if verbose flag is True
+        if verbose:
+            print(f"Sparsity ratio: {sparsity_ratio:.2f}")
+        
+        # If the sparsity ratio meets the threshold, return True (sparse)
+        return sparsity_ratio >= threshold
+    
+    # Check if the data is a pandas Series
+    if isinstance(data, pd.Series):
+        # Check if each entry in the Series follows the expected sparse format
+        matches = data.apply(has_sparse_format)
+        
+        # Calculate the proportion of entries that match the sparse format
+        proportion = matches.mean()
+        
+        # Print the proportion of matching entries if verbose flag is True
+        if verbose:
+            print(f"Proportion of matching entries: {proportion:.2f}")
+        
+        # If the proportion of matching entries
+        # meets the threshold, return True (sparse)
+        return proportion >= threshold
+    
+    # If data is neither a scipy sparse matrix
+    # nor a string-encoded pandas Series
+    if verbose:
+        print("Data is neither a scipy sparse matrix"
+              " nor a string-encoded pandas Series.")
+    
+    return False
+
+def has_sparse_format(s):
+    """
+    Checks if a string follows the expected sparse matrix format for entries
+    (i.e., coordinate-value pairs like (i, j)\tvalue).
+    
+    This function uses a regular expression to identify if a given string 
+    represents a sparse matrix entry with coordinate-value pairs. This is 
+    particularly useful when checking if the entries in a pandas Series 
+    follow the sparse matrix format.
+    
+    Parameters
+    ----------
+    s : str
+        A string entry to check. This should contain coordinates and values 
+        separated by tabs, e.g., "(i, j)\tvalue".
+    
+    Returns
+    -------
+    bool
+        True if the string follows the sparse matrix format, False otherwise.
+    
+    Examples
+    --------
+    1. Check if a string represents a sparse matrix entry:
+    
+       ```python
+       entry = "(0, 0)\t1.0"
+       result = has_sparse_format(entry)
+       print(result)  # Expected: True
+       ```
+    """
+    # Regex pattern for the expected sparse format: (i, j)\tvalue
+    pattern = re.compile(r'\(\d+, \d+\)\t-?\d+(\.\d+)?')
+    
+    if isinstance(s, (ssp.coo_matrix, ssp.csr_matrix, ssp.csc_matrix)):
+        return True 
+    
+    # Return False if s is not a string
+    if not isinstance(s, str):
+        return False
+    
+    # Split the string into individual entries
+    entries = s.split()
+    
+    # Check if each entry matches the sparse matrix format
+    for entry in entries:
+        if not pattern.match(entry):
+            return False
+    
+    return True
+
+# def _validate_name_in (name, defaults = '', expect_name= None, 
+#                          exception = None , deep=False ): 
+#     """ Assert name in multiples given default names. 
+    
+#     Parameters 
+#     -----------
+#     name: str, 
+#       given name to assert 
+#     default: list, str, default =''
+#       default values used for assertion 
+#     expect_name: str, optional 
+#       name to return in case assertion is verified ( as ``True``)
+#     deep: bool, default=False 
+#       Find item in a litteral default string. If set  to ``True``, 
+#       `defaults` are joined and check whether an occurence of `name` is in the 
+#       defaults 
+      
+#     exception: Exception 
+#       Error to raise if name is not found in the default values. 
+      
+#     Returns
+#     -------
+#     name: str, 
+#       Verified name or boolean if expect name if ``None``. 
+      
+#     Examples 
+#     -------
+#     >>> from gofast.core.utils import _validate_name_in 
+#     >>> dnames = ('NAME', 'FIST NAME', 'SUrname')
+#     >>> _validate_name_in ('name', defaults=dnames )
+#     False 
+#     >>> _validate_name_in ('name', defaults= dnames, deep =True )
+#     True
+#     >>> _validate_name_in ('name', defaults=dnames , expect_name ='NAM')
+#     False 
+#     >>> _validate_name_in ('name', defaults=dnames , expect_name ='NAM', deep=True)
+#     'NAM'
+#     """
+    
+#     name = str(name).lower().strip() 
+#     defaults = is_iterable(defaults, 
+#             exclude_string= True, parse_string= True, transform=True )
+#     if deep : 
+#         defaults = ''.join([ str(i) for i in defaults] ) 
+        
+#     # if name in defaults: 
+#     name = ( True if expect_name is None  else expect_name 
+#             ) if name in defaults else False 
+    
+#     #name = True if name in defaults else ( expect_name if expect_name else False )
+    
+#     if not name and exception: 
+#         raise exception 
+        
+#     return name 
+
+def validate_name_in(
+    name, defaults='', 
+    expect_name=None, 
+    exception=None, 
+    deep=False 
+    ):
+    """
+    Assert that the given name exists within a set of default names.
+
+    Parameters
+    ----------
+    name : str
+        The name to assert.
+    defaults : list of str or str, optional, default=''
+        The default names used for the assertion. Can be a list of names,
+        a single string, or other iterable. If `deep=True`, this argument
+        will be joined into a single string and checked for occurrences of 
+        `name`.
+    expect_name : str, optional
+        The name to return if the assertion is verified (`True`). If `None`,
+        the function will return `True` or `False` depending on whether the
+        name is found in the defaults.
+    deep : bool, optional, default=False
+        If `True`, `defaults` are joined into a single string and the function
+        checks whether `name` occurs anywhere in the concatenated string.
+    exception : Exception, optional
+        The exception to raise if `name` is not found in `defaults`. If no
+        exception is provided and the name is not found, the function will 
+        return `False`.
+
+    Returns
+    -------
+    str or bool
+        If `expect_name` is provided and `name` is found in `defaults`,
+        the function returns `expect_name`. If `expect_name` is `None`,
+        it returns `True` if `name` is found in `defaults`, or `False` otherwise.
+        If `name` is not found and `exception` is specified, the exception
+        is raised.
+
+    Examples
+    --------
+    >>> from gofast.core.checks import validate_name_in
+    >>> dnames = ('NAME', 'FIRST NAME', 'SURNAME')
+    >>> validate_name_in('name', defaults=dnames)
+    False
+
+    >>> validate_name_in('name', defaults=dnames, deep=True)
+    True
+
+    >>> validate_name_in('name', defaults=dnames, expect_name='NAM')
+    False
+
+    >>> validate_name_in('name', defaults=dnames, expect_name='NAM', deep=True)
+    'NAM'
+
+    Notes
+    -----
+    The function performs a case-insensitive check for `name` within
+    the `defaults`. If `deep=True`, it combines all elements in `defaults`
+    into a single string and checks whether `name` is a substring of that string.
+    If `name` is found and `expect_name` is provided, the function returns
+    `expect_name`. Otherwise, it returns a boolean value indicating whether
+    `name` is in `defaults`. If `name` is not found and `exception` is provided,
+    the exception is raised.
+    """
+    
+    name = str(name).lower().strip()
+    defaults = is_iterable(
+        defaults, exclude_string=True, parse_string=True, 
+        transform=True)
+    
+    if deep:
+        defaults = ''.join([str(i) for i in defaults])
+
+    # Check if name is in defaults
+    name = True if expect_name is None else expect_name if name in defaults else False
+    
+    if not name and exception:
+        raise exception
+    
+    return name
