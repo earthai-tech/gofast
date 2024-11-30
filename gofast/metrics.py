@@ -25,7 +25,7 @@ from sklearn.preprocessing import label_binarize
 from sklearn.utils.multiclass import type_of_target, unique_labels
 
 from ._gofastlog import gofastlog
-from .api.shared_docs import filter_docs 
+from .api.docs import filter_docs 
 from .api.formatter import MetricFormatter
 from .decorators import Substitution 
 from .core.utils import normalize_string
@@ -309,7 +309,6 @@ def twa_score(
         score = np.mean(score_per_label)
         return score
 
-# XXX 
 
 @Substitution(**filter_docs(['y_true', 'y_pred']))
 @validate_params({ 
@@ -404,6 +403,13 @@ def quantile_loss(
         return loss
 
 
+@validate_params({ 
+    "y_pred": ['array-like'], 
+    "y_true": ['array-like'], 
+    "quantiles": ['array-like'], 
+    "backend":[StrOptions({"numpy", "np", 'tensorflow', 'tf', 'keras'})], 
+    }
+  )
 def multi_quantile_loss(y_true, y_pred, *,  quantiles, backend='numpy'):
     r"""
     Compute the sum of quantile losses for multiple quantiles.

@@ -30,7 +30,6 @@ MODULE_MAPPING = {
          'remove_outliers',
          'remove_target_from_array',
          'rename_labels_in',
-         'save_or_load',
          'scale_y',
          'select_features',
          'select_features',

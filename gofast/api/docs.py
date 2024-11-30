@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+from textwrap import dedent 
+from typing import Callable 
 
 _shared_docs: dict[str, str] = {}
 
+__all__ =["doc", ]
 
 _shared_docs[
     "data"
@@ -386,6 +389,44 @@ _shared_docs[
     >>> nan_policy = 'raise'  # Raise an error if NaNs are found in the 
 """
 
+_shared_docs [ 
+    "activation_transform"
+]="""
+Apply the activation function element-wise to the input data.
+
+This method applies the specified activation function to each element 
+of the input data array, transforming the values accordingly.
+
+Parameters
+----------
+X : array-like, shape (n_samples, n_features)
+    The input data to transform. Should be an array or matrix with 
+    shape (n_samples, n_features), where `n_samples` is the number of 
+    samples, and `n_features` is the number of features for each sample.
+
+Returns
+-------
+X_transformed : array-like, shape (n_samples, n_features)
+    The transformed data, with the same shape as the input `X`. The 
+    activation function is applied element-wise to each feature of 
+    the input data.
+
+Notes
+-----
+The input data `X` must be numeric (e.g., `int`, `float`). If `X` 
+contains non-numeric data types, the transformation may fail or 
+produce incorrect results. Additionally, the behavior of the function 
+depends on the specific activation function being applied.
+
+Examples
+--------
+>>> X = np.array([[1, 2], [3, 4]])
+>>> transformer.fit().transform(X)
+array([[0.73105858, 0.88079708],
+       [0.95257413, 0.98201379]])
+"""
+
+
 def filter_docs(keys, input_dict=None):
     """
     Filters a dictionary to include only the key-value pairs where 
@@ -426,3 +467,62 @@ def filter_docs(keys, input_dict=None):
     """
     input_dict = input_dict or _shared_docs  # Default to _shared_docs if None
     return dict(filter(lambda item: item[0] in keys, input_dict.items()))
+
+# doc are derived from pandas._decorators module.  
+# module https://pandas.org/users/license.html
+
+def doc(*docstrings: str | Callable, **params) -> Callable[[callable], callable]:
+    """
+    A decorator take docstring templates, concatenate them and perform string
+    substitution on it.
+
+    This decorator will add a variable "_docstring_components" to the wrapped
+    callable to keep track the original docstring template for potential usage.
+    If it should be consider as a template, it will be saved as a string.
+    Otherwise, it will be saved as callable, and later user __doc__ and dedent
+    to get docstring.
+
+    Parameters
+    ----------
+    *docstrings : str or callable
+        The string / docstring / docstring template to be appended in order
+        after default docstring under callable.
+    **params
+        The string which would be used to format docstring template.
+    """
+
+    def decorator(decorated: callable) -> callable:
+        # collecting docstring and docstring templates
+        docstring_components: list[str | Callable] = []
+        if decorated.__doc__:
+            docstring_components.append(dedent(decorated.__doc__))
+
+        for docstring in docstrings:
+            if hasattr(docstring, "_docstring_components"):
+                # error: Item "str" of "Union[str, Callable[..., Any]]" has no attribute
+                # "_docstring_components"
+                # error: Item "function" of "Union[str, Callable[..., Any]]" has no
+                # attribute "_docstring_components"
+                docstring_components.extend(
+                    docstring._docstring_components  # type: ignore[union-attr]
+                )
+            elif isinstance(docstring, str) or docstring.__doc__:
+                docstring_components.append(docstring)
+
+        # formatting templates and concatenating docstring
+        decorated.__doc__ = "".join(
+            [
+                component.format(**params)
+                if isinstance(component, str)
+                else dedent(component.__doc__ or "")
+                for component in docstring_components
+            ]
+        )
+
+        # error: "F" has no attribute "_docstring_components"
+        decorated._docstring_components = (  # type: ignore[attr-defined]
+            docstring_components
+        )
+        return decorated
+
+    return decorator

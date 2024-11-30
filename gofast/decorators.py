@@ -1253,7 +1253,10 @@ class DataTransformer:
         If True and `original_attrs` has 'columns', the decorator will rename 
         the columns of the return value. This is only applicable if the return 
         value is a DataFrame. Default is False.
-
+    keep_origin_type: bool, default=False 
+       If set ``True`` and mode is set to ``lazy``, return as the original data
+       types passed to the decorated function. 
+       
     Examples
     --------
     Use as a decorator to automatically convert the return value of a function 
@@ -1281,7 +1284,8 @@ class DataTransformer:
         mode='lazy', 
         verbose=False, 
         set_index=False, 
-        rename_columns=False
+        rename_columns=False, 
+        keep_origin_type=False, 
     ):
         self.name = name
         self.data_index = data_index
@@ -1290,8 +1294,10 @@ class DataTransformer:
         self.verbose = verbose
         self.set_index = set_index
         self.rename_columns = rename_columns
+        self.keep_origin_type=keep_origin_type 
         self.original_attrs = {}
-         
+        self._is_frame=False 
+        
     def __call__(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -1303,9 +1309,14 @@ class DataTransformer:
             result = self._reconstruct_data(result)
             if self.verbose: 
                 print( "DataTransformer: Finished processing the result.")
+            
+            if self.mode=='lazy': 
+                if self.keep_origin_type and not self._is_frame: 
+                    # keep the data type as is.
+                    result = np.asarray(result)
             return result
         return wrapper
-    
+
     def _collect_data_attributes(self, *args, **kwargs):
         if self.name:
             data = kwargs.get(self.name)
@@ -1315,9 +1326,11 @@ class DataTransformer:
         if isinstance(data, pd.DataFrame):
             self.original_attrs['columns'] = data.columns.tolist()  
             self.original_attrs['index'] = data.index.tolist()
+            self._is_frame =True 
         elif isinstance(data, pd.Series):
             self.original_attrs['name'] = data.name
             self.original_attrs['index'] = data.index.tolist()
+            self._is_frame =True 
 
     def _reconstruct_data(self, result):
         is_tuple_result = isinstance(result, (tuple, list))
@@ -1392,7 +1405,7 @@ class DataTransformer:
                 if self.verbose:
                     print(f"DataTransformer: Error setting index - {e}")
         return data
-    
+
 class Extract1dArrayOrSeries:
     """
     A decorator and callable that preprocesses input data to ensure it is 
@@ -4251,64 +4264,6 @@ def indent(text: str | None, indents: int = 1) -> str:
     jointext = "".join(["\n"] + ["    "] * indents)
     return jointext.join(text.split("\n"))
 
-# doc are derived from pandas._decorators module.  
-# module https://pandas.org/users/license.html
-
-def doc(*docstrings: str | Callable, **params) -> Callable[[callable], callable]:
-    """
-    A decorator take docstring templates, concatenate them and perform string
-    substitution on it.
-
-    This decorator will add a variable "_docstring_components" to the wrapped
-    callable to keep track the original docstring template for potential usage.
-    If it should be consider as a template, it will be saved as a string.
-    Otherwise, it will be saved as callable, and later user __doc__ and dedent
-    to get docstring.
-
-    Parameters
-    ----------
-    *docstrings : str or callable
-        The string / docstring / docstring template to be appended in order
-        after default docstring under callable.
-    **params
-        The string which would be used to format docstring template.
-    """
-
-    def decorator(decorated: callable) -> callable:
-        # collecting docstring and docstring templates
-        docstring_components: list[str | Callable] = []
-        if decorated.__doc__:
-            docstring_components.append(dedent(decorated.__doc__))
-
-        for docstring in docstrings:
-            if hasattr(docstring, "_docstring_components"):
-                # error: Item "str" of "Union[str, Callable[..., Any]]" has no attribute
-                # "_docstring_components"
-                # error: Item "function" of "Union[str, Callable[..., Any]]" has no
-                # attribute "_docstring_components"
-                docstring_components.extend(
-                    docstring._docstring_components  # type: ignore[union-attr]
-                )
-            elif isinstance(docstring, str) or docstring.__doc__:
-                docstring_components.append(docstring)
-
-        # formatting templates and concatenating docstring
-        decorated.__doc__ = "".join(
-            [
-                component.format(**params)
-                if isinstance(component, str)
-                else dedent(component.__doc__ or "")
-                for component in docstring_components
-            ]
-        )
-
-        # error: "F" has no attribute "_docstring_components"
-        decorated._docstring_components = (  # type: ignore[attr-defined]
-            docstring_components
-        )
-        return decorated
-
-    return decorator
 
 # Substitution and Appender are derived from matplotlib.docstring (1.1.0)
 # module https://matplotlib.org/users/license.html
@@ -4519,7 +4474,6 @@ class ValidateXy:
 
         return y
 
-    
 @NumpyDocstringFormatter(
     include_sections=['Parameters', 'Returns'],
     validate_with_sphinx=True)
