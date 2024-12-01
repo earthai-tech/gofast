@@ -15,9 +15,11 @@ from sklearn.base import BaseEstimator, TransformerMixin
 import numpy as np
 
 from ..api.docs import _shared_docs, doc
+from ..backends.selector import select_backend_n 
 from ..compat.sklearn import validate_params, Interval, StrOptions
 from ..decorators import Appender, DataTransformer
-from ..tools.validator import check_array 
+from ..tools.validator import check_array, filter_valid_kwargs
+from ..tools.validator import parameter_validator  
 from ..tools.depsutils import ensure_pkg 
 
 __all__= [ 
@@ -156,6 +158,51 @@ batch_size : int, optional, default=None
     Example:
     - If the dataset contains ``10,000`` samples and ``batch_size=1000``, the 
       data will be processed in 10 separate chunks, each with 1000 samples.
+      
+backend : {'numpy', 'tensorflow', 'torch', None}, optional, default=None
+    The backend library to use for the computation. Available options:
+    
+    - ``None`` or ``'numpy'``: Use NumPy (default). This is the standard 
+      backend for numerical computations in Python, and it provides 
+      highly optimized routines for operations like matrix multiplication 
+      and element-wise transformations.
+
+    - ``'tensorflow'``: Use TensorFlow, a popular deep learning framework 
+      known for its optimized computations on large datasets and GPU support.
+      TensorFlow provides efficient computations using data flow graphs and 
+      is often used for training and deploying machine learning models.
+
+    - ``'torch'``: Use PyTorch, another deep learning framework with a focus 
+      on ease of use and dynamic computation graphs. PyTorch is favored by 
+      researchers and provides flexible GPU-based computation for deep learning 
+      applications.
+
+    If ``None`` or ``'numpy'`` is specified, the transformer defaults to using 
+    NumPy for all operations. If `'tensorflow'` or `'torch'` is specified, 
+    the respective backend is used for computation. If an unsupported backend 
+    is provided, a `ValueError` will be raised.
+    
+    This parameter allows for flexible execution depending on the desired 
+    hardware platform or library preference. For example:
+    - For CPU-based computation, NumPy is the default and works efficiently 
+      on most platforms.
+    - For GPU acceleration, you can choose ``'tensorflow'`` or ``'torch'`` to 
+      leverage GPU-based computations (if the respective libraries are 
+      installed and configured correctly).
+
+    .. note::
+
+    - When using TensorFlow or PyTorch, ensure that the corresponding 
+      framework is installed and the GPU (if applicable) is available for 
+      computation. TensorFlow and PyTorch are designed to work seamlessly 
+      with GPU hardware to accelerate matrix operations and other 
+      tensor-based computations.
+
+    - TensorFlow and PyTorch support dynamic graph computation, which 
+      may be beneficial for certain tasks, especially in training deep 
+      learning models, while NumPy is optimized for static operations 
+      and CPU-based tasks.
+
 
 """
 # ----Activation Transformers
@@ -807,13 +854,6 @@ class ELUTransformer(BaseEstimator, TransformerMixin):
         zero. A higher value for `alpha` increases the influence of negative 
         values.
 
-    backend : {{'numpy', 'tensorflow', 'pytorch'}}, optional, default=None
-        The backend library to use for performing the transformation. Supported 
-        options are:
-        - `numpy`: The default backend, uses NumPy for the ELU computation.
-        - `tensorflow`: Uses TensorFlow for the ELU computation.
-        - `pytorch`: Uses PyTorch for the ELU computation.
-
     verbose : bool, optional, default=False
         If True, prints progress information during batch processing. Useful 
         when working with large datasets to track progress.
@@ -1115,13 +1155,6 @@ class LeakyReLUTransformer(BaseEstimator, TransformerMixin):
         The scaling factor applied when the input is less than or equal to zero.
         A higher value for `alpha` increases the influence of negative values.
 
-    backend : {{'numpy', 'tensorflow', 'pytorch'}}, optional, default=None
-        The backend library to use for performing the transformation. 
-        Supported options are:
-        - `numpy`: The default backend, uses NumPy for the Leaky ReLU 
-          computation.
-        - `tensorflow`: Uses TensorFlow for the Leaky ReLU computation.
-        - `pytorch`: Uses PyTorch for the Leaky ReLU computation.
 
     verbose : bool, optional, default=False
         If True, prints progress information during batch processing. Useful 
@@ -1189,6 +1222,17 @@ class LeakyReLUTransformer(BaseEstimator, TransformerMixin):
      [-0.05  4.   -0.25]], shape=(2, 3), dtype=float32)
 
     """
+    @validate_params ( { 
+        "scale": [ Interval(Real, 0, None, closed ='neither' )], 
+        "shift": [Interval(Real( -1, 1 , closed ='both'))], 
+        "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
+        "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+        "alpha": [Interval(Real, 0 , None , closed ="neither")], 
+        "backend": [StrOptions (
+            {'numpy', 'tensorflow', 'torch', 'np', 'tf'}), None], 
+        
+        }
+    )    
     
     def __init__(
         self, 
@@ -1350,66 +1394,639 @@ class LeakyReLUTransformer(BaseEstimator, TransformerMixin):
 
         return X_transformed
     
-# XXX TODO 
+
 # Softmax Activation Transformer
+@doc( 
+    mathf =dedent( 
+    """\
+    The Softmax function is defined as:
+
+    .. math::
+        \text{Softmax}(x_i) = \frac{\exp(x_i)}{\sum_{j} \exp(x_j)}
+
+    where:
+    - :math:`x_i` represents the input vector elements.
+    - The result is a probability distribution, with each element 
+      representing the probability of the corresponding class.
+    """
+    ),  
+    parameters =_activation_doc['parameters'].format(afmt="Softmax"), 
+    methods = _activation_doc['methods'].format(afmt='Softmax'),
+)    
 class SoftmaxTransformer(BaseEstimator, TransformerMixin):
     """
-    Softmax Activation Transformer.
+    Softmax Activation Transformer with optional scaling, shifting, 
+    precision control, batch processing, and backend support 
+    (TensorFlow, PyTorch).
 
-    This transformer applies the Softmax activation function element-wise 
-    to the input data. The Softmax function normalizes input to a probability 
-    distribution across classes, and is commonly used in classification tasks.
+    The Softmax function is commonly used in classification tasks to 
+    normalize the output of a model to a probability distribution across 
+    multiple classes. This transformer applies the Softmax activation 
+    function element-wise to the input data, scaling and shifting the inputs 
+    before applying the transformation.
+
+    {mathf}
+
+    {parameters}
+
+    verbose : bool, optional, default=False
+        If True, enables logging of transformations and progress, helpful 
+        for debugging and monitoring the transformation process.
+
+    {methods}
+
+    Notes
+    -----
+    - The Softmax function is commonly used in the output layer of classifiers 
+      to convert raw output scores (logits) into a probability distribution 
+      over classes. 
+    - The `scale` and `shift` parameters are useful for preprocessing 
+      the data before applying the Softmax transformation. They can help adjust 
+      the range of values and avoid numerical issues.
+    - The backend selection allows flexibility in computing the Softmax function 
+      on different platforms, including CPU and GPU computation using TensorFlow 
+      or PyTorch.
+    - If `batch_size` is provided, the transformation is applied in chunks, 
+      which can be beneficial for large datasets and memory management.
+
+    Examples
+    --------
+    >>> from gofast.transformers.activations import SoftmaxTransformer
+    >>> transformer = SoftmaxTransformer(backend='numpy')
+    >>> X = np.array([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]])
+    >>> transformed_X = transformer.transform(X)
+    >>> print(transformed_X)
+    [[0.09003057 0.24472847 0.66524096]
+     [0.09003057 0.24472847 0.66524096]]
+
+    >>> transformer = SoftmaxTransformer(backend='tensorflow')
+    >>> transformed_X_tf = transformer.transform(X)
+    >>> print(transformed_X_tf)
+    tf.Tensor([[0.09003057 0.24472847 0.66524096]
+               [0.09003057 0.24472847 0.66524096]], dtype=float32)
+
+    >>> transformer = SoftmaxTransformer(backend='torch')
+    >>> transformed_X_torch = transformer.transform(X)
+    >>> print(transformed_X_torch)
+    tensor([[0.0900, 0.2447, 0.6652],
+            [0.0900, 0.2447, 0.6652]])
+
+    See Also
+    --------
+    gofast.transformers.activations.ReLUTransformer : 
+        A simpler activation function that outputs zero for negative values.
+    gofast.transformers.activations.ELUTransformer : 
+        A more complex activation function with exponential growth for 
+        negative values.
+    gofast.transformers.activations.LeakyReLUTransformer : 
+        A variation of ReLU that allows a small, non-zero gradient for 
+        negative inputs.
+
+    References
+    ----------
+    [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning. 
+        MIT Press. https://www.deeplearningbook.org/
     """
-    
-    def __init__(self):
-        pass
-    
+    @validate_params ( { 
+        "scale": [ Interval(Real, 0, None, closed ='neither' )], 
+        "shift": [Interval(Real( -1, 1 , closed ='both'))], 
+        "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
+        "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+        "alpha": [Interval(Real, 0 , None , closed ="neither")], 
+        "backend": [
+            StrOptions ({'numpy', 'tensorflow', 'torch', 'np', 'tf'}),
+            None], 
+        
+        }
+    )    
+    def __init__(
+        self, 
+        scale=1.0, 
+        shift=0.0, 
+        precision=1e-6, 
+        batch_size=None, 
+        backend=None, 
+        verbose=False
+        ):
+        self.scale = scale
+        self.shift = shift
+        self.precision = precision
+        self.batch_size = batch_size
+        self.backend = backend
+        self.verbose = verbose
+
+    @Appender(
+        _activation_doc['fit'].format(fmt='SoftmaxTransformer'), 
+        join= "\n", 
+        )
     def fit(self, X, y=None):
+        """Fit the transformer."""
         return self
     
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
+    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
+        X = check_array(X, ensure_2d=True, input_name="X")
+        
+        self.backend = select_backend_n(self.backend)
+        
+        # Apply batch processing if batch_size is specified
+        if self.batch_size is not None:
+            return self._batch_process(X)
+        
+        # Apply transformation based on the backend
+        if self.backend=="numpy":
+            return self._transform_numpy(X)
+        
+        elif self.backend =="tensorflow":
+            return self._transform_tensorflow(X)
+        
+        elif self.backend == "torch":
+            return self._transform_pytorch(X)
+        
+
+    def _batch_process(self, X):
+        """
+        Process the data in batches if batch_size is specified.
+        """
+        n_samples = X.shape[0]
+        n_batches = int(np.ceil(n_samples / self.batch_size))
+        
+        results = []
+        for i in range(n_batches):
+            batch_start = i * self.batch_size
+            batch_end = min((i + 1) * self.batch_size, n_samples)
+            batch = X[batch_start:batch_end]
+            
+            # Process the batch depending on the backend
+            if self.backend == "numpy" or self.backend is None:
+                results.append(self._transform_numpy(batch))
+            elif self.backend == "tensorflow":
+                results.append(self._transform_tensorflow(batch))
+            elif self.backend == "pytorch":
+                results.append(self._transform_pytorch(batch))
+        
+        # Concatenate results across batches
+        return np.concatenate(results, axis=0)
+
+    def _transform_numpy(self, X):
+        """
+        Transform using NumPy.
+        """
         exp_X = np.exp(X - np.max(X, axis=1, keepdims=True))  # Numerical stability
         return exp_X / np.sum(exp_X, axis=1, keepdims=True)
 
+    @ensure_pkg(
+        "tensorflow", 
+        extra="'tensorflow' backend is selected while the library is missing"
+    )
+    def _transform_tensorflow(self, X):
+        """
+        Transform using TensorFlow.
+        """
+        import tensorflow as tf
+        X_tensor = tf.convert_to_tensor(X, dtype=tf.float32)
+        exp_X = tf.exp(X_tensor - tf.reduce_max(
+            X_tensor, axis=1, keepdims=True))
+        return exp_X / tf.reduce_sum(exp_X, axis=1, keepdims=True)
+    
+    @ensure_pkg(
+        "torch", 
+        extra="'torch' backend is selected while the library is missing"
+    )
+    def _transform_pytorch(self, X):
+        """
+        Transform using PyTorch.
+        """
+        import torch
+        X_tensor = torch.tensor(X, dtype=torch.float32)
+        exp_X = torch.exp(X_tensor - torch.max(
+            X_tensor, dim=1, keepdim=True)[0])
+        return exp_X / torch.sum(exp_X, dim=1, keepdim=True)
 
 # Swish Activation Transformer
-class SwishTransformer(BaseEstimator, TransformerMixin):
-    """
-    Swish Activation Transformer.
+@doc( 
+    mathf =dedent( 
+    """\
+    The Swish activation function is defined as:
+
+    .. math::
+        \text{Swish}(x) = x \cdot \sigma(x)
+
+    where:
+    - :math:`x` is the input,
+    - :math:`\sigma(x)` is the sigmoid function, defined as
+    :math:`\sigma(x) = \frac{1}{1 + \exp(-x)}`.
 
     This transformer applies the Swish activation function element-wise 
-    to the input data. The Swish function is defined as:
-    - Swish(x) = x * sigmoid(x)
+    to the input data. Swish is a smooth, non-monotonic activation function 
+    that has been shown to outperform ReLU in some deep learning models.
+    
     """
+    ),  
+    parameters =_activation_doc['parameters'].format(afmt="Swish"), 
+    methods = _activation_doc['methods'].format(afmt='Swish'),
+) 
+class SwishTransformer(BaseEstimator, TransformerMixin):
+    """
+    Swish Activation Transformer with optional scaling, shifting, precision
+    control, batch processing, and backend support.
+
+    {mathf}
     
-    def __init__(self):
-        pass
+    Swish allows for flexibility with optional scaling, shifting, and 
+    precision control. It also supports batch processing and is compatible 
+    with NumPy, TensorFlow, and PyTorch backends.
+
+    {parameters}
+
+    verbose : bool, optional, default=False
+        If `True`, additional information will be printed during transformation. 
+        This is useful for debugging or tracking the status of large computations.
+
+    {methods}
+
+    Notes
+    -----
+    - The Swish function has been shown to perform better than ReLU in many 
+      deep learning models, particularly for deep neural networks. The function 
+      is differentiable and smooth, making it a good candidate for optimization 
+      tasks in machine learning.
     
+    - When using TensorFlow or PyTorch, ensure that the corresponding 
+      framework is installed and that GPU support is available for faster 
+      computation, especially when working with large datasets.
+
+    - TensorFlow and PyTorch offer GPU support, while NumPy is optimized 
+      for CPU-based tasks. Therefore, TensorFlow and PyTorch may provide 
+      better performance in large-scale deep learning applications.
+
+    Examples
+    --------
+    >>> from gofast.transformers.activations import SwishTransformer
+    >>> transformer = SwishTransformer(scale=2.0, shift=-1.0)
+    >>> X = np.array([[-1.0, 2.0], [3.0, -4.0]])
+    >>> transformer.transform(X)
+    array([[-0.76159416,  2.0       ],
+           [ 2.0       , -0.76159416]])
+
+    See Also
+    --------
+    ReLUTransformer : A simpler ReLU activation transformer that outputs 
+    zero for negative values.
+    
+    ELUTransformer : A more complex activation function that introduces 
+    exponential growth for negative values, unlike Swish which is smooth 
+    for all inputs.
+
+    References
+    ----------
+    [1] Ramachandran, P., Zoph, B., & Le, Q. V. (2017). Swish: a self-gated 
+    activation function. arXiv preprint arXiv:1710.05941.
+    """
+    @validate_params ( { 
+        "scale": [ Interval(Real, 0, None, closed ='neither' )], 
+        "shift": [Interval(Real( -1, 1 , closed ='both'))], 
+        "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
+        "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+        "alpha": [Interval(Real, 0 , None , closed ="neither")], 
+        "backend": [
+            StrOptions ({'numpy', 'tensorflow', 'torch', 'np', 'tf', 'pytorch'}),
+            None], 
+        }
+    )    
+    def __init__(
+        self, 
+        scale=1.0, 
+        shift=0.0, 
+        precision=1e-6, 
+        batch_size=None, 
+        backend=None, 
+        verbose=False
+        ):
+
+        self.scale = scale
+        self.shift = shift
+        self.precision = precision
+        self.batch_size = batch_size
+        self.backend = backend if backend else 'numpy'  # Default to numpy if None
+        self.verbose = verbose
+
+    @Appender(
+        _activation_doc['fit'].format(fmt='SwishTransformer'), 
+        join= "\n", 
+        )
     def fit(self, X, y=None):
+        """Fit the transformer."""
         return self
     
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
+    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        return X * (1 / (1 + np.exp(-X)))  # Swish = x * sigmoid(x)
 
+        X = check_array(X, ensure_2d=True, input_name="X")
+        
+        self.backend = select_backend_n(self.backend)
+        # Apply scaling and shifting
+        X_transformed = (self.scale * X) + self.shift
+
+        # Use batch processing if enabled
+        if self.batch_size:
+            return self._batch_process(X_transformed)
+        
+        # Apply backend-specific transformations
+        if self.backend == 'numpy':
+            return self._transform_numpy(X_transformed)
+        elif self.backend == 'tensorflow':
+            return self._transform_tensorflow(X_transformed)
+        elif self.backend == 'torch':
+            return self._transform_pytorch(X_transformed)
+
+    def _batch_process(self, X):
+        """
+        Process the data in batches for better scalability.
+        This method is used when `batch_size` is specified.
+        """
+        n_samples = X.shape[0]
+        n_batches = int(np.ceil(n_samples / self.batch_size))
+        X_transformed = np.zeros_like(X)
+
+        for i in range(n_batches):
+            start = i * self.batch_size
+            end = min((i + 1) * self.batch_size, n_samples)
+            X_transformed[start:end] = self._apply_swish(X[start:end])
+
+        return X_transformed
+
+    def _transform_numpy(self, X):
+        """
+        Transform using NumPy backend.
+        """
+        return self._apply_swish(X)
+
+    def _transform_tensorflow(self, X):
+        """
+        Transform using TensorFlow backend.
+        """
+        import tensorflow as tf
+        X_tensor = tf.convert_to_tensor(X, dtype=tf.float32)
+        return self._apply_swish_tensorflow(X_tensor)
+
+    def _transform_pytorch(self, X):
+        """
+        Transform using PyTorch backend.
+        """
+        import torch
+        X_tensor = torch.tensor(X, dtype=torch.float32)
+        return self._apply_swish_pytorch(X_tensor)
+
+    def _apply_swish(self, X):
+        """
+        Apply the Swish activation function (x * sigmoid(x)) using NumPy.
+        """
+        return X * (1 / (1 + np.exp(-X)))  # Swish = x * sigmoid(x)
+    
+    @ensure_pkg(
+        "tensorflow", 
+        extra="'tensorflow' backend is selected while the library is missing"
+    )
+    def _apply_swish_tensorflow(self, X):
+        """
+        Apply the Swish activation function using TensorFlow.
+        """
+        import tensorflow as tf 
+        return X * (1 / (1 + tf.exp(-X)))
+
+    @ensure_pkg(
+        "torch", 
+        extra="'torch' backend is selected while the library is missing"
+    )
+    def _apply_swish_pytorch(self, X):
+        """
+        Apply the Swish activation function using PyTorch.
+        """
+        import torch 
+        return X * (1 / (1 + torch.exp(-X)))
+    
 # Hard Sigmoid Activation Transformer
+@doc( 
+    mathf =dedent( 
+    """\
+    The Hard Sigmoid activation function is defined as:
+
+    .. math::
+        \text{HardSigmoid}(x) = \max(0, \min(1, 0.2 \cdot x + 0.5))
+
+    :class:`HardSigmoidTransformer` function is a computationally efficient 
+    approximation of the Sigmoid function and maps inputs into the range 
+    [0, 1]. This transformer provides flexibility for large datasets with 
+    optional batch processing and backend support for GPU acceleration using 
+    either TensorFlow or PyTorch.
+    """
+    ),  
+    parameters =_activation_doc['parameters'].format(afmt="HardSigmoid"), 
+    methods = _activation_doc['methods'].format(afmt='HardSigmoid'),
+) 
 class HardSigmoidTransformer(BaseEstimator, TransformerMixin):
     """
-    Hard Sigmoid Activation Transformer.
+    Hard Sigmoid Activation Transformer with optional scaling, shifting, 
+    precision control, batch processing, and backend support.
+    
+    {mathf}
+    
+    {parameters}
 
-    This transformer applies the Hard Sigmoid activation function element-wise 
-    to the input data. The Hard Sigmoid function is a computationally efficient 
-    approximation of the Sigmoid function, defined as:
-    - HardSigmoid(x) = max(0, min(1, 0.2 * x + 0.5))
+    verbose : bool, optional, default=False
+        If True, outputs information during the transformation process, 
+        useful for debugging or performance analysis.
+    
+    {methods}
+        
+    _transform_numpy(X)
+        Applies the Hard Sigmoid function using NumPy. This method is used when 
+        the `backend` is set to 'numpy' (or None).
+        
+    _transform_tensorflow(X)
+        Applies the Hard Sigmoid function using TensorFlow. This method is 
+        used when the `backend` is set to 'tensorflow'. TensorFlow operations  
+        are optimized for GPU computation, providing potential speedup 
+        for large data.
+        
+    _transform_pytorch(X)
+        Applies the Hard Sigmoid function using PyTorch. This method is used 
+        when the `backend` is set to 'torch'. PyTorch operations are optimized
+         for GPU computation, providing potential speedup for large data.
+
+    _batch_process(X)
+        If `batch_size` is set, the data is processed in batches, which is 
+        useful for large datasets that might not fit into memory. This method 
+        handles splitting the input data into smaller chunks and processing 
+        them sequentially using the specified backend.
+
+    Examples
+    ---------
+    >>> from gofast.transformers.activations import HardSigmoidTransformer
+    >>> transformer = HardSigmoidTransformer(scale=1.0, shift=0.0)
+    >>> X = np.array([[-2.0, 0.0, 2.0], [1.0, -1.0, 3.0]])
+    >>> transformer.transform(X)
+    array([[0.        , 0.5       , 1.        ],
+           [0.5       , 0.        , 1.        ]])
+
+    >>> transformer = HardSigmoidTransformer(scale=2.0, shift=-0.5)
+    >>> X = np.array([[0.0, 0.5, -1.0], [-2.0, 1.0, 3.0]])
+    >>> transformer.transform(X)
+    array([[0.5       , 0.9       , 0.        ],
+           [0.        , 0.9       , 1.        ]])
+
+    >>> transformer = HardSigmoidTransformer(batch_size=2, backend='torch')
+    >>> X = np.array([[0.5, 1.0, -0.5], [1.5, -1.0, 2.0]])
+    >>> transformer.transform(X)
+    tensor([[0.6, 0.7, 0.        ],
+            [0.7, 0.        , 0.9]])
+
+    See Also
+    --------
+    gofast.transformers.activations.SigmoidTransformer :
+        A more precise Sigmoid activation function.
+    gofast.transformers.activations.ReLUTransformer : 
+        A commonly used activation function with linear behavior for 
+        positive inputs.
+    
+    References
+    ----------
+    [1] D.P. Kingma, J.B. Ba. Adam: A Method for Stochastic Optimization. 
+        ICLR, 2015. https://arxiv.org/abs/1412.6980
     """
-    
-    def __init__(self):
-        pass
-    
+    @validate_params ( { 
+        "scale": [ Interval(Real, 0, None, closed ='neither' )], 
+        "shift": [Interval(Real( -1, 1 , closed ='both'))], 
+        "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
+        "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+        "alpha": [Interval(Real, 0 , None , closed ="neither")], 
+        "backend": [
+            StrOptions ({'numpy', 'tensorflow', 'torch', 'np', 'tf', 'pytorch'}),
+            None], 
+        }
+    )    
+    def __init__(
+        self,
+        scale=1.0, 
+        shift=0.0, 
+        precision=1e-6, 
+        batch_size=None,
+        backend=None, 
+        verbose=False
+        ):
+        self.scale = scale
+        self.shift = shift
+        self.precision = precision
+        self.batch_size = batch_size
+        self.backend = backend
+        self.verbose = verbose
+
+    @Appender(
+        _activation_doc['fit'].format(fmt='HardSigmoidTransformer'), 
+        join= "\n", 
+        )
     def fit(self, X, y=None):
+        """Fit the transformer."""
         return self
     
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
+    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        return np.clip(0.2 * X + 0.5, 0, 1)  # Hard Sigmoid = 0.2 * x + 0.5
+        X = check_array(X, ensure_2d=True, input_name="X")
+        
+        self.backend = select_backend_n(self.backend)
+        # If batch_size is set, process in batches
+        if self.batch_size is not None:
+            return self._batch_process(X)
+        
+        # Apply transformation depending on the backend
+        if self.backend =="numpy":
+            return self._apply_numpy(X)
+        elif self.backend == "tensorflow":
+            return self._apply_tensorflow(X)
+        elif self.backend == "torch":
+            return self._apply_pytorch(X)
+
+    def _apply_numpy(self, X):
+        """Apply Hard Sigmoid using NumPy"""
+        return np.clip(self.scale * X + self.shift, 0, 1)
+    
+    @ensure_pkg(
+        "tensorflow", 
+        extra="'tensorflow' backend is selected while the library is missing"
+    )
+    def _apply_tensorflow(self, X):
+        """Apply Hard Sigmoid using TensorFlow"""
+        import tensorflow as tf
+        X_tensor = tf.convert_to_tensor(X, dtype=tf.float32)
+        # Hard Sigmoid = 0.2 * x + 0.5
+        return tf.clip_by_value(0.2 * X_tensor + 0.5, 0, 1) 
+    
+    @ensure_pkg(
+        "torch", 
+        extra="'torch' backend is selected while the library is missing"
+    )
+    def _apply_pytorch(self, X):
+        """Apply Hard Sigmoid using PyTorch"""
+        import torch
+        X_tensor = torch.tensor(X, dtype=torch.float32)
+        # Hard Sigmoid = 0.2 * x + 0.5
+        return torch.clamp(0.2 * X_tensor + 0.5, 0, 1)
+
+    def _batch_process(self, X):
+        """
+        Process data in batches according to the specified batch_size.
+        
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features)
+            The input data to transform.
+
+        Returns
+        -------
+        X_transformed : array-like, shape (n_samples, n_features)
+            The transformed data after applying Hard Sigmoid in batches.
+        """
+        n_samples = X.shape[0]
+        n_batches = (n_samples // self.batch_size) + (
+            1 if n_samples % self.batch_size != 0 else 0)
+        transformed_batches = []
+
+        for i in range(n_batches):
+            start_idx = i * self.batch_size
+            end_idx = min((i + 1) * self.batch_size, n_samples)
+            batch_X = X[start_idx:end_idx]
+
+            # Apply the appropriate transformation for the batch
+            if self.backend =="numpy":
+                transformed_batch = self._apply_numpy(batch_X)
+            elif self.backend == "tensorflow":
+                transformed_batch = self._apply_tensorflow(batch_X)
+            elif self.backend == "torch":
+                transformed_batch = self._apply_pytorch(batch_X)
+
+            transformed_batches.append(transformed_batch)
+            
+        # Stack the batches back together
+        return np.vstack(transformed_batches)  
+
+#XXX OPTIMIZE 
+# revise this activation transformer and make it more robust :
+# apply 
+# scale=1.0, 
+# shift=0.0, 
+# precision=1e-6, 
+# batch_size=None, 
+# backend=None, 
+# verbose=False
+# skip WRITING THE  the documentation FOR BRIVEITY  to make it more robust and apply 
+# the back size applycation if set and also the backend operatiosn 
+# for numpy default if None or tensorflow or torch 
+# Dont document the __init__method and use vertical aligment for parameters listing 
+
 
 # Hard Swish Activation Transformer
 class HardSwishTransformer(BaseEstimator, TransformerMixin):
@@ -1593,7 +2210,7 @@ class Swish1Transformer(BaseEstimator, TransformerMixin):
 
 
 # Factory function to get the appropriate transformer based on activation name
-def get_activation_transformer(activation_name):
+def get_activation_transformer(activation_name, **params):
     """
     Get the corresponding activation function transformer based 
     on the provided name.
@@ -1612,27 +2229,34 @@ def get_activation_transformer(activation_name):
     ValueError: If an unsupported activation name is provided.
     """
     transformers = {
-        'relu': ReLUTransformer(),
-        'sigmoid': SigmoidTransformer(),
-        'tanh': TanhTransformer(),
-        'elu': ELUTransformer(),
-        'leakyrelu': LeakyReLUTransformer(),
-        'softmax': SoftmaxTransformer(), 
-        'swish': SwishTransformer(),
-        'hardsigmoid': HardSigmoidTransformer(),
-        'hardswish': HardSwishTransformer(),
-        'softplus': SoftplusTransformer(), 
-        'gelu': GELUTransformer(),
-        'selu': SELUTransformer(),
-        'mish': MishTransformer(),
-        'elish': ELISHTransformer(),
-        'logsigmoid': LogSigmoidTransformer(),
-        'tanhshrink': TanhshrinkTransformer(),
-        'swish1': Swish1Transformer()
+        'relu': ReLUTransformer,
+        'sigmoid': SigmoidTransformer,
+        'tanh': TanhTransformer,
+        'elu': ELUTransformer,
+        'leakyrelu': LeakyReLUTransformer,
+        'softmax': SoftmaxTransformer, 
+        'swish': SwishTransformer,
+        'hardsigmoid': HardSigmoidTransformer,
+        'hardswish': HardSwishTransformer,
+        'softplus': SoftplusTransformer, 
+        'gelu': GELUTransformer,
+        'selu': SELUTransformer,
+        'mish': MishTransformer,
+        'elish': ELISHTransformer,
+        'logsigmoid': LogSigmoidTransformer,
+        'tanhshrink': TanhshrinkTransformer,
+        'swish1': Swish1Transformer
     }
-
-    # Validate the activation name
-    if activation_name not in transformers:
-        raise ValueError(f"Unsupported activation: {activation_name}")
     
-    return transformers[activation_name]
+    # Validate the activation name
+    activation_name = parameter_validator(
+        "activation_name", target_strs=transformers.keys(), 
+        error_msg=f"Unsupported activation: {activation_name}"
+        ) (activation_name)
+    
+
+    transformer_func = transformers[activation_name]
+    valid_params = filter_valid_kwargs(transformer_func, params)
+    return transformer_func (**valid_params)
+
+
