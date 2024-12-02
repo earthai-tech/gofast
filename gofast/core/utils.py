@@ -26,7 +26,7 @@ from ..api.types import (
     _Sub, _F, List, DataFrame
 )
 from ..compat.scipy import check_scipy_interpolate
-from .checks import _assert_all_types, is_iterable
+from .checks import _assert_all_types, is_iterable, validate_name_in
 
 __all__=[
      'contains_delimiter',
@@ -2001,7 +2001,6 @@ def convert_value_in (v, unit ='m'):
     
     return float ( v) * (c.get(unit) or 1e0) 
 
-
 def get_confidence_ratio (
     ar, 
     axis = 0, 
@@ -2070,7 +2069,7 @@ def get_confidence_ratio (
         return len( ar [ ~np.isnan (ar)])  / len(ar )
     
     # validate input axis name 
-    axis = _validate_name_in (axis , ('1', 'rows', 'sites', 'stations') ,
+    axis = validate_name_in (axis , ('1', 'rows', 'sites', 'stations') ,
                               expect_name=1 )
     if not axis:
         axis =0 

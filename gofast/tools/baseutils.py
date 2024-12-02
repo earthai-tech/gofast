@@ -35,11 +35,11 @@ from sklearn.utils import all_estimators
 from ..api.property import PandasDataHandlers
 from ..api.types import (
     Union, List, Optional, Tuple, Iterable, Any, Set, 
-    _T, _F, DataFrame, ArrayLike, Series, NDArray
+    _T, _F, DataFrame, ArrayLike, Series, NDArray, 
 )
 from ..core.array_manager import  to_numeric_dtypes, reshape 
 from ..core.checks import( 
-    _assert_all_types,  is_iterable, exist_features, validate_feature 
+    _assert_all_types,  is_iterable, exist_features, validate_feature, 
     )
 from ..core.utils import ellipsis2false, smart_format 
 from ..core.io import is_data_readable 
@@ -51,7 +51,7 @@ from .validator import (
     check_consistent_length, get_estimator_name, _is_arraylike_1d, 
     array_to_frame, build_data_if, _is_numeric_dtype, check_y, 
     check_consistency_size, is_categorical, is_valid_policies, 
-    contains_nested_objects, parameter_validator, normalize_array
+    contains_nested_objects, parameter_validator, normalize_array, 
 )
 
 __all__ = [
@@ -62,7 +62,7 @@ __all__ = [
     'make_df', 'normalizer', 'remove_outliers', 'remove_target_from_array', 
     'rename_labels_in', 'scale_y', 'select_features', 
     'smooth1d', 'smoothing', 'soft_bin_stat', 'speed_rowwise_process', 
-    'nan_to_mode'
+    'nan_to_mode', 'handle_outliers', 
 ]
 
 @is_data_readable 
@@ -156,6 +156,9 @@ def detect_categorical_columns(
     - pandas.DataFrame : A DataFrame object for handling tabular data.
     - numpy.all : Evaluates whether all elements in a given array meet a 
       condition.
+    - gofast.transformers.OutlierHandler : 
+        Detects and handles outliers in numerical data using specified methods
+        and strategies.
     
     References
     ----------
@@ -202,131 +205,559 @@ def detect_categorical_columns(
 
     return categorical_columns
 
-# XXX TODO 
-def remove_outliers_(
-    ar: Union[np.ndarray, pd.DataFrame, pd.Series],
-    method: str = 'IQR',
-    threshold: float = 3.0,
-    fill_value: Optional[float] = None,
-    axis: int = 1,
-    interpolate: bool = False,
-    kind: str = 'linear',
- 
-    return_removed: bool = False
-) -> Union[np.ndarray, pd.DataFrame, pd.Series]:
-    
-    # Handle DataFrame and Series input types
-    is_series =False 
-    if isinstance ( ar, pd.Series): 
-        ar = ar.to_frame()
-        is_series =True
-    if isinstance ( ar, pd.DataFrame) :
-        df_sanitized = _remove_outliers(ar, n_std = threshold) 
-        if is_series: 
-            df_sanitized = df_sanitized.squeeze () 
-        return df_sanitized
-    
-    # Validation of inputs
-    method = parameter_validator(
-        "method", target_strs={"iqr", 'z-score'}) (method)
-    kind = parameter_validator(
-        "kind", target_strs=['nearest', 'linear', 'cubic']) (kind)
+def handle_outliers(
+    ar: Union[np.ndarray, Series, DataFrame],
+    method: str = 'iqr',
+    threshold: float = 1.5,
+    fill_strategy: str = 'replace',  
+    fill_value: Optional[float] = np.nan,
+    axis: Optional[int] = None,  
+    interpolate_method: str = 'linear',  
+    inplace: bool = False,
+    verbose: bool = False, 
+    batch_size : int ="auto", 
+    batch_processor: bool=False, 
+) -> Union[np.ndarray, pd.Series, pd.DataFrame, None]:
+    """
+    Handle outliers in data structures with flexible strategies.
 
-    arr = np.asarray( ar)
-    
-    removed_indices = []  # To keep track of removed outliers
-    
-    if method == 'iqr':
-        Q1 = np.percentile(arr[~np.isnan(arr)], 25, axis=axis)
-        Q3 = np.percentile(arr[~np.isnan(arr)], 75, axis=axis)
-        IQR = Q3 - Q1
-        
-        lower_bound = Q1 - threshold * IQR
-        upper_bound = Q3 + threshold * IQR
-        
-        lower_outliers = arr <= lower_bound
-        upper_outliers = arr >= upper_bound
-        
-        removed_indices.append(np.where(lower_outliers | upper_outliers))
-        
-        arr[lower_outliers | upper_outliers] = fill_value if fill_value else np.nan
-        
-    elif method == 'z-score':
-        z = np.abs(stats.zscore(arr[~np.isnan(arr)], axis=axis))
-        z_outliers = z > threshold
-        removed_indices.append(np.where(z_outliers))
-        
-        arr[z_outliers] = fill_value if fill_value else np.nan
-    
-    if fill_value is None:
-        arr = arr[~np.isnan(arr).any(axis=axis)] if arr.ndim > 1 else arr[~np.isnan(arr)]
-    
-    if interpolate:
-        arr = interpolate_grid(arr, method=kind)
-    
-    if return_removed:
-        return arr, removed_indices
-    else:
-        return arr
-    
-def _remove_outliers_(data: pd.DataFrame, n_std: float = 3) -> pd.DataFrame:
+    This function detects and handles outliers in NumPy arrays,
+    pandas Series, or pandas DataFrames using various statistical
+    methods. It provides options to replace, interpolate, or drop
+    outliers based on the specified strategy.
 
-    # Separate categorical and numeric features
-    df, numf, catf = to_numeric_dtypes(
-        data, return_feature_types=True, drop_nan_columns=True)
-    df = df[numf]  # Work with only numeric columns
-    
-    removed_indices = []
-    for col in df.columns:
-        mean = df[col].mean()
-        std = df[col].std()
-        outliers = df[col].abs() > (mean + n_std * std)
-        removed_indices.append(df[outliers].index)
-        
-        # Replace outliers with NaN or fill_value
-        df.loc[outliers, col] = np.nan
-    
-    # Recreate the DataFrame with categorical data included
-    df_cat = data[catf].iloc[df.index]
-    df_cleaned = pd.concat([df_cat, df], axis=1)
-    
-    return df_cleaned, removed_indices
+    Parameters
+    ----------
+    ar : np.ndarray, pd.Series, pd.DataFrame
+        The input data to process for outliers.
 
+    method : str, optional
+        The method to use for outlier detection. Options are ``'iqr'``,
+         ``'zscore'``, and ``'modified_zscore'``. Default is ``'iqr'``.
 
-def interpolate_grid_(
-    arr: np.ndarray,
-    method: str = 'cubic',
-    fill_value: Optional[float] = 'auto',
-    view: bool = False
-) -> np.ndarray:
-    from scipy import interpolate
+        - ``'iqr'``: Uses the Interquartile Range method.
+          Outliers are points outside of
+          :math:`[Q_1 - k \times IQR, \ Q_3 + k \times IQR]`,
+          where :math:`Q_1` and :math:`Q_3` are the first and
+          third quartiles, :math:`IQR = Q_3 - Q_1`, and
+          :math:`k` is the ``threshold``.
 
-    # Validation of inputs
+        - ``'zscore'``: Uses the standard Z-score method. Outliers are points
+          with a Z-score greater than the ``threshold``.
 
-    method = parameter_validator(
-        "method", target_strs=['nearest', 'linear', 'cubic']) (method)
+        - ``'modified_zscore'``: Uses the modified Z-score,
+          which is more robust to outliers in small samples [1]_. Outliers are
+          points with a modified Z-score greater than the ``threshold``.
+
+    threshold : float, optional
+        The threshold to use with the chosen ``method``. Its interpretation 
+        depends on the method:
+
+        - For ``'iqr'``, it is the multiplier of the IQR. Common values are
+          1.5 (mild outliers) or 3.0
+          (extreme outliers).
+
+        - For ``'zscore'`` and ``'modified_zscore'``, it is the Z-score cutoff.
+          Common values are 2.0 or 3.0.
+
+        Default is 1.5.
+
+    fill_strategy : str, optional
+        The strategy to handle detected outliers.
+        Options are ``'replace'``, ``'interpolate'``, and ``'drop'``
+        . Default is ``'replace'``.
+
+        - ``'replace'``: Replaces outliers with ``fill_value``.
+
+        - ``'interpolate'``: Replaces outliers with interpolated values using
+           the method specified in ``interpolate_method``.
+
+        - ``'drop'``: Removes outliers from the data.
+
+    fill_value : float, optional
+        The value to replace outliers with when ``fill_strategy`` is
+         ``'replace'``. Default is ``np.nan``.
+
+    axis : int or None, optional
+        The axis along which to detect outliers:
+
+        - For ``DataFrame`` and 2D ``ndarray``, ``0`` applies the method 
+         to each column, ``1`` to each row, and ``None`` to the flattened 
+         array.
+
+        - For ``Series`` and 1D ``ndarray``, this parameter is ignored.
+
+        Default is ``None``.
+
+    interpolate_method : str, optional
+        The interpolation method to use when ``fill_strategy``
+        is ``'interpolate'``. Options include methods supported
+        by ``pandas.Series.interpolate`` or
+        ``pandas.DataFrame.interpolate``, such as ``'linear'``, ``'nearest'``,
+        ``'spline'``, etc. Default is ``'linear'``.
+
+    inplace : bool, optional
+        If ``True``, perform the operation in-place and return ``None``. 
+        Default is ``False``.
+
+    verbose : bool, optional
+        If ``True``, print the number of outliers detected in each column 
+        or row. Default is ``False``.
+
+    Returns
+    -------
+    np.ndarray, pd.Series, pd.DataFrame, or None
+        The data with outliers handled according to the specified strategy.
+        Returns ``None`` if ``inplace`` is ``True``.
+
+    Notes
+    -----
+    **Outlier Detection Methods:**
+
+    - *Interquartile Range (IQR) Method*:
+
+      The IQR method identifies outliers based on the spread of the middle 50%
+      of the data. It is robust to non-normal distributions.
+
+      .. math::
+
+          IQR = Q_3 - Q_1
+
+          \text{Lower Bound} = Q_1 - k \times IQR
+
+          \text{Upper Bound} = Q_3 + k \times IQR
+
+      Where :math:`Q_1` and :math:`Q_3` are the first and third quartiles,
+      and :math:`k` is the ``threshold``.
+
+    - *Z-score Method*:
+
+      Assumes a normal distribution and identifies outliers based on standard 
+      deviations from the mean.
+
+      .. math::
+
+          Z = \frac{X - \mu}{\sigma}
+
+      Where :math:`\mu` is the mean and :math:`\sigma` is the standard 
+      deviation.
+      
+
+    - *Modified Z-score Method*:
+
+      Uses the Median Absolute Deviation (MAD) instead of standard
+      deviation, making it more robust to outliers, especially in smaller 
+      datasets [1]_.
+
+      .. math::
+
+          \text{Modified Z} = 0.6745 \times \frac{X - \tilde{X}}{\text{MAD}}
+
+      Where :math:`\tilde{X}` is the median and
+
+      .. math::
+
+          \text{MAD} = \text{median}(|X - \tilde{X}|)
+
+    **Handling Strategies:**
+
+    - *Replace*: Outliers are replaced with ``fill_value``.
+
+    - *Interpolate*: Outliers are replaced using interpolation
+      methods. This is useful for time-series data.
+
+    - *Drop*: Outliers are removed from the dataset.
     
-    arr = np.asarray ( arr)
-    # Interpolate NaN values
-    nan_mask = np.isnan(arr)
-    if fill_value == 'auto':
-        fill_value = np.nanmedian(arr[~nan_mask])  # Use median as fallback
+    **Additional Notes:**
+
+    - **Data Types and NaN Representation:**
     
-    # Perform interpolation using scipy
-    grid_x, grid_y = np.meshgrid(np.arange(arr.shape[1]), np.arange(arr.shape[0]))
-    interpolated_arr = interpolate.griddata(
-        (grid_x[~nan_mask], grid_y[~nan_mask]),
-        arr[~nan_mask],
-        (grid_x, grid_y),
-        method=method,
-        fill_value=fill_value
+      NumPy integer arrays cannot represent `np.nan`. When working with 
+      missing values or outlier replacement that involves `np.nan`, always 
+      ensure your array is of a floating-point type.
+    
+    - **Interpolation at Edges:**
+    
+      By default, `pandas` interpolation methods won't fill NaNs at the start 
+      or end of a series. The `limit_direction` parameter controls the 
+      direction in which to fill missing values:
+    
+      - `'forward'`: Only fill NaNs forward.
+      - `'backward'`: Only fill NaNs backward.
+      - `'both'`: Fill NaNs in both directions.
+
+    Examples
+    --------
+    Detect and replace outliers in a pandas Series:
+
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from gofast.tools.baseutils import handle_outliers
+    >>> data = pd.Series([1, 2, 2, 3, 4, 100])
+    >>> clean_data = handle_outliers(data, method='iqr', threshold=1.5)
+    >>> print(clean_data)
+    0      1.0
+    1      2.0
+    2      2.0
+    3      3.0
+    4      4.0
+    5      NaN
+    dtype: float64
+
+    Handle outliers in a DataFrame along columns:
+
+    >>> df = pd.DataFrame({
+    ...     'A': [1, 2, 2, 3, 4, 100],
+    ...     'B': [10, 12, 12, 13, 14, -100]
+    ... })
+    >>> clean_df = handle_outliers(df, method='zscore', threshold=2, axis=0)
+    >>> print(clean_df)
+          A     B
+    0   1.0  10.0
+    1   2.0  12.0
+    2   2.0  12.0
+    3   3.0  13.0
+    4   4.0  14.0
+    5   NaN   NaN
+
+    Interpolate outliers in a NumPy array:
+
+    >>> arr = np.array([1, 2, 2, 3, 4, 100])
+    >>> clean_arr = handle_outliers(
+    ...     arr, method='modified_zscore', threshold=3.5,
+    ...     fill_strategy='interpolate', interpolate_method='linear'
+    ... )
+    >>> print(clean_arr)
+    [1. 2. 2. 3. 4. 4.]
+
+    See Also
+    --------
+    interpolate_grid : Interpolate missing values in a 2D grid.
+
+    References
+    ----------
+    .. [1] Iglewicz, Boris, and David Hoaglin. "Volume 16: How to Detect and
+        Handle Outliers." The ASQC Basic References in Quality Control:
+       Statistical Techniques (1993).
+
+    """
+    # Validate parameters (external function)
+    supported_methods = {'iqr', 'zscore', 'modified_zscore'}
+    supported_fill_strategies = {'replace', 'interpolate', 'drop'}
+    method, fill_strategy = _validate_parameters(
+        method,
+        fill_strategy,
+        supported_methods,
+        supported_fill_strategies
     )
+    if fill_strategy == 'interpolate' and not np.isnan(fill_value):
+        raise ValueError(
+            "When `fill_strategy` is 'interpolate', `fill_value` must be np.nan."
+        )
+    if not isinstance(ar, (np.ndarray, pd.Series, pd.DataFrame)):
+        raise TypeError(
+            "Input `ar` must be a NumPy array, pandas Series, or pandas DataFrame."
+        )
+    if isinstance(ar, pd.DataFrame):
+        return _process_dataframe(
+            df=ar,
+            method=method,
+            threshold=threshold,
+            fill_strategy=fill_strategy,
+            fill_value=fill_value,
+            axis=axis,
+            interpolate_method=interpolate_method,
+            inplace=inplace,
+            verbose=verbose,
+            batch_size=batch_size,
+        )
+    elif isinstance(ar, pd.Series):
+        return _process_series(
+            series=ar,
+            method=method,
+            threshold=threshold,
+            fill_strategy=fill_strategy,
+            fill_value=fill_value,
+            interpolate_method=interpolate_method,
+            inplace=inplace,
+            verbose=verbose,
+            batch_size=batch_size,
+        )
+    elif isinstance(ar, np.ndarray):
+        return _process_ndarray(
+            array=ar,
+            method=method,
+            threshold=threshold,
+            fill_strategy=fill_strategy,
+            fill_value=fill_value,
+            interpolate_method=interpolate_method,
+            axis=axis,
+            inplace=inplace,
+            batch_size=batch_size,
+        )
+
+def _process_dataframe(
+    df: pd.DataFrame,
+    method: str,
+    threshold: float,
+    fill_strategy: str,
+    fill_value: Optional[float],
+    axis: Optional[int],
+    interpolate_method: str,
+    inplace: bool,
+    verbose: bool,
+    batch_size: Optional[Union[str, int]] = None,
+) -> pd.DataFrame:
+    if not inplace:
+        df = df.copy()
+
+    if batch_size is not None:
+        if batch_size == 'auto':
+            batch_size = 10000  # Adjust as needed
+        else:
+            batch_size = int(batch_size)
+        total_rows = len(df)
+
+        def batch_generator():
+            for start in range(0, total_rows, batch_size):
+                end = min(start + batch_size, total_rows)
+                df_batch = df.iloc[start:end]
+                processed_batch = _process_dataframe(
+                    df=df_batch,
+                    method=method,
+                    threshold=threshold,
+                    fill_strategy=fill_strategy,
+                    fill_value=fill_value,
+                    axis=axis,
+                    interpolate_method=interpolate_method,
+                    inplace=False,
+                    verbose=verbose,
+                    batch_size=None  # Avoid recursion
+                )
+                yield processed_batch
+                if verbose:
+                    print(f"Processed batch {start} to {end}")
+        result = pd.concat(batch_generator(), ignore_index=True)
+        return result
+    else:
+        if method == 'iqr':
+            Q1 = df.quantile(0.25)
+            Q3 = df.quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - threshold * IQR
+            upper_bound = Q3 + threshold * IQR
+            outlier_mask = (df < lower_bound) | (df > upper_bound)
+        elif method == 'zscore':
+            mean = df.mean()
+            std = df.std()
+            z_scores = (df - mean) / std
+            outlier_mask = (z_scores < -threshold) | (z_scores > threshold)
+        else:  # modified_zscore
+            median = df.median()
+            mad = df.mad()
+            modified_z_scores = 0.6745 * (df - median) / mad
+            outlier_mask = (modified_z_scores < -threshold) | (modified_z_scores > threshold)
+        # Apply outlier strategy
+        if fill_strategy == 'replace':
+            df[outlier_mask] = fill_value
+        elif fill_strategy == 'interpolate':
+            df[outlier_mask] = np.nan
+            df = df.interpolate(method=interpolate_method, axis=axis)
+        elif fill_strategy == 'drop':
+            df = df[~outlier_mask.any(axis=1)]
+        return df
+
+
+def _process_series(
+    series: pd.Series,
+    method: str,
+    threshold: float,
+    fill_strategy: str,
+    fill_value: Optional[float],
+    interpolate_method: str,
+    inplace: bool,
+    verbose: bool,
+    batch_size: Optional[Union[str, int]] = None,
+) -> pd.Series:
+    if not inplace:
+        series = series.copy()
+
+    if batch_size is not None:
+        if batch_size == 'auto':
+            batch_size = 10000  # Adjust as needed
+        else:
+            batch_size = int(batch_size)
+        total_length = len(series)
+
+        def batch_generator():
+            for start in range(0, total_length, batch_size):
+                end = min(start + batch_size, total_length)
+                series_batch = series.iloc[start:end]
+                processed_batch = _process_series(
+                    series=series_batch,
+                    method=method,
+                    threshold=threshold,
+                    fill_strategy=fill_strategy,
+                    fill_value=fill_value,
+                    interpolate_method=interpolate_method,
+                    inplace=False,
+                    verbose=verbose,
+                    batch_size=None  # Avoid recursion
+                )
+                yield processed_batch
+                if verbose:
+                    print(f"Processed batch {start} to {end}")
+        result = pd.concat(batch_generator(), ignore_index=True)
+        return result
+    else:
+        if method == 'iqr':
+            Q1 = series.quantile(0.25)
+            Q3 = series.quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - threshold * IQR
+            upper_bound = Q3 + threshold * IQR
+            outlier_mask = (series < lower_bound) | (series > upper_bound)
+        elif method == 'zscore':
+            mean = series.mean()
+            std = series.std()
+            z_scores = (series - mean) / std
+            outlier_mask = (z_scores < -threshold) | (z_scores > threshold)
+        else:  # modified_zscore
+            median = series.median()
+            mad = series.mad()
+            modified_z_scores = 0.6745 * (series - median) / mad
+            outlier_mask = (
+                modified_z_scores < -threshold) | (modified_z_scores > threshold)
+        # Apply outlier strategy
+        if fill_strategy == 'replace':
+            series[outlier_mask] = fill_value
+        elif fill_strategy == 'interpolate':
+            series[outlier_mask] = np.nan
+            series = series.interpolate(method=interpolate_method)
+        elif fill_strategy == 'drop':
+            series = series[~outlier_mask]
+        return series
+
+def _process_ndarray(
+    array: np.ndarray,
+    method: str,
+    threshold: float,
+    fill_strategy: str,
+    fill_value: Optional[float],
+    interpolate_method: str,
+    axis: Optional[int],
+    inplace: bool,
+    batch_size: Optional[Union[str, int]] = None,
+) -> np.ndarray:
+    if not inplace:
+        array = array.copy()
+
+    if batch_size is not None:
+        if batch_size == 'auto':
+            batch_size = 10000  # Adjust as needed
+        else:
+            batch_size = int(batch_size)
+        if axis == 0 or axis is None:
+            total_rows = array.shape[0]
+
+            def batch_generator():
+                for start in range(0, total_rows, batch_size):
+                    end = min(start + batch_size, total_rows)
+                    array_batch = array[start:end]
+                    processed_batch = _process_ndarray(
+                        array=array_batch,
+                        method=method,
+                        threshold=threshold,
+                        fill_strategy=fill_strategy,
+                        fill_value=fill_value,
+                        interpolate_method=interpolate_method,
+                        axis=axis,
+                        inplace=False,
+                        batch_size=None  # Avoid recursion
+                    )
+                    yield processed_batch
+            result = np.concatenate(list(batch_generator()), axis=0)
+            return result
+        else:
+            # Implement batch processing along other axes if needed
+            raise NotImplementedError(
+                "Batch processing for axis > 0 is not implemented.")
+    else:
+        original_dtype = array.dtype
+        if method == 'iqr':
+            Q1 = np.percentile(array, 25, axis=axis, keepdims=True)
+            Q3 = np.percentile(array, 75, axis=axis, keepdims=True)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - threshold * IQR
+            upper_bound = Q3 + threshold * IQR
+            outlier_mask = (array < lower_bound) | (array > upper_bound)
+        elif method == 'zscore':
+            mean = np.mean(array, axis=axis, keepdims=True)
+            std = np.std(array, axis=axis, keepdims=True)
+            z_scores = (array - mean) / std
+            outlier_mask = (z_scores < -threshold) | (z_scores > threshold)
+        else:  # modified_zscore
+            median = np.median(array, axis=axis, keepdims=True)
+            mad = np.median(np.abs(array - median), axis=axis, keepdims=True)
+            modified_z_scores = 0.6745 * (array - median) / mad
+            outlier_mask = (
+                modified_z_scores < -threshold) | (modified_z_scores > threshold)
+        # Apply outlier strategy
+        if fill_strategy == 'replace':
+            array = array.astype(np.float64)  # To accommodate np.nan if necessary
+            array[outlier_mask] = fill_value
+            array = array.astype(original_dtype)
+        elif fill_strategy == 'interpolate':
+            if not np.isnan(fill_value):
+                raise ValueError(
+                    "Interpolate is feasible only if `fill_value=np.nan`.")
+            array = array.astype(np.float64)
+            array[outlier_mask] = np.nan
+            array = interpolate_grid(array, method=interpolate_method)
+            array = array.astype(original_dtype)
+        elif fill_strategy == 'drop':
+            if array.ndim == 1:
+                axis = None
+            if axis is None:
+                array = array[~outlier_mask]
+            elif axis == 0:
+                rows_to_keep = ~np.any(outlier_mask, axis=1)
+                array = array[rows_to_keep, :]
+            elif axis == 1:
+                cols_to_keep = ~np.any(outlier_mask, axis=0)
+                array = array[:, cols_to_keep]
+            else:
+                raise ValueError("Invalid axis for drop strategy in ndarray.")
+        return array
+
+def _validate_parameters(
+    method: str,
+    fill_strategy: str,
+    supported_methods: set,
+    supported_fill_strategies: set
+) -> Tuple[str, str]:
+
+    method = method.lower()
+    fill_strategy = fill_strategy.lower()
+
+    method = parameter_validator(
+        "method", target_strs=supported_methods, 
+        error_msg= ( 
+            f"Unsupported method '{method}'."
+            " Supported methods are: {supported_methods}"
+            )
+        ) (method)
+    # validate method 
+    fill_strategy = parameter_validator(
+        "method", target_strs=supported_fill_strategies, 
+        error_msg=  (
+            f"Unsupported fill_strategy '{fill_strategy}'."
+            f" Supported strategies are: {supported_fill_strategies}"
+            )
+        ) (fill_strategy)
     
-    if view:
-        plt.imshow(interpolated_arr, cmap='hot', interpolation='nearest')
-        plt.show()
-    
-    return interpolated_arr
+
+    return method, fill_strategy
 
 
 def remove_outliers(
@@ -427,6 +858,7 @@ def remove_outliers(
     >>> import matplotlib.pyplot as plt
     >>> plt.plot(np.arange(len(data)), data, 'r-')
     """
+
     method = str(method).lower()
     # Validation of inputs
     method = parameter_validator(
@@ -453,7 +885,6 @@ def remove_outliers(
         arr[ lower_arr]= fill_value if fill_value else np.nan 
         
     if method =='z-score': 
-        from scipy import stats
         z = np.abs(stats.zscore(arr[~np.isnan(arr)]))
         zmask  = np.array ( z > threshold )
         arr [zmask]= fill_value if fill_value else np.nan
@@ -496,7 +927,7 @@ def _remove_outliers(data, n_std=3):
     
     return df
 
-def interpolate_grid (
+def interpolate_grid(
     arr,
     method ='cubic', 
     fill_value='auto', 
@@ -551,8 +982,7 @@ def interpolate_grid (
         return None
     
     is2d = True 
-    if not hasattr(arr, '__array__'): 
-        arr = np.array (arr) 
+    arr = np.asarray (arr) 
     
     if arr.ndim==1: 
         #convert to two dimension array
@@ -601,6 +1031,79 @@ def interpolate_grid (
         arri = arri[0, :]
         
     return arri 
+
+def interpolate_grid_in(
+    arr: np.ndarray,
+    method: str = 'linear',
+    fill_value: str = 'auto',
+    view: bool = False
+) -> np.ndarray:
+    """
+    Interpolate missing values in a 2D grid.
+
+    Parameters
+    ----------
+    arr : np.ndarray
+        Two-dimensional array with missing values (np.nan).
+    method : str, default='linear'
+        Interpolation method: 'nearest', 'linear', 'cubic', etc.
+    fill_value : str or float, default='auto'
+        How to fill values outside the convex hull:
+        - 'auto': Use nearest-neighbor interpolation.
+        - Any float: Use the specified value.
+    view : bool, default=False
+        If True, display the original and interpolated grids.
+
+    Returns
+    -------
+    np.ndarray
+        Interpolated 2D array.
+    """
+    spi = check_scipy_interpolate()
+    if spi is None:
+        return None
+    
+    if arr.ndim != 2:
+        raise ValueError("`arr` must be a two-dimensional array.")
+
+    x = np.arange(arr.shape[1])
+    y = np.arange(arr.shape[0])
+    xx, yy = np.meshgrid(x, y)
+
+    # Mask invalid values
+    mask = np.isnan(arr)
+    valid = ~mask
+    if not np.any(valid):
+        raise ValueError("Array contains only NaNs.")
+
+    # Perform interpolation
+    interpolated = spi.griddata(
+        points=(xx[valid], yy[valid]),
+        values=arr[valid],
+        xi=(xx, yy),
+        method=method,
+        fill_value=np.nan
+    )
+
+    if fill_value == 'auto':
+        # Simple fill: forward and backward fill along both axes
+        df_interp = pd.DataFrame(interpolated)
+        df_interp = df_interp.fillna(method='ffill').fillna(method='bfill')
+        df_interp = df_interp.fillna(axis=1, method='ffill').fillna(
+            axis=1, method='bfill')
+        interpolated = df_interp.to_numpy()
+    elif isinstance(fill_value, (int, float)):
+        interpolated[np.isnan(interpolated)] = fill_value
+
+    if view:
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+        axes[0].imshow(arr, interpolation='nearest', cmap='viridis')
+        axes[0].set_title('Original Grid')
+        axes[1].imshow(interpolated, interpolation='nearest', cmap='viridis')
+        axes[1].set_title('Interpolated Grid')
+        plt.show()
+
+    return interpolated
 
 def fillNaN(
     arr: Union[ArrayLike, Series, DataFrame], 

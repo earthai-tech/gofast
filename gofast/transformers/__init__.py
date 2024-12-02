@@ -23,6 +23,7 @@ from .feature_engineering import (
     FeatureScaler,
     MissingValueImputer,
     ColumnSelector,
+    OutlierHandler, 
 ) 
 
 __all__= [
@@ -51,6 +52,7 @@ __all__= [
     'MissingValueImputer', 
     'ColumnSelector', 
     'LogTransformer', 
-    'CategoryFrequencyEncoder', 
+    'CategoryFrequencyEncoder',
+    'OutlierHandler', 
   ]
 

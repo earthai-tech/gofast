@@ -159,7 +159,7 @@ batch_size : int, optional, default=None
     - If the dataset contains ``10,000`` samples and ``batch_size=1000``, the 
       data will be processed in 10 separate chunks, each with 1000 samples.
       
-backend : {'numpy', 'tensorflow', 'torch', None}, optional, default=None
+backend : {{'numpy', 'tensorflow', 'torch', None}}, optional, default=None
     The backend library to use for the computation. Available options:
     
     - ``None`` or ``'numpy'``: Use NumPy (default). This is the standard 
@@ -202,9 +202,8 @@ backend : {'numpy', 'tensorflow', 'torch', None}, optional, default=None
       may be beneficial for certain tasks, especially in training deep 
       learning models, while NumPy is optimized for static operations 
       and CPU-based tasks.
-
-
 """
+_VALID_BACKEND_SET={'numpy', 'tensorflow', 'torch', 'np', 'tf', 'pytorch'}
 # ----Activation Transformers
 
 
@@ -314,13 +313,18 @@ class ReLUTransformer(BaseEstimator, TransformerMixin):
         scale=1.0, 
         shift=0.0, 
         precision=1e-6, 
-        batch_size=None
+        batch_size=None, 
+        backend= None, 
+        verbose=False
         ):
 
         self.scale = scale
         self.shift = shift
         self.precision = precision
         self.batch_size = batch_size
+        self.backend =backend 
+        self.verbose =verbose 
+        
 
     @Appender(
         _activation_doc['fit'].format(fmt='ReLUTransformer'), 
@@ -335,7 +339,8 @@ class ReLUTransformer(BaseEstimator, TransformerMixin):
     def transform(self, X):
         
         X = check_array(X, ensure_2d=True, dtype=np.float64)
-
+        
+        self.backend = select_backend_n(self.backend)
         # Apply scaling and shifting before ReLU transformation
         X_scaled_shifted = self.scale * X + self.shift
 
@@ -437,7 +442,8 @@ class SigmoidTransformer(BaseEstimator, TransformerMixin):
         "scale": [ Interval(Real, 0, None, closed ='neither' )], 
         "shift": [Interval(Real( -1, 1 , closed ='both'))], 
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
-        "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None]
+        "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+        "backend": [StrOptions (_VALID_BACKEND_SET), None]
         }
     )
     def __init__(
@@ -445,13 +451,16 @@ class SigmoidTransformer(BaseEstimator, TransformerMixin):
         scale=1.0, 
         shift=0.0, 
         precision=1e-6, 
-        batch_size=None
+        batch_size=None, 
+        backend=None, 
+        verbose=False
     ):
         self.scale = scale
         self.shift = shift
         self.precision = precision
         self.batch_size = batch_size
-
+        self.backend =backend 
+        self.verbose =verbose 
 
     @Appender(
         _activation_doc['fit'].format(fmt='SigmoidTransformer'), 
@@ -470,7 +479,6 @@ class SigmoidTransformer(BaseEstimator, TransformerMixin):
             ensure_2d=True, 
             input_name='X'
         )
-        
         if self.batch_size is not None:
             # Process in batches if batch_size is specified
             n_samples = X.shape[0]
@@ -608,7 +616,7 @@ class TanhTransformer(BaseEstimator, TransformerMixin):
         "shift": [Interval(Real( -1, 1 , closed ='both'))], 
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
-        "backend": [StrOptions ({'numpy', 'tensorflow', 'torch', 'np', 'tf'}), None]
+        "backend": [StrOptions (_VALID_BACKEND_SET), None]
         }
     )
     def __init__(
@@ -915,8 +923,7 @@ class ELUTransformer(BaseEstimator, TransformerMixin):
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
         "alpha": [Interval(Real, 0 , None , closed ="neither")], 
-        "backend": [StrOptions ({'numpy', 'tensorflow', 'torch', 'np', 'tf'}), None], 
-        
+        "backend": [StrOptions (_VALID_BACKEND_SET), None], 
         }
     )    
     def __init__(
@@ -925,8 +932,8 @@ class ELUTransformer(BaseEstimator, TransformerMixin):
         shift=0.0, 
         precision=1e-6, 
         batch_size=None,
-        alpha=1.0, 
         backend=None, 
+        alpha=1.0, 
         verbose=False
         ):
         self.alpha = alpha
@@ -949,12 +956,12 @@ class ELUTransformer(BaseEstimator, TransformerMixin):
     @doc(_shared_docs['activation_transform'])
     def transform(self, X):
 
+        # Check X 
         X = check_array(X, ensure_2d=True, input_name="X")
         
-        if self.backend is None:
-            self.backend = "numpy"  # Default backend
-        
-        if self.backend in ( "tensorflow", "tf"):
+        self.backend = select_backend_n(self.backend )
+  
+        if self.backend =="tensorflow":
             return self._transform_tensorflow(X)
         elif self.backend == "torch":
             return self._transform_pytorch(X)
@@ -1037,7 +1044,10 @@ class ELUTransformer(BaseEstimator, TransformerMixin):
 
         return X_transformed
 
-    @ensure_pkg("tensorflow", 'tensorflow is required for tensorflow backend.')
+    @ensure_pkg(
+        "tensorflow", 
+        "'tensorflow' is required when 'tensorflow' is set as backend."
+    )
     def _apply_elu_tensorflow(self, X):
         """
         Apply ELU with TensorFlow backend.
@@ -1076,7 +1086,8 @@ class ELUTransformer(BaseEstimator, TransformerMixin):
 
         return X_transformed
 
-    @ensure_pkg("torch", 'pytorch is required for tensorflow backend.')
+    @ensure_pkg(
+        "torch", "'torch' is required when 'torch' is set as backend.")
     def _apply_elu_pytorch(self, X):
         """
         Apply ELU with PyTorch backend.
@@ -1228,8 +1239,7 @@ class LeakyReLUTransformer(BaseEstimator, TransformerMixin):
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
         "alpha": [Interval(Real, 0 , None , closed ="neither")], 
-        "backend": [StrOptions (
-            {'numpy', 'tensorflow', 'torch', 'np', 'tf'}), None], 
+        "backend": [StrOptions (_VALID_BACKEND_SET), None], 
         
         }
     )    
@@ -1493,9 +1503,7 @@ class SoftmaxTransformer(BaseEstimator, TransformerMixin):
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
         "alpha": [Interval(Real, 0 , None , closed ="neither")], 
-        "backend": [
-            StrOptions ({'numpy', 'tensorflow', 'torch', 'np', 'tf'}),
-            None], 
+        "backend": [StrOptions (_VALID_BACKEND_SET),None], 
         
         }
     )    
@@ -1690,9 +1698,7 @@ class SwishTransformer(BaseEstimator, TransformerMixin):
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
         "alpha": [Interval(Real, 0 , None , closed ="neither")], 
-        "backend": [
-            StrOptions ({'numpy', 'tensorflow', 'torch', 'np', 'tf', 'pytorch'}),
-            None], 
+        "backend": [StrOptions (_VALID_BACKEND_SET), None], 
         }
     )    
     def __init__(
@@ -1903,9 +1909,7 @@ class HardSigmoidTransformer(BaseEstimator, TransformerMixin):
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
         "alpha": [Interval(Real, 0 , None , closed ="neither")], 
-        "backend": [
-            StrOptions ({'numpy', 'tensorflow', 'torch', 'np', 'tf', 'pytorch'}),
-            None], 
+        "backend": [StrOptions (_VALID_BACKEND_SET), None], 
         }
     )    
     def __init__(

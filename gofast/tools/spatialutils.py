@@ -81,14 +81,304 @@ __all__ = [
      'show_stats',
      'station_id',
      'torres_verdin_filter', 
-     'resample_spatial_data', 
-     'extract_coordinates'
+     'spatial_sampling', 
+     'extract_coordinates', 
+     'batch_spatial_sampling', 
  ]
-
 
 @isdf
 @is_data_readable 
-def resample_spatial_data(
+def batch_spatial_sampling(
+    data,
+    sample_size=0.1,
+    n_batches=10,
+    stratify_by=['year'],
+    spatial_bins=10,
+    spatial_cols=None,
+    random_state=42
+):
+    """
+    Batch resample spatial data with stratification over spatial and
+    specified columns.
+
+    This function divides the dataset into `n_batches` batches, each
+    being a stratified sample of the data. It ensures that samples in
+    the first batch are not present in subsequent batches, and so on.
+    This is particularly useful when dealing with very large datasets
+    that cannot be processed at once, allowing for batch processing in
+    machine learning algorithms.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The input DataFrame from which samples are to be drawn. It must
+        contain the spatial coordinate columns specified in
+        `spatial_cols`, and any additional columns specified in
+        `stratify_by`.
+
+    sample_size : float or int, optional
+        The total number of samples to draw from `data`. If `sample_size`
+        is a float between 0.0 and 1.0, it represents the fraction of the
+        dataset to include in the sample (e.g., `sample_size=0.1` selects
+        10% of the data). If `sample_size` is an integer, it represents
+        the absolute number of samples to select. The default is ``0.1``.
+
+    n_batches : int, optional
+        The number of batches to divide the total samples into. The
+        samples are divided as evenly as possible among the batches. The
+        default is ``10``.
+
+    stratify_by : list of str, optional
+        A list of column names in `data` to use for stratification. The
+        sampling will ensure that the distribution of these columns in
+        each batch matches the distribution in the original dataset. The
+        default is ``['year']``.
+
+    spatial_bins : int or tuple/list of int, optional
+        The number of bins to divide the spatial coordinates into for
+        stratification. If an integer, the same number of bins is used
+        for all spatial dimensions. If a tuple or list, its length must
+        match the number of spatial columns specified in `spatial_cols`,
+        and each element specifies the number of bins for that spatial
+        dimension. The default is ``10``.
+
+    spatial_cols : list or tuple of str, optional
+        A list of column names in `data` representing spatial coordinates.
+        The function can accept one or two columns (e.g., longitude and
+        latitude). If ``None``, the function will look for columns named
+        `'longitude'` and/or `'latitude'` in `data`. If only one spatial
+        column is provided or found, a warning is issued, suggesting that
+        providing both spatial columns is recommended for more accurate
+        sampling. If more than two columns are provided, an error is
+        raised.
+
+    random_state : int, optional
+        Controls the randomness of the sampling for reproducibility. This
+        integer seed is used to initialize the random number generator.
+        The default is ``42``.
+
+    Returns
+    -------
+    batches : list of pandas.DataFrame
+        A list of DataFrames, each representing a batch of the stratified
+        sampled data.
+
+    Notes
+    -----
+    The function performs stratified sampling based on spatial bins and
+    other specified stratification columns. Spatial coordinates are
+    binned using quantile-based discretization (:func:`pandas.qcut`),
+    ensuring each bin has approximately the same number of observations.
+
+    The total number of samples, :math:`n`, is divided among the batches,
+    and within each batch, samples are drawn in a stratified manner. The
+    sample size for each batch is calculated as:
+
+    .. math::
+
+        n_{\text{batch}} = \left\lfloor \frac{n}{n_{\text{batches}}} \right\rfloor
+
+    The remaining samples are distributed among the first few batches:
+
+    .. math::
+
+        n_{\text{leftover}} = n \mod n_{\text{batches}}
+
+    For each batch, the number of samples per stratification group is
+    calculated based on the proportion of the group size to the remaining
+    data size:
+
+    .. math::
+
+        n_{i} = \left\lceil \frac{N_{i}}{N_{\text{remaining}}}\\
+            \times n_{\text{batch}} \right\rceil
+
+    where:
+
+    - :math:`N_{i}` is the size of group :math:`i`.
+    - :math:`N_{\text{remaining}}` is the total number of samples
+      remaining in the data.
+    - :math:`n_{i}` is the number of samples to draw from group
+      :math:`i`.
+
+    After sampling, the selected samples are removed from the remaining
+    data to ensure that they are not selected again in subsequent batches.
+
+    Examples
+    --------
+    >>> from gofast.tools.spatialutils import batch_spatial_sampling
+    >>> sampled_batches = batch_spatial_sampling(
+    ...     data=df,
+    ...     sample_size=0.05,
+    ...     n_batches=5,
+    ...     stratify_by=['year', 'geological_category'],
+    ...     spatial_bins=(10, 15),
+    ...     spatial_cols=['longitude', 'latitude'],
+    ...     random_state=42
+    ... )
+    >>> for i, batch in enumerate(sampled_batches):
+    ...     print(f"Batch {i+1}: {batch.shape}")
+
+    See Also
+    --------
+    resample_spatial_data : Perform stratified sampling without batching.
+
+    References
+    ----------
+    .. [1] Kotsiantis, S., Kanellopoulos, D., & Pintelas, P. (2006).
+           "Data preprocessing for supervised learning." *International
+           Journal of Computer Science*, 1(2), 111-117.
+
+    """
+
+    data = data.copy()
+    total_samples = sample_size
+    if isinstance(sample_size, float):
+        if not 0 < sample_size < 1:
+            raise ValueError("When sample_size is a float, it must be between 0 and 1.")
+        total_samples = int(len(data) * sample_size)
+    elif isinstance(sample_size, int):
+        if sample_size <= 0:
+            raise ValueError("sample_size must be positive.")
+    else:
+        raise ValueError("sample_size must be a float or int.")
+
+    if total_samples > len(data):
+        raise ValueError("sample_size is larger than the dataset.")
+
+    if n_batches <= 0:
+        raise ValueError("n_batches must be a positive integer.")
+
+    sample_size_per_batch = total_samples // n_batches
+    leftover = total_samples % n_batches
+
+    batches = []
+    remaining_data = data.copy()
+    sampled_indices = set()
+    rng = np.random.RandomState(random_state)
+
+    # Set default spatial columns if not specified
+    if spatial_cols is None:
+        spatial_cols = []
+        if 'longitude' in data.columns:
+            spatial_cols.append('longitude')
+        if 'latitude' in data.columns:
+            spatial_cols.append('latitude')
+        if not spatial_cols:
+            raise ValueError(
+                "No spatial columns specified and "
+                "'longitude' and 'latitude' not found in data."
+            )
+        if len(spatial_cols) == 1:
+            warnings.warn(
+                f"Only one spatial column '{spatial_cols[0]}' found. "
+                "Using it for spatial stratification. "
+                "For more accurate sampling, providing both spatial "
+                "columns is recommended.",
+                UserWarning
+            )
+    else:
+        if not isinstance(spatial_cols, (list, tuple)):
+            raise ValueError(
+                "spatial_cols must be a list or tuple of column names."
+            )
+        if len(spatial_cols) > 2:
+            raise ValueError(
+                "spatial_cols can have at most two columns."
+            )
+        for col in spatial_cols:
+            if col not in data.columns:
+                raise ValueError(
+                    f"Spatial column '{col}' not found in data."
+                )
+        if len(spatial_cols) == 1:
+            warnings.warn(
+                f"Only one spatial column '{spatial_cols[0]}' specified. "
+                "For more accurate sampling, providing two spatial columns "
+                "is recommended.",
+                UserWarning
+            )
+    # Validate spatial_bins
+    if isinstance(spatial_bins, int):
+        n_bins_list = [spatial_bins] * len(spatial_cols)
+    elif isinstance(spatial_bins, (tuple, list)):
+        if len(spatial_bins) != len(spatial_cols):
+            raise ValueError(
+                "Length of spatial_bins must match number of spatial_cols."
+            )
+        n_bins_list = list(spatial_bins)
+    else:
+        raise ValueError(
+            "spatial_bins must be int or tuple/list of int."
+        )
+    # Create spatial bins in the original data
+    for col, n_bins, axis in zip(
+        spatial_cols, n_bins_list, ['x_bin', 'y_bin']
+    ):
+        data[axis] = pd.qcut(
+            data[col],
+            q=n_bins,
+            duplicates='drop'
+        )
+    # Create combined stratification key in original data
+    strat_columns = stratify_by + [
+        axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]
+    ]
+    data['strat_key'] = data[strat_columns].apply(
+        lambda row: '_'.join(row.values.astype(str)),
+        axis=1
+    )
+    # Initialize remaining data
+    remaining_data = data.copy()
+    batches = []
+
+    # Set initial random state
+    rng = np.random.RandomState(random_state)
+
+    for batch_idx in range(n_batches):
+        # Adjust sample size for batches if total_samples is not divisible by n_batches
+        if batch_idx < leftover:
+            batch_sample_size = sample_size_per_batch + 1
+        else:
+            batch_sample_size = sample_size_per_batch
+
+        if batch_sample_size > len(remaining_data):
+            batch_sample_size = len(remaining_data)
+
+        # Group remaining data by stratification key
+        grouped = remaining_data.groupby('strat_key')
+        # Calculate number of samples per group
+        group_sizes = grouped.size()
+        total_size = group_sizes.sum()
+        group_sample_sizes = (
+            (group_sizes / total_size * batch_sample_size)
+            .round()
+            .astype(int)
+        )
+        # Sample data from each group
+        sampled_indices = []
+        for strat_value, group in grouped:
+            n = group_sample_sizes.loc[strat_value]
+            if n > 0 and len(group) > 0:
+                sampled_group = group.sample(
+                    n=min(n, len(group)),
+                    random_state=rng.randint(0, 10000)
+                )
+                sampled_indices.extend(sampled_group.index)
+        # Create the sampled DataFrame
+        batch_sampled_data = remaining_data.loc[sampled_indices]
+        batches.append(batch_sampled_data.drop(
+            columns=['strat_key'] + [axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]]))
+        # Remove sampled data from remaining_data
+        remaining_data = remaining_data.drop(index=sampled_indices)
+        if len(remaining_data) == 0:
+            break  # No more data to sample
+
+    return batches
+
+@isdf
+@is_data_readable 
+def spatial_sampling(
     data,
     sample_size=0.01,
     stratify_by=['year'],
@@ -175,11 +465,11 @@ def resample_spatial_data(
 
     Examples
     --------
-    >>> from gofast.tools.spatialutils import resample_spatial_data
+    >>> from gofast.tools.spatialutils import spatial_sampling
     >>> import pandas as pd
     >>> # Assume 'df' is a pandas DataFrame with columns
     >>> # 'longitude', 'latitude', 'year', and other data.
-    >>> sampled_df = resample_spatial_data(
+    >>> sampled_df = spatial_sampling(
     ...     data=df,
     ...     sample_size=0.05,
     ...     stratify_by=['year', 'geological_category'],

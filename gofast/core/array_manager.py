@@ -23,8 +23,7 @@ from ..api.types import (
     _T,  _F, ArrayLike, List, DataFrame, NDArray
 )
 from .utils import ( 
-    is_iterable, _assert_all_types, ellipsis2false, 
-    sanitize_frame_cols, listing_items_format,  
+    is_iterable, _assert_all_types,sanitize_frame_cols, listing_items_format,  
     )
 from .checks import assert_ratio, is_in_if, str2columns, is_numeric_dtype  
 
@@ -798,17 +797,17 @@ def reshape(arr , axis = None) :
 def to_numeric_dtypes(
     arr: Union[NDArray, DataFrame], *, 
     columns: Optional[List[str]] = None, 
-    return_feature_types: bool = ..., 
+    return_feature_types: bool = False, 
     missing_values: float = np.nan, 
-    pop_cat_features: bool = ..., 
-    sanitize_columns: bool = ..., 
+    pop_cat_features: bool = False, 
+    sanitize_columns: bool = False, 
     regex: Optional[re.Pattern] = None, 
     fill_pattern: str = '_', 
-    drop_nan_columns: bool = True, 
+    drop_nan_columns: bool = ..., 
     how: str = 'all', 
-    reset_index: bool = ..., 
-    drop_index: bool = True, 
-    verbose: bool = ...
+    reset_index: bool = False, 
+    drop_index: bool = ..., 
+    verbose: bool = False
 ) -> Union[DataFrame, Tuple[DataFrame, List[str], List[str]]]:
     """
     Converts an array to a DataFrame and coerces values to appropriate 
@@ -896,16 +895,16 @@ def to_numeric_dtypes(
     """
 
     # pass ellipsis argument to False 
-    ( sanitize_columns, reset_index, 
-     verbose,return_feature_types, 
-     pop_cat_features, 
-        ) = ellipsis2false(
-            sanitize_columns, 
-            reset_index, 
-            verbose,
-            return_feature_types, 
-            pop_cat_features
-    )
+    # ( sanitize_columns, reset_index, 
+    #  verbose,return_feature_types, 
+    #  pop_cat_features, 
+    #     ) = ellipsis2false(
+    #         sanitize_columns, 
+    #         reset_index, 
+    #         verbose,
+    #         return_feature_types, 
+    #         pop_cat_features
+    # )
    
     if not is_iterable (arr, exclude_string=True): 
         raise TypeError(f"Expect array. Got {type (arr).__name__!r}")

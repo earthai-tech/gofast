@@ -16,7 +16,11 @@ import scipy.sparse as ssp
 from typing import Any,  Union,List, Tuple, Optional
 import numpy as np
 import pandas as pd
-
+from pandas.api.types import (
+    is_numeric_dtype as _is_numeric_dtype,
+    is_categorical_dtype,
+    is_datetime64_any_dtype
+)
 from ..api.types import Series, Iterable, _F,  DataFrame 
 from ..api.types import _Sub, ArrayLike 
 
@@ -41,6 +45,7 @@ __all__= [
     'random_state_validator', 
     'is_sparse_matrix', 
     'has_sparse_format', 
+    'check_features_types'
     ]
 
    
@@ -1713,62 +1718,6 @@ def has_sparse_format(s):
     
     return True
 
-# def _validate_name_in (name, defaults = '', expect_name= None, 
-#                          exception = None , deep=False ): 
-#     """ Assert name in multiples given default names. 
-    
-#     Parameters 
-#     -----------
-#     name: str, 
-#       given name to assert 
-#     default: list, str, default =''
-#       default values used for assertion 
-#     expect_name: str, optional 
-#       name to return in case assertion is verified ( as ``True``)
-#     deep: bool, default=False 
-#       Find item in a litteral default string. If set  to ``True``, 
-#       `defaults` are joined and check whether an occurence of `name` is in the 
-#       defaults 
-      
-#     exception: Exception 
-#       Error to raise if name is not found in the default values. 
-      
-#     Returns
-#     -------
-#     name: str, 
-#       Verified name or boolean if expect name if ``None``. 
-      
-#     Examples 
-#     -------
-#     >>> from gofast.core.utils import _validate_name_in 
-#     >>> dnames = ('NAME', 'FIST NAME', 'SUrname')
-#     >>> _validate_name_in ('name', defaults=dnames )
-#     False 
-#     >>> _validate_name_in ('name', defaults= dnames, deep =True )
-#     True
-#     >>> _validate_name_in ('name', defaults=dnames , expect_name ='NAM')
-#     False 
-#     >>> _validate_name_in ('name', defaults=dnames , expect_name ='NAM', deep=True)
-#     'NAM'
-#     """
-    
-#     name = str(name).lower().strip() 
-#     defaults = is_iterable(defaults, 
-#             exclude_string= True, parse_string= True, transform=True )
-#     if deep : 
-#         defaults = ''.join([ str(i) for i in defaults] ) 
-        
-#     # if name in defaults: 
-#     name = ( True if expect_name is None  else expect_name 
-#             ) if name in defaults else False 
-    
-#     #name = True if name in defaults else ( expect_name if expect_name else False )
-    
-#     if not name and exception: 
-#         raise exception 
-        
-#     return name 
-
 def validate_name_in(
     name, defaults='', 
     expect_name=None, 
@@ -1850,3 +1799,150 @@ def validate_name_in(
         raise exception
     
     return name
+
+def check_features_types(
+    data,
+    features,
+    objective,
+    error_msg=None, 
+    extra=''
+):
+    """
+    Verify that specified features in a DataFrame match the expected type.
+
+    This function checks whether the provided features within a pandas DataFrame
+    conform to the specified objective type. Supported objective types include
+    'category', 'numeric', and 'datetime'. It ensures data integrity by validating
+    the data types before proceeding with further data processing or analysis.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame containing the data to be checked.
+    features : str or list of str
+        The feature(s) to validate. If a single feature is provided as a string,
+        it will be internally converted to a list for uniform processing.
+    objective : str
+        The expected data type for the features. Supported types are:
+        - ``'category'``: Categorical data type.
+        - ``'numeric'`` : Numeric data types (int, float).
+        - ``'datetime'``: Datetime data type.
+    error_msg : str, optional
+        Custom error message to raise if a feature's data type does not match
+        the expected objective type. If set to `None`, a default error message
+        will be generated. Default is ``None``.
+    extra: str, optional, 
+       Extra message to append to the TypeError message. 
+
+    Returns
+    -------
+    bool
+        Returns `True` if all specified features match the expected type.
+
+    Raises
+    ------
+    TypeError
+        If `data` is not a pandas DataFrame.
+        If `features` is neither a string nor a list of strings.
+    ValueError
+        If an unsupported `objective` type is provided.
+        If any feature specified in `features` does not exist in `data`.
+        If a feature's data type does not match the expected `objective`.
+
+    Notes
+    -----
+    - The function is case-sensitive regarding the `objective` parameter.
+    - It is advisable to ensure that datetime columns are properly parsed
+      (e.g., using `pd.to_datetime`) before using this function.
+    - This function can be extended to support additional data types by
+      modifying the `type_checks` dictionary.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.core.checks import check_features_types
+    >>> data = {
+    ...     'age': [25, 30, 45],
+    ...     'salary': [50000.0, 60000.5, 75000.0],
+    ...     'join_date': pd.to_datetime(['2020-01-15', '2019-06-23', '2021-03-10']),
+    ...     'department': ['HR', 'Engineering', 'Marketing']
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> check_features_types(df, ['age', 'salary'], 'numeric')
+    True
+
+    >>> df['department'] = df['department'].astype('category')
+    >>> check_features_types(df, 'department', 'category')
+    True
+
+    >>> check_features_types(df, 'join_date', 'datetime')
+    True
+
+    >>> # Using a custom error message
+    >>> check_features_types(
+    ...     df,
+    ...     'age',
+    ...     'category',
+    ...     error_msg="Age should be a categorical feature."
+    ... )
+    Traceback (most recent call last):
+        ...
+    ValueError: Age should be a categorical feature.
+    """
+
+    # Validate that 'data' is a pandas DataFrame
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError(
+            f"The 'data' parameter must be a pandas DataFrame, "
+            f"got {type(data).__name__} instead."
+        )
+
+    # Ensure 'features' is a list
+    if isinstance(features, str):
+        features = [features]
+    elif isinstance(features, list):
+        if not all(isinstance(feature, str) for feature in features):
+            raise TypeError(
+                "All elements in the 'features' list must be strings."
+            )
+    else:
+        raise TypeError(
+            "The 'features' parameter should be a list of strings "
+            "or a single feature name as a string."
+        )
+
+    # Mapping of objectives to pandas type checking functions
+    type_checks = {
+        'category' : is_categorical_dtype,
+        'numeric'  : _is_numeric_dtype,
+        'datetime' : is_datetime64_any_dtype,
+    }
+
+    # Validate the objective
+    if objective not in type_checks:
+        raise ValueError(
+            f"Unsupported objective type: '{objective}'. "
+            f"Supported types are {list(type_checks.keys())}."
+        )
+
+    check_func = type_checks[objective]
+
+    # Iterate through each feature and check its type
+    for feature in features:
+        if feature not in data.columns:
+            raise ValueError(
+                f"Feature '{feature}' not found in the DataFrame."
+            )
+
+        if not check_func(data[feature]):
+            if error_msg:
+                raise ValueError(error_msg)
+            else:
+                actual_type = data[feature].dtype
+                raise TypeError(
+                    f"Feature '{feature}' has type '{actual_type}', "
+                    f"expected type '{objective}'.{extra}"
+                )
+
+    return True
+

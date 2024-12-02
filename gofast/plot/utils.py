@@ -31,7 +31,7 @@ from ..api.types import Dict, ArrayLike, DataFrame
 from ..api.property import BasePlot
 from ..core.checks import ( 
     _assert_all_types, is_iterable, str2columns, is_in_if, 
-    exist_features  
+    exist_features, check_features_types 
 )
 from ..compat.sklearn import validate_params, StrOptions, Interval 
 from ..decorators import isdf
@@ -595,10 +595,12 @@ def plot_spatial_features(
     """
 
     # Validate that features exist in data
-    for feature in features:
-        if feature not in data.columns:
-            raise ValueError(f"Feature '{feature}' not found in data.")
+    exist_features(data, features)
 
+    check_features_types(
+        data, features= features, objective='numeric',
+        extra="For any categorical feature, use `plot_categorical_feature` instead."
+    )
     # Handle dates parameter
     if dates is not None:
         # Convert single value to list
@@ -975,6 +977,11 @@ def plot_categorical_feature(
     """
     # Validate that the feature exists in data
     exist_features(data, features= feature)
+    extra_msg = (
+    "For any numerical features, use `plot_spatial_features` instead."
+    )
+    check_features_types(
+        data, features= feature, objective='category', extra=extra_msg)
     # Get unique categories
     categories = data[feature].unique()
     num_categories = len(categories)

@@ -3006,4 +3006,254 @@ def swap_ic(
     else:
         return aligned_data
     
+@isdf 
+@is_data_readable 
+def batch_sampling(
+    data,
+    sample_size=0.1,
+    n_batches=10,
+    stratify_by=None,
+    random_state=None,
+    replacement=False,
+    shuffle=True,
+    return_indices=False,
+):
+    """
+    Batch sampling with optional stratification and replacement.
+
+    This function divides a dataset into multiple batches, each being a sample
+    of the data. It ensures that samples in the first batch are not present in
+    subsequent batches when `replacement` is ``False``. This is particularly
+    useful for processing large datasets in batches, allowing for efficient
+    memory usage and parallel processing.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The input DataFrame from which samples are to be drawn.
+
+    sample_size : float or int, optional
+        The total number of samples to draw from `data`. If `sample_size` is
+        a float between 0.0 and 1.0, it represents the fraction of the dataset
+        to include in the sample (e.g., `sample_size=0.1` selects 10% of the
+        data). If `sample_size` is an integer, it represents the absolute
+        number of samples to select. The default is ``0.1``.
+
+    n_batches : int, optional
+        The number of batches to divide the total samples into. The samples
+        are divided as evenly as possible among the batches. The default is
+        ``10``.
+
+    stratify_by : list of str or None, optional
+        A list of column names in `data` to use for stratification. If
+        specified, the sampling will ensure that the distribution of these
+        columns in each batch matches the distribution in the original
+        dataset. If ``None``, no stratification is applied. The default is
+        ``None``.
+
+    random_state : int or None, optional
+        Controls the randomness of the sampling for reproducibility. This
+        integer seed is used to initialize the random number generator. If
+        ``None``, the random number generator is not seeded. The default is
+        ``None``.
+
+    replacement : bool, optional
+        If ``True``, samples are drawn with replacement. If ``False``, samples
+        are drawn without replacement, and sampled data is removed from the
+        pool of available data for subsequent batches. The default is
+        ``False``.
+
+    shuffle : bool, optional
+        If ``True``, the data is shuffled before sampling. This is relevant
+        when `replacement` is ``False`` to ensure that the data is sampled
+        randomly. The default is ``True``.
+
+    return_indices : bool, optional
+        If ``True``, the function yields indices of the sampled data instead
+        of the data itself. If ``False``, the function yields DataFrames
+        containing the sampled data. The default is ``False``.
+
+    Yields
+    ------
+    batch : pandas.DataFrame or list of int
+        If `return_indices` is ``False``, each yield is a DataFrame containing
+        the sampled data for that batch. If `return_indices` is ``True``, each
+        yield is a list of indices corresponding to the sampled data for that
+        batch.
+
+    Notes
+    -----
+    The total number of samples, :math:`n`, is divided among the batches, and
+    within each batch, samples are drawn (optionally stratified). The sample
+    size for each batch is calculated as:
+
+    .. math::
+
+        n_{\text{batch}} = \left\lfloor \frac{n}{n_{\text{batches}}} \right\rfloor
+
+    The remaining samples are distributed among the first few batches:
+
+    .. math::
+
+        n_{\text{leftover}} = n \mod n_{\text{batches}}
+
+    For each batch, if stratification is applied, the number of samples per
+    stratification group is calculated based on the proportion of the group
+    size to the remaining data size:
+
+    .. math::
+
+        n_{i} = \left\lceil \frac{N_{i}}{N_{\text{remaining}}}\\
+            \times n_{\text{batch}} \right\rceil
+
+    where:
+
+    - :math:`N_{i}` is the size of group :math:`i`.
+    - :math:`N_{\text{remaining}}` is the total number of samples remaining in
+      the data.
+    - :math:`n_{i}` is the number of samples to draw from group :math:`i`.
+
+    After sampling, the selected samples are removed from the remaining data
+    (if `replacement` is ``False``) to ensure that they are not selected again
+    in subsequent batches.
+
+    Examples
+    --------
+    >>> from gofast.tools.datautils import batch_sampling
+    >>> import pandas as pd
+    >>> # Create a sample DataFrame
+    >>> data = pd.DataFrame({
+    ...     'feature1': range(1000),
+    ...     'feature2': ['A'] * 500 + ['B'] * 500,
+    ...     'label': [0, 1] * 500
+    ... })
+    >>> # Use batch_sampling without stratification
+    >>> batches = batch_sampling(
+    ...     data=data,
+    ...     sample_size=0.2,
+    ...     n_batches=4,
+    ...     random_state=42
+    ... )
+    >>> for i, batch in enumerate(batches):
+    ...     print(f"Batch {i+1} shape: {batch.shape}")
+    Batch 1 shape: (50, 3)
+    Batch 2 shape: (50, 3)
+    Batch 3 shape: (50, 3)
+    Batch 4 shape: (50, 3)
+
+    >>> # Use batch_sampling with stratification
+    >>> batches = batch_sampling(
+    ...     data=data,
+    ...     sample_size=200,
+    ...     n_batches=4,
+    ...     stratify_by=['label'],
+    ...     random_state=42
+    ... )
+    >>> for i, batch in enumerate(batches):
+    ...     print(f"Batch {i+1} label distribution:")
+    ...     print(batch['label'].value_counts())
+    Batch 1 label distribution:
+    0    25
+    1    25
+    Name: label, dtype: int64
+    Batch 2 label distribution:
+    0    25
+    1    25
+    Name: label, dtype: int64
+    Batch 3 label distribution:
+    0    25
+    1    25
+    Name: label, dtype: int64
+    Batch 4 label distribution:
+    0    25
+    1    25
+    Name: label, dtype: int64
+
+    See Also
+    --------
+    pandas.DataFrame.sample : Method used for random sampling.
+    sklearn.model_selection.StratifiedShuffleSplit : Alternative for stratified sampling.
+
+    References
+    ----------
+    .. [1] Hastie, T., Tibshirani, R., & Friedman, J. (2009). *The Elements of
+           Statistical Learning: Data Mining, Inference, and Prediction*.
+           Springer Science & Business Media.
+
+    """
+
+    data = data.copy()
+    total_samples = sample_size
+    if isinstance(sample_size, float):
+        if not 0 < sample_size <= 1:
+            raise ValueError(
+                "When sample_size is a float, it must be between 0 and 1.")
+        total_samples = int(len(data) * sample_size)
+    elif isinstance(sample_size, int):
+        if sample_size <= 0:
+            raise ValueError("sample_size must be positive.")
+    else:
+        raise ValueError("sample_size must be a float or int.")
+
+    if total_samples > len(data) and not replacement:
+        raise ValueError("sample_size is larger than the dataset.")
+
+    if n_batches <= 0:
+        raise ValueError("n_batches must be a positive integer.")
+
+    sample_size_per_batch = total_samples // n_batches
+    leftover = total_samples % n_batches
+
+    remaining_data = data.copy()
+    rng = np.random.RandomState(random_state)
+
+    for batch_idx in range(n_batches):
+        # Adjust sample size for batches if total_samples is not divisible by n_batches
+        if batch_idx < leftover:
+            batch_sample_size = sample_size_per_batch + 1
+        else:
+            batch_sample_size = sample_size_per_batch
+
+        if batch_sample_size == 0:
+            continue  # No samples to draw in this batch
+
+        if stratify_by is not None:
+            # Stratified sampling
+            grouped = remaining_data.groupby(stratify_by)
+            group_sizes = grouped.size()
+            total_size = group_sizes.sum()
+            group_sample_sizes = (
+                (group_sizes / total_size * batch_sample_size)
+                .round()
+                .astype(int)
+            )
+            sampled_indices = []
+            for strat_value, group in grouped:
+                n = group_sample_sizes.loc[strat_value]
+                if n > 0 and len(group) > 0:
+                    sampled_group = group.sample(
+                        n=min(n, len(group)) if not replacement else n,
+                        replace=replacement,
+                        random_state=rng.randint(0, 10000),
+                    )
+                    sampled_indices.extend(sampled_group.index)
+        else:
+            # Simple random sampling
+            sampled_indices = remaining_data.sample(
+                n=batch_sample_size if not replacement else batch_sample_size,
+                replace=replacement,
+                random_state=rng.randint(0, 10000),
+            ).index.tolist()
+
+        # Yield the batch
+        if return_indices:
+            yield sampled_indices
+        else:
+            yield remaining_data.loc[sampled_indices]
+
+        if not replacement:
+            # Remove sampled data from remaining_data
+            remaining_data = remaining_data.drop(index=sampled_indices)
+            if len(remaining_data) == 0:
+                break  # No more data to sample
 

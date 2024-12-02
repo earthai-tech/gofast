@@ -3186,54 +3186,78 @@ def available_if(check):
     """
     return lambda fn: _AvailableIfDescriptor(fn, check, attribute_name=fn.__name__)
 
+
 def isdf(func):
     """
     Decorator that ensures the first positional argument passed to the 
     decorated callable is a pandas DataFrame. If it's not, attempts to convert
     it to a DataFrame using an optional `columns` keyword argument. 
     
-    Function is designed to  be flexible and efficient, suitable for 
+    Function is designed to be flexible and efficient, suitable for 
     both functions and methods.
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        # Determine if we're decorating a method or a function
-        args_list = list(args)
-        if args and hasattr(args_list[0], func.__name__):
-            # If the first argument has an attribute with the same name as `func`,
-            # it's likely an instance method where `self` or `cls` is the first argument.
-            self_or_cls, data_arg_index = args_list[0], 1
-        else:
-            self_or_cls, data_arg_index = None, 0
+        # Get the signature of the function
+        sig = inspect.signature(func)
+        params = sig.parameters
+        param_list = list(params.values())
+        
+        # Check if the function has any parameters
+        if not param_list:
+            # No parameters to process
+            return func(*args, **kwargs)
+        
+        # Determine if we're decorating a method (with 'self' or 'cls')
+        is_method = False
+        start_idx = 0
+        if param_list[0].name in ('self', 'cls'):
+            is_method = True
+            start_idx = 1  # Skip 'self' or 'cls'
 
-        # Retrieve the data argument and `columns` keyword argument if provided
-        data = args_list[data_arg_index]
-        columns = kwargs.get('columns', None)
+        # Map arguments to their names
+        bound_args = sig.bind_partial(*args, **kwargs)
+        bound_args.apply_defaults()
+        
+        # Identify the data parameter name
+        # Prefer 'data' if it's among the parameters
+        data_param_name = None
+        for idx, param in enumerate(param_list[start_idx:], start=start_idx):
+            if param.name == 'data':
+                data_param_name = 'data'
+                break
+        else:
+            # If 'data' is not a parameter, use the first positional
+            # parameter after 'self'/'cls'
+            if ( len(param_list) > start_idx) or is_method:
+                data_param_name = param_list[start_idx].name
+            else:
+                # No parameters left to consider
+                return func(*args, **kwargs)
+
+        # Get 'data' argument from bound arguments
+        data = bound_args.arguments.get(data_param_name, None)
+        columns = bound_args.arguments.get('columns', kwargs.get('columns', None))
         if isinstance(columns, str):
             columns = [columns]
-
+        
         # Proceed with conversion if necessary
-        if not isinstance(data, pd.DataFrame):
+        if data is not None and not isinstance(data, pd.DataFrame):
             try:
                 data = pd.DataFrame(data, columns=columns)
                 if columns and len(columns) != data.shape[1]:
                     data = pd.DataFrame(data)
             except Exception as e:
                 raise ValueError(f"Unable to convert to DataFrame: {e}")
-            # Update the data argument in the arguments list
-            args_list[data_arg_index] = data
             
-            # Reconstruct args from the potentially modified args_list
-            args = tuple(args_list)
-
-        # Call the original function or method, passing `self` or 
-        # `cls` explicitly if necessary
-        if self_or_cls is not None:
-            return func(self_or_cls, *args[1:], **kwargs)
-        else:
-            return func(*args, **kwargs)
-
+            # Update the bound arguments with the new data
+            bound_args.arguments[data_param_name] = data
+        
+        # Call the original function with the updated arguments
+        return func(*bound_args.args, **bound_args.kwargs)
+    
     return wrapper
+
 
 class IsPerformanceData:
     """
