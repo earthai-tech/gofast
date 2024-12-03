@@ -19,6 +19,7 @@ from typing import Any, List, Union, Dict, Optional, Set, Tuple
 from functools import reduce
 
 import scipy 
+from scipy.spatial import cKDTree
 import numpy as np 
 import pandas as pd 
 
@@ -30,8 +31,9 @@ from ..decorators import Deprecated, RunReturn, isdf
 from ..core.array_manager import to_numeric_dtypes 
 from ..core.checks import ( 
     _assert_all_types, validate_name_in, is_in,  
-    is_iterable, assert_ratio
+    is_iterable, assert_ratio, is_all_frames 
 )
+from ..core.handlers import columns_manager 
 from ..core.io import is_data_readable 
 from ..core.utils import sanitize_frame_cols 
 from .validator import check_is_runned, is_frame, validate_positive_integer  
@@ -56,7 +58,8 @@ __all__= [
     'wide_to_long', 
     'repeat_feature_accross', 
     'merge_datasets', 
-    'swap_ic'
+    'swap_ic', 
+    'dual_merge'
     ]
 
 class DataManager(BaseClass):
@@ -2868,7 +2871,7 @@ def merge_datasets(
 
 @isdf 
 def swap_ic(
-    data, 
+    df, 
     sort: bool = False, 
     ascending: bool = True, 
     inplace: bool = False, 
@@ -2890,7 +2893,7 @@ def swap_ic(
 
     Parameters
     ----------
-    data : pandas.DataFrame
+    df : pandas.DataFrame
         The DataFrame whose index and columns need to be aligned.
 
     sort : bool, optional, default=False
@@ -2945,66 +2948,66 @@ def swap_ic(
     --------
     Example of using the function without sorting:
 
-    >>> from gofast.tools.datautils import swap_ic 
-    >>> data = pd.DataFrame({
+    >>> from gofast.tools.dfutils import swap_ic 
+    >>> df = pd.DataFrame({
     >>>     'A': [1, 2, 3],
     >>>     'B': [4, 5, 6],
     >>>     'C': [7, 8, 9]
     >>> }, index=['B', 'A', 'C'])
-    >>> swap_ic(data, sort=False)
-    >>> swap_ic(data, sort=True, ascending=True)
+    >>> swap_ic(df, sort=False)
+    >>> swap_ic(df, sort=True, ascending=True)
 
     Example of using the function with sorting and filling NaNs:
 
-    >>> swap_ic(data, sort=True, fillna=0)
+    >>> swap_ic(df, sort=True, fillna=0)
     
     Example of using the function with custom order:
 
-    >>> swap_ic(data, order=['B', 'A', 'C'])
-    >>> swap_ic(data, order=['C', 'A', 'B'])
+    >>> swap_ic(df, order=['B', 'A', 'C'])
+    >>> swap_ic(df, order=['C', 'A', 'B'])
     
     """
     # Validate that index and columns have the same elements
-    if not set(data.columns).issubset(data.index) or not set(
-            data.index).issubset(data.columns):
+    if not set(df.columns).issubset(df.index) or not set(
+            df.index).issubset(df.columns):
         raise ValueError("Index and columns must contain the same values.")
     
     # Optionally, apply custom order to both index and columns
     if order:
         # Ensure custom_order is a valid subset of index and columns
-        if not set(order).issubset(data.columns) or not set(order).issubset(data.index):
+        if not set(order).issubset(df.columns) or not set(order).issubset(df.index):
             raise ValueError(
                 "Custom order contains values not present in both index and columns.")
         
         # Apply custom order to index and columns
-        data = data.loc[order, order]
+        df = df.loc[order, order]
         
     # Align index and columns by ensuring they are in the same order
-    aligned_data = data.loc[data.columns, data.columns]
+    aligned_df = df.loc[df.columns, df.columns]
 
     # Sort the index and columns if requested
     if sort:
-        aligned_data = aligned_data.sort_index(ascending=ascending, axis=0)
-        aligned_data = aligned_data.sort_index(ascending=ascending, axis=1)
+        aligned_df = aligned_df.sort_index(ascending=ascending, axis=0)
+        aligned_df = aligned_df.sort_index(ascending=ascending, axis=1)
 
     # Reset index if requested
     if reset_index:
-        aligned_data = aligned_data.reset_index(drop=True)
+        aligned_df = aligned_df.reset_index(drop=True)
 
     # Drop NaN values if requested
     if dropna:
-        aligned_data = aligned_data.dropna(axis=axis, how='any')
+        aligned_df = aligned_df.dropna(axis=axis, how='any')
 
     # Fill NaN values if requested
     if fillna is not None:
-        aligned_data = aligned_data.fillna(fillna)
+        aligned_df = aligned_df.fillna(fillna)
 
     # Apply changes in place if requested
     if inplace:
-        data[:] = aligned_data
+        df[:] = aligned_df
         return None  # None is returned if inplace=True
     else:
-        return aligned_data
+        return aligned_df
     
 @isdf 
 @is_data_readable 
@@ -3256,4 +3259,160 @@ def batch_sampling(
             remaining_data = remaining_data.drop(index=sampled_indices)
             if len(remaining_data) == 0:
                 break  # No more data to sample
+                
+def dual_merge(
+    df1: pd.DataFrame, 
+    df2: pd.DataFrame,
+    feature_cols: Union[list, tuple] = ('longitude', 'latitude'),
+    find_closest: bool = False, 
+    force_coords: bool = False,  
+    threshold: float = 0.01,  
+    how: str = 'inner'  
+) -> pd.DataFrame:
+    """
+    Merge two DataFrames based on specified feature columns. The function 
+    can match the features exactly or find the closest matches within a 
+    specified distance threshold. It also allows for overwriting coordinates 
+    or feature values from one DataFrame to another when a close match is found.
 
+    Parameters
+    ----------
+    df1 : pd.DataFrame
+        The first DataFrame to be merged. It contains the primary data 
+        along with the feature columns (e.g., longitude, latitude) to be 
+        merged on.
+
+    df2 : pd.DataFrame
+        The second DataFrame to be merged. It contains the data to be 
+        matched with `df1` based on the specified feature columns.
+
+    feature_cols : tuple or list, default ``('longitude', 'latitude')``
+        The names of the columns in each DataFrame to merge on. It should 
+        contain two columns representing features, such as coordinates 
+        (longitude, latitude) or other relevant attributes. These columns 
+        will be used to match the rows from `df1` to `df2`.
+
+    find_closest : bool, default ``False``
+        If ``True``, the function will attempt to find the closest points 
+        in ``df2`` for each point in ``df1`` within the specified distance 
+        threshold (`threshold`). If no exact match is found, the closest 
+        point within the threshold will be considered.
+
+    force_coordinates : bool, default ``False``
+        If ``True``, when the closest points are found, the coordinates 
+        of `df1` will overwrite those of `df2` for the matched points.
+
+    threshold : float, default ``0.01``
+        The maximum distance threshold within which points will be considered 
+        as "close" for the closest point matching. The value is in the same 
+        unit as the feature columns (e.g., degrees for latitude/longitude).
+
+    how : str, default ``'inner'``
+        The type of merge to perform. Options include:
+        - ``'inner'``: Only includes points that appear in both DataFrames.
+        - ``'left'``: All points from `df1` are included; unmatched points 
+          from `df2` are excluded.
+        - ``'right'``: All points from `df2` are included; unmatched points 
+          from `df1` are excluded.
+        - ``'outer'``: Includes all points from both DataFrames, with NaN 
+          for unmatched points.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the merged data based on the specified 
+        feature columns and merge type. If ``find_closest=True``, it will 
+        contain the closest matches within the specified threshold, with 
+        coordinates from ``df1`` overwritten if ``force_coordinates=True``.
+
+    Notes
+    -----
+    - This function uses a KDTree for efficient nearest-neighbor searching 
+      when ``find_closest=True``. This is useful when dealing with large 
+      datasets that may not have exact coordinate matches.
+    - When ``force_coordinates=True``, the coordinates from ``df1`` will 
+      overwrite those from ``df2`` for the closest points. However, other 
+      feature values will be kept from ``df2``.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.datautils import dual_merge
+    >>> df1 = pd.DataFrame({
+    >>>     'longitude': [1.1, 1.2, 1.3],
+    >>>     'latitude': [2.1, 2.2, 2.3],
+    >>>     'value1': [10, 20, 30]
+    >>> })
+    >>> df2 = pd.DataFrame({
+    >>>     'longitude': [1.1, 1.4],
+    >>>     'latitude': [2.1, 2.4],
+    >>>     'value2': [100, 200]
+    >>> })
+    >>> result = dual_merge(df1, df2, feature_cols=('longitude', 'latitude'), 
+    >>>                     find_closest=True, threshold=0.05)
+    >>> print(result)
+       longitude  latitude  value1  value2
+    0        1.1       2.1      10     100
+
+    See Also
+    --------
+    scipy.spatial.cKDTree: Used for finding the closest points in `df2` 
+        when ``find_closest=True``. 
+    pandas.merge: pandas.DataFrame.merge
+        The pandas merge function, used to merge DataFrames based on columns.
+
+    References
+    ----------
+    .. [1] Scipy Documentation, cKDTree
+       https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.cKDTree.html
+    """
+
+    # Ensure feature_cols are valid and both contain two elements
+    feature_cols = columns_manager(feature_cols , empty_as_none= False )
+    if len(feature_cols) != 2:
+        raise ValueError(
+            "feature_cols must contain exactly two features (e.g., longitude, latitude)")
+    
+    # check wether df1 and df2  are both dataframes.
+    is_all_frames(df1, df2 )
+    
+    # Extract columns from feature_cols for both DataFrames
+    feature1_1, feature1_2 = feature_cols
+    feature2_1, feature2_2 = feature_cols
+    
+    # Filter for relevant columns in both DataFrames
+    df1_coords = df1[[feature1_1, feature1_2]]
+    df2_coords = df2[[feature2_1, feature2_2]]
+
+    if find_closest:
+        # Use KDTree for fast nearest-neighbor search
+        tree = cKDTree(df2_coords.values)
+        
+        # Query for the closest points in df2 for each point in df1
+        dist, indices = tree.query(
+            df1_coords.values, distance_upper_bound=threshold)
+        
+        # Filter out points that couldn't find a close match
+        valid_idx = dist != np.inf
+        df1_coords_closest = df1_coords.iloc[valid_idx]
+        df2_coords_closest = df2_coords.iloc[indices[valid_idx]]
+
+        if force_coords:
+            # Force coordinates of df1 to overwrite df2
+            df2_coords_closest[feature2_1] = df1_coords_closest[feature1_1].values
+            df2_coords_closest[feature2_2] = df1_coords_closest[feature1_2].values
+        
+        # Update df1 with the closest matches from df2
+        df1 = df1.iloc[valid_idx]
+        df2 = df2.iloc[indices[valid_idx]]
+
+    # Perform the merge based on the feature columns
+    merged_data = pd.merge(
+        df1,
+        df2,
+        how=how,
+        left_on=[feature1_1, feature1_2],
+        right_on=[feature2_1, feature2_2]
+    )
+
+    return merged_data

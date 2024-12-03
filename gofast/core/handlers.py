@@ -16,13 +16,13 @@ import random
 import inspect
 import datetime
 import warnings
-
+from collections.abc import Iterable
 import numpy as np
 import pandas as pd
 
-from ..api.types import  Optional, Iterable, List
+from ..api.types import  Optional, List, Union
 from ..compat.scipy import optimize_minimize
-from .checks import validate_noise 
+from .checks import validate_noise, str2columns
 
 __all__ = [ 
     'add_noises_to',
@@ -899,8 +899,11 @@ def _parse_gaussian_noise(noise):
 
 
 def make_ids(
-        arr: Iterable, prefix: Optional[str] = None, how: str = 'py', 
-        skip: bool = False) -> List[str]:
+    arr: Iterable, 
+    prefix: Optional[str] = None, 
+    how: str = 'py', 
+    skip: bool = False
+ ) -> List[str]:
     """
     Generate auto-generated IDs based on the number of items in the input
     iterable.
@@ -980,64 +983,84 @@ def make_ids(
     
     return id_
 
-
-def get_params (obj: object ) -> dict: 
+def get_params(obj: object) -> dict:
     """
-    Get object parameters. 
-    
-    Object can be callable or instances 
-    
-    :param obj: object , can be callable or instance 
-    
-    :return: dict of parameters values 
-    
-    :examples: 
+    Retrieve the parameters of an object, which can either be a callable 
+    or an instance of a class. The function inspects the object and 
+    returns a dictionary of its parameters and their current values.
+
+    This function works in two scenarios:
+    - If the object is callable (i.e., a function or method), it will 
+      return the parameters for the callable, including their default 
+      values (if defined).
+    - If the object is a class instance, it will return the parameters 
+      (attributes) defined within the instance's `__dict__`, which contains 
+      its instance variables.
+
+    Parameters
+    ----------
+    obj : object
+        The object whose parameters are to be retrieved. This can be either 
+        a callable (such as a function or method) or an instance of a class.
+
+    Returns
+    -------
+    dict
+        A dictionary where the keys are the parameter names (or attribute names)
+        and the values are the corresponding parameter values or defaults. 
+
+    Examples
+    --------
     >>> from sklearn.svm import SVC 
     >>> from gofast.core.handlers import get_params 
-    >>> sigmoid= SVC (
-        **{
-            'C': 512.0,
-            'coef0': 0,
-            'degree': 1,
-            'gamma': 0.001953125,
-            'kernel': 'sigmoid',
-            'tol': 1.0 
-            }
-        )
-    >>> pvalues = get_params( sigmoid)
-    >>> {'decision_function_shape': 'ovr',
-         'break_ties': False,
-         'kernel': 'sigmoid',
-         'degree': 1,
-         'gamma': 0.001953125,
-         'coef0': 0,
-         'tol': 1.0,
-         'C': 512.0,
-         'nu': 0.0,
-         'epsilon': 0.0,
-         'shrinking': True,
-         'probability': False,
-         'cache_size': 200,
-         'class_weight': None,
-         'verbose': False,
-         'max_iter': -1,
-         'random_state': None
-     }
+    >>> sigmoid = SVC(
+    ...     **{
+    ...         'C': 512.0,
+    ...         'coef0': 0,
+    ...         'degree': 1,
+    ...         'gamma': 0.001953125,
+    ...         'kernel': 'sigmoid',
+    ...         'tol': 1.0 
+    ...     }
+    ... )
+    >>> pvalues = get_params(sigmoid)
+    >>> print(pvalues)
+    {'decision_function_shape': 'ovr',
+     'break_ties': False,
+     'kernel': 'sigmoid',
+     'degree': 1,
+     'gamma': 0.001953125,
+     'coef0': 0,
+     'tol': 1.0,
+     'C': 512.0,
+     'nu': 0.0,
+     'epsilon': 0.0,
+     'shrinking': True,
+     'probability': False,
+     'cache_size': 200,
+     'class_weight': None,
+     'verbose': False,
+     'max_iter': -1,
+     'random_state': None}
     """
-    if hasattr (obj, '__call__'): 
-        cls_or_func_signature = inspect.signature(obj)
-        PARAMS_VALUES = {k: None if v.default is (inspect.Parameter.empty 
-                         or ...) else v.default 
-                    for k, v in cls_or_func_signature.parameters.items()
-                    # if v.default is not inspect.Parameter.empty
-                    }
+    if hasattr(obj, '__call__'): 
+        # If the object is callable (e.g., a function or method)
+        func_signature = inspect.signature(obj)
+        PARAMS_VALUES = {
+            k: None if v.default is inspect.Parameter.empty  else v.default
+            for k, v in func_signature.parameters.items()
+        }
     elif hasattr(obj, '__dict__'): 
-        PARAMS_VALUES = {k:v  for k, v in obj.__dict__.items() 
-                         if not (k.endswith('_') or k.startswith('_'))}
-    
+        # If the object is an instance of a class
+        PARAMS_VALUES = {
+            k: v for k, v in obj.__dict__.items()
+        }
+    else:
+        raise TypeError(f"Unsupported object type: {type(obj)}")
+
     return PARAMS_VALUES
 
-    
+
 def parse_attrs (attr,  regex=None ): 
     """ Parse attributes using the regular expression.
     
@@ -1072,3 +1095,124 @@ def parse_attrs (attr,  regex=None ):
                         flags=re.IGNORECASE) 
     attr= list(filter (None, regex.split(attr)))
     return attr 
+
+def columns_manager(
+    columns: Optional[Union[str, list, tuple]],  
+    default: Optional[list] = None, 
+    regex: Optional[re.Pattern] = None, 
+    pattern: Optional [str]= r'[@&,;#]', 
+    separator: Optional[str] = None, 
+    to_upper: bool = False, 
+    empty_as_none: bool = ...,  
+    to_string: bool = False,  
+    error: str = 'raise',  
+) -> list:
+    """
+    A flexible function to handle various types of column inputs, convert them 
+    into a list, and optionally process them based on additional parameters 
+    like converting to uppercase, handling empty values, or ensuring all items 
+    are strings.
+
+    Parameters
+    ----------
+    columns : str, list, tuple, or None
+        The input column names, which can be:
+        - A string: treated as a list of column names split by a separator 
+          or regex.
+        - A list or tuple: directly converted to a list if not already.
+        - None: returns the default list or an empty list 
+        (if `empty_as_none` is False).
+    
+    default : list, optional
+        Default list of columns to return if `columns` is None.
+    
+    regex : re.Pattern, optional
+        A custom compiled regular expression to use for splitting string input. 
+        If not provided, the `pattern` parameter will be used.
+
+    pattern : str, optional, default=r'[@&,;#]'
+        The default regex pattern used to split the `columns` string if no `regex` 
+        is provided.
+
+    separator : str, optional
+        If `columns` is a string, this defines the separator used to split the string 
+        into a list of column names.
+
+    to_upper : bool, default=False
+        If True, converts all column names to uppercase.
+
+    empty_as_none : bool, default=True
+        If True, returns `None` when `columns` is empty or None. If False, an 
+        empty list is returned.
+
+    to_string : bool, default=False
+        If True, converts all items in `columns` to strings.
+
+    error : str, default='warn'
+        Specifies how to handle errors:
+        - 'warn': issues a warning if any error occurs.
+        - 'raise': raises an exception.
+        - 'ignore': silently ignores any errors.
+
+    Returns
+    -------
+    list
+        A list of column names after processing.
+
+    Example
+    -------
+    >>> from gofast.core.handlers import columns_manager
+    >>> columns_manager("col1, col2, col3", separator=",")
+    ['col1', 'col2', 'col3']
+
+    >>> columns_manager(['col1', 'col2', 'col3'], to_upper=True)
+    ['COL1', 'COL2', 'COL3']
+    """
+     # Handle None input
+    if columns is None:
+        return default if default is not None else (None if empty_as_none else [])
+    
+    # Handle case where a single numeric value is passed, convert it to list
+    if isinstance(columns, (int, float)):
+        columns = [columns]
+        
+    # If columns is a string, split by separator or use regex
+    if isinstance(columns, str):
+        if separator is not None:
+            columns = columns.split(separator)
+        else:
+            columns = str2columns(columns, regex=regex, pattern=pattern)
+    
+    # If columns is any iterable object, convert it to a list
+    elif isinstance(columns, Iterable) : 
+        try:
+            columns = list(columns)
+        except Exception as e:
+            if error == 'raise':
+                raise ValueError(f"Error converting columns to list: {e}")
+            elif error == 'warn':
+                warnings.warn(f"Warning: Could not convert columns to list: {e}")
+            else:
+                pass  # Ignore errors silently
+
+    # Ensure columns is a list at this point
+    if isinstance(columns, list):
+        if to_upper:
+            # Check whether all items are strings before calling 'upper'
+            if all(isinstance(col, str) for col in columns):
+                columns = [col.upper() for col in columns]
+            elif error == 'raise':
+                raise TypeError(
+                    "All column names must be strings to convert to uppercase.")
+            elif error == 'warn':
+                warnings.warn(
+                    "Warning: Not all column names are strings,"
+                    " skipping 'upper' conversion.")
+        
+        # Convert all items to string if requested
+        if to_string:
+            columns = [str(col) for col in columns]
+
+    return columns
+
+  

@@ -58,7 +58,7 @@ from ..core.checks import (
 )
 from ..core.handlers import get_valid_kwargs 
 from ..core.io import EnsureFileExists, is_data_readable
-from ..core.utils import smart_format, ellipsis2false, contains_delimiter 
+from ..core.utils import smart_format, contains_delimiter 
 from ..exceptions import DependencyError
 from ..decorators import SmartProcessor, Dataify
 from .baseutils import select_features
@@ -1116,9 +1116,9 @@ def soft_encoder(
     columns: List[str] = None, 
     func: _F = None, 
     categories: Dict[str, List] = None, 
-    get_dummies: bool = ..., 
-    parse_cols: bool = ..., 
-    return_cat_codes: bool = ..., 
+    get_dummies: bool = False, 
+    parse_cols: bool = False, 
+    return_cat_codes: bool = False, 
 ) -> DataFrame:
     """
     Encode multiple categorical variables in a dataset.
@@ -1264,8 +1264,6 @@ def soft_encoder(
     
     # Convert ellipsis inputs to False for get_dummies, parse_cols,
     # return_cat_codes if not explicitly defined
-    get_dummies, parse_cols, return_cat_codes = ellipsis2false(
-        get_dummies, parse_cols, return_cat_codes)
 
     # Convert input data to DataFrame if not already a DataFrame
     df = build_data_if(data, to_frame=True, force=True, input_name='col',
@@ -1471,7 +1469,7 @@ def resampling(
                                      )
     Xs, ys = rsampler.fit_resample(X, y)
     
-    if ellipsis2false(verbose)[0]: 
+    if verbose: 
         print("{:<20}".format(f"Counters: {strategy.title()}"))
         print( "{:>35}".format( "Raw counter y:") , Counter (y))
         print( "{:>35}".format(f"{kind.title()}Sampling counter y:"), Counter (ys))
@@ -1484,9 +1482,9 @@ def bin_counting(
     bin_columns: Union[str, List[str]], 
     tname: Union[str, Series[int]], 
     odds: str = "N+", 
-    return_counts: bool = ..., 
-    tolog: bool = ..., 
-    encode_categorical: bool = ..., 
+    return_counts: bool = False, 
+    tolog: bool = False, 
+    encode_categorical: bool = False, 
 ) -> None:
     """ Bin counting categorical variable and turn it into probabilistic 
     ratio.
@@ -1610,8 +1608,7 @@ def bin_counting(
            Targeting. Proceedings of the 15th ACM SIGKDD International 
            Conference on Knowledge Discovery and Data Mining (2009): 209–218     
     """
-    return_counts, tolog, encode_categorical= ellipsis2false(
-        return_counts, tolog, encode_categorical)   
+  
     # assert everything
     if not is_frame (data, df_only =True ):
         raise TypeError(f"Expect dataframe. Got {type(data).__name__!r}")
@@ -3552,42 +3549,54 @@ def load_model(
      
 @Dataify(auto_columns=True)
 @is_data_readable
-def bi_selector (
+def bi_selector(
     data,  
-    features =None, 
-    return_frames = False,
-    parse_features:bool=... 
-   ):
-    """ Auto-differentiates the numerical from categorical attributes.
-    
-    This is usefull to select the categorial features from the numerical 
-    features and vice-versa when we are a lot of features. Enter features 
-    individually become tiedous and a mistake could probably happenned. 
-    
-    Parameters 
-    ------------
-    d: pandas dataframe 
-        Dataframe pandas 
-    features : list of str
-        List of features in the dataframe columns. Raise error is feature(s) 
-        does/do not exist in the frame. 
-        Note that if `features` is ``None``, it returns the categorical and 
-        numerical features instead. 
-        
-    return_frames: bool, default =False 
-        return the difference columns (features) from the given features  
-        as a list. If set to ``True`` returns bi-frames composed of the 
-        given features and the remaining features. 
-        
-    Returns 
+    features=None, 
+    return_frames=False,
+    parse_features: bool=False 
+):
+    """
+    Automatically differentiates numerical and categorical attributes 
+    in a dataset.
+
+    This function is useful for efficiently selecting categorical features from 
+    numerical features, and vice versa, when dealing with a large number 
+    of features. Manually selecting features can be tedious and prone to errors, 
+    especially in large datasets.
+
+    Parameters
     ----------
-    - Tuple ( list, list)
-        list of features and remaining features 
-    - Tuple ( pd.DataFrame, pd.DataFrame )
-        List of features and remaing features frames.  
-            
-    Example 
-    --------
+    data : pandas.DataFrame
+        The input DataFrame containing the data.
+    
+    features : list of str, optional
+        A list of feature names (column names) to be considered for selection. 
+        If any feature does not exist in the DataFrame, an error is raised. 
+        If `features` is `None`, the function will return the categorical and 
+        numerical features from the entire DataFrame.
+    
+    return_frames : bool, default=False
+        If `True`, the function will return two DataFrames: one containing the 
+        specified features and the other containing the remaining features. 
+        If `False`, it returns the features as a list.
+    
+    parse_features : bool, default=False
+        If `True`, the function will parse and construct a list of features 
+        from a string input, using regular expressions to handle special 
+        characters like  commas (`,`) and at symbols (`@`).
+    
+    Returns
+    -------
+    tuple
+        - If `return_frames=False`, returns a tuple of two lists:
+          - A list of the selected features.
+          - A list of the remaining features in the DataFrame.
+        - If `return_frames=True`, returns a tuple of two DataFrames:
+          - A DataFrame containing the selected features.
+          - A DataFrame containing the remaining features.
+    
+    Example
+    -------
     >>> from gofast.tools.mlutils import bi_selector 
     >>> from gofast.datasets import load_hlogs 
     >>> data = load_hlogs().frame # get the frame 
@@ -3628,7 +3637,6 @@ def bi_selector (
     ... ['hole_id', 'strata_name', 'rock_name', 'aquifer_group', 
          'pumping_level']
     """
-    parse_features, = ellipsis2false(parse_features )
 
     if features is None: 
         data, diff_features, features = to_numeric_dtypes(

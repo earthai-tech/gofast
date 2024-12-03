@@ -49,6 +49,8 @@ MODULE_MAPPING = {
         'wide_to_long', 
         'merge_datasets', 
         'repeat_feature_accross', 
+        'dual_merge', 
+        'swap_ic', 
         
     ], 
     'ioutils':[ 
@@ -98,6 +100,7 @@ MODULE_MAPPING = {
         'optimized_spearmanr', 
         'quadratic_regression', 
         'rank_data', 
+        'rescale_data', 
         'sinusoidal_regression',
         'standard_scaler', 
         'step_regression',

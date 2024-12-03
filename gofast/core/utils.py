@@ -2148,7 +2148,7 @@ def make_obj_consistent_if (
     return item
 
 def ellipsis2false(
-        *parameters, default_value: Any = False
+        *parameters, default_value: Any = True
    ):
     """
     Turn all parameter arguments to the default value if ellipsis (`...`)

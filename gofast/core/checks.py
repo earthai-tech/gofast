@@ -19,7 +19,8 @@ import pandas as pd
 from pandas.api.types import (
     is_numeric_dtype as _is_numeric_dtype,
     is_categorical_dtype,
-    is_datetime64_any_dtype
+    is_datetime64_any_dtype, 
+    is_object_dtype
 )
 from ..api.types import Series, Iterable, _F,  DataFrame 
 from ..api.types import _Sub, ArrayLike 
@@ -45,7 +46,10 @@ __all__= [
     'random_state_validator', 
     'is_sparse_matrix', 
     'has_sparse_format', 
-    'check_features_types'
+    'check_features_types', 
+    'is_all_frames', 
+    'has_nan', 
+    'check_spatial_columns'
     ]
 
    
@@ -1287,55 +1291,62 @@ def _smart_format(iter_obj, choice ='and'):
         str_litteral += f" {choice} {iter_obj[-1]!r}"
     return str_litteral
 
-def str2columns (text,  regex=None , pattern = None): 
-    """Split text from the non-alphanumeric markers using regular expression. 
-    
-    Remove all string non-alphanumeric and some operator indicators,  and 
-    fetch attributes names. 
-    
-    Parameters 
-    -----------
+def str2columns(
     text: str, 
-        text litteral containing the columns the names to retrieve
+    regex: Optional[re.Pattern] = None, 
+    pattern: Optional [str]= None
+) -> List[str]:
+    """
+    Splits the input text into column names by removing non-alphanumeric 
+    characters and using a regular expression pattern. The function 
+    splits the string into individual words or attribute names based on 
+    the provided regular expression or the default pattern.
+
+    This function is useful for extracting meaningful words or column 
+    names from text that contains delimiters like spaces, punctuation, 
+    or special characters.
+
+    Parameters
+    ----------
+    text : str
+        The input string containing the column names or words to retrieve. 
+        This is the text that will be split into individual components 
+        (attributes).
+    
+    regex : re.Pattern, optional
+        A custom compiled regular expression object used to split the 
+        `text`. If not provided, the default pattern will be used. 
+        The default pattern is:
         
-    regex: `re` object,  
-        Regular expresion object. the default is:: 
-            
-            >>> import re 
-            >>> re.compile (r'[#&*@!_,;\s-]\s*', flags=re.IGNORECASE) 
-    pattern: str, default = '[#&*@!_,;\s-]\s*'
-        The base pattern to split the text into a columns
-        
+        >>> re.compile(r'[#&.*@!_,;\s-]\s*', flags=re.IGNORECASE)
+
+    pattern : str, optional, default=r'[#&.*@!_,;\s-]\s*'
+        A string representing the regular expression pattern used to 
+        split the `text`. This pattern defines the non-alphanumeric 
+        markers and whitespace characters (including spaces, punctuation, 
+        and operators) that will be treated as delimiters. If `regex` is 
+        not provided, this pattern is used by default.
+
     Returns
     -------
-    attr: List of attributes 
-    
-    Examples
-    ---------
-    >>> from gofast.core.checks import str2columns 
-    >>> text = ('this.is the text to split. It is an: example of; splitting str - to text.')
-    >>> str2columns (text )  
-    ... ['this',
-         'is',
-         'the',
-         'text',
-         'to',
-         'split',
-         'It',
-         'is',
-         'an:',
-         'example',
-         'of',
-         'splitting',
-         'str',
-         'to',
-         'text']
+    List[str]
+        A list of attribute names (words) extracted from the `text`. The 
+        text is split using the specified regular expression or the 
+        default pattern.
 
+    Examples
+    --------
+    >>> from gofast.core.checks import str2columns
+    >>> text = ('this.is the text to split. It is an example of splitting '
+    >>>         'str to text.')
+    >>> str2columns(text)
+    ['this', 'is', 'the', 'text', 'to', 'split', 'It', 'is', 'an:', 
+    'example', 'of', 'splitting', 'str', 'to', 'text']
     """
-    pattern = pattern or  r'[#&.*@!_,;\s-]\s*'
-    regex = regex or re.compile (pattern, flags=re.IGNORECASE) 
-    text= list(filter (None, regex.split(str(text))))
-    return text 
+    pattern = pattern or r'[#&.*@!_,;\s-]\s*'
+    regex = regex or re.compile(pattern, flags=re.IGNORECASE)
+    text = list(filter(None, regex.split(str(text))))
+    return text
 
 def _assert_all_types(
     obj: object,
@@ -1805,6 +1816,7 @@ def check_features_types(
     features,
     objective,
     error_msg=None, 
+    accept_object_dtype=False, 
     extra=''
 ):
     """
@@ -1831,6 +1843,12 @@ def check_features_types(
         Custom error message to raise if a feature's data type does not match
         the expected objective type. If set to `None`, a default error message
         will be generated. Default is ``None``.
+        
+    accept_object_dtype: bool, default=False, 
+       Pass when object dtype is given rather than raising error. Th default 
+       behavior only verify the ``'category'``, ``'numeric'`` and 
+       ``'datetime'`` types. 
+       
     extra: str, optional, 
        Extra message to append to the TypeError message. 
 
@@ -1917,7 +1935,9 @@ def check_features_types(
         'numeric'  : _is_numeric_dtype,
         'datetime' : is_datetime64_any_dtype,
     }
-
+    if accept_object_dtype: 
+        type_checks['object']= is_object_dtype 
+        
     # Validate the objective
     if objective not in type_checks:
         raise ValueError(
@@ -1946,3 +1966,310 @@ def check_features_types(
 
     return True
 
+def is_all_frames(
+    *dfs: Union[pd.DataFrame, pd.Series],
+    df_only: bool = ...,  
+    error_msg: Optional[str] = None, 
+    check_size: bool = False,  
+    check_symmetry: bool = False  
+) -> bool:
+    """
+    Validates whether all provided inputs are pandas DataFrames or Series 
+    based on the `df_only` flag. This function checks the types of the 
+    input objects and optionally verifies additional properties like size 
+    and symmetry.
+
+    Parameters
+    ----------
+    *dfs : Union[pd.DataFrame, pd.Series]
+        One or more pandas DataFrame or Series objects to be validated. 
+        This function can accept multiple inputs, checking each one for 
+        compliance with the expected type.
+
+    df_only : bool, default=True
+        If True, only DataFrames are considered valid inputs. If any of 
+        the provided inputs is not a DataFrame, an error is raised. 
+        If False, pandas Series are also allowed as valid inputs, and 
+        the function will not raise an error for Series objects.
+
+    check_size : bool, default=False
+        If True, the function will additionally check if all DataFrames 
+        or Series objects have the same number of rows or columns (depending 
+        on the size parameter). This is useful for validating consistency 
+        across inputs.
+
+    check_symmetry : bool, default=False
+        If True, the function checks if all DataFrames or Series are symmetric, 
+        meaning the rows and columns (or the data itself in the case of Series) 
+        are consistent. This could be important in certain data validation 
+        or data integrity scenarios.
+
+    error_msg : str, optional
+        A custom error message to be raised if any input is invalid. If 
+        not provided, a default message is used that specifies the need 
+        for DataFrames or Series, depending on the `df_only` flag.
+        
+    Returns
+    -------
+    bool
+        Returns `True` if all inputs are either DataFrames (or Series if 
+        `df_only=False`), and if applicable, if they pass size and symmetry checks. 
+        Otherwise, an error is raised based on the validation rules.
+
+    Raises
+    ------
+    TypeError
+        If any of the inputs is neither a DataFrame nor a Series (based on 
+        `df_only`), or if any input fails the size or symmetry checks 
+        (if `check_size` or `check_symmetry` are `True`).
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.core.checks import is_all_frames
+    
+    # Example with multiple DataFrames
+    >>> df1 = pd.DataFrame({'a': [1, 2], 'b': [3, 4]})
+    >>> df2 = pd.DataFrame({'a': [5, 6], 'b': [7, 8]})
+    >>> is_all_frames(df1, df2)
+    True
+    
+    # Example with a DataFrame and a Series
+    >>> df3 = pd.Series([1, 2, 3])
+    >>> is_all_frames(df1, df3, df_only=False)
+    True
+    
+    # Example with a Series when df_only=True (raises TypeError)
+    >>> is_all_frames(df1, df3)
+    TypeError: Expected DataFrame, but found a Series
+
+    Notes
+    -----
+    - If `check_size=True`, all DataFrames and Series must have the same 
+      number of rows (for DataFrames) or elements (for Series). 
+    - If `check_symmetry=True`, the function will check if the dimensions 
+      of the DataFrames match for all inputs. In the case of Series, it 
+      checks for consistency in the data sequence.
+    
+    See Also
+    --------
+    - `pandas.DataFrame`: For more information on the pandas DataFrame object.
+    - `pandas.Series`: For more information on the pandas Series object.
+
+    References
+    ----------
+    .. [1] Pandas Documentation. "DataFrame". Retrieved from: 
+           https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.html
+    .. [2] Pandas Documentation. "Series". Retrieved from: 
+           https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.html
+    """
+    # Default error message
+    if error_msg is None:
+        error_msg = "All inputs must be either pandas DataFrames" + \
+                    (" or pandas Series." if not df_only else ".")
+    
+    # Check each argument
+    for df in dfs:
+        # Check if each element is a valid DataFrame or Series
+        if not isinstance(df, (pd.DataFrame, pd.Series)):
+            raise TypeError(error_msg)
+        
+        # If df_only is True, raise error for Series
+        if df_only and isinstance(df, pd.Series):
+            raise TypeError(f"Expected DataFrame, but found a Series: {df}")
+
+        # Check for size consistency
+        if check_size:
+            if isinstance(df, pd.DataFrame):
+                # Check if number of rows (size[0]) is the same for all DataFrames
+                for other_df in dfs:
+                    if isinstance(other_df, pd.DataFrame
+                                  ) and df.shape[0] != other_df.shape[0]:
+                        raise ValueError(
+                            "DataFrames have different row counts:"
+                            f" {df.shape[0]} != {other_df.shape[0]}")
+            elif isinstance(df, pd.Series):
+                # Check if length is the same for all Series
+                for other_df in dfs:
+                    if isinstance(other_df, pd.Series) and len(df) != len(other_df):
+                        raise ValueError(
+                            "Series have different lengths:"
+                            f" {len(df)} != {len(other_df)}")
+
+        # Check for symmetry (square matrices)
+        if check_symmetry and isinstance(df, pd.DataFrame):
+            if df.shape[0] != df.shape[1]:
+                raise ValueError(
+                    f"DataFrame is not symmetric: {df.shape[0]} != {df.shape[1]}")
+
+    return True
+
+
+def has_nan(
+    data: Union[pd.DataFrame, pd.Series], 
+    axis: Optional[int] = None, 
+    how: str = 'any', 
+    include_missing_columns: bool = False,
+    error_msg: Optional[str] = None
+) -> bool:
+    """
+    Check if the provided data (DataFrame or Series) contains any NaN values.
+    
+    This function provides enhanced flexibility to check NaN values either
+    along specific axes (rows or columns), specify how to check for NaN 
+    ('any' or 'all'), and includes the option to handle missing columns.
+    
+    Parameters
+    ----------
+    data : pd.DataFrame or pd.Series
+        The input data which can either be a DataFrame or Series.
+        
+    axis : int, optional, default=None
+        The axis along which to check for NaN values. 
+        - For DataFrame: 0 checks columns (axis=0), 1 checks rows (axis=1).
+        - For Series: No effect, as it is one-dimensional.
+        
+    how : {'any', 'all'}, optional, default 'any'
+        Defines how to check for NaN values:
+        - 'any' (default): Returns True if any NaN values are found.
+        - 'all': Returns True only if all values are NaN in the specified axis.
+        
+    include_missing_columns : bool, optional, default False
+        If True, include columns that are entirely missing (i.e., all NaN values) 
+        in the result. If False, missing columns (completely NaN) are ignored 
+        in the output.
+
+    error_msg : str, optional
+        A custom error message to raise if the input data type is not a
+        DataFrame or Series. 
+        If not provided, a default error message is used.
+        
+    Returns
+    -------
+    bool
+        Returns True if NaN values are found according to the specified
+        parameters, otherwise False.
+    
+    Raises
+    ------
+    TypeError
+        If the input is not a pandas DataFrame or Series.
+        
+    Examples
+    --------
+    >>> from gofast.core.checks import has_nan 
+    >>> df = pd.DataFrame({'A': [1, 2, None], 'B': [None, 2, 3]})
+    >>> has_nan(df)
+    True
+    
+    >>> has_nan(df, axis=0, how='all')
+    False
+    
+    >>> has_nan(df, axis=1, how='any')
+    True
+    
+    >>> has_nan(df, axis=0, how='all', include_missing_columns=True)
+    False
+    """
+    # Handle error messages for invalid input types
+    if not isinstance(data, (pd.DataFrame, pd.Series)):
+        error_msg = error_msg or "Input must be either a pandas DataFrame or Series"
+        raise TypeError(error_msg)
+    
+    # For DataFrame: allow axis specification (axis=0 for columns, axis=1 for rows)
+    if isinstance(data, pd.DataFrame):
+        if axis is not None:
+            if how == 'any':
+                return data.isna().any(axis=axis).any() if not include_missing_columns else \
+                    data.isna().any(axis=axis).any() or data.isna().all(axis=axis).any()
+            elif how == 'all':
+                return data.isna().all(axis=axis).any()
+            else:
+                raise ValueError("Parameter `how` must be 'any' or 'all'")
+        else:
+            return data.isna().any().any()
+
+    # For Series: no axis, always check along the single dimension (rows)
+    elif isinstance(data, pd.Series):
+        if how == 'any':
+            return data.isna().any()
+        elif how == 'all':
+            return data.isna().all()
+        else:
+            raise ValueError("Parameter `how` must be 'any' or 'all'")
+
+    return False
+
+def check_spatial_columns(
+    df: pd.DataFrame,
+    spatial_cols: Optional[tuple] = ('longitude', 'latitude'), 
+    
+) -> None:
+    """
+    Validate the spatial columns in the DataFrame.
+
+    Ensures that the specified `spatial_cols` are present in the DataFrame and 
+    consist of exactly two columns representing longitude and latitude.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input dataframe containing geographical data.
+    
+    spatial_cols : tuple, optional, default=('longitude', 'latitude')
+        A tuple containing the names of the longitude and latitude columns.
+        Must consist of exactly two elements.
+    
+    Raises
+    ------
+    ValueError
+        - If `spatial_cols` is not a tuple or does not contain exactly two elements.
+        - If any of the specified `spatial_cols` are not present in the DataFrame.
+    
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.core.checks import check_spatial_columns
+
+    >>> # Valid spatial columns
+    >>> df = pd.DataFrame({
+    ...     'longitude': [-100, -99, -98],
+    ...     'latitude': [35, 36, 37],
+    ...     'value': [1, 2, 3]
+    ... })
+    >>> check_spatial_columns(df, spatial_cols=('longitude', 'latitude'))
+    # No output, validation passed
+
+    >>> # Invalid spatial columns
+    >>> check_spatial_columns(df, spatial_cols=('lon', 'lat'))
+    ValueError: The following spatial_cols are not present in the dataframe: {'lat', 'lon'}
+
+    Notes
+    -----
+    - The function strictly requires `spatial_cols` to contain exactly two 
+      column names representing longitude and latitude.
+    
+    See Also
+    --------
+    plot_spatial_distribution : Function to plot spatial distributions.
+
+    References
+    ----------
+    .. [1] Pandas Documentation: pandas.DataFrame
+    """
+    if not isinstance (df, pd.DataFrame): 
+        raise TypeError(
+            "Spatial columns check requires a dataframe `df`"
+            f" to be set. Got {type(df).__name__!r}")
+        
+    if not isinstance(spatial_cols, (tuple, list)) or len(spatial_cols) != 2:
+        raise ValueError(
+            "spatial_cols must be a tuple of exactly two elements "
+            "(longitude and latitude)."
+        )
+    
+    missing_cols = set(spatial_cols) - set(df.columns)
+    if missing_cols:
+        raise ValueError(
+            f"The following spatial_cols are not present in the dataframe: {missing_cols}"
+        )

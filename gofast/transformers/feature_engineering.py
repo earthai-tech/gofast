@@ -435,6 +435,8 @@ class OutlierHandler(BaseEstimator, TransformerMixin):
             )
 
     def _fit_dataframe(self, df: pd.DataFrame):
+        self.axis = self.axis or 0 
+        
         if self.method == 'iqr':
             Q1 = df.quantile(0.25, axis=self.axis)
             Q3 = df.quantile(0.75, axis=self.axis)
