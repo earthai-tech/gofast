@@ -28,18 +28,27 @@ import h5py
 import tarfile
 from pathlib import Path
 from typing import Optional, Union, Any, Tuple , List, Dict, Text 
-from tqdm import tqdm
 
 from six.moves import urllib 
 from zipfile import ZipFile
- 
+from tqdm import tqdm
+
 import numpy as np 
 import pandas as pd 
 
+from .._gofastlog import gofastlog 
+from ..api.property import BaseClass 
+from ..compat.sklearn import validate_params
 from ..core.array_manager import to_numeric_dtypes 
-from ..core.checks import exist_features  
+from ..core.checks import exist_features, check_files   
+from ..decorators import RunReturn 
+from .validator import to_iterable, check_is_runned, is_frame
+from ._dependency import import_optional_dependency
+ 
+logger = gofastlog().get_gofast_logger(__name__) 
 
 __all__ = [
+    'FileManager', 
     'cparser_manager',
     'cpath',
     'deserialize_data', 
@@ -71,120 +80,250 @@ __all__ = [
     'store_or_write_hdf5',
     'str2columns',
     'to_hdf5',
-    'to_iterable',
     'zip_extractor'
  ]
 
-def to_iterable(
-    obj: Any,
-    exclude_string: bool = False,
-    transform: bool = False,
-    parse_string: bool = False,
-    flatten: bool = False,
-    unique: bool = False,
-    delimiter: str = r'[ ,;|\t\n]+'
-) -> Union[bool, List[Any]]:
+class FileManager(BaseClass):
     """
-    Determines if an object is iterable, with options to transform, parse,
-    and modify the input for flexible iterable handling.
+    A class for managing and organizing files in directories.
+
+    This class provides methods to organize files based on file types,
+    name patterns, and to rename files in bulk. All operations are
+    executed via the `run` method to ensure proper initialization.
 
     Parameters
     ----------
-    obj : Any
-        Object to be evaluated or transformed into an iterable.
-    exclude_string : bool, default=False
-        Excludes strings from being considered as iterable objects.
-    transform : bool, default=False
-        Transforms `obj` into an iterable if it isn't already. Defaults to
-        wrapping `obj` in a list.
-    parse_string : bool, default=False
-        If `obj` is a string, splits it into a list based on the specified
-        `delimiter`. Requires `transform=True`.
-    flatten : bool, default=False
-        If `obj` is a nested iterable, flattens it into a single list.
-    unique : bool, default=False
-        Ensures unique elements in the output if `transform=True`.
-    delimiter : str, default=r'[ ,;|\t\n]+'
-        Regular expression pattern for splitting strings when `parse_string=True`.
+    root_dir : str
+        The root directory containing the files to manage.
 
-    Returns
+    target_dir : str
+        The directory where the organized files will be placed.
+
+    file_types : list of str, optional
+        A list of file extensions to filter by (e.g., ``['.csv', '.json']``).
+        If ``None``, all file types are included. Default is ``None``.
+
+    name_patterns : list of str, optional
+        A list of name patterns to filter by (e.g., ``['2023', 'report']``).
+        If ``None``, all file names are included. Default is ``None``.
+
+    move : bool, optional
+        If ``True``, files are moved instead of copied. Default is ``False``.
+
+    overwrite : bool, optional
+        If ``True``, existing files at the target location will be overwritten.
+        If ``False``, existing files are skipped. Default is ``False``.
+
+    create_dirs : bool, optional
+        If ``True``, missing directories in the target path are created.
+        Default is ``False``.
+
+    Attributes
+    ----------
+    root_dir_ : str
+        The root directory containing the files to manage.
+
+    target_dir_ : str
+        The directory where the organized files will be placed.
+
+    Methods
     -------
-    bool or List[Any]
-        Returns a boolean if `transform=False`, or an iterable if
-        `transform=True`.
-
-    Raises
-    ------
-    ValueError
-        If `parse_string=True` without `transform=True`, or if `delimiter`
-        is invalid.
-
-    Notes
-    -----
-    - When `parse_string` is used, strings are split by `delimiter` to form a
-      list of substrings.
-    - `flatten` and `unique` apply only when `transform=True`.
-    - Using `unique=True` ensures no duplicate values in the output.
+    run(pattern=None, replacement=None)
+        Executes the data management operations.
 
     Examples
     --------
-    >>> from gofast.tools.iotuils import to_iterable
-    >>> to_iterable("word", exclude_string=True)
-    False
+    >>> from gofast.tools.datautils import DataManager
+    >>> manager = DataManager(
+    ...     root_dir='data/raw',
+    ...     target_dir='data/processed',
+    ...     file_types=['.csv', '.json'],
+    ...     name_patterns=['2023', 'report'],
+    ...     move=True,
+    ...     overwrite=True,
+    ...     create_dirs=True
+    ... )
+    >>> manager.run(pattern='old', replacement='new')
 
-    >>> to_iterable(123, transform=True)
-    [123]
+    Notes
+    -----
+    The `run` method organizes files and performs renaming based on the
+    initialization parameters and arguments provided to `run`.
 
-    >>> to_iterable("parse, this sentence", transform=True, parse_string=True)
-    ['parse', 'this', 'sentence']
-
-    >>> to_iterable([1, [2, 3], [4]], transform=True, flatten=True)
-    [1, 2, 3, 4]
-
-    >>> to_iterable("a,b,a,b", transform=True, parse_string=True, unique=True)
-    ['a', 'b']
+    See Also
+    --------
+    shutil.move : Moves a file or directory to another location.
+    shutil.copy : Copies a file to another location.
     """
-    if parse_string and not transform:
-        raise ValueError("Set 'transform=True' when using 'parse_string=True'.")
 
-    # Check if object is iterable (excluding strings if specified)
-    is_iterable = hasattr(obj, '__iter__') and not (exclude_string and isinstance(obj, str))
+    @validate_params({
+        'root_dir': [str],
+        'target_dir': [str],
+        'file_types': [list, None],
+        'name_patterns': [list, None],
+        'move': [bool],
+        'overwrite': [bool],
+        'create_dirs': [bool]
+    })
+    def __init__(
+        self,
+        root_dir: str,
+        target_dir: str,
+        file_types: Optional[List[str]] = None,
+        name_patterns: Optional[List[str]] = None,
+        move: bool = False,
+        overwrite: bool = False,
+        create_dirs: bool = False
+    ):
+        self.root_dir = root_dir
+        self.target_dir = target_dir
+        self.file_types = file_types
+        self.name_patterns = name_patterns
+        self.move = move
+        self.overwrite = overwrite
+        self.create_dirs = create_dirs
+    
+        # Ensure root_dir exists
+        if not os.path.isdir(self.root_dir):
+            raise ValueError(f"Root directory '{self.root_dir}' does not exist.")
 
-    # If transformation is not needed, return the boolean check
-    if not transform:
-        return is_iterable
+        # Create target_dir if create_dirs is True
+        if self.create_dirs and not os.path.exists(self.target_dir):
+            os.makedirs(self.target_dir, exist_ok=True)
 
-    # If string parsing is enabled and obj is a string, split it using delimiter
-    if isinstance(obj, str) and parse_string:
-        obj = re.split(delimiter, obj.strip())
+        logger.debug(f"Initialized DataManager with root_dir: {self.root_dir}, "
+                     f"target_dir: {self.target_dir}")
 
-    # Wrap non-iterables into a list if they aren't iterable
-    elif not is_iterable:
-        obj = [obj]
+    @RunReturn
+    def run(self, pattern: Optional[str] = None, replacement: Optional[str] = None):
+        """
+        Executes the data management operations.
 
-    # Flatten nested iterables if flatten=True
-    if flatten:
-        obj = _flatten(obj)
+        This method organizes files based on the specified filters and
+        optionally renames files by replacing a pattern with a replacement
+        string.
 
-    # Apply unique filtering if requested
-    if unique:
-        obj = list(dict.fromkeys(obj))  # Preserves order while ensuring uniqueness
+        Parameters
+        ----------
+        pattern : str, optional
+            The pattern to search for in file names during renaming.
+            If ``None``, renaming is skipped. Default is ``None``.
 
-    return obj
+        replacement : str, optional
+            The string to replace the pattern with during renaming.
+            Required if `pattern` is provided.
 
+        Returns
+        -------
+        self : DataManager
+            Returns self.
 
-def _flatten(nested_list: Any) -> List[Any]:
-    """ Helper function to recursively flatten a nested list structure. """
-    flattened = []
-    for element in nested_list:
-        if isinstance(element, (list, tuple, set)):
-            flattened.extend(_flatten(element))
+        Examples
+        --------
+        >>> manager = DataManager(...)
+        >>> manager.run(pattern='old', replacement='new')
+
+        Notes
+        -----
+        The `run` method must be called before invoking any other methods.
+        It sets up the necessary state for the object.
+        """
+        self._organize_files()
+        if pattern is not None:
+            if replacement is None:
+                raise ValueError(
+                    "Replacement string must be provided if pattern is specified.")
+            self._rename_files(pattern, replacement)
+        self._is_runned = True  # Mark as runned
+
+    def get_processed_files(self) -> List[str]:
+        """
+        Retrieves a list of files that have been processed.
+
+        Returns
+        -------
+        files : list of str
+            A list of file paths that have been processed.
+
+        Examples
+        --------
+        >>> manager = DataManager(...)
+        >>> manager.run()
+        >>> files = manager.get_processed_files()
+        """
+        check_is_runned(self, attributes=['_is_runned'])
+        
+        processed_files = []
+        for dirpath, _, filenames in os.walk(self.target_dir):
+            for filename in filenames:
+                processed_files.append(os.path.join(dirpath, filename))
+        return processed_files
+
+    def _organize_files(self):
+        """Private method to organize files based on specified filters."""
+        try:
+            files = self._get_filtered_files()
+            for file_path in files:
+                self._handle_file(file_path)
+        except Exception as e:
+            logger.error(f"Failed to organize files: {str(e)}")
+            raise RuntimeError(f"Organizing files failed: {str(e)}") from e
+
+    def _rename_files(self, pattern: str, replacement: str):
+        """Private method to rename files by replacing a pattern."""
+        try:
+            for dirpath, _, filenames in os.walk(self.target_dir):
+                for filename in filenames:
+                    if pattern in filename:
+                        old_path = os.path.join(dirpath, filename)
+                        new_filename = filename.replace(pattern, replacement)
+                        new_path = os.path.join(dirpath, new_filename)
+                        if os.path.exists(new_path) and not self.overwrite:
+                            logger.info(f"File {new_path} already exists; skipping.")
+                            continue
+                        os.rename(old_path, new_path)
+                        logger.debug(f"Renamed {old_path} to {new_path}")
+        except Exception as e:
+            logger.error(f"Failed to rename files: {str(e)}")
+            raise RuntimeError(f"Renaming files failed: {str(e)}") from e
+
+    def _get_filtered_files(self):
+        """Retrieves files from root_dir filtered by file_types and name_patterns."""
+        matched_files = []
+        for dirpath, _, filenames in os.walk(self.root_dir):
+            for filename in filenames:
+                if self.file_types and not any(
+                        filename.endswith(ext) for ext in self.file_types):
+                    continue
+                if self.name_patterns and not any(
+                        pat in filename for pat in self.name_patterns):
+                    continue
+                matched_files.append(os.path.join(dirpath, filename))
+        return matched_files
+
+    def _handle_file(self, file_path):
+        """Handles moving or copying of a single file."""
+        relative_path = os.path.relpath(file_path, self.root_dir)
+        target_path = os.path.join(self.target_dir, relative_path)
+
+        # Create target directories if needed
+        target_dir = os.path.dirname(target_path)
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir, exist_ok=True)
+
+        if os.path.exists(target_path) and not self.overwrite:
+            logger.info(f"File {target_path} already exists; skipping.")
+            return
+
+        if self.move:
+            shutil.move(file_path, target_path)
+            logger.debug(f"Moved {file_path} to {target_path}")
         else:
-            flattened.append(element)
-    return flattened
+            shutil.copy2(file_path, target_path)
+            logger.debug(f"Copied {file_path} to {target_path}")
 
 def zip_extractor(
-    zip_file ,
+    zip_file,
     samples ='*', 
     ftype=None,  
     savepath = None,
@@ -240,14 +379,8 @@ def zip_extractor(
                               f"the {ft!r}. Available file types are {msg}")
         return objn 
     
-    if not os.path.isfile (zip_file ): 
-        raise FileExistsError( f"File {os.path.basename(zip_file)!r} does"
-                              " not exist. Expect a Path-like object,"
-                              f" got {type(zip_file).__name__!r}")
-        
-    if not os.path.basename(zip_file ).lower().endswith ('.zip'): 
-        raise FileNotFoundError("Unrecognized zip-file.")
-        
+    zip_file = check_files (zip_file, formats='.zip', return_valid=True )
+    
     samples = str(samples) 
     if samples !='*': 
         try :samples = int (samples )
@@ -273,7 +406,7 @@ def zip_extractor(
     
     return objnames 
 
-def to_hdf5(d, fn, objname =None, close =True,  **hdf5_kws): 
+def to_hdf5(data, fn, objname =None, close =True,  **hdf5_kws): 
     """
     Store a frame data in hierachical data format 5 (HDF5) 
     
@@ -341,42 +474,38 @@ def to_hdf5(d, fn, objname =None, close =True,  **hdf5_kws):
     ... Index(['hole_number', 'depth_top', 'depth_bottom'], dtype='object')
 
     """
-    from ._dependency import import_optional_dependency 
-    
     store =None 
     if ( 
-        not hasattr (d, '__array__') 
-        or not hasattr (d, 'columns')
-            ) : 
+        not isinstance (data, np.ndarray) 
+        or not hasattr (data, pd.DataFrame)
+        ) : 
         raise TypeError ("Expect an array or dataframe,"
-                         f" not {type (d).__name__!r}")
+                         f" not {type (data).__name__!r}")
         
-    if hasattr (d, '__array__') and hasattr (d, "columns"): 
+    if isinstance(data, pd.DataFrame): 
         # assert whether pytables is installed 
-        import_optional_dependency ('tables') 
+        import_optional_dependency('tables') 
         # remove extension if exist.
         fn = str(fn).replace ('.h5', "").replace(".hdf5", "")
         # then store. 
         store = pd.HDFStore(fn +'.h5' ,  **hdf5_kws)
         objname = objname or 'data'
-        store[ str(objname) ] = d 
+        store[ str(objname) ] = data
 
-    
-    elif not hasattr(d, '__array__'): 
-        d = np.asarray(d) 
- 
+    else: 
+        data = np.asarray(data) 
         store= h5py.File(f"{fn}.hdf5", "w") 
         store.create_dataset("dataset_01", store.shape, 
                              dtype=store.dtype,
                              data=store
                              )
-        
-    if close : store.close () 
+    if close :
+        store.close () 
 
     return store 
     
 def store_or_write_hdf5 (
-    d,  
+    df,  
     key:str= None, 
     mode:str='a',  
     kind: str=None, 
@@ -385,7 +514,7 @@ def store_or_write_hdf5 (
     csv_sep: str=",",
     index: bool=..., 
     columns:Union [str, List[Any]]=None, 
-    sanitize_columns:bool=...,  
+    sanitize_columns:bool=False,  
     func: Optional[callable]= None, 
     args: tuple=(), 
     applyto: Union [str, List[Any]]=None, 
@@ -522,17 +651,17 @@ def store_or_write_hdf5 (
                           kind ='export')
     """
     
-    
     kind= key_search (str(kind), default_keys=(
         "none", "store", "write", "export", "tocsv"), 
         raise_exception=True , deep=True)[0]
     
     kind = "export" if kind in ('write', 'tocsv') else kind 
     
-    if sanitize_columns is ...: 
-        sanitize_columns=False 
-    d = to_numeric_dtypes(d, columns=columns,sanitize_columns=sanitize_columns, 
-                          fill_pattern='_')
+    is_frame(df, df_only =True, raise_exception=True, objname="Data") 
+    
+    d = to_numeric_dtypes(
+        df, columns=columns,sanitize_columns=sanitize_columns, 
+        fill_pattern='_')
    
     # get categorical variables 
     if ( sanitize_columns 
@@ -1169,7 +1298,6 @@ def dummy_csv_translator(
     df.to_csv(destfile, index=False)
     
     return df, list(untranslated_terms)
-
 
 def rename_files(
     src_files: Union[str, List[str]], 

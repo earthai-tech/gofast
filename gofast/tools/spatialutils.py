@@ -12,6 +12,7 @@ import copy
 import inspect
 import warnings
 import itertools
+from numbers import Real
 
 import scipy.stats as spstats
 from scipy._lib._util import float_factorial
@@ -43,11 +44,12 @@ from ..core.checks import (
     is_iterable,
     str2columns, 
     exist_features, 
-    assert_ratio 
+    assert_ratio, 
     )
+from ..compat.sklearn import validate_params, StrOptions, Interval 
 from ..core.io import is_data_readable 
 from ..core.utils import ellipsis2false, smart_format 
-from ..decorators import isdf, AppendDocReferences
+from ..decorators import Deprecated, AppendDocReferences, isdf 
 
 from .validator import ( 
     _is_arraylike_1d, 
@@ -69,7 +71,6 @@ __all__ = [
      'get_profile_angle',
      'get_station_number',
      'make_ids',
-     'make_mxs',
      'moving_average',
      'numstr2dms',
      'quality_control2',
@@ -84,8 +85,297 @@ __all__ = [
      'spatial_sampling', 
      'extract_coordinates', 
      'batch_spatial_sampling', 
+     'make_mxs_labels',
+     'extract_coordinates', 
  ]
 
+
+@isdf 
+def extract_coordinates(
+    df: pd.DataFrame,
+    as_frame: bool = False,
+    drop_xy: bool = False,
+    error: Union[bool, str] = 'raise',
+    verbose: int = 0
+) -> Tuple[Union[Tuple[float, float], pd.DataFrame, None], pd.DataFrame, Tuple[str, str]]:
+    """
+    Identifies coordinate columns (longitude/latitude or easting/northing) 
+    in a DataFrame, returns the coordinates or their central values, and 
+    optionally removes the coordinate columns from the DataFrame.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame expected to contain coordinates (`longitude` and 
+        `latitude` or `easting` and `northing`). If both types are present, 
+        `longitude` and `latitude` are prioritized.
+
+    as_frame : bool, default=False
+        If True, returns the coordinate columns as a DataFrame. If False, 
+        computes and returns the midpoint values.
+
+    drop_xy : bool, default=False
+        If True, removes coordinate columns (`longitude`/`latitude` or 
+        `easting`/`northing`) from the DataFrame after extracting them.
+
+    error : Union[bool, str], {'raise', 'warn', 'ignore'} default='raise'
+        If True, raises an error if `df` is not a DataFrame. If set to False, 
+        converts errors to warnings. If set to ``"ignore"``, suppresses 
+        warnings.
+
+    verbose : int, default=0
+        If greater than 0, outputs messages about coordinate detection.
+
+    Returns
+    -------
+    Tuple[Union[Tuple[float, float], pd.DataFrame, None], pd.DataFrame, Tuple[str, str]]
+        - A tuple containing either the midpoint (longitude, latitude) or 
+          (easting, northing) if `as_frame=False` or the coordinate columns 
+          as a DataFrame if `as_frame=True`.
+        - The original DataFrame, optionally with coordinates removed if 
+          `drop_xy=True`.
+        - A tuple of detected coordinate column names, or an empty tuple if 
+          none are detected.
+
+    Notes
+    -----
+    - This function searches for either `longitude`/`latitude` or 
+      `easting`/`northing` columns and returns them as coordinates. If both 
+      are found, `longitude`/`latitude` is prioritized.
+      
+    - To calculate the midpoint of the coordinates, the function averages 
+      the values in the columns:
+
+      .. math::
+          \text{midpoint} = \left(\frac{\text{longitude}_{min} + \text{longitude}_{max}}{2}, 
+          \frac{\text{latitude}_{min} + \text{latitude}_{max}}{2}\right)
+
+    Examples
+    --------
+    >>> import gofast as gf
+    >>> from gofast.tools.datautils import extract_coordinates
+    >>> testdata = gf.datasets.make_erp(n_stations=7, seed=42).frame
+
+    # Extract midpoint coordinates
+    >>> xy, d, xynames = extract_coordinates(testdata)
+    >>> xy, xynames
+    ((110.48627946874444, 26.051952363176344), ('longitude', 'latitude'))
+
+    # Extract coordinates as a DataFrame without removing columns
+    >>> xy, d, xynames = extract_coordinates(testdata, as_frame=True)
+    >>> xy.head(2)
+       longitude   latitude
+    0  110.485833  26.051389
+    1  110.485982  26.051577
+
+    # Drop coordinate columns from the DataFrame
+    >>> xy, d, xynames = extract_coordinates(testdata, drop_xy=True)
+    >>> xy, xynames
+    ((110.48627946874444, 26.051952363176344), ('longitude', 'latitude'))
+    >>> d.head(2)
+       station  resistivity
+    0      0.0          1.0
+    1     20.0        167.5
+
+    References
+    ----------
+    .. [1] Fotheringham, A. Stewart, *Geographically Weighted Regression: 
+           The Analysis of Spatially Varying Relationships*, Wiley, 2002.
+
+    See Also
+    --------
+    pd.DataFrame : Main pandas data structure for handling tabular data.
+    np.nanmean : Computes the mean along specified axis, ignoring NaNs.
+    """
+    
+    def rename_if_exists(val: str, col: pd.Index, default: str) -> pd.DataFrame:
+        """Rename column in `d` if `val` is found in column names."""
+        match = list(filter(lambda x: val in x.lower(), col))
+        if match:
+            df.rename(columns={match[0]: default}, inplace=True)
+        return df
+
+    # Validate input is a DataFrame
+    if not (hasattr(df, 'columns') and hasattr(df, '__array__')):
+        emsg = ("Expected a DataFrame containing coordinates (`longitude`/"
+                "`latitude` or `easting`/`northing`). Got type: "
+                f"{type(df).__name__!r}")
+        
+        error = str(error).lower().strip()
+        if error == 'raise':
+            raise TypeError(emsg)
+        if error =='warn':
+            warnings.warn(emsg)
+        return None, df, ()
+
+    # Rename columns to standardized names if they contain coordinate values
+    for name, std_name in zip(['lat', 'lon', 'east', 'north'], 
+                              ['latitude', 'longitude', 'easting', 'northing']):
+        df = rename_if_exists(name, df.columns, std_name)
+
+    # Check for and prioritize coordinate columns
+    coord_columns = []
+    for x, y in [('longitude', 'latitude'), ('easting', 'northing')]:
+        if x in df.columns and y in df.columns:
+            coord_columns = [x, y]
+            break
+
+    # Extract coordinates as DataFrame or midpoint
+    if coord_columns:
+        xy = df[coord_columns] if as_frame else tuple(
+            np.nanmean(df[coord_columns].values, axis=0))
+    else:
+        xy = None
+    
+    # Drop coordinates if `drop_xy=True`
+    if drop_xy and coord_columns:
+        df.drop(columns=coord_columns, inplace=True)
+
+    # Verbose messaging
+    if verbose > 0:
+        print("###", "No" if not coord_columns else coord_columns, "coordinates found.")
+    
+    return xy, df, tuple(coord_columns)
+
+@Deprecated(reason=( 
+    "This function is deprecated and will be removed in future versions. "
+    "Please use `extract_coordinates` instead, which provides enhanced "
+    "flexibility and robustness for coordinate extraction.")
+)
+def get_xy_coordinates(
+        df, as_frame=False, drop_xy=False, raise_exception=True, verbose=0
+    ):
+    """Check whether the coordinate values x, y exist in the data.
+    
+    Parameters 
+    ------------
+    df: Dataframe 
+       Frame that is expected to contain the longitude/latitude or 
+       easting/northing coordinates.  Note if all types of coordinates are
+       included in the data frame, the longitude/latitude takes the 
+       priority. 
+    as_frame: bool, default= False, 
+       Returns the coordinates values if included in the data as a frame rather 
+       than computing the middle points of the line 
+    drop_xy: bool, default=False, 
+       Drop the coordinates in the data and return the data transformed inplace 
+       
+    raise_exception: bool, default=True 
+       raise error message if data is not a dataframe. If set to ``False``, 
+       exception is converted to a warning instead. To mute the warning set 
+       `raise_exception` to ``mute``
+       
+    verbose: int, default=0 
+      Send message whether coordinates are detected. 
+         
+    returns 
+    --------
+    xy, d, xynames: Tuple 
+      xy : tuple of float ( longitude, latitude) or (easting/northing ) 
+         if `as_frame` is set to ``True``. 
+      d: Dataframe transformed (coordinated removed )  or not
+      xynames: str, the name of coordinates detected. 
+      
+    Examples 
+    ----------
+    >>> import gofast as gf 
+    >>> from gofast.tools.datautils import get_xy_coordinates 
+    >>> testdata = gf.make_erp ( n_stations =7, seed =42 ).frame 
+    >>> xy, d, xynames = get_xy_coordinates ( testdata,  )
+    >>> xy , xynames 
+    ((110.48627946874444, 26.051952363176344), ('longitude', 'latitude'))
+    >>> xy, d, xynames = get_xy_coordinates ( testdata, as_frame =True  )
+    >>> xy.head(2) 
+        longitude   latitude        easting      northing
+    0  110.485833  26.051389  448565.380621  2.881476e+06
+    1  110.485982  26.051577  448580.339199  2.881497e+06
+    >>> # remove longitude and  lat in data 
+    >>> testdata = testdata.drop (columns =['longitude', 'latitude']) 
+    >>> xy, d, xynames = get_xy_coordinates ( testdata, as_frame =True  )
+    >>> xy.head(2) 
+             easting      northing
+    0  448565.380621  2.881476e+06
+    1  448580.339199  2.881497e+06
+    >>> # note testdata should be transformed inplace when drop_xy is set to True
+    >>> xy, d, xynames = get_xy_coordinates ( testdata, drop_xy =True)
+    >>> xy, xynames 
+    ((448610.25612032827, 2881538.4380570543), ('easting', 'northing'))
+    >>> d.head(2)
+       station  resistivity
+    0      0.0          1.0
+    1     20.0        167.5
+    >>> testdata.head(2) # coordinates are henceforth been dropped 
+       station  resistivity
+    0      0.0          1.0
+    1     20.0        167.5
+    >>> xy, d, xynames = get_xy_coordinates ( testdata, drop_xy =True)
+    >>> xy, xynames 
+    (None, ())
+    >>> d.head(2)
+       station  resistivity
+    0      0.0          1.0
+    1     20.0        167.5
+
+    """   
+    
+    def get_value_in ( val,  col , default): 
+        """ Get the value in the frame columns if `val` exists in """
+        x = list( filter ( lambda x: x.find (val)>=0 , col)
+                   )
+        if len(x) !=0: 
+            # now rename col  
+            df.rename (columns = {x[0]: str(default) }, inplace = True ) 
+            
+        return df
+
+    if not (
+            hasattr ( df, 'columns') and hasattr ( df, '__array__') 
+            ) : 
+        emsg = ("Expect dataframe containing coordinates longitude/latitude"
+                f" or easting/northing. Got {type (df).__name__!r}")
+        
+        raise_exception = str(raise_exception).lower().strip() 
+        if raise_exception=='true': 
+            raise TypeError ( emsg )
+        
+        if raise_exception  not in ('mute', 'silence'):  
+            warnings.warn( emsg )
+       
+        return df 
+    
+    # check whether coordinates exists in the data columns 
+    for name, tname in zip ( ('lat', 'lon', 'east', 'north'), 
+                     ( 'latitude', 'longitude', 'easting', 'northing')
+                     ) : 
+        df = get_value_in(name, col = df.columns , default = tname )
+       
+    # get the exist coodinates 
+    coord_columns  = []
+    for x, y in zip ( ( 'longitude', 'easting' ), ( 'latitude', 'northing')):
+        if ( x  in df.columns and y in df.columns ): 
+            coord_columns.extend  ( [x, y] )
+
+    xy  = df[ coord_columns] if len(coord_columns)!=0 else None 
+
+    if ( not as_frame 
+        and xy is not None ) : 
+        # take the middle of the line and if both types of 
+        # coordinates are supplied , take longitude and latitude 
+        # and drop easting and northing  
+        xy = tuple ( np.nanmean ( np.array ( xy ) , axis =0 )) [:2]
+
+    xynames = tuple ( coord_columns)[:2]
+    if ( 
+            drop_xy  and len( coord_columns) !=0
+            ): 
+        # modifie the data inplace 
+        df.drop ( columns=coord_columns, inplace = True  )
+
+    if verbose: 
+        print("###", "No" if len(xynames)==0 else ( 
+            tuple (xy.columns) if as_frame else xy), "coordinates found.")
+        
+    return  xy , df , xynames 
 @isdf
 @is_data_readable 
 def batch_spatial_sampling(
@@ -629,7 +919,14 @@ def spatial_sampling(
         drop=True
     )
 
-def make_mxs(
+@validate_params({ 
+    'y': ['array-like'], 
+    'yt': ['array-like'], 
+    'threshold': [Interval (Real, 0, 1 , closed='neither')], 
+    'mode': [StrOptions({'strict', 'soft'})],
+    'trailer': [str], 
+    })
+def make_mxs_labels(
     y,
     yt,
     threshold=0.5, 
@@ -692,7 +989,7 @@ def make_mxs(
     --------
     >>> y = np.array([1, 2, np.nan, 4])
     >>> yt = np.array([1, 2, 3, 4])
-    >>> make_mxs(y, yt, threshold=0.5, star_mxs=True, return_ymx=True, trailer="#")
+    >>> make_mxs_labels(y, yt, threshold=0.5, star_mxs=True, return_ymx=True, trailer="#")
     array([1, 2, '3#', '44#'])
 
     >>> make_mxs(y, yt, threshold=1.5, star_mxs=False, return_ymx=False, mode="soft")
@@ -1446,7 +1743,7 @@ def convert_distance_to_m(
             
     return value
 
-def extract_coordinates(X, Xt=None, columns=None):
+def extract_coordinates2(X, Xt=None, columns=None):
     """
     Extracts 'x' and 'y' coordinate arrays from training (X) and optionally
     test (Xt) datasets. 

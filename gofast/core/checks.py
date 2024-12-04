@@ -2204,7 +2204,7 @@ def has_nan(
 def check_spatial_columns(
     df: pd.DataFrame,
     spatial_cols: Optional[tuple] = ('longitude', 'latitude'), 
-    
+
 ) -> None:
     """
     Validate the spatial columns in the DataFrame.
@@ -2220,7 +2220,7 @@ def check_spatial_columns(
     spatial_cols : tuple, optional, default=('longitude', 'latitude')
         A tuple containing the names of the longitude and latitude columns.
         Must consist of exactly two elements.
-    
+
     Raises
     ------
     ValueError

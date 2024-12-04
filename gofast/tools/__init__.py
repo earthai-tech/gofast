@@ -1,10 +1,10 @@
 """
 The Tools sub-package offers a variety of utilities for data handling, 
 parameter computation, model estimation, and evaluation. It extends
-mathematical concepts through the module :mod:`~gofast.tools.mathex`. 
+mathematical concepts through the module :mod:`~gofast.tools.mathext`. 
 Additionally, machine learning utilities and supplementary functionalities 
 are facilitated by :mod:`~gofast.tools.mlutils` and 
-:mod:`~gofast.tools.coreutils`, respectively.
+:mod:`~gofast.tools.datautils`, respectively.
  
 """
 
@@ -39,18 +39,24 @@ MODULE_MAPPING = {
          'speed_rowwise_process'
     ],
     'datautils': [ 
-        'cleaner', 
+        'cleaner',
+        'data_extractor', 
+        'nan_to_na',
         'pair_data',
-        'random_sampling', 
+        'process_and_extract_data',
+        'random_sampling',
         'random_selector',
+        'read_excel_sheets',
+        'read_worksheets',
+        'resample_data', 
         'replace_data', 
-        'resample_data',
         'long_to_wide', 
         'wide_to_long', 
-        'merge_datasets', 
         'repeat_feature_accross', 
-        'dual_merge', 
+        'merge_datasets', 
         'swap_ic', 
+        'dual_merge', 
+        'to_categories', 
         
     ], 
     'ioutils':[ 
@@ -105,6 +111,7 @@ MODULE_MAPPING = {
         'standard_scaler', 
         'step_regression',
         'weighted_spearman_rank', 
+        'rescale_data', 
     ],
     'mlutils': [
         'bi_selector', 
@@ -149,7 +156,11 @@ MODULE_MAPPING = {
         'WorkflowManager', 
         ], 
     'spatialutils': [ 
-        'resample_spatial_data', 
+        'spatial_sampling', 
+        'extract_coordinates', 
+        'batch_spatial_sampling', 
+        'make_mxs_labels',
+        'extract_coordinates', 
         ]
 }
 

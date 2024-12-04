@@ -11,7 +11,7 @@ ensuring proper data types, and handling various validation scenarios.
 """
 
 from functools import wraps
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, Union, List
 from collections.abc import Iterable
 import re
 import inspect 
@@ -6848,6 +6848,114 @@ def _assert_all_finite(
             
         raise ValueError(msg_err)
         
+def to_iterable(
+    obj: Any,
+    exclude_string: bool = False,
+    transform: bool = False,
+    parse_string: bool = False,
+    flatten: bool = False,
+    unique: bool = False,
+    delimiter: str = r'[ ,;|\t\n]+'
+) -> Union[bool, List[Any]]:
+    """
+    Determines if an object is iterable, with options to transform, parse,
+    and modify the input for flexible iterable handling.
+
+    Parameters
+    ----------
+    obj : Any
+        Object to be evaluated or transformed into an iterable.
+    exclude_string : bool, default=False
+        Excludes strings from being considered as iterable objects.
+    transform : bool, default=False
+        Transforms `obj` into an iterable if it isn't already. Defaults to
+        wrapping `obj` in a list.
+    parse_string : bool, default=False
+        If `obj` is a string, splits it into a list based on the specified
+        `delimiter`. Requires `transform=True`.
+    flatten : bool, default=False
+        If `obj` is a nested iterable, flattens it into a single list.
+    unique : bool, default=False
+        Ensures unique elements in the output if `transform=True`.
+    delimiter : str, default=r'[ ,;|\t\n]+'
+        Regular expression pattern for splitting strings when `parse_string=True`.
+
+    Returns
+    -------
+    bool or List[Any]
+        Returns a boolean if `transform=False`, or an iterable if
+        `transform=True`.
+
+    Raises
+    ------
+    ValueError
+        If `parse_string=True` without `transform=True`, or if `delimiter`
+        is invalid.
+
+    Notes
+    -----
+    - When `parse_string` is used, strings are split by `delimiter` to form a
+      list of substrings.
+    - `flatten` and `unique` apply only when `transform=True`.
+    - Using `unique=True` ensures no duplicate values in the output.
+
+    Examples
+    --------
+    >>> from gofast.tools.validator import to_iterable
+    >>> to_iterable("word", exclude_string=True)
+    False
+
+    >>> to_iterable(123, transform=True)
+    [123]
+
+    >>> to_iterable("parse, this sentence", transform=True, parse_string=True)
+    ['parse', 'this', 'sentence']
+
+    >>> to_iterable([1, [2, 3], [4]], transform=True, flatten=True)
+    [1, 2, 3, 4]
+
+    >>> to_iterable("a,b,a,b", transform=True, parse_string=True, unique=True)
+    ['a', 'b']
+    """
+    if parse_string and not transform:
+        raise ValueError("Set 'transform=True' when using 'parse_string=True'.")
+
+    # Check if object is iterable (excluding strings if specified)
+    is_iterable = hasattr(obj, '__iter__') and not (
+        exclude_string and isinstance(obj, str))
+
+    # If transformation is not needed, return the boolean check
+    if not transform:
+        return is_iterable
+
+    # If string parsing is enabled and obj is a string, split it using delimiter
+    if isinstance(obj, str) and parse_string:
+        obj = re.split(delimiter, obj.strip())
+
+    # Wrap non-iterables into a list if they aren't iterable
+    elif not is_iterable:
+        obj = [obj]
+
+    # Flatten nested iterables if flatten=True
+    if flatten:
+        obj = _flatten(obj)
+
+    # Apply unique filtering if requested
+    if unique:
+        obj = list(dict.fromkeys(obj))  # Preserves order while ensuring uniqueness
+
+    return obj
+
+def _flatten(nested_list: Any) -> List[Any]:
+    """ Helper function to recursively flatten a nested list structure. """
+    flattened = []
+    for element in nested_list:
+        if isinstance(element, (list, tuple, set)):
+            flattened.extend(_flatten(element))
+        else:
+            flattened.append(element)
+    return flattened
+     
 def assert_all_finite(
     X,
     *,
