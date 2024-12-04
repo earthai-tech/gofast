@@ -9,6 +9,7 @@ Also supports regex-based searches and classification task validation.
 """
 from __future__ import print_function
 import re
+import os
 import numbers 
 import warnings
 import itertools
@@ -47,7 +48,7 @@ __all__= [
     'is_sparse_matrix', 
     'has_sparse_format', 
     'check_features_types', 
-    'is_all_frames', 
+    'are_all_frames_valid', 
     'has_nan', 
     'check_spatial_columns'
     ]
@@ -1966,7 +1967,7 @@ def check_features_types(
 
     return True
 
-def is_all_frames(
+def are_all_frames_valid(
     *dfs: Union[pd.DataFrame, pd.Series],
     df_only: bool = ...,  
     error_msg: Optional[str] = None, 
@@ -2273,3 +2274,587 @@ def check_spatial_columns(
         raise ValueError(
             f"The following spatial_cols are not present in the dataframe: {missing_cols}"
         )
+
+def validate_column_types(
+    df: pd.DataFrame, 
+    category_columns: Optional [Union[str, List[str]]]=None, 
+    consider_object_as_category: bool = False, 
+    error: str = 'raise',  
+    error_msg: Optional[str] = None
+) -> Union[dict, bool, None]:
+    """
+    Validate the types of specified columns in a DataFrame. Determines if each 
+    column is categorical or numeric. The user can customize the behavior when 
+    an error is encountered.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input DataFrame containing the columns to check.
+        
+    category_columns : str or list of str, optional 
+        The name(s) of the column(s) to check. It can either be a single 
+        column name or a list of column names. If ``None``, all columns of the 
+        dataframe types will be checked.
+    
+    consider_object_as_category : bool, default ``False``
+        If ``True``, columns of dtype ``'object'`` will be treated as categorical 
+        columns. Otherwise, ``'object'`` columns will be considered non-categorical.
+    
+    error : str, default ``'raise'``
+        Defines how to handle errors when a column is neither numeric nor categorical:
+        - ``'raise'``: Raise a ``ValueError``.
+        - ``'warn'``: Issue a warning using ``warnings.warn``.
+        - ``'ignore'``: Do nothing and return ``None`` for invalid columns.
+    
+    error_msg : str, optional, default ``None``
+        Custom error message to use when raising an error or issuing a warning. 
+        If ``None``, a default message will be used.
+    
+    Returns
+    -------
+    dict or bool or None
+        - If multiple columns are provided, returns a ``dict`` where keys are 
+          column names and values are either ``True`` (if the column is 
+          categorical), ``False`` (if numeric), or ``None`` (if invalid and 
+          ``error`` is not ``'raise'``).
+        - If a single column is provided, returns ``True``, ``False``, or ``None``
+          directly instead of a dictionary.
+    
+    Raises
+    ------
+    ValueError
+        If any column is neither numeric nor categorical and ``error`` is set to 
+        ``'raise'``. Also raised if a specified column does not exist in 
+        the DataFrame.
+    
+    Warns
+    -----
+    UserWarning
+        If any column is neither numeric nor categorical and ``error`` is set to 
+        ``'warn'``.
+    
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.core.checks import validate_column_types
+    >>> df = pd.DataFrame({
+    ...     'age': [25, 30, 35, 40],
+    ...     'gender': ['M', 'F', 'M', 'F'],
+    ...     'income': [50000, 60000, 55000, 65000],
+    ...     'region': ['North', 'South', 'East', 'West']
+    ... })
+    >>> # Validate multiple columns, treating 'object' as categorical
+    >>> result = validate_column_types(
+    ...     df, 
+    ...     ['gender', 'region', 'income'], 
+    ...     consider_object_as_category=True, 
+    ...     error='warn'
+    ... )
+    >>> print(result)
+    {'gender': True, 'region': True, 'income': False}
+    
+    >>> # Validate a single column
+    >>> result_single = validate_column_types(df, 'age')
+    >>> print(result_single)
+    False
+    
+    >>> # Attempt to validate an invalid column with error='ignore'
+    >>> df['invalid_col'] = pd.Series([1, 2, 3, 'a'])
+    >>> result_ignore = validate_column_types(
+    ...     df, 
+    ...     ['invalid_col'], 
+    ...     error='ignore'
+    ... )
+    >>> print(result_ignore)
+    None
+    
+    Notes
+    -----
+    - The function is designed to handle both single and multiple column validations.
+    - When ``category_columns`` contains only one column, the function returns a 
+      single ``bool`` or ``None`` value instead of a dictionary for convenience.
+    - Setting ``consider_object_as_category=True`` is useful when categorical 
+      data is stored as strings or mixed types in the DataFrame.
+    - The ``error`` parameter provides flexibility in how the function responds 
+      to invalid column types, allowing integration into larger data processing 
+      pipelines without interruption.
+    
+    See Also
+    --------
+    ``pandas.api.types.is_categorical_dtype`` : Check if a pandas Series has a 
+    categorical dtype.
+    
+    ``pandas.api.types.is_numeric_dtype`` : Check if a pandas Series has a 
+    numeric dtype.
+    
+    References
+    ----------
+    .. [1] Pandas Documentation. "Categorical Data". Retrieved from: 
+           https://pandas.pydata.org/pandas-docs/stable/user_guide/categorical.html
+    
+    .. [2] Pandas Documentation. "Data Types". Retrieved from: 
+           https://pandas.pydata.org/pandas-docs/stable/user_guide/basics.html#dtypes
+    
+    .. [3] Python Documentation. "warnings — Warning control". Retrieved from: 
+           https://docs.python.org/3/library/warnings.html
+    """
+    are_all_frames_valid(df)
+    # Ensure category_columns is a list
+    if isinstance(category_columns, str):
+        category_columns = [category_columns]
+    
+    if category_columns is None: 
+        category_columns = list (df.columns)
+        
+    column_types = {}
+
+    # Set default error message if not provided
+    if error_msg is None:
+        error_msg = "Column must be either numeric or categorical."
+
+    # Iterate over each column name
+    for column in category_columns:
+        if column not in df.columns:
+            raise ValueError(f"Column '{column}' not found in the DataFrame.")
+        
+        # Determine column type
+        if pd.api.types.is_categorical_dtype(df[column]) or \
+           (consider_object_as_category and df[column].dtype == 'object'):
+            column_types[column] = True  # Categorical
+        elif pd.api.types.is_numeric_dtype(df[column]):
+            column_types[column] = False  # Numeric
+        else:
+            if error == 'raise':
+                raise ValueError(f"{error_msg} (Column: '{column}')")
+            elif error == 'warn':
+                warnings.warn(f"{error_msg} (Column: '{column}')", UserWarning)
+                column_types[column] = None  # Mark as invalid
+            elif error == 'ignore':
+                column_types[column] = None  # Mark as invalid without action
+    
+    # If only one column was checked, return its type directly
+    if len(column_types) == 1:
+        return next(iter(column_types.values()))
+    
+    return column_types
+
+def is_df_square(
+    df: pd.DataFrame, 
+    order: Optional[Union[list, tuple]] = None, 
+    ops: str = 'check_only', 
+    check_symmetry: bool=False,  # new parameter, 
+    cols_as_index: bool = False, 
+) -> Optional[pd.DataFrame]:
+    """
+    Checks if a given DataFrame is square and optionally reorders the 
+    columns and index or sets the index based on column names. The function 
+    checks the structural properties of the DataFrame and applies specified 
+    operations based on the parameters provided.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame to check and optionally manipulate. This must be a 
+        square matrix (i.e., having an equal number of rows and columns) 
+        for further operations to proceed.
+
+    order : list or tuple, optional
+        A custom order of column names to reorder the columns and index.
+        If provided, the DataFrame will be rearranged based on this order. 
+        This is a sequence of column names that should exist in both the 
+        index and columns of the DataFrame. If not provided, the DataFrame 
+        will not be reordered.
+
+    ops : {'check_only', 'validate'}, default 'check_only'
+        Specifies the operation to be performed. If set to `'check_only'`, 
+        the function only validates the structure of the DataFrame and does 
+        not perform any modification. If set to `'validate'`, the function 
+        attempts to reorder the DataFrame or set the index and columns based 
+        on the provided `order` list.
+        
+    check_symmetry : bool, default False
+        If True, the function checks if the DataFrame's columns and index 
+        contain the same set of values. This ensures the symmetry of the 
+        DataFrame's structure. If False, no check for symmetry is performed.
+
+    cols_as_index : bool, default False
+        If True, the function sets the index of the DataFrame using the 
+        column names (i.e., the columns and index will be identical). If 
+        False, no modification to the index is made. This parameter is only 
+        relevant when the DataFrame is square and an `order` is specified.
+
+    Returns
+    -------
+    pd.DataFrame or None
+        If `ops` is ``'validate'``, the function returns a DataFrame where 
+        the index and columns are reordered based on the provided `order`. 
+        If `ops` is ``'check_only'``, the function performs checks without 
+        modifying the DataFrame and returns None. If the checks fail (e.g., 
+        the DataFrame is not square or the index and columns do not match), 
+        a `ValueError` is raised.
+
+    Raises
+    ------
+    ValueError
+        If the DataFrame is not square, or if the index and columns 
+        do not contain the same values, or if `order` contains invalid 
+        column names.
+    
+    Examples
+    --------
+    >>> from gofast.core.checks import is_df_square
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    >>>     'A': [1, 2, 3],
+    >>>     'B': [4, 5, 6],
+    >>>     'C': [7, 8, 9]
+    >>> })
+    >>> is_df_square(df, order=['B', 'A', 'C'], ops='validate')
+    >>> df  # Returns the DataFrame with reordered columns and index
+
+    Notes
+    -----
+    - The `is_df_square` function is used to ensure that a given DataFrame 
+      has an equal number of rows and columns, and optionally reorder its 
+      columns and index or set the index to match the columns.
+    - The function raises a `ValueError` if the DataFrame does not meet the 
+      expected conditions (i.e., square matrix or matching index and columns).
+    
+    See Also
+    --------
+    pd.DataFrame: The base pandas DataFrame class which provides many 
+    useful methods for DataFrame manipulation, such as `.reindex()` and 
+    `.set_index()`.
+    
+    References
+    ----------
+    [1] pandas documentation: https://pandas.pydata.org/pandas-docs/stable/
+    """
+
+    # Check if the input is a DataFrame
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(
+            f"Input must be a pandas DataFrame. Got {type(df).__name__!r}")
+    
+    # Check if the DataFrame is square (rows == columns)
+    if df.shape[0] != df.shape[1]:
+        raise ValueError(
+            "The DataFrame must be square: number of rows"
+            " must equal the number of columns.")
+
+    if check_symmetry: 
+        # Check if the index and columns have the same elements
+        if ( 
+            not set(df.columns).issubset(df.index) or 
+            not set(df.index).issubset(df.columns)
+            ):
+            raise ValueError(
+                "Index and columns must contain the same values.")
+    
+    # Optionally reorder index and columns if 'order' is provided
+    if order:
+        # Ensure the order is a valid subset of both index and columns
+        if not set(order).issubset(df.columns) or not set(order).issubset(df.index):
+            raise ValueError(
+                "Custom order contains values not present in both index and columns.")
+        
+        if ops == 'validate':
+            # df = df[order]         # Reorder columns
+            # df = df.T[order].T     # Reorder index
+            # Apply custom order to index and columns : .loc much faster
+            df = df.loc[order, order]
+            
+    # If only checking, return True
+    if ops == 'check_only':
+        return True 
+    
+    # If validating and cols_as_index is True, set index equal to columns
+    if cols_as_index:
+        df.index = df.columns
+        
+    # If cols_as_index is 'reverse', reverse columns and set as index
+    elif str(cols_as_index).lower() == 'reverse':
+        df.index = df.columns[::-1]
+    
+    return df
+
+def check_files(
+    files: Union[str, List[str]],
+    formats: Union[str, List[str]]=None,
+    return_valid: bool = True,
+    error: str = 'raise',
+    empty_allowed: bool = False
+) -> Union[str, List[str], None]:
+    """
+    Validate the Existence, Format, and Non-Emptiness of Files.
+    
+    The `check_files` function provides a robust mechanism to validate one or 
+    multiple file paths by ensuring their existence, verifying their formats 
+    against specified criteria, and confirming that they are not empty. This 
+    utility is essential for data processing pipelines where the integrity and 
+    correctness of input files are paramount. By offering flexible parameters, 
+    users can tailor the validation process to their specific needs, handling 
+    multiple files and diverse formats with ease.
+    
+    .. math::
+        \text{Validation Process} = 
+        \begin{cases}
+            \text{Existence Check} \\
+            \text{Format Verification} \\
+            \text{Non-Emptiness Confirmation}
+        \end{cases}
+    
+    Parameters
+    -----------
+    files : Union[`str`, `List[str]`]
+        The file path or list of file paths to be validated. Each file will be 
+        individually checked for existence, format compliance, and non-emptiness 
+        based on the provided parameters.
+    
+    formats : Union[`str`, `List[str]`], optional
+        The acceptable file formats/extensions. Formats can be specified with or 
+        without a leading dot (e.g., `'csv'` or `'.xlsx'`). The function 
+        normalizes these formats to ensure consistency during validation. If 
+        `formats` is `None`, the format check is skipped.
+    
+    return_valid : `bool`, default=`True`
+        Determines whether the function should return the list of valid files.
+        - If `True`, returns the validated file paths.
+        - If `False`, the function performs validation without returning the 
+          file paths.
+    
+    error : `str`, default=`'raise'`
+        Specifies the error handling strategy when encountering invalid files.
+        - `'warn'`: Issues warnings for each validation failure and continues 
+          processing remaining files.
+        - `'raise'`: Raises exceptions immediately upon encountering a 
+          validation failure, halting further execution.
+        
+        Raises a `ValueError` if an unsupported error handling strategy is 
+        provided.
+    
+    empty_allowed : `bool`, default=`False`
+        Indicates whether empty files are permissible.
+        - If `False`, files with a size of zero bytes are considered invalid.
+        - If `True`, empty files pass the non-emptiness check.
+    
+    Returns
+    -------
+    Union[`str`, `List[str]`, `None`]
+        - If `return_valid` is `True` and only one file is valid, returns the 
+          file path as a `str`.
+        - If `return_valid` is `True` and multiple files are valid, returns a 
+          `List[str]` of file paths.
+        - If `return_valid` is `True` but no valid files are found, returns 
+          `None`.
+        - If `return_valid` is `False`, returns `None` regardless of validation 
+          outcomes.
+    
+    Raises
+    ------
+    FileNotFoundError
+        Raised when a specified file does not exist and `error` is set to `'raise'`.
+    
+    ValueError
+        - Raised when a file's format is unsupported based on the `formats` 
+          parameter and `error` is `'raise'`.
+        - Raised when a file is empty while `empty_allowed` is `False` and `error` 
+          is `'raise'`.
+        - Raised when `error` parameter is neither `'warn'` nor `'raise'`.
+    
+    TypeError
+        Raised when the `checkpoint` parameter is neither a `str` nor an `int`.
+    
+    Notes
+    -----
+    - **Format Normalization**: The function ensures that all format 
+      specifications begin with a leading dot for consistent comparison, 
+      regardless of how the user inputs them.
+    
+    - **Flexible Input Handling**: Users can pass a single file path as a 
+      string or multiple file paths as a list of strings, allowing for 
+      versatile usage scenarios.
+    
+    - **Error Management**: The `error` parameter provides control over how 
+      the function responds to validation failures, enabling integration into 
+      larger workflows where certain failures may need to be handled 
+      differently.
+    
+    - **Empty File Consideration**: By default, the function treats empty 
+      files as invalid to prevent downstream errors in data processing 
+      tasks. This behavior can be modified using the `empty_allowed` parameter 
+      based on user requirements.
+    
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.core.checks import check_files
+    
+    >>> # Single file validation
+    >>> valid_file = check_files(
+    ...     files='data/sample.csv',
+    ...     formats=['csv', 'xlsx'],
+    ...     return_valid=True,
+    ...     error='warn',
+    ...     empty_allowed=False
+    ... )
+    >>> print(valid_file)
+    'data/sample.csv'
+    
+    >>> # Multiple files validation with mixed formats
+    >>> files = [
+    ...     'data/sample1.csv',
+    ...     'data/sample2.xlsx',
+    ...     'data/sample3.json',
+    ...     'data/sample4.txt'  # Unsupported format
+    ... ]
+    >>> valid_files = check_files(
+    ...     files=files,
+    ...     formats=['csv', 'xlsx', 'json'],
+    ...     return_valid=True,
+    ...     error='warn',
+    ...     empty_allowed=False
+    ... )
+    >>> print(valid_files)
+    ['data/sample1.csv', 'data/sample2.xlsx', 'data/sample3.json']
+    
+    >>> # Handling empty files
+    >>> check_files(
+    ...     files='data/empty.csv',
+    ...     formats='csv',
+    ...     return_valid=True,
+    ...     error='warn',
+    ...     empty_allowed=False
+    ... )
+    /path/to/script.py:XX: UserWarning: File is empty: `data/empty.csv`.
+    warnings.warn(msg)
+    >>> # With empty_allowed=True
+    >>> valid_file = check_files(
+    ...     files='data/empty.csv',
+    ...     formats='csv',
+    ...     return_valid=True,
+    ...     error='warn',
+    ...     empty_allowed=True
+    ... )
+    >>> print(valid_file)
+    'data/empty.csv'
+    
+    >>> # Single file validation with error handling
+    >>> try:
+    ...     check_files(
+    ...         files='data/nonexistent.csv',
+    ...         formats='csv',
+    ...         return_valid=True,
+    ...         error='raise',
+    ...         empty_allowed=False
+    ...     )
+    ... except FileNotFoundError as e:
+    ...     print(e)
+    File does not exist: `data/nonexistent.csv`.
+    
+    Notes
+    -----
+    - **Extensibility**: The `check_files` function can be easily extended to 
+      support additional file formats by simply updating the `formats` parameter 
+      with the desired extensions.
+    
+    - **Integration**: This function is particularly useful in data ingestion 
+      pipelines where the integrity of input files must be verified before 
+      processing to ensure downstream tasks execute correctly.
+    
+    - **Performance Considerations**: When validating a large number of files, 
+      consider setting `error='warn'` to allow the function to process all files 
+      and collect all valid ones, rather than stopping at the first encountered error.
+    
+    See Also
+    --------
+    os.path.exists : Check if a path exists.
+    os.path.splitext : Split the file path into root and extension.
+    os.path.getsize : Get the size of a file.
+    warnings.warn : Issue a warning message.
+    
+    References
+    ----------
+    .. [1] Python Documentation: os.path.exists. 
+       https://docs.python.org/3/library/os.path.html#os.path.exists
+    .. [2] Python Documentation: os.path.splitext. 
+       https://docs.python.org/3/library/os.path.html#os.path.splitext
+    .. [3] Python Documentation: os.path.getsize. 
+       https://docs.python.org/3/library/os.path.html#os.path.getsize
+    .. [4] Python Documentation: warnings.warn. 
+       https://docs.python.org/3/library/warnings.html#warnings.warn
+    .. [5] Freedman, D., & Diaconis, P. (1981). On the histogram as a density estimator: 
+           L2 theory. *Probability Theory and Related Fields*, 57(5), 453-476.
+    """
+
+    # Normalize formats to include leading dot if formats is provided
+    if formats is not None:
+        if isinstance(formats, str):
+            formats = [formats]
+        normalized_formats = [
+            f".{fmt.lstrip('.')}" for fmt in formats
+        ]
+    else:
+        normalized_formats = None
+    
+    # Ensure files is a list
+    if isinstance(files, str):
+        files = [files]
+    
+    if not all( isinstance (f, str) for f in files): 
+        raise TypeError(
+            "Got invalid type(s). Supported only file path objects."
+            " Please check your files.")
+        
+    valid_files = []
+    
+    for file in files:
+        # Check if file exists
+        if not os.path.exists(file):
+            msg = f"File does not exist: `{file}`."
+            if error == 'warn':
+                warnings.warn(msg)
+                continue
+            else:
+                raise FileNotFoundError(msg)
+        
+        # Check file format if formats is specified
+        if normalized_formats is not None:
+            _, ext = os.path.splitext(file)
+            ext = ext.lower()
+            if ext not in normalized_formats:
+                msg = (
+                    f"Unsupported file format: `{file}`. "
+                    f"Expected formats: {normalized_formats}."
+                )
+                if error == 'warn':
+                    warnings.warn(msg)
+                    continue
+                else:
+                    raise ValueError(msg)
+        
+        # Check if file is not empty
+        if not empty_allowed:
+            if os.path.getsize(file) == 0:
+                msg = f"File is empty: `{file}`."
+                if error == 'warn':
+                    warnings.warn(msg)
+                    continue
+                else:
+                    raise ValueError(msg)
+        
+        # If all checks pass, add to valid_files
+        valid_files.append(file)
+    
+    if return_valid:
+        if not valid_files:
+            if error == 'warn':
+                warnings.warn("No valid files found.")
+            else:
+                raise ValueError("No valid files found.")
+        else:
+            if len(valid_files) == 1:
+                valid_files = valid_files[0]
+        
+        return valid_files

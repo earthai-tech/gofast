@@ -15,7 +15,7 @@ import re
 import copy 
 import shutil
 import warnings 
-from typing import Any, List, Union, Dict, Optional, Set, Tuple   
+from typing import Any, List, Union, Optional, Set, Tuple   
 from functools import reduce
 
 import scipy 
@@ -31,12 +31,17 @@ from ..decorators import Deprecated, RunReturn, isdf
 from ..core.array_manager import to_numeric_dtypes 
 from ..core.checks import ( 
     _assert_all_types, validate_name_in, is_in,  
-    is_iterable, assert_ratio, is_all_frames 
+    is_iterable, assert_ratio, are_all_frames_valid , 
+    check_features_types, exist_features, is_df_square, 
+    check_files 
 )
 from ..core.handlers import columns_manager 
-from ..core.io import is_data_readable 
+from ..core.io import SaveFile, is_data_readable, to_frame_if
 from ..core.utils import sanitize_frame_cols 
-from .validator import check_is_runned, is_frame, validate_positive_integer  
+from .validator import ( 
+    check_is_runned, is_frame, validate_positive_integer, 
+    parameter_validator 
+    )
 
 logger = gofastlog().get_gofast_logger(__name__) 
 
@@ -50,7 +55,7 @@ __all__= [
     'process_and_extract_data',
     'random_sampling',
     'random_selector',
-    'read_from_excelsheets',
+    'read_excel_sheets',
     'read_worksheets',
     'resample_data', 
     'replace_data', 
@@ -404,7 +409,7 @@ def nan_to_na(
         return df_copy
 
 def resample_data(
-    *data: Any,
+    *d: Any,
     samples: Union[int, float, str] = 1,
     replace: bool = False,
     random_state: int = None,
@@ -416,7 +421,7 @@ def resample_data(
 
     Parameters
     ----------
-    *data : Any
+    *d : Any
         Variable number of array-like, sparse matrix, pandas Series, or 
         DataFrame objects to be resampled.
         
@@ -508,16 +513,20 @@ def resample_data(
 
     resampled_structures = []
 
-    for d in data:
+    for data in d:
         # Handle sparse matrices encapsulated in numpy objects
-        if isinstance(d, np.ndarray) and d.dtype == object and scipy.sparse.issparse(d.item()):
-            d = d.item()  # Extract the sparse matrix from the numpy object
+        if ( 
+                isinstance(data, np.ndarray) 
+                and data.dtype == object 
+                and scipy.sparse.issparse(data.item())
+            ):
+            data = data.item()  # Extract the sparse matrix from the numpy object
 
         # Determine sample size based on `samples` parameter
-        n_samples = _determine_sample_size(d, samples, is_percent="%" in str(samples))
+        n_samples = _determine_sample_size(data, samples, is_percent="%" in str(samples))
         
         # Sample the data structure based on the computed sample size
-        sampled_d = _perform_sampling(d, n_samples, replace, random_state, shuffle)
+        sampled_d = _perform_sampling(data, n_samples, replace, random_state, shuffle)
         resampled_structures.append(sampled_d)
  
     return resampled_structures[0] if len(
@@ -563,9 +572,10 @@ def _perform_sampling(d: Any, n_samples: int, replace: bool,
                                    ) if shuffle else np.arange(n_samples)
         return d_array[indices] if d_array.ndim == 1 else d_array[indices, :]
     
-
+    
+@SaveFile 
 def pair_data(
-    *data: Union[pd.DataFrame, List[pd.DataFrame]],
+    *dfs: Union[pd.DataFrame, List[pd.DataFrame]],
     on: Union[str, List[str]] = None,
     parse_on: bool = False,
     mode: str = 'strict',
@@ -580,7 +590,7 @@ def pair_data(
 
     Parameters
     ----------
-    data : List[Union[pd.DataFrame, List[pd.DataFrame]]]
+    dfs : List[Union[pd.DataFrame, List[pd.DataFrame]]]
         A variable-length argument of pandas DataFrames for merging.
         
     on : Union[str, List[str]], optional
@@ -673,17 +683,29 @@ def pair_data(
     pd.concat : Concatenates pandas objects along a specified axis.
     pd.merge : Merges DataFrames based on key columns.
     """
-
+    # make a shallow copy
+    d = dfs[:]
+    
     # Filter only DataFrames if `mode` is set to 'soft'
     if str(mode).lower() == 'soft':
-        d = [df for df in data if isinstance(df, pd.DataFrame)]
-
-    # Ensure all provided data is DataFrame if `mode` is 'strict'
-    is_dataframe = all(isinstance(df, pd.DataFrame) for df in d)
-    if not is_dataframe:
-        types = [type(df).__name__ for df in d]
-        raise TypeError(f"Expected DataFrame. Got {', '.join(types)}")
-
+        d = [df for df in d if isinstance(df, pd.DataFrame)]
+    else:
+        # Ensure all provided data is DataFrame if `mode` is 'strict'
+        is_dataframe = all(isinstance(df, pd.DataFrame) for df in d)
+        if not is_dataframe:
+            utypes = [
+                type(df).__name__ for df in d if not isinstance(df, pd.DataFrame)]
+            raise TypeError(
+                "In strict mode, filtering is not performed."
+                " All elements must be of type 'DataFrame'. "
+                f"Found unexpected types: {', '.join(utypes)}."
+            ) 
+            
+    if len(d) < 2: 
+        raise TypeError(
+            "Not enough dataframes. Need at least two dataframes for pairing."
+            f" Got {len(d)}"
+            )
     # Coerce to shortest DataFrame length if `coerce=True`
     if coerce:
         min_len = min(len(df) for df in d)
@@ -882,41 +904,186 @@ def random_sampling(
 
     return d
 
-def read_from_excelsheets(erp_file: str) -> List[pd.DataFrame]:
+def read_excel_sheets(
+    xlsx_file: str, 
+    sheet_names: Union[str, List[str]] = None
+) -> List[Union[str, pd.DataFrame]]:
     """
-    Read all sheets from an Excel workbook into a list of DataFrames.
-
+    Read Specified Sheets from an Excel Workbook into a List of DataFrames.
+    
+    The `read_excel_sheets` function facilitates the extraction of data from 
+    multiple sheets within an Excel workbook. By specifying `sheet_names` 
+    (either as a single sheet name or a list of sheet names), the function 
+    can selectively read and return the desired sheets. If `sheet_names` is 
+    `None`, all sheets within the workbook are read and returned. This utility 
+    is particularly useful for data analysis workflows that require comprehensive 
+    data ingestion from structured Excel files with multiple sheets.
+    
+    .. math::
+        \text{Data Extraction} = \{ \text{Base Name}, \text{Sheet}_1, 
+        \text{Sheet}_2, \dots, \text{Sheet}_n \}
+    
     Parameters
     ----------
-    erp_file : str
+    xlsx_file : `str`
         Path to the Excel file containing multiple sheets.
-
+    
+    sheet_names : Union[`str`, `List[str]`], optional
+        Specifies the sheet or sheets to read from the Excel workbook.
+        - If `None`, all sheets are read and returned as a list of DataFrames.
+        - If a single sheet name is provided as a `str`, only that sheet is 
+          read and returned.
+        - If a list of sheet names is provided, only those specified sheets 
+          are read and returned.
+    
     Returns
     -------
-    List[DataFrame]
-        A list where the first element is the file base name and subsequent 
-        elements are DataFrames of each sheet.
-
+    List[Union[`str`, `pd.DataFrame`]]
+        A list where the first element is the file base name (without extension) 
+        and subsequent elements are DataFrames corresponding to each sheet 
+        specified. If `sheet_names` is provided, only the specified sheets are 
+        included.
+    
+    Raises
+    ------
+    ValueError
+        - If file validation fails.
+        - If reading the Excel file fails.
+        - If specified sheet names do not exist in the workbook.
+    
     Examples
     --------
-    >>> read_from_excelsheets("data.xlsx")
-    ['data', DataFrame1, DataFrame2, ...]
-
+    >>> import pandas as pd
+    >>> from gofast.tools.datautils import read_excel_sheets
+    
+    >>> # Read all sheets from an Excel file
+    >>> sheets = read_excel_sheets("data/sample.xlsx")
+    >>> print(sheets)
+    ['sample',    A     B  C   D
+    0   1  1.50  3  10
+    1   0  0.70  8  12
+    2  10  0.50  7  13
+    3   0  0.35  1  13,    A     B  C   D
+    0   1  1.50  3  10
+    1   0  0.70  8  12
+    2  10  0.50  7  13
+    3   0  0.35  1  13]
+    
+    >>> # Read specific sheets by name
+    >>> sheets = read_excel_sheets("data/sample.xlsx", sheet_names=["Sheet1", "Sheet3"])
+    >>> print(sheets)
+    ['sample',    A     B  C   D
+    0   1  1.50  3  10
+    1   0  0.70  8  12,    A     B  C   D
+    0   1  1.50  3  10
+    1   0  0.70  8  12]
+    
+    >>> # Read a single sheet by name
+    >>> sheet = read_excel_sheets("data/sample.xlsx", sheet_names="Sheet2")
+    >>> print(sheet)
+    ['sample',    A     B  C   D
+    0   1  1.50  3  10
+    1   0  0.70  8  12
+    2  10  0.50  7  13
+    3   0  0.35  1  13]
+    
     Notes
     -----
-    This function reads all sheets at once, which is helpful for files with 
-    structured data across multiple sheets.
+    - **File Validation**: Before attempting to read the Excel file, the function 
+      validates the file's existence, format, and ensures it is not empty using 
+      the `check_files` utility from `gofast.core.checks`.
+    
+    - **Sheet Selection**: 
+        - If `sheet_names` is `None`, all sheets within the Excel file are read 
+          and included in the returned list.
+        - Specifying `sheet_names` as a string or a list of strings allows for 
+          selective reading of sheets, which can enhance performance by 
+          avoiding unnecessary data loading.
+    
+    - **Base Name Inclusion**: The first element of the returned list is the base 
+      name of the Excel file (excluding its extension), providing a reference 
+      identifier for the DataFrames that follow.
+    
+    - **Error Handling**: The function raises descriptive errors if:
+        - The Excel file does not exist.
+        - The file format is unsupported.
+        - The file is empty.
+        - Specified sheets do not exist within the workbook.
+    
+    - **Performance Considerations**: Reading multiple sheets simultaneously 
+      can be resource-intensive for large Excel files with numerous sheets. Users 
+      should be mindful of the size and number of sheets when utilizing this 
+      function.
+    
+    See Also
+    --------
+    check_files : Function to validate file existence, format, and non-emptiness.
+    pandas.read_excel : Function to read Excel files into Pandas DataFrames.
+    os.path.exists : Check if a path exists.
+    os.path.splitext : Split the file path into root and extension.
+    os.path.basename : Extract the base name of a file.
+    
+    References
+    ----------
+    .. [1] Pandas Documentation: pandas.read_excel. 
+       https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_excel.html  
+    .. [2] Python Documentation: os.path.exists. 
+       https://docs.python.org/3/library/os.path.html#os.path.exists  
+    .. [3] Python Documentation: os.path.splitext. 
+       https://docs.python.org/3/library/os.path.html#os.path.splitext  
+    .. [4] Python Documentation: os.path.basename. 
+       https://docs.python.org/3/library/os.path.html#os.path.basename  
+    .. [5] Freedman, D., & Diaconis, P. (1981). On the histogram as a density 
+           estimator: L2 theory. *Probability Theory and Related Fields*, 57(5), 
+           453-476.
     """
-    all_sheets: Dict[str, pd.DataFrame] = pd.read_excel(erp_file, sheet_name=None)
-    file_base_name = os.path.basename(os.path.splitext(erp_file)[0])
-    list_of_df = [file_base_name] + [pd.DataFrame(values) for values in all_sheets.values()]
-
+    # Validate the Excel file
+    try:
+        valid_file = check_files(
+            files=xlsx_file,
+            formats='xlsx',
+            return_valid=True,
+            error='raise',
+            empty_allowed=False
+        )
+    except Exception as e:
+        raise ValueError(f"File validation failed for '{xlsx_file}': {e}")
+    
+    # Attempt to read specified sheets from the Excel file
+    try:
+        all_sheets = pd.read_excel(
+            valid_file,
+            sheet_name=sheet_names
+        )
+    except ValueError as ve:
+        # Handle the case where specified sheet does not exist
+        raise ValueError(
+            f"Failed to read specified sheet(s) from '{valid_file}': {ve}"
+        )
+    except Exception as e:
+        raise ValueError(
+            f"Failed to read Excel file '{valid_file}': {e}"
+        )
+    
+    # Extract the base name of the file without extension
+    file_base_name = os.path.basename(
+        os.path.splitext(valid_file)[0]
+    )
+    
+    # Compile the list with base name followed by DataFrames of each sheet
+    if isinstance(all_sheets, dict):
+        list_of_df = [file_base_name] + [
+            df for df in all_sheets.values()
+        ]
+    else:
+        # If a single DataFrame is returned
+        list_of_df = [file_base_name, all_sheets]
+    
     return list_of_df
 
-
 def read_worksheets(
-        *data: str
-        ) -> Tuple[Optional[List[pd.DataFrame]], Optional[List[str]]]:
+    *xlsx_files: str
+    ) -> Tuple[Optional[List[pd.DataFrame]], Optional[List[str]]]:
     """
     Reads all `.xlsx` sheets from given file paths or directories and returns
     the contents as DataFrames along with sheet names. 
@@ -1004,8 +1171,9 @@ def read_worksheets(
 
     # Temporary list to store valid .xlsx files
     dtem = []
-    data = [o for o in data if isinstance(o, str)]
-
+     # and also check expected files.
+    data = check_files(xlsx_files, formats ='.xlsx', return_valid=True )
+   
     # Iterate over each path provided in data
     for o in data:
         if os.path.isdir(o):
@@ -2869,9 +3037,10 @@ def merge_datasets(
 
     return merged_df
 
+
 @isdf 
 def swap_ic(
-    df, 
+    df: DataFrame, 
     sort: bool = False, 
     ascending: bool = True, 
     inplace: bool = False, 
@@ -2897,8 +3066,8 @@ def swap_ic(
         The DataFrame whose index and columns need to be aligned.
 
     sort : bool, optional, default=False
-        Whether to sort the index and columns in ascending order. If `True`, both 
-        index and columns will be sorted in ascending order.
+        Whether to sort the index and columns in ascending order. If ``True``,
+        both index and columns will be sorted in ascending order.
 
     ascending : bool, optional, default=True
         If `sort=True`, this specifies the sorting order. If `True`, the 
@@ -2948,7 +3117,7 @@ def swap_ic(
     --------
     Example of using the function without sorting:
 
-    >>> from gofast.tools.dfutils import swap_ic 
+    >>> from gofast.tools.datautils import swap_ic 
     >>> df = pd.DataFrame({
     >>>     'A': [1, 2, 3],
     >>>     'B': [4, 5, 6],
@@ -2967,21 +3136,14 @@ def swap_ic(
     >>> swap_ic(df, order=['C', 'A', 'B'])
     
     """
-    # Validate that index and columns have the same elements
-    if not set(df.columns).issubset(df.index) or not set(
-            df.index).issubset(df.columns):
-        raise ValueError("Index and columns must contain the same values.")
-    
-    # Optionally, apply custom order to both index and columns
-    if order:
-        # Ensure custom_order is a valid subset of index and columns
-        if not set(order).issubset(df.columns) or not set(order).issubset(df.index):
-            raise ValueError(
-                "Custom order contains values not present in both index and columns.")
-        
-        # Apply custom order to index and columns
-        df = df.loc[order, order]
-        
+    # Validate that index and columns have the same elements and
+    # optionally, apply custom order to both index and columns
+    df = is_df_square(
+        df, 
+        order =order, 
+        check_symmetry=True, 
+        ops ='validate'
+    )
     # Align index and columns by ensuring they are in the same order
     aligned_df = df.loc[df.columns, df.columns]
 
@@ -3259,7 +3421,7 @@ def batch_sampling(
             remaining_data = remaining_data.drop(index=sampled_indices)
             if len(remaining_data) == 0:
                 break  # No more data to sample
-                
+@SaveFile            
 def dual_merge(
     df1: pd.DataFrame, 
     df2: pd.DataFrame,
@@ -3267,7 +3429,8 @@ def dual_merge(
     find_closest: bool = False, 
     force_coords: bool = False,  
     threshold: float = 0.01,  
-    how: str = 'inner'  
+    how: str = 'inner', 
+    savefile: Optional[str]=None, 
 ) -> pd.DataFrame:
     """
     Merge two DataFrames based on specified feature columns. The function 
@@ -3374,7 +3537,7 @@ def dual_merge(
             "feature_cols must contain exactly two features (e.g., longitude, latitude)")
     
     # check wether df1 and df2  are both dataframes.
-    is_all_frames(df1, df2 )
+    are_all_frames_valid(df1, df2 )
     
     # Extract columns from feature_cols for both DataFrames
     feature1_1, feature1_2 = feature_cols
@@ -3416,3 +3579,350 @@ def dual_merge(
     )
 
     return merged_data
+
+@SaveFile 
+def to_categories(
+    df: pd.DataFrame,
+    column: str,  
+    categories: Union[List[str], str]= 'auto',  
+    method: str = 'equal_range', 
+    bins: Optional[List[float]] = None,
+    include_lowest: bool = True,
+    right: bool = False,
+    category_name: Optional[str] = None, 
+    savefile: Optional[str]=None, 
+) -> pd.DataFrame:
+    """
+    Categorize a Continuous Column into Specified or Automatically 
+    Generated Categories.
+    
+    This function transforms a continuous numerical column in a DataFrame into 
+    categorical bins based on specified criteria. It supports both equal  
+    range and quantile-based binning methods. Additionally, it allows for 
+     automatic category label generation when `categories` is set to `'auto'`,
+     producing labels such as `'< a'`, `'a-b'`, ..., `'>c'` with bin edges 
+     rounded to one decimal place.
+    
+    The categorization process is defined as:
+    
+    .. math::
+        \text{Bin Width} = \frac{\text{max}(x) - \text{min}(x)}{k}
+    
+    where :math:`x` represents the data in the column and :math:`k` is the number 
+    of categories.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input DataFrame containing the data to be categorized.
+    
+    column : str
+        The name of the column in `df` to categorize. This column must contain 
+        continuous numerical data.
+    
+    categories : Union[List[str], str], default='auto'
+        Defines the labels for the categories. 
+        
+        - If a list of strings is provided, these labels will be assigned to the 
+          respective bins.
+        - If set to `'auto'`, the function automatically generates category labels 
+          based on the bin edges, resulting in labels like `'< a'`, `'a-b'`, ..., 
+          `'>c'`.
+    
+    method : str, default='equal_range'
+        The strategy used to bin the data. 
+        
+        - `'equal_range'`: Divides the range of the data into equal-sized bins.
+        - `'quantile'`: Divides the data into bins with an equal number of 
+          data points.
+    
+    bins : List[float], optional, default=None
+        The specific bin edges to use when `method='equal_range'`. 
+        
+        - If `None`, bin edges are calculated based on the minimum and maximum 
+          values of the column, divided equally according to the number of 
+          categories.
+        - This parameter is ignored if `method='quantile'`.
+    
+    include_lowest : bool, default=True
+        Determines whether the lowest value should be included in the first bin. 
+        
+        - If `True`, the first bin includes the lowest value.
+        - If `False`, the first bin does not include the lowest value.
+    
+    right : bool, default=False
+        Specifies whether the bins include the rightmost edge or not. 
+        
+        - If `True`, the bins include the right edge.
+        - If `False`, the bins do not include the right edge.
+    
+    category_name : str, optional, default=None
+        The name of the new column to be added to `df` containing the category 
+        labels.
+        
+        - If `None`, the new column is named as `{column}_category`.
+        - Otherwise, it uses the provided `category_name`.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        The original DataFrame `df` augmented with a new column containing the 
+        categorized data.
+    
+    Raises
+    ------
+    ValueError
+        - If `column` does not exist in `df`.
+        - If `column` is not of a numeric data type.
+        - If `method` is neither `'equal_range'` nor `'quantile'`.
+        - If `categories` is set to `'auto'` but bin labels cannot be generated.
+        - If the number of provided `categories` does not match the number of bins 
+          minus one.
+        - If `categories` is neither a list of strings nor `'auto'`.
+    
+    Notes
+    -----
+    - The function utilizes external validators from `gofast.tools.validator` 
+      and `gofast.core.checks` to ensure input integrity.
+    - When `categories='auto'`, the function dynamically generates category 
+      labels based on the calculated bin edges, rounding each edge to one 
+      decimal place for clarity.
+    - In `'quantile'` method, if duplicate edges are found, the `duplicates='drop'` 
+      parameter in `pd.qcut` ensures unique bin edges.
+    
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from gofast.tools.datautils import to_categories
+    
+    >>> # Sample DataFrame
+    >>> data = {
+    ...     'value': np.random.uniform(0, 100, 1000)
+    ... }
+    >>> df = pd.DataFrame(data)
+             value
+    0    28.595432
+    1    42.502077
+    2    60.824855
+    3    50.699502
+    4    90.861483
+    ..         ...
+    995  95.766006
+    996  11.983319
+    997  93.596298
+    998   9.529297
+    999  74.836838
+
+    [1000 rows x 1 columns]
+    
+    >>> # Categorize using equal range with custom categories
+    >>> df = to_categories(
+    ...     df=df,
+    ...     column='value',
+    ...     categories=['low', 'medium', 'high'],
+    ...     method='equal_range',
+    ...     bins=[0, 33.3, 66.6, 100],
+    ...     category_name='value_category'
+    ... )
+    >>> df
+             value value_category
+    0    49.797081         medium
+    1     4.435289            low
+    2    19.566820            low
+    3    77.484627           high
+    4    66.384490         medium
+    ..         ...            ...
+    995  76.688965           high
+    996  32.239027            low
+    997  57.611926         medium
+    998  58.372411         medium
+    999  16.374454            low
+    
+    [1000 rows x 2 columns]
+    
+    >>> # Categorize using quantile with automatic categories
+    >>> df = to_categories(
+    ...     df=df,
+    ...     column='value',
+    ...     categories='auto',
+    ...     method='quantile',
+    ...     category_name='value_quantile'
+    ... )
+    >>> df
+             value value_category value_quantile
+    0    28.595432            low    26.1 - 48.6
+    1    42.502077         medium    26.1 - 48.6
+    2    60.824855         medium    48.6 - 74.8
+    3    50.699502         medium    48.6 - 74.8
+    4    90.861483           high         > 74.8
+    ..         ...            ...            ...
+    995  95.766006           high         > 74.8
+    996  11.983319            low         < 26.1
+    997  93.596298           high         > 74.8
+    998   9.529297            low         < 26.1
+    999  74.836838           high         > 74.8
+
+    [1000 rows x 3 columns]
+    
+    >>> # Categorize with automatic category labels and default parameters
+    >>> df = to_categories(
+    ...     df=df,
+    ...     column='value',
+    ...     categories='auto', 
+            category_name='value_equal_range'
+    ... )
+             value value_category value_quantile value_equal_range
+    0    47.570125         medium    24.9 - 49.3       33.3 - 66.6
+    1    78.155685           high         > 74.4            > 66.6
+    2    27.954301            low    24.9 - 49.3            < 33.3
+    3    41.006147         medium    24.9 - 49.3       33.3 - 66.6
+    4    61.096433         medium    49.3 - 74.4       33.3 - 66.6
+    ..         ...            ...            ...               ...
+    995  30.748508            low    24.9 - 49.3            < 33.3
+    996  74.653811           high         > 74.4            > 66.6
+    997  93.670502           high         > 74.4            > 66.6
+    998  82.470809           high         > 74.4            > 66.6
+    999   4.889595            low         < 24.9            < 33.3
+
+    [1000 rows x 4 columns]
+    
+    Notes
+    -----
+    - Ensure that the `categories` list length matches the number of bins minus one 
+      when not using `'auto'`.
+    - The `category_name` parameter allows for multiple categorizations on the same 
+      column by specifying different names for each categorical representation.
+    
+    See Also
+    --------
+    pandas.cut : Function to bin continuous data into discrete intervals.
+    pandas.qcut : Function to bin data based on quantiles.
+    gofast.tools.validator.parameter_validator : Validator for function parameters.
+    gofast.core.checks.exist_features : Check existence of features in DataFrame.
+    gofast.core.checks.check_features_types : Validate feature data types.
+    
+    References
+    ----------
+    .. [1] Pandas Documentation: pandas.cut. https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.cut.html
+    .. [2] Pandas Documentation: pandas.qcut. https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.qcut.html
+    .. [3] Seaborn: Statistical Data Visualization. https://seaborn.pydata.org/
+    .. [4] Matplotlib: Visualization with Python. https://matplotlib.org/
+    .. [5] Freedman, D., & Diaconis, P. (1981). On the histogram as a density estimator: 
+           L2 theory. *Probability Theory and Related Fields*, 57(5), 453-476.
+    """
+    # Allow series to be converted to df 
+    df = to_frame_if (df)
+    # Validate the existence of the specified column
+    exist_features(
+        df,
+        features=column,
+        name=f"Feature column {column}"
+    )
+    
+    # Check if the column is of numeric type
+    check_features_types(
+        df,
+        features=column,
+        objective='numeric',
+        extra=f"Column '{column}' must be numeric to categorize."
+    )
+    
+    # Validate the 'method' parameter
+    method = parameter_validator(
+        'method',
+        target_strs={'equal_range', 'quantile'},
+        error_msg="method must be either 'equal_range' or 'quantile'"
+    )(method)
+    
+    # Validate the 'categories' parameter
+    if categories !='auto': 
+        categories= columns_manager(categories)
+    
+    # Set default category_name if not provided
+    if category_name is None:
+        category_name = f"{column}_category"
+    
+    if method == 'equal_range':
+        if bins is None:
+            min_val = df[column].min()
+            max_val = df[column].max()
+            num_categories = (
+                len(categories) if categories != 'auto' else 3
+            )  # Default to 3 bins if 'auto'
+            bin_width = (max_val - min_val) / num_categories
+            bins = [
+                round(min_val + i * bin_width, 1)
+                for i in range(num_categories + 1)
+            ]
+            bins[0] = min_val  # Ensure the first bin includes the minimum value
+            bins[-1] = max_val  # Ensure the last bin includes the maximum value
+    
+        if categories == 'auto':
+            bin_labels = []
+            for i in range(len(bins) -1):
+                if i == 0:
+                    bin_labels.append(f"< {round(bins[i + 1], 1)}")
+                elif i == len(bins) - 2:
+                    bin_labels.append(f"> {round(bins[i], 1)}")
+                else:
+                    bin_labels.append(
+                        f"{round(bins[i], 1)} - {round(bins[i + 1], 1)}"
+                    )
+            categories = bin_labels
+    
+        elif isinstance(categories, list):
+            if len(categories) != len(bins) - 1:
+                raise ValueError(
+                    "Number of categories must match the number of bins minus one."
+                )
+        else:
+            raise ValueError("categories must be a list of labels or 'auto'.")
+    
+        df[category_name] = pd.cut(
+            df[column],
+            bins=bins,
+            labels=categories,
+            include_lowest=include_lowest,
+            right=right
+        )
+    
+    elif method == 'quantile':
+        if categories == 'auto':
+            num_quantiles = 4  # Default quartiles
+            quantiles = pd.qcut(
+                df[column],
+                q=num_quantiles,
+                duplicates='drop'
+            )
+            bin_edges = quantiles.unique().categories
+            bin_labels = []
+            for i in range(len(bin_edges)):
+                if i == 0:
+                    bin_labels.append(
+                        f"< {round(bin_edges[i].right, 1)}"
+                    )
+                elif i == len(bin_edges) - 1:
+                    bin_labels.append(
+                        f"> {round(bin_edges[i].left, 1)}"
+                    )
+                else:
+                    bin_labels.append(
+                        f"{round(bin_edges[i].left, 1)} - "
+                        f"{round(bin_edges[i].right, 1)}"
+                    )
+            categories = bin_labels
+        elif isinstance(categories, list):
+            pass  # Use provided categories
+        else:
+            raise ValueError("categories must be a list of labels or 'auto'.")
+    
+        df[category_name] = pd.qcut(
+            df[column],
+            q=len(categories),
+            labels=categories,
+            duplicates='drop'
+        )
+    
+    return df
+

@@ -2848,7 +2848,7 @@ def plot_distributions(
 
 @isdf 
 def plot_spatial_distribution(
-    df: pd.DataFrame,
+    df: DataFrame,
     category_column: str,  
     continuous_bins: Union[str, List[float]] = 'auto',  
     categories: Optional[List[str]] = None,  
@@ -2856,7 +2856,8 @@ def plot_spatial_distribution(
     spatial_cols: tuple = ('longitude', 'latitude'), 
     cmap: str = 'coolwarm',  
     plot_type: str = 'scatter', 
-    alpha: float = 0.7,  
+    alpha: float = 0.7, 
+    show_grid:bool=True, 
     axis_off: bool = False,  
     figsize: tuple = (10, 8)  
 ) -> None:
@@ -2952,6 +2953,10 @@ def plot_spatial_distribution(
     alpha : float, default=0.7
         The transparency level for scatter plots. Ranges from 0 (completely 
         transparent) to 1 (completely opaque).
+        
+    show_grid : bool, default=True
+        If set to `False`, the grid are turned off, providing a cleaner 
+        visualization without grid lines.
 
     axis_off : bool, default=False
         If set to `True`, the plot axes are turned off, providing a cleaner 
@@ -3041,7 +3046,8 @@ def plot_spatial_distribution(
     .. [2] Seaborn: Statistical Data Visualization. https://seaborn.pydata.org/
     .. [3] Matplotlib: Visualization with Python. https://matplotlib.org/
     """
-    
+    # make a copy for safety 
+    df =df.copy() 
     # Check if category_column exists in dataframe
     if category_column not in df.columns:
         raise ValueError(
@@ -3049,6 +3055,7 @@ def plot_spatial_distribution(
         )
     # Check whether 
     check_spatial_columns(df )
+    
     # Determine if the category_column is categorical
     if pd.api.types.is_categorical_dtype(df[category_column]) or \
        df[category_column].dtype == object:
@@ -3189,10 +3196,13 @@ def plot_spatial_distribution(
             bbox_to_anchor=(1.05, 1),
             loc='upper left'
         )
-
+ 
+    if not show_grid: 
+        plt.grid(False)
+        
     if axis_off:
         plt.axis('off')
-
+    
     # Show plot
     plt.tight_layout()
     plt.show()

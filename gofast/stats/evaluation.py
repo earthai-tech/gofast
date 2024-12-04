@@ -861,7 +861,7 @@ Examples
 >>> group2 = np.array([2, 4, 6, 8, 10])
 >>> group3 = np.array([1, 3, 5, 7, 9])
 >>> npt = NonParametrics(alpha=0.05)
->>> npt.fit(group1, group2, group3)
+>>> npt.run(group1, group2, group3)
 NonParametricTests(alpha=0.05)
 >>> u_stat, p_value = npt.mann_whitney_u_test(0, 1, alternative='two-sided')
 >>> print(f"Mann-Whitney U Statistic: {u_stat}, p-value: {p_value}")

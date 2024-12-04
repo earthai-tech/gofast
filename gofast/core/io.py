@@ -20,8 +20,8 @@ from typing import List, Union, Optional, Callable
 from ..exceptions import FileHandlingError 
 from ..api.types import DataFrame, NDArray
 from ..api.property import PandasDataHandlers
-from .checks import is_iterable 
 from .array_manager import to_numeric_dtypes 
+from .checks import is_iterable 
 from .utils import  ellipsis2false, lowertify, smart_format 
 
 __all__=[
@@ -29,7 +29,8 @@ __all__=[
     "read_data",
     "save_or_load",
     "is_data_readable",
-    "to_frame_if"
+    "to_frame_if", 
+    "SaveFile"
     ]
 
 
@@ -246,6 +247,209 @@ class EnsureFileExists:
 # Allow decorator to be used without parentheses
 EnsureFileExists = EnsureFileExists.ensure_file_exists
 
+
+class SaveFile:
+    """
+    SaveFile Decorator for Smartly Saving DataFrames in Various Formats.
+    
+    The `SaveFile` decorator enables automatic saving of DataFrames returned 
+    by decorated functions or methods. It intelligently handles different 
+    return types, such as single DataFrames or tuples containing DataFrames, 
+    and utilizes the `PandasDataHandlers` class to manage file writing based 
+    on provided file extensions.
+    
+    The decorator extracts the `savefile` keyword argument from the decorated 
+    function or method. If `savefile` is specified, it determines the 
+    appropriate writer based on the file extension and saves the DataFrame 
+    accordingly. If the decorated function does not include a `savefile` 
+    keyword argument, the decorator performs no action and simply returns 
+    the original result.
+    
+    Parameters
+    ----------
+    savefile : str, optional
+        The file path where the DataFrame should be saved. If `None`, no file 
+        is saved.
+    data_index : int, default=0
+        The index to extract the DataFrame from the returned tuple. Applicable
+         only if the decorated function returns a tuple.
+    dout : int, default='.csv'
+        The default output to save the dataframe if the extension of the file 
+        is not provided by the user. 
+        
+    Methods
+    -------
+    __call__(self, func):
+        Makes the class instance callable and applies the decorator logic to the 
+        decorated function.
+    
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from gofast.core.io import SaveFile
+    >>> from gofast.tools.datautils import to_categories
+    
+    >>> # Sample DataFrame
+    >>> data = {
+    ...     'value': np.random.uniform(0, 100, 1000)
+    ... }
+    >>> df = pd.DataFrame(data)
+    
+    >>> # Define a function that categorizes and returns the DataFrame
+    >>> @SaveFile(data_index=0)
+    ... def categorize_values(df, savefile=None):
+    ...     df = to_categories(
+    ...         df=df,
+    ...         column='value',
+    ...         categories='auto'
+    ...     )
+    ...     return df
+    
+    >>> # Execute the function with savefile parameter
+    >>> df = categorize_values(df, savefile='output/value_categories.csv')
+    
+    >>> # The categorized DataFrame is saved to 'output/value_categories.csv'
+    
+    >>> # Define a function that returns a tuple containing multiple DataFrames
+    >>> @SaveFile(data_index=1)
+    ... def process_data(df, savefile=None):
+    ...     categorized_df = to_categories(
+    ...         df=df,
+    ...         column='value',
+    ...         categories='auto'
+    ...     )
+    ...     summary_df = df.describe()
+    ...     return (categorized_df, summary_df)
+    
+    >>> # Execute the function with savefile parameter targeting the summary DataFrame
+    >>> categorized, summary = process_data(df, savefile='output/summary_stats.xlsx')
+    
+    >>> # The summary DataFrame is saved to 'output/summary_stats.xlsx'
+    
+    Notes
+    -----
+    - The decorator leverages the `PandasDataHandlers` class to support a wide 
+      range of file formats based on the provided file extension.
+    - If the decorated function does not include a `savefile` keyword argument, 
+      the decorator does not perform any saving operations and simply returns the 
+      original result.
+    - When dealing with tuple returns, ensure that the `data_index` corresponds 
+      to the position of the DataFrame within the tuple.
+    - Unsupported file extensions will trigger a warning, and the DataFrame will 
+      not be saved.
+
+    See Also
+    --------
+    PandasDataHandlers : Class for handling Pandas data parsing and writing.
+    pandas.DataFrame.to_csv : Method to write a DataFrame to a CSV file.
+    pandas.DataFrame.to_excel : Method to write a DataFrame to an Excel file.
+    pandas.DataFrame.to_json : Method to write a DataFrame to a JSON file.
+    
+    References
+    ----------
+    .. [1] Pandas Documentation: pandas.DataFrame.to_csv. 
+       https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.to_csv.html
+    .. [2] Pandas Documentation: pandas.DataFrame.to_excel. 
+       https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.to_excel.html
+    .. [3] Pandas Documentation: pandas.DataFrame.to_json. 
+       https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.to_json.html
+    .. [4] Python Documentation: functools.wraps. 
+       https://docs.python.org/3/library/functools.html#functools.wraps
+    .. [5] Freedman, D., & Diaconis, P. (1981). On the histogram as a density estimator: 
+           L2 theory. *Probability Theory and Related Fields*, 57(5), 453-476.
+    """
+
+    def __init__(
+        self, func=None, *, 
+        data_index: int = 0, 
+        dout='.csv'
+        ):
+        self.func = func
+        self.data_index = data_index
+        self.dout = dout 
+        self.data_handler = PandasDataHandlers()
+
+    def __call__(self, *args, **kwargs):
+        if self.func is None:
+            # Decorator is called with arguments
+            func = args[0]
+            return SaveFile(func, data_index=self.data_index)
+
+        @wraps(self.func)
+        def wrapper(*args, **kwargs):
+            result = self.func(*args, **kwargs)
+
+            savefile = kwargs.get('savefile', None)
+            if savefile is not None:
+                _, ext = os.path.splitext(savefile)
+
+                if not ext:
+                    if ( 
+                        self.dout is not None 
+                        and isinstance (self.dout, str) 
+                        and self.dout.startswith('.')
+                        ): 
+                        ext = self.dout.lower()  
+                    else : 
+                        warnings.warn(
+                            "No file extension provided for `savefile`. "
+                            "Cannot save the DataFrame."
+                        )
+                        return result
+
+                # Determine the DataFrame to save
+                if isinstance(result, pd.DataFrame):
+                    df_to_save = result
+                elif isinstance(result, tuple):
+                    try:
+                        df_to_save = result[self.data_index]
+                    except IndexError:
+                        warnings.warn(
+                            f"`data_index` {self.data_index} is out of range "
+                            "for the returned tuple."
+                        )
+                        return result
+
+                    if not isinstance(df_to_save, pd.DataFrame):
+                        warnings.warn(
+                            f"Element at `data_index` {self.data_index} "
+                            "is not a DataFrame."
+                        )
+                        return result
+                else:
+                    warnings.warn(
+                        f"Return type '{type(result)}' is not a DataFrame or tuple."
+                    )
+                    return result
+
+                # Get the appropriate writer function
+                writers_dict = self.data_handler.writers(df_to_save)
+                writer_func = writers_dict.get(ext.lower())
+
+                if writer_func is None:
+                    warnings.warn(
+                        f"Unsupported file extension '{ext}'. "
+                        "Cannot save the DataFrame."
+                    )
+                    return result
+
+                # Save the DataFrame
+                try:
+                    writer_func(
+                        savefile,
+                        index=False
+                    )
+                except Exception as e:
+                    warnings.warn(
+                        f"Failed to save the DataFrame: {e}"
+                    )
+
+            return result
+
+        return wrapper(*args, **kwargs)
+
+
 @EnsureFileExists(action ='ignore')
 def read_data(
     f: str | pathlib.PurePath, 
@@ -341,7 +545,7 @@ def read_data(
     .. [2] Harris, C. R., Millman, K. J., van der Walt, S. J., et al. (2020). 
            Array programming with NumPy. Nature, 585(7825), 357-362.
     """
-
+   
     def min_sanitizer ( d, /):
         """ Apply a minimum sanitization to the data `d`."""
         return to_numeric_dtypes(
@@ -660,7 +864,6 @@ def is_data_readable(func=None, *, data_to_read=None, params=None):
 def _is_array_like(obj):
     # Check for iterable objects, excluding strings
     return isinstance(obj, Iterable) and not isinstance(obj, str)
-
 
 def to_frame_if(
     data: Union[str, pd.Series, Iterable], 
