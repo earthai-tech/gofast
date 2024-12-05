@@ -14,6 +14,7 @@ import copy
 import hashlib
 import itertools
 import warnings 
+import logging
 
 import numpy as np
 import pandas as pd
@@ -41,9 +42,341 @@ __all__ = [
     'to_series_if',
     'test_set_check_id',
     'decode_sparse_data',  
-    'map_specific_columns'
+    'map_specific_columns', 
+    'reduce_dimensions', 
     ]
 
+
+def reduce_dimensions(
+    arr: np.ndarray,
+    z: Union[List, np.ndarray],
+    x: Union[List, np.ndarray],
+    ops: str = 'reduce',
+    axis_names: Tuple[str, str] = ('Z', 'X'),
+    error: str ='raise', 
+    strict: bool = False,
+    logger: Optional[logging.Logger] = None
+) -> Union[
+    bool, 
+    Tuple[np.ndarray, Union[List, np.ndarray], Union[List, np.ndarray]]
+]:
+    """
+    Reduce or Check the Dimensionality of a 2D Data Array.
+    
+    The ``reduce_dimensions`` function offers a robust mechanism to verify 
+    and adjust the dimensionality of a 2D NumPy array ``data`` based on the 
+    lengths of the provided axes ``z`` and ``x``. It supports two primary 
+    operations:
+    
+    - **Check Only**: Validates whether the dimensions of ``data`` align with 
+      the lengths of ``z`` and ``x``.
+    - **Reduce**: Adjusts the dimensions of ``data``, ``z``, and ``x`` to 
+      ensure consistency by truncating or padding as necessary.
+    
+    This utility is particularly beneficial in data preprocessing pipelines 
+    where dimensional consistency is crucial for downstream analyses.
+    
+    .. math::
+        \text{Operation} = 
+        \begin{cases}
+            \text{Check Dimensions} & \text{if } \text{ops} = \text{'check_only'} \\
+            \text{Adjust Dimensions} & \text{if } \text{ops} = \text{'reduce'}
+        \end{cases}
+    
+    Parameters
+    ----------
+    arr : `numpy.ndarray`
+        The input 2D array with dimensions corresponding to ``z`` and ``x``.
+    
+    z : Union[`List`, `numpy.ndarray`]
+        Array-like object representing the Z-axis. Should be reduced or checked 
+        against the first dimension of ``data``.
+    
+    x : Union[`List`, `numpy.ndarray`]
+        Array-like object representing the X-axis. Should be reduced or checked 
+        against the second dimension of ``data``.
+    
+    ops : `str`, default=`'reduce'`
+        Operation mode.
+        
+        - ``'check_only'``: Validate if ``z`` and ``x`` can be reduced to match 
+          ``data``.
+        - ``'reduce'``: Perform the reduction of ``z``, ``x``, and ``data`` to 
+          match ``data``'s dimensions.
+    
+    axis_names : `Tuple[str, str]`, default=(``'Z'``, ``'X'``)
+        Names of the axes for logging purposes.
+    
+    error : str, default='raise'
+        The strategy for handling validation errors.
+        - ``'warn'``: Issues warnings and continues processing.
+        - ``'raise'``: Raises exceptions upon encountering errors.
+    
+    strict : `bool`, default=`False`
+        If ``True``, enforces that no padding occurs during reduction. Only 
+        truncation is allowed. If padding is required and ``strict`` is ``True``, 
+        an error is raised.
+        
+    logger : `logging.Logger`, optional
+        Logger instance for debug messages. If ``None``, a default logger is used.
+    
+    Returns
+    -------
+    Union[
+        `bool`, 
+        Tuple[`numpy.ndarray`, Union[`List`, `numpy.ndarray`], 
+              Union[`List`, `numpy.ndarray`]]
+    ]
+        - If ``ops='check_only'``, returns ``True`` if dimensions match or can 
+          be reduced, otherwise ``False``.
+        - If ``ops='reduce'``, returns a tuple containing the reduced ``data``, 
+          ``z``, and ``x``.
+    
+    Raises
+    ------
+    ValueError
+        - If ``ops`` is not ``'check_only'`` or ``'reduce'``.
+        - If reduction is not possible and ``ops='check_only'``.
+        - If ``strict`` is ``True`` and padding is required.
+    
+    TypeError
+        - If ``data`` is not a 2D ``numpy.ndarray``.
+        - If ``z`` and ``x`` are not list-like.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.core.array_manager import reduce_dimensions
+    >>> 
+    >>> # Sample data array
+    >>> data = np.array([
+    ...     [1, 2, 3],
+    ...     [4, 5, 6],
+    ...     [7, 8, 9]
+    ... ])
+    >>> 
+    >>> # Corresponding axes
+    >>> z = [10, 20, 30]
+    >>> x = [100, 200, 300]
+    >>> 
+    >>> # Check dimensionality
+    >>> result = reduce_dimensions(data, z, x, ops='check_only')
+    >>> print(result)
+    True
+    >>> 
+    >>> # Reduce dimensions (no change needed in this case)
+    >>> reduced_data, reduced_z, reduced_x = reduce_dimensions(
+    ...     data, z, x, ops='reduce'
+    ... )
+    >>> print(reduced_data)
+    [[1 2 3]
+     [4 5 6]
+     [7 8 9]]
+    >>> print(reduced_z)
+    [10, 20, 30]
+    >>> print(reduced_x)
+    [100, 200, 300]
+    >>> 
+    >>> # Dimensionality mismatch
+    >>> z_mismatch = [10, 20]
+    >>> result = reduce_dimensions(data, z_mismatch, x, ops='check_only')
+    >>> print(result)
+    False
+    >>> 
+    >>> # Reduce dimensions with mismatch
+    >>> reduced_data, reduced_z, reduced_x = reduce_dimensions(
+    ...     data, z_mismatch, x, ops='reduce'
+    ... )
+    >>> print(reduced_data)
+    [[1 2 3]
+     [4 5 6]]
+    >>> print(reduced_z)
+    [10, 20]
+    >>> print(reduced_x)
+    [100, 200, 300]
+    
+    Notes
+    -----
+    - **Logging**: The function utilizes a logger to provide debug information 
+      during the dimensionality check and reduction processes. Users can 
+      supply their own logger or rely on the default logger.
+    
+    - **Axis Adjustment**: When reducing dimensions, if the length of an 
+      axis exceeds the corresponding dimension in ``data``, the axis is 
+      truncated. If it is shorter, the axis is either padded with ``None`` 
+      values or an error is raised based on the ``strict`` parameter.
+    
+    - **Error Handling**: By default, the function raises exceptions for any 
+      mismatches or invalid parameters. Users can modify the behavior by 
+      adjusting the ``ops`` and ``strict`` parameters.
+    
+    - **Flexibility**: The function is designed to handle various 
+      dimensionality scenarios, making it suitable for preprocessing steps 
+      in data analysis workflows.
+    
+    See Also
+    --------
+    numpy.ndarray : The primary array object in NumPy.
+    logging.Logger : Logger class for debug messages.
+    
+    References
+    ----------
+    .. [1] NumPy Documentation: numpy.ndarray.  
+       https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html  
+    .. [2] Python Documentation: logging.  
+       https://docs.python.org/3/library/logging.html  
+    .. [3] Freedman, D., & Diaconis, P. (1981). On the histogram as a density 
+           estimator: L2 theory. *Probability Theory and Related Fields*, 57(5), 
+           453-476.
+    """
+
+    # Set up logger
+    if logger is None:
+        logger = logging.getLogger(__name__)
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                '%(levelname)s:%(name)s:%(message)s'
+            )
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+            logger.setLevel(logging.DEBUG)
+    
+    # Validate input types
+    if not isinstance(arr, np.ndarray):
+        raise TypeError(
+            f"'data' must be a numpy.ndarray, got {type(arr).__name__}."
+        )
+    if arr.ndim != 2:
+        raise ValueError(
+            f"'data' must be a 2D array, got {arr.ndim}D array."
+        )
+    if not isinstance(z, (list, np.ndarray)):
+        raise TypeError(
+            f"'z' must be a list or numpy.ndarray, got {type(z).__name__}."
+        )
+    if not isinstance(x, (list, np.ndarray)):
+        raise TypeError(
+            f"'x' must be a list or numpy.ndarray, got {type(x).__name__}."
+        )
+    
+    # Validate 'ops' parameter
+    if ops not in {'check_only', 'reduce'}:
+        raise ValueError(
+            f"Invalid 'ops' value '{ops}'. Expected 'check_only' or 'reduce'."
+        )
+    
+    # Define helper function to adjust axis lengths
+    def adjust_axis_length(
+        desired_length: int, 
+        current_axis: Union[List, np.ndarray], 
+        axis_name: str
+    ) -> Tuple[int, Union[List, np.ndarray]]:
+        """
+        Adjust the length of an axis to match the desired length.
+        
+        Parameters
+        ----------
+        desired_length : `int`
+            The target length for the axis.
+        
+        current_axis : Union[`List`, `numpy.ndarray`]
+            The current axis data to be adjusted.
+        
+        axis_name : `str`
+            The name of the axis for logging purposes.
+        
+        Returns
+        -------
+        Tuple[int, Union[`List`, `numpy.ndarray`]]
+            A tuple containing the new length and the adjusted axis.
+        """
+        original_length = len(current_axis)
+        if original_length > desired_length:
+            adjusted_axis = current_axis[:desired_length]
+            logger.debug(
+                f"Resizing ``{axis_name}`` from {original_length} to "
+                f"{desired_length}."
+            )
+        elif original_length < desired_length:
+            if strict:
+                msg = (
+                    f"Cannot pad ``{axis_name}`` to match desired length "
+                    f"{desired_length}."
+                )
+                if ops == 'reduce':
+                    raise ValueError(msg)
+                elif error == 'raise':
+                    raise ValueError(msg)
+                else:
+                    warnings.warn(msg)
+                    return desired_length, current_axis
+            adjusted_axis = list(current_axis) + [None] * (
+                desired_length - original_length
+            )
+            logger.debug(
+                f"Resizing ``{axis_name}`` from {original_length} to "
+                f"{desired_length} by padding."
+            )
+        else:
+            adjusted_axis = current_axis
+            logger.debug(
+                f"No resizing needed for ``{axis_name}``; already at desired "
+                f"length {desired_length}."
+            )
+        return desired_length, adjusted_axis
+    
+    if ops == 'check_only':
+        z_matches = len(z) == arr.shape[0]
+        x_matches = len(x) == arr.shape[1]
+        if z_matches and x_matches:
+            logger.debug(
+                "Data dimensions match ``z`` and ``x`` dimensions."
+            )
+            return True
+        else:
+            msg = "Data dimensionality does not match ``z`` and/or ``x`` dimensions."
+            if not z_matches and not x_matches:
+                msg += (
+                    f" ``z`` has length {len(z)} vs {arr.shape[0]}, and "
+                    f"``x`` has length {len(x)} vs {arr.shape[1]}."
+                )
+            elif not z_matches:
+                msg += f" ``z`` has length {len(z)} vs {arr.shape[0]}."
+            else:
+                msg += f" ``x`` has length {len(x)} vs {arr.shape[1]}."
+            if error == 'raise':
+                raise ValueError(msg)
+            else:
+                warnings.warn(msg)
+                return False
+    
+    elif ops == 'reduce':
+        # Determine new lengths based on current data shape and axis lengths
+        new_z_length = min(len(z), arr.shape[0])
+        new_x_length = min(len(x), arr.shape[1])
+        
+        # Adjust 'z' axis
+        sz0, z_adjusted = adjust_axis_length(
+            desired_length=new_z_length, 
+            current_axis=z, 
+            axis_name=axis_names[0]
+        )
+        
+        # Adjust 'x' axis
+        sx0, x_adjusted = adjust_axis_length(
+            desired_length=new_x_length, 
+            current_axis=x, 
+            axis_name=axis_names[1]
+        )
+        
+        # Slice the data accordingly
+        data_reduced = arr[:sz0, :sx0]
+        logger.debug(
+            "Data, ``z``, and ``x`` have been reduced to match dimensions."
+        )
+        return data_reduced, z_adjusted, x_adjusted
+    
 def decode_sparse_data(sparse_data: pd.Series) -> pd.DataFrame:
     """
     Decode a sparse matrix represented as strings in a pandas Series 

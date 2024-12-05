@@ -2122,6 +2122,111 @@ def validate_performance_data(
             return wrapper
         return decorator
 
+def validate_sequences(
+    sequences: np.ndarray,
+    n_features: Optional[int] = None,
+    batch_size: Optional[int] = None,
+    sequence_length: Optional[int] = None,
+    check_shape: bool = ...
+) -> np.ndarray:
+    """
+    Validate and reshape sequences input for a neural network.
+
+    Parameters
+    ----------
+    sequences : `numpy.ndarray`
+        Array of input sequences with shape (batch_size, sequence_length, num_features).
+        It must be a 3D numpy array.
+
+    n_features : int, optional
+        The number of features in the sequences. If provided, the function 
+        will reshape the sequence accordingly. If the sequence doesn't have 
+        `n_features`, an error will be raised.
+
+    batch_size : int, optional
+        The batch size to check or reshape the sequences. If provided, it will 
+        validate if the sequences align with this batch size.
+
+    sequence_length : int, optional
+        The length of each sequence to check or reshape.
+
+    check_shape : bool, default=True
+        Whether to check if the sequences are of valid shape. If set to False, 
+        shape validation will be skipped.
+
+    Returns
+    -------
+    np.ndarray
+        A validated and reshaped sequence array with shape 
+        (batch_size, sequence_length, num_features).
+
+    Raises
+    ------
+    TypeError
+        If `sequences` is not a `numpy.ndarray`.
+
+    ValueError
+        If the shape of the `sequences` array does not match the expected 
+        shape, or if `n_features` does not align with the sequence dimensions.
+        
+    Examples 
+    ---------
+    >>> import numpy as np
+    >>> from gofast.tools.validator import validate_sequences
+    
+    >>> # Example 3D sequences array (batch_size=2, sequence_length=3, n_features=4)
+    >>> sequences = np.random.rand(2, 3, 4)
+    
+    >>> # Validate and reshape sequences if necessary
+    >>> validated_sequences = validate_sequences(sequences, n_features=5, check_shape=True)
+    >>> print(validated_sequences.shape)
+
+    """
+    # Ensure that sequences is a numpy array
+    try:
+        sequences = np.asarray(sequences) # just for consistency
+    except Exception as e: 
+        raise TypeError(f"The sequences input must be a numpy.ndarray. {e}")
+    
+    # Check if the sequences array is 3D
+    if len(sequences.shape) != 3:
+        raise ValueError("The sequences array must have 3 dimensions: "
+                         "(batch_size, sequence_length, num_features).")
+
+    # Extract the current shape of the sequences array
+    current_batch_size, current_sequence_length, current_n_features = sequences.shape
+
+    # Validate the provided parameters if check_shape is True
+    if check_shape:
+        if batch_size is not None and current_batch_size != batch_size:
+            raise ValueError(
+                f"Expected batch size of {batch_size},"
+                " but got {current_batch_size}.")
+        if sequence_length is not None and current_sequence_length != sequence_length:
+            raise ValueError(
+                f"Expected sequence length of {sequence_length},"
+                f" but got {current_sequence_length}.")
+        if n_features is not None and current_n_features != n_features:
+            raise ValueError(
+                f"Expected {n_features} features,"
+                f" but got {current_n_features}.")
+
+    # Reshaping based on n_features if it's provided
+    if n_features is not None:
+        if current_n_features != n_features:
+            # Reshape the sequences to match the provided n_features
+            sequences = sequences.reshape(
+                current_batch_size, current_sequence_length, n_features)
+            current_n_features = n_features
+
+    # Optionally adjust the batch_size or sequence_length if needed
+    if batch_size is not None or sequence_length is not None:
+        sequences = sequences[:batch_size, :sequence_length, :current_n_features]
+
+    # Return the validated and possibly reshaped sequences
+    return sequences
+
+
 def validate_comparison_data(df,  alignment="auto"):
     """
     Validates a DataFrame to ensure it is a square matrix and that the index 

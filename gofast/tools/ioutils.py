@@ -40,7 +40,9 @@ from .._gofastlog import gofastlog
 from ..api.property import BaseClass 
 from ..compat.sklearn import validate_params
 from ..core.array_manager import to_numeric_dtypes 
-from ..core.checks import exist_features, check_files   
+from ..core.checks import ( 
+    exist_features, check_files, is_in_if, str2columns 
+    )
 from ..decorators import RunReturn 
 from .validator import to_iterable, check_is_runned, is_frame
 from ._dependency import import_optional_dependency
@@ -49,7 +51,6 @@ logger = gofastlog().get_gofast_logger(__name__)
 
 __all__ = [
     'FileManager', 
-    'cparser_manager',
     'cpath',
     'deserialize_data', 
     'extract_tar_with_progress', 
@@ -59,7 +60,6 @@ __all__ = [
     'fetch_json_data_from_url',
     'get_config_fname_from_varname',
     'get_valid_key', 
-    'is_in_if',
     'key_checker',
     'key_search',
     'load_serialized_data',
@@ -71,14 +71,12 @@ __all__ = [
     'parse_yaml',
     'print_cmsg',
     'rename_files',
-    'return_ctask',
     'sanitize_unicode_string',
     'save_job',
     'save_path',
     'serialize_data',
     'spath',
     'store_or_write_hdf5',
-    'str2columns',
     'to_hdf5',
     'zip_extractor'
  ]
@@ -713,7 +711,7 @@ def key_checker (
     valid_keys:List[str], 
     regex:re = None, 
     pattern:str = None , 
-    deep_search:bool =...
+    deep_search:bool =False
     ): 
     """check whether a give key exists in valid_keys and return a list if 
     many keys are found.
@@ -765,7 +763,6 @@ def key_checker (
     Out[57]: ['h502', 'h2601']
     
     """
-    deep_search= False if deep_search ==... else True 
 
     _keys = copy.deepcopy(keys)
     valid_keys = to_iterable(valid_keys , exclude_string =True, transform =True )
@@ -806,137 +803,6 @@ def key_checker (
     
     return keys
  
-def is_in_if (o: iter,  items: Union [str , iter], error = 'raise', 
-               return_diff =False, return_intersect = False): 
-    """ Raise error if item is not  found in the iterable object 'o' 
-    
-    :param o: unhashable type, iterable object,  
-        object for checkin. It assumes to be an iterable from which 'items' 
-        is premused to be in. 
-    :param items: str or list, 
-        Items to assert whether it is in `o` or not. 
-    :param error: str, default='raise'
-        raise or ignore error when none item is found in `o`. 
-    :param return_diff: bool, 
-        returns the difference items which is/are not included in 'items' 
-        if `return_diff` is ``True``, will put error to ``ignore`` 
-        systematically.
-    :param return_intersect:bool,default=False
-        returns items as the intersection between `o` and `items`.
-    :raise: ValueError 
-        raise ValueError if `items` not in `o`. 
-    :return: list,  
-        `s` : object found in ``o` or the difference object i.e the object 
-        that is not in `items` provided that `error` is set to ``ignore``.
-        Note that if None object is found  and `error` is ``ignore`` , it 
-        will return ``None``, otherwise, a `ValueError` raises. 
-        
-    :example: 
-        >>> from gofast.datasets import load_hlogs 
-        >>> from gofast.tools.ioutils import is_in_if 
-        >>> X0, _= load_hlogs (as_frame =True )
-        >>> is_in_if  (X0 , items= ['depth_top', 'top']) 
-        ... ValueError: Item 'top' is missing in the object 
-        >>> is_in_if (X0, ['depth_top', 'top'] , error ='ignore') 
-        ... ['depth_top']
-        >>> is_in_if (X0, ['depth_top', 'top'] , error ='ignore',
-                       return_diff= True) 
-        ... ['sp',
-         'well_diameter',
-         'layer_thickness',
-         'natural_gamma',
-         'short_distance_gamma',
-         'strata_name',
-         'gamma_gamma',
-         'depth_bottom',
-         'rock_name',
-         'resistivity',
-         'hole_id']
-    """
-    
-    if isinstance (items, str): 
-        items =[items]
-    elif not to_iterable(o): 
-        raise TypeError (f"Expect an iterable object, not {type(o).__name__!r}")
-    # find intersect object 
-    s= set (o).intersection (items) 
-    
-    miss_items = list(s.difference (o)) if len(s) > len(
-        items) else list(set(items).difference (s)) 
-
-    if return_diff or return_intersect: 
-        error ='ignore'
-    
-    if len(miss_items)!=0 :
-        if error =='raise': 
-            v= ','.join(miss_items) # use ','. join instead of smart_format
-            verb = f"{ ' '+ v +' is' if len(miss_items)<2 else  's '+ v + 'are'}"
-            raise ValueError (
-                f"Item{verb} missing in the {type(o).__name__.lower()} {o}.")
-            
-       
-    if return_diff : 
-        # get difference 
-        s = list(set(o).difference (s))  if len(o) > len( 
-            s) else list(set(items).difference (s)) 
-        # s = set(o).difference (s)  
-    elif return_intersect: 
-        s = list(set(o).intersection(s))  if len(o) > len( 
-            items) else list(set(items).intersection (s))     
-    
-    s = None if len(s)==0 else list (s) 
-    
-    return s  
-
-def str2columns (text,  regex=None , pattern = None): 
-    """Split text from the non-alphanumeric markers using regular expression. 
-    
-    Remove all string non-alphanumeric and some operator indicators,  and 
-    fetch attributes names. 
-    
-    Parameters 
-    -----------
-    text: str, 
-        text litteral containing the columns the names to retrieve
-        
-    regex: `re` object,  
-        Regular expresion object. the default is:: 
-            
-            >>> import re 
-            >>> re.compile (r'[#&*@!_,;\s-]\s*', flags=re.IGNORECASE) 
-    pattern: str, default = '[#&*@!_,;\s-]\s*'
-        The base pattern to split the text into a columns
-        
-    Returns
-    -------
-    attr: List of attributes 
-    
-    Examples
-    ---------
-    >>> from gofast.tools.ioutils import str2columns 
-    >>> text = ('this.is the text to split. It is an: example of; splitting str - to text.')
-    >>> str2columns (text )  
-    ... ['this',
-         'is',
-         'the',
-         'text',
-         'to',
-         'split',
-         'It',
-         'is',
-         'an:',
-         'example',
-         'of',
-         'splitting',
-         'str',
-         'to',
-         'text']
-
-    """
-    pattern = pattern or  r'[#&.*@!_,;\s-]\s*'
-    regex = regex or re.compile (pattern, flags=re.IGNORECASE) 
-    text= list(filter (None, regex.split(str(text))))
-    return text 
 
 def key_search (
     keys: str,  
@@ -1515,8 +1381,9 @@ def spath(name_of_path: str) -> str:
         warnings.warn("The path already exists.")
     return savepath
 
-
-def load_serialized_data(filename: str, verbose: int = 0):
+def load_serialized_data(
+        filename: str, verbose: int = 0
+        ):
     """
     Load data from a serialized file (e.g., pickle or joblib format).
 
@@ -1559,11 +1426,7 @@ def load_serialized_data(filename: str, verbose: int = 0):
     joblib.load : High-performance loading utility.
     pickle.load : General-purpose Python serialization library.
     """
-    if not isinstance(filename, str):
-        raise TypeError(f"filename should be a <str> not <{type(filename)}>")
-
-    if not os.path.isfile(filename):
-        raise FileExistsError(f"File {filename!r} does not exist.")
+    filename = check_files(filename, return_valid = True )
 
     _filename = os.path.basename(filename)
     data = None
@@ -1589,9 +1452,8 @@ def load_serialized_data(filename: str, verbose: int = 0):
 
     return data
 
-
 def save_job(
-    job , 
+    job, 
     savefile ,* ,  
     protocol =None,  
     append_versions=True, 
@@ -1681,6 +1543,7 @@ def save_job(
 
     import sklearn
 
+    check_files(savefile)
     # Generate versioning metadata
     versions = 'sklearn_v{0}.numpy_v{1}.pandas_v{2}'.format(
         sklearn.__version__, np.__version__, pd.__version__)
@@ -1707,7 +1570,7 @@ def save_job(
 
     return savefile
 
-def cparser_manager(
+def _cparser_manager(
     cfile: str,
     savepath: Optional[str] = None, 
     todo: str = 'load', 
@@ -1737,6 +1600,7 @@ def cparser_manager(
     in the correct location, and calls `print_cmsg` to provide user feedback.
 
     """
+    check_files(cfile)
     if savepath == 'default':
         savepath = None
     yml_fn, _ = move_cfile(cfile, savepath, dpath=dpath)
@@ -1772,6 +1636,7 @@ def move_cfile(
     >>> print(new_path, msg)
 
     """
+    check_files(cfile)
     savepath = cpath(savepath or '_default_path_', **ckws)
     destination_file_path = os.path.join(savepath, os.path.basename(cfile))
 
@@ -1821,8 +1686,6 @@ def print_cmsg(
             " data was successfully saved."
             )
     return msg
-
-
 
 def parse_csv(
     csv_fn: str = None,
@@ -1885,10 +1748,13 @@ def parse_csv(
     [{'name': 'Alice', 'age': 30}, {'name': 'Bob', 'age': 25}]
 
     """
-    todo, domsg = return_ctask(todo)
+    csv_fn = check_files(csv_fn, formats ='.csv', return_valid=True ) 
+    
+    todo, domsg = _return_ctask(todo)
 
     if 'write' in todo:
-        csv_fn = get_config_fname_from_varname(data, config_fname=csv_fn, config='.csv')
+        csv_fn = get_config_fname_from_varname(
+            data, config_fname=csv_fn, config='.csv')
 
     try:
         if todo == 'reader':
@@ -1919,11 +1785,11 @@ def parse_csv(
         raise TypeError(f"{msg} {csv_fn!r}. Check your"
                         f" {'file' if 'read' in todo else 'data'}. {e}")
 
-    cparser_manager(f"{csv_fn}.csv", savepath, todo=todo, dpath='_savecsv_',
+    _cparser_manager(f"{csv_fn}.csv", savepath, todo=todo, dpath='_savecsv_',
                     verbose=verbose, config='CSV')
     return data
 
-def return_ctask(todo: Optional[str] = None) -> Tuple[str, str]:
+def _return_ctask(todo: Optional[str] = None) -> Tuple[str, str]:
     """
     Determine the action to perform based on the `todo` input.
 
@@ -1971,7 +1837,6 @@ def return_ctask(todo: Optional[str] = None) -> Tuple[str, str]:
             f"Invalid action '{todo}'. Use 'load' or 'dump' (YAML|CSV|JSON).")
 
     return todo, domsg
-
 
 def parse_yaml(
     yml_fn: str = None,
@@ -2032,6 +1897,8 @@ def parse_yaml(
     `get_config_fname_from_varname` : Utility for generating YAML configuration 
     filenames based on variable names.
     """
+    yml_fn = check_files(yml_fn, formats =['.yml', '.yam'], return_valid=True ) 
+    
     # Determine task for loading or dumping YAML
     todo = todo.lower()
     if todo.startswith('dump'):
@@ -2053,7 +1920,7 @@ def parse_yaml(
         raise ValueError(f"Invalid value for 'todo': {todo}. Use 'load' or 'dump'.")
 
     # Manage paths and configurations
-    cparser_manager(f"{yml_fn}.yml", savepath, todo=todo, dpath='_saveyaml_',
+    _cparser_manager(f"{yml_fn}.yml", savepath, todo=todo, dpath='_saveyaml_',
                     verbose=verbose, config='YAML')
 
     return data
@@ -2173,6 +2040,7 @@ def parse_json(
     `get_config_fname_from_varname` : Utility for generating JSON configuration 
     filenames based on variable names.
     """
+    json_fn = check_files(json_fn, formats ='.json', return_valid=True ) 
     # Set task for loading or dumping JSON
     if json_fn and "http" in json_fn:
         todo, json_fn, data = fetch_json_data_from_url(json_fn, todo)
@@ -2205,7 +2073,7 @@ def parse_json(
         raise TypeError(
             f"Error with {json_fn!r}. Verify your {'file' if 'load' in todo else 'data'}.")
 
-    cparser_manager(
+    _cparser_manager(
         f"{json_fn}.json", savepath, todo=todo,
         dpath='_savejson_', verbose=verbose, config='JSON'
     )
@@ -2314,16 +2182,7 @@ def deserialize_data(filename: str, verbose: int = 0) -> Any:
     .. [1] Joblib Documentation - https://joblib.readthedocs.io
     .. [2] Python Pickle Module - https://docs.python.org/3/library/pickle.html
     """
-    # Check if filename is a valid string
-    if not isinstance(filename, str):
-        raise TypeError(
-            "Expected 'filename' to be a string,"
-            f" got {type(filename)} instead."
-        )
-    
-    # Confirm that the specified file exists
-    if not os.path.isfile(filename):
-        raise FileNotFoundError(f"File {filename!r} does not exist.")
+    filename = check_files ( filename, return_valid =True )
     
     # Attempt to load data using joblib
     try:
@@ -2428,7 +2287,6 @@ def serialize_data(
         raise IOError(f"An error occurred during data serialization: {e}")
     
     return full_path
-
 
 def fetch_tgz_from_url(
     data_url: str,

@@ -94,6 +94,8 @@ class KerasDependencies:
             'LSTM': ('layers', 'LSTM'),
             'Input': ('layers', 'Input'),
             'Conv2D': ('layers', 'Conv2D'),
+            'Optimizer':('optimizers', 'Optimizer'), 
+            'Metric': ('metrics', 'Metric'), 
             'MaxPooling2D': ('layers', 'MaxPooling2D'),
             'Flatten': ('layers', 'Flatten'),
             'Attention': ('layers', 'Attention'),

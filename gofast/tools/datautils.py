@@ -976,7 +976,7 @@ def read_worksheets(
     return data, sheet_names
 
 def process_and_extract_data(
-    *args: ArrayLike, 
+    *arr: ArrayLike, 
     columns: Optional[List[Union[str, int]]] = None,
     enforce_extraction: bool = True, 
     allow_split: bool = False, 
@@ -992,7 +992,7 @@ def process_and_extract_data(
 
     Parameters
     ----------
-    *args : ArrayLike
+    *arr : ArrayLike
         A variable number of inputs, each can be a list, numpy array, pandas 
         Series,dictionary, or pandas DataFrame.
     columns : List[Union[str, int]], optional
@@ -1109,7 +1109,7 @@ def process_and_extract_data(
         return input_data.to_numpy() if to_array and isinstance(
             input_data, pd.Series) else input_data
 
-    for arg in args:
+    for arg in arr:
         result = _process_input(arg, columns, to_array)
         if result is not None:
             extracted_data.append(result)
@@ -2400,7 +2400,7 @@ def repeat_feature_accross(
         return df_repeated.reset_index(drop=True)
 
 def merge_datasets(
-    *data, 
+    *dfs, 
     on=None, 
     how='inner', 
     fill_missing=False, 
@@ -2413,7 +2413,7 @@ def merge_datasets(
 
     Parameters
     ----------
-    data : pandas.DataFrame
+    dfs : pandas.DataFrame
         Variable-length arguments of DataFrames to be merged.
 
     on : list of str or None, default None
@@ -2466,21 +2466,21 @@ def merge_datasets(
     1          2         4  2021      20     200
     """
     [ is_frame (d, df_only=True, raise_exception=True, objname='Dataset')
-            for d in data 
+            for d in dfs 
     ]
-    if len(data) < 2:
+    if len(dfs) < 2:
         raise ValueError(
             "At least two DataFrames are required for merging."
         )
     # Ensure all arguments are DataFrames
-    for df in data:
+    for df in dfs:
         if not isinstance(df, pd.DataFrame):
             raise TypeError(f"Expected DataFrame, got {type(df)}.")
 
     if on is None:
         # Use the intersection of all datasets' columns for merging
-        common_columns = set(data[0].columns)
-        for df in data[1:]:
+        common_columns = set(dfs[0].columns)
+        for df in dfs[1:]:
             common_columns.intersection_update(df.columns)
         on = list(common_columns)
     
@@ -2491,7 +2491,7 @@ def merge_datasets(
 
     # Perform iterative merging
     merged_df = reduce(lambda left, right: pd.merge(
-        left, right, on=on, how=how, suffixes=suffixes), data)
+        left, right, on=on, how=how, suffixes=suffixes), dfs)
 
     # Fill missing values if required
     if fill_missing:
@@ -2509,7 +2509,6 @@ def merge_datasets(
         merged_df.drop_duplicates(inplace=True)
 
     return merged_df
-
 
 @isdf 
 def swap_ic(

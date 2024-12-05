@@ -7,8 +7,10 @@ architecture for multi-horizon time-series forecasting.
 """
 from numbers import Real, Integral  
 
+from .._gofastlog import gofastlog
 from ..api.docstring import DocstringComponents, _shared_nn_params 
 from ..api.property import  NNLearner 
+from ..core.checks import is_iterable 
 from ..compat.sklearn import validate_params, Interval, StrOptions 
 from ..decorators import Appender 
 from ..tools.depsutils import ensure_pkg
@@ -1122,7 +1124,7 @@ class TemporalFusionTransformer(Model, NNLearner):
         Instantiates the model from a configuration dictionary.
     
     """.format( params=_param_docs) 
-    
+ 
     @validate_params({
         "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
@@ -1133,7 +1135,7 @@ class TemporalFusionTransformer(Model, NNLearner):
         "dropout_rate": [Interval(Real, 0, 1, closed="both")],
         "forecast_horizon": [Interval(Integral, 1, None, closed='left')],
         "quantiles": ['array-like', list,  None],
-        "activation": [StrOptions({"elu", "relu", "tanh", "sigmoid", "linear"})],
+        "activation": [StrOptions({"elu", "relu", "tanh", "sigmoid", "linear", "gelu"})],
         "use_batch_norm": [bool],
         "num_lstm_layers": [Interval(Integral, 1, None, closed='left')],
         "lstm_units": [list, Interval(Integral, 1, None, closed='left'), None]
@@ -1157,6 +1159,24 @@ class TemporalFusionTransformer(Model, NNLearner):
         **kwargs
     ):
         super().__init__(**kwargs)
+        self.logger = gofastlog().get_gofast_logger(__name__)
+        self.logger.debug(
+            "Initializing TemporalFusionTransformer with parameters: "
+            f"static_input_dim={static_input_dim}, "
+            f"dynamic_input_dim={dynamic_input_dim}, "
+            f"num_static_vars={num_static_vars}, "
+            f"num_dynamic_vars={num_dynamic_vars}, "
+            f"hidden_units={hidden_units}, "
+            f"num_heads={num_heads}, "
+            f"dropout_rate={dropout_rate}, "
+            f"forecast_horizon={forecast_horizon}, "
+            f"quantiles={quantiles}, "
+            f"activation={activation}, "
+            f"use_batch_norm={use_batch_norm}, "
+            f"num_lstm_layers={num_lstm_layers}, "
+            f"lstm_units={lstm_units}"
+        )
+        
         self.static_input_dim = static_input_dim
         self.dynamic_input_dim = dynamic_input_dim
         self.num_static_vars = num_static_vars
@@ -1173,7 +1193,6 @@ class TemporalFusionTransformer(Model, NNLearner):
         self.activation = Activation(activation) 
         self.activation_name = self.activation.activation_name
         
-        
         if quantiles is None:
             self.quantiles = None
             self.num_quantiles = 1
@@ -1182,6 +1201,7 @@ class TemporalFusionTransformer(Model, NNLearner):
             self.num_quantiles = len(self.quantiles)
 
         # Variable Selection Networks
+        self.logger.debug("Initializing Variable Selection Networks...")
         self.static_var_sel = VariableSelectionNetwork(
             input_dim=static_input_dim,
             num_inputs=num_static_vars,
@@ -1201,9 +1221,11 @@ class TemporalFusionTransformer(Model, NNLearner):
         )
 
         # Positional Encoding
+        self.logger.debug("Initializing Positional Encoding...")
         self.positional_encoding = _PositionalEncoding()
 
         # Static Context GRNs
+        self.logger.debug("Initializing Static Context GRNs...")
         self.static_context_grn = GatedResidualNetwork(
             hidden_units,
             dropout_rate,
@@ -1218,7 +1240,11 @@ class TemporalFusionTransformer(Model, NNLearner):
         )
 
         # LSTM Encoder
+        self.logger.debug("Initializing LSTM Encoder Layers...")
         self.lstm_layers = []
+        if self.lstm_units is not None: 
+            lstm_units = is_iterable(self.lstm_units, transform =True)
+            
         for i in range(num_lstm_layers):
             if lstm_units is not None:
                 lstm_units_i = lstm_units[i]
@@ -1228,11 +1254,13 @@ class TemporalFusionTransformer(Model, NNLearner):
                 LSTM(
                     lstm_units_i,
                     return_sequences=True,
-                    dropout=dropout_rate
+                    dropout=dropout_rate,
+                    name=f'lstm_layer_{i+1}'
                 )
             )
 
         # Static Enrichment Layer
+        self.logger.debug("Initializing Static Enrichment Layer...")
         self.static_enrichment = StaticEnrichmentLayer(
             hidden_units,
             activation=self.activation_name,
@@ -1240,6 +1268,7 @@ class TemporalFusionTransformer(Model, NNLearner):
         )
 
         # Temporal Attention Layer
+        self.logger.debug("Initializing Temporal Attention Layer...")
         self.temporal_attention = TemporalAttentionLayer(
             hidden_units,
             num_heads,
@@ -1249,6 +1278,7 @@ class TemporalFusionTransformer(Model, NNLearner):
         )
 
         # Position-wise Feedforward
+        self.logger.debug("Initializing Position-wise Feedforward Network...")
         self.positionwise_grn = GatedResidualNetwork(
             hidden_units,
             dropout_rate,
@@ -1259,40 +1289,53 @@ class TemporalFusionTransformer(Model, NNLearner):
 
         # Output Layers for Quantiles
         if self.quantiles is not None:
+            self.logger.debug("Initializing Quantile Output Layers...")
             self.quantile_outputs = [
-                TimeDistributed(Dense(1)) for _ in range(self.num_quantiles)
+                TimeDistributed(Dense(1), name=f'quantile_output_{i+1}') 
+                for i in range(self.num_quantiles)
             ]
         else:
-            self.output_layer = TimeDistributed(Dense(1))
+            self.logger.debug(
+                "Initializing Single Output Layer for Point Predictions...")
+            self.output_layer = TimeDistributed(Dense(1), name='output_layer')
 
     def call(self, inputs, training=False):
+        self.logger.debug("Starting call method with inputs.")
         static_inputs, dynamic_inputs = inputs
 
         # Variable Selection
+        self.logger.debug("Applying Variable Selection on Static Inputs...")
         static_embedding = self.static_var_sel(
             static_inputs, training=training
         )
+        self.logger.debug("Applying Variable Selection on Dynamic Inputs...")
         dynamic_embedding = self.dynamic_var_sel(
             dynamic_inputs, training=training
         )
 
         # Positional Encoding
+        self.logger.debug("Applying Positional Encoding to Dynamic Embedding...")
         dynamic_embedding = self.positional_encoding(dynamic_embedding)
 
         # Static Context Vectors
+        self.logger.debug("Generating Static Context Vector...")
         static_context_vector = self.static_context_grn(
             static_embedding, training=training
         )
+        self.logger.debug("Generating Static Enrichment Vector...")
         static_enrichment_vector = self.static_context_enrichment_grn(
             static_embedding, training=training
         )
 
         # LSTM Encoder
+        self.logger.debug("Passing through LSTM Encoder Layers...")
         x = dynamic_embedding
         for lstm_layer in self.lstm_layers:
+            self.logger.debug(f"Passing through {lstm_layer.name}...")
             x = lstm_layer(x, training=training)
 
         # Static Enrichment
+        self.logger.debug("Applying Static Enrichment...")
         enriched_lstm_output = self.static_enrichment(
             static_enrichment_vector,
             x,
@@ -1300,6 +1343,7 @@ class TemporalFusionTransformer(Model, NNLearner):
         )
 
         # Temporal Attention
+        self.logger.debug("Applying Temporal Attention...")
         attention_output = self.temporal_attention(
             enriched_lstm_output,
             context_vector=static_context_vector,
@@ -1307,25 +1351,29 @@ class TemporalFusionTransformer(Model, NNLearner):
         )
 
         # Position-wise Feedforward
+        self.logger.debug("Applying Position-wise Feedforward Network...")
         temporal_feature = self.positionwise_grn(
             attention_output, training=training
         )
 
         # Final Output
+        self.logger.debug("Generating Final Output...")
         decoder_steps = self.forecast_horizon
         outputs = temporal_feature[:, -decoder_steps:, :]
 
         if self.quantiles is not None:
-            # Quantile Outputs
+            self.logger.debug("Generating Quantile Outputs...")
             quantile_outputs = [
                 quantile_output_layer(outputs)
                 for quantile_output_layer in self.quantile_outputs
             ]
-            final_output = concat(quantile_outputs, axis=-1)
+            final_output = Concatenate(axis=-1, name='final_quantile_output')(
+                quantile_outputs)
         else:
-            # Single Output for point prediction
+            self.logger.debug("Generating Point Predictions...")
             final_output = self.output_layer(outputs)
 
+        self.logger.debug("Call method completed.")
         return final_output
 
     def get_config(self):
@@ -1345,13 +1393,16 @@ class TemporalFusionTransformer(Model, NNLearner):
             'num_lstm_layers': self.num_lstm_layers,
             'lstm_units': self.lstm_units,
         })
+        self.logger.debug("Configuration for get_config has been updated.")
         return config
 
     @classmethod
     def from_config(cls, config):
+        cls.logger = gofastlog().get_gofast_logger(__name__)
+        cls.logger.debug("Creating TemporalFusionTransformer instance from config.")
         return cls(**config)
     
-
+# ===================================================================================================
 #XXX TODO 
 
 # 1. Enhanced Variable Embeddings
@@ -1586,7 +1637,7 @@ class XTFT(Model):
         dynamic_input_dim,
         future_covariate_dim,
         embed_dim=32,
-        forecast_horizons=3,
+        forecast_horizons=3, # default is 1 
         quantiles="auto",
         max_window_size=10,
         memory_size=100,
@@ -1597,7 +1648,7 @@ class XTFT(Model):
         attention_units=32, 
         hidden_units=64,
         lstm_units=64,
-        scales="auto",
+        scales="auto",  
         activation="relu",
         use_residuals=True,
         use_batch_norm=False,

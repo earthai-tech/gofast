@@ -426,6 +426,126 @@ array([[0.73105858, 0.88079708],
        [0.95257413, 0.98201379]])
 """
 
+_shared_docs[
+    'tft_params_doc'
+ ]="""
+
+Parameters
+----------
+static_input_dim : int
+    The dimensionality of each static input feature. This is the number 
+    of features that do not change over time (e.g., static data such as 
+    geographical coordinates, user demographics, etc.). For example, 
+    if there are 2 static features (e.g., country, region), set this to 2.
+
+dynamic_input_dim : int
+    The dimensionality of each dynamic input feature. These are the 
+    time-varying features (e.g., stock prices, temperature, etc.) that 
+    change over time. This should be the number of features in your 
+    temporal input data at each time step.
+
+num_static_vars : int
+    The number of static variables included in the input data. Static 
+    variables are the features that do not change over time. For example, 
+    this could be the number of static features such as geographical 
+    attributes, demographic data, etc.
+
+num_dynamic_vars : int
+    The number of dynamic variables in the input data. These variables 
+    change over time and are used to capture temporal patterns. For 
+    example, the number of dynamic variables could be the number of 
+    features such as stock prices, temperature, etc., that change across 
+    different time steps.
+
+hidden_units : int
+    The number of hidden units in the layers of the model. This determines 
+    the size of the hidden layers in the model architecture. A larger 
+    number of hidden units allows the model to capture more complex 
+    relationships in the data but may also increase computational cost.
+
+num_heads: int
+    The number of attention heads used in the multi-head attention 
+    mechanism. This controls how many separate "attention" operations 
+    are run in parallel. More heads typically allow the model to capture 
+    more complex interactions within the input data.
+
+dropout_rate : float
+    The dropout rate used during training to prevent overfitting. This 
+    value controls the fraction of input units to drop during training 
+    (i.e., setting it to 0.2 means 20% of input units are randomly 
+    set to zero in each forward pass). The value should be between 0 and 1.
+
+forecast_horizon: int
+    The number of time steps ahead to predict. This defines how far into 
+    the future the model will generate predictions. For example, if set 
+    to 7, the model will predict 7 future time steps from the current 
+    data point. The value must be a positive integer (e.g., 1, 7, etc.).
+
+quantiles: list, optional
+    A list of quantiles for prediction. These quantiles define the 
+    uncertainty in the predictions. For example, if set to `[0.1, 0.5, 0.9]`, 
+    the model will output predictions for the 10th, 50th, and 90th percentiles 
+    of the forecasted distribution. If set to `None`, the model will output 
+    only the mean prediction.
+
+activation : {'elu', 'relu', 'tanh', 'sigmoid', 'linear', 'gelu'}
+    The activation function used in the model. Common choices include:
+    - `'relu'`: Rectified Linear Unit (recommended for deep models)
+    - `'elu'`: Exponential Linear Unit
+    - `'tanh'`: Hyperbolic Tangent
+    - `'sigmoid'`: Sigmoid function (common for binary classification)
+    - `'linear'`: Linear activation (used in regression problems)
+    - `'gelu'`: Gaussian Error Linear Unit (often used in transformers)
+
+use_batch_norm : bool, default True
+    Whether to use batch normalization in the model. Batch normalization 
+    helps improve training by normalizing the output of previous layers 
+    and speeding up convergence. Set this to `True` to enable batch 
+    normalization, or `False` to disable it.
+
+num_lstm_layers : int
+    The number of LSTM layers in the model. LSTMs are used to capture 
+    long-term dependencies in the data. More LSTM layers allow the model 
+    to capture more complex temporal patterns but may increase the 
+    computational cost.
+
+lstm_units : list of int, optional
+    The number of units in each LSTM layer. This can be a list of integers 
+    where each element corresponds to the number of units in a specific 
+    LSTM layer. For example, `[64, 32]` means the model has two LSTM 
+    layers with 64 and 32 units, respectively. If set to `None`, the 
+    number of units will be inferred from the `hidden_units` parameter.
+"""
+
+_shared_docs[
+    'tft_notes_doc'
+ ]="""
+Notes
+-----
+- The model's performance can be highly dependent on the choice of 
+  hyperparameters such as `hidden_units`, `num_heads`, and `dropout_rate`. 
+  Experimentation is encouraged to find the optimal configuration for your 
+  specific problem.
+- If `n_features` is set to a value greater than the actual number of 
+  features in the data, the model will fail to train properly.
+- A larger `forecast_horizon` results in more complex predictions and 
+  higher computational cost. Make sure to set it according to the 
+  forecasting needs.
+
+See Also
+--------
+- :class:`gofast.nn.transformers.TemporalFusionTransformer`: 
+    The main class that implements the Temporal Fusion Transformers supporting
+    the keras API.
+
+References
+----------
+- Borovykh, A., et al. (2017). "Conditional Variational Autoencoder for 
+  Time Series". 
+- Lim, B., & Zohdy, M. (2020). "Temporal Fusion Transformers for Time 
+  Series". 
+"""
+
 
 def filter_docs(keys, input_dict=None):
     """

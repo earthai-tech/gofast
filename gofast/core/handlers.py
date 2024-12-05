@@ -17,14 +17,18 @@ import inspect
 import datetime
 import warnings
 from collections.abc import Iterable
+from functools import wraps
+from typing import Any, Callable, Dict, List, Optional,  Union
+
 import numpy as np
 import pandas as pd
 
-from ..api.types import  Optional, List, Union
+from .._gofastlog import gofastlog
 from ..compat.scipy import optimize_minimize
 from .checks import validate_noise, str2columns
 
 __all__ = [ 
+    'TypeEnforcer', 
     'add_noises_to',
     'adjust_to_samples',
     'batch_generator',
@@ -35,6 +39,327 @@ __all__ = [
     'generate_id',
     'make_ids',
     ]
+
+
+class TypeEnforcer:
+    """
+    Enforce return types of functions based on input parameter types or
+    explicit type specifications.
+
+    The ``TypeEnforcer`` decorator automatically converts the return values of
+    decorated functions to match the types of specified input parameters or to
+    explicitly defined types. It supports both single and multiple return
+    values and handles various data types including NumPy arrays, pandas
+    DataFrames, Series, lists, tuples, and booleans.
+
+    Parameters
+    ----------
+    params : str or list of str, optional
+        Names of input parameters whose types will enforce the return values.
+        If a single string is provided, the type of that parameter will be
+        applied to the first return value. If a list of strings is provided,
+        each parameter's type will be applied to the corresponding return
+        value in order. If ``rparams`` is also provided, ``rparams`` takes
+        precedence over ``params``.
+        
+    rparams : dict, optional
+        A dictionary mapping return value indices (int) or names (str) to
+        desired type names or callable conversion functions. This explicitly
+        defines the types to enforce on specific return values, overriding
+        any type specifications provided in ``params``. Supported type names
+        include:
+        
+        - ``'array-like'``: Converts to NumPy array.
+        - ``'list'``: Converts to Python list.
+        - ``'tuple'``: Converts to Python tuple.
+        - ``'dataframe'`` or ``'pd.DataFrame'``: Converts to pandas DataFrame.
+        - ``'series'`` or ``'pd.Series'``: Converts to pandas Series.
+        - ``'boolean'``: Converts to boolean type.
+        
+        Custom callable functions can also be provided for advanced conversions.
+        
+    set_index : bool, default=False
+        If ``True`` and the return type is a pandas DataFrame, the decorator
+        attempts to set the index of the returned DataFrame to match the index
+        of the specified input parameter. If the conversion fails, it silently
+        returns the DataFrame as is.
+
+    Examples
+    --------
+    >>> from gofast.core.handlers import TypeEnforcer
+    >>> 
+    >>> @TypeEnforcer
+    >>> def example_function1(a):
+    ...     return e
+    >>> 
+    >>> # The return value `e` will be converted to the type of parameter `a`
+    >>> 
+    >>> @TypeEnforcer(params='c')
+    >>> def example_function3(a, c, d=2):
+    ...     return e
+    >>> 
+    >>> # The return value `e` will be converted to the type of parameter `c`
+    >>> 
+    >>> @TypeEnforcer(rparams={'0': 'array-like'})
+    >>> def example_function4(a, c, d=2):
+    ...     return e
+    >>> 
+    >>> # The return value `e` will be converted to a NumPy array
+    >>> 
+    >>> @TypeEnforcer(rparams={'0': 'array-like', '2': 'pd.DataFrame', '3': 'series'})
+    >>> def example_function5(a, c, d=2):
+    ...     return e, f, g, h
+    >>> 
+    >>> # The return values will be converted as follows:
+    >>> # e -> NumPy array, g -> pandas DataFrame, h -> pandas Series
+    >>> 
+    >>> @TypeEnforcer(params=['c', 'd'], rparams=None)
+    >>> def example_function6(a, c, d=2):
+    ...     return e, f, g, h
+    >>> 
+    >>> # The return values `e` and `f` will be converted to the types of
+    >>> # parameters `c` and `d` respectively
+    >>> 
+    >>> @TypeEnforcer(params=['a', 'd'], rparams={'0': 'array-like', '2': 'pd.DataFrame', '3': 'series'})
+    >>> def example_function8(a, c, d=2):
+    ...     return e, f, g, h
+    >>> 
+    >>> # The return values will be converted as follows:
+    >>> # e -> NumPy array (overrides type of 'a'),
+    >>> # g -> pandas DataFrame,
+    >>> # h -> pandas Series,
+    >>> # f -> type of 'd'
+
+    Notes
+    -----
+    - **Priority Handling:** When both ``params`` and ``rparams`` are provided,
+      ``rparams`` takes precedence over ``params`` for type specifications of
+      return values.
+
+    - **Silent Failures:** If a type conversion fails for any return value, the
+      original value is returned without raising an exception. However, the
+      failure is logged for debugging purposes.
+
+    - **NoneType Handling:** If the specified input parameter's value is
+      ``None`` or has a ``NoneType``, the decorator skips the type conversion
+      for the corresponding return value and returns it as is.
+
+    - **Extensibility:** The ``type_mapping`` dictionary can be extended to
+      support additional type specifications and corresponding conversion
+      functions as needed.
+
+    - **Index Setting for DataFrames:** The current implementation includes
+      a placeholder for setting the index of converted DataFrames to match input
+      parameters if ``set_index`` is ``True``. This can be further developed
+      based on specific requirements and access to input parameter metadata.
+
+    See Also
+    --------
+    [1] Brownlee, J. (2018). *Time Series Forecasting with Python: Create 
+        accurate models in Python to forecast the future and gain insight
+        from your time series data*. Machine Learning Mastery.
+    [2] Qin, Y., Song, D., Chen, H., Cheng, W., Jiang, G., & Cottrell, G. (2017). 
+        Temporal fusion transformers for interpretable multi-horizon time
+        series forecasting. *arXiv preprint arXiv:1912.09363*.
+
+    References
+    ----------
+    .. [1] Brownlee, J. (2018). *Time Series Forecasting with Python: Create 
+           accurate models in Python to forecast the future and gain insight 
+           from your time series data*. Machine Learning Mastery.
+    .. [2] Qin, Y., Song, D., Chen, H., Cheng, W., Jiang, G., & Cottrell, 
+           G. (2017). Temporal fusion transformers for interpretable multi-horizon 
+           time series forecasting. *arXiv preprint arXiv:1912.09363*.
+    """
+    
+    def __init__(
+        self,
+        params: Optional[Union[str, List[str]]] = None,
+        rparams: Optional[Dict[Union[str, int], Union[str, Callable]]] = None,
+        set_index: bool = False
+    ):
+        self.params = params
+        self.rparams = rparams
+        self.set_index = set_index
+        self.logger = gofastlog.get_logger_name(__name__)
+        self.type_mapping = {
+            'array-like': lambda x: np.array(x),
+            'list': lambda x: list(x),
+            'tuple': lambda x: tuple(x),
+            'dataframe': self.to_dataframe,
+            'pd.DataFrame': self.to_dataframe,
+            'series': self.to_series,
+            'pd.Series': self.to_series,
+            'boolean': lambda x: bool(x)
+        }
+
+    def __call__(self, func: Callable) -> Callable:
+        """
+        Make the class instance callable to use as a decorator.
+
+        Parameters
+        ----------
+        func : Callable
+            The function to be decorated.
+
+        Returns
+        -------
+        Callable
+            The wrapped function with enforced return types.
+        """
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Execute the original function
+            result = func(*args, **kwargs)
+
+            # Determine if result is a tuple (multiple return values)
+            if isinstance(result, tuple):
+                return_values = list(result)
+            else:
+                return_values = [result]
+
+            # Prepare type specifications dictionary
+            type_specs = {}
+
+            # Priority 1: rparams
+            if self.rparams:
+                for key, dtype in self.rparams.items():
+                    if isinstance(key, int):
+                        if 0 <= key < len(return_values):
+                            type_specs[key] = dtype
+                    elif isinstance(key, str):
+                        # Named return values can be handled here
+                        # Currently, only positional handling is implemented
+                        pass  # Extend if named return values are used
+
+            # Priority 2: params
+            elif self.params:
+                if isinstance(self.params, str):
+                    self.params = [self.params]
+                for idx, param_name in enumerate(self.params):
+                    if idx >= len(return_values):
+                        break
+                    # Extract parameter value from kwargs or args
+                    try:
+                        param_value = kwargs[param_name]
+                    except KeyError:
+                        # Get from args based on function signature
+                        import inspect
+                        sig = inspect.signature(func)
+                        bound_args = sig.bind(*args, **kwargs)
+                        bound_args.apply_defaults()
+                        param_value = bound_args.arguments.get(param_name, None)
+                    if param_value is not None:
+                        type_specs[idx] = type(param_value)
+
+            # Apply type conversions based on type_specs
+            for idx, value in enumerate(return_values):
+                if idx in type_specs:
+                    desired_type = type_specs[idx]
+                    # Handle string type specifications
+                    if isinstance(desired_type, str):
+                        conversion_func = self.type_mapping.get(
+                            desired_type.lower()
+                        )
+                        if conversion_func:
+                            try:
+                                return_values[idx] = conversion_func(value)
+                            except Exception as e:
+                                self.logger.debug(
+                                    f"Conversion failed for return value at "
+                                    f"index {idx} with type '{desired_type}': {e}"
+                                )
+                                # Return value remains unchanged
+                        else:
+                            self.logger.debug(
+                                f"Unsupported type specification "
+                                f"'{desired_type}' for return value at "
+                                f"index {idx}."
+                            )
+                    elif isinstance(desired_type, type):
+                        # Direct type conversion using constructor
+                        try:
+                            return_values[idx] = desired_type(value)
+                        except Exception as e:
+                            self.logger.debug(
+                                f"Conversion failed for return value at "
+                                f"index {idx} to type '{desired_type}': {e}"
+                            )
+                            # Return value remains unchanged
+                    elif callable(desired_type):
+                        # Use the provided callable for conversion
+                        try:
+                            return_values[idx] = desired_type(value)
+                        except Exception as e:
+                            self.logger.debug(
+                                f"Callable conversion failed for return value "
+                                f"at index {idx}: {e}"
+                            )
+                            # Return value remains unchanged
+                    else:
+                        self.logger.debug(
+                            f"Invalid type specification '{desired_type}' for "
+                            f"return value at index {idx}."
+                        )
+
+            # Return as tuple if original result was tuple
+            if isinstance(result, tuple):
+                return tuple(return_values)
+            else:
+                return return_values[0]
+
+        return wrapper
+
+    def to_dataframe(self, value: Any) -> Any:
+        """
+        Convert the given value to a pandas DataFrame, preserving columns and
+        index if possible.
+
+        Parameters
+        ----------
+        value : Any
+            The value to convert.
+
+        Returns
+        -------
+        pd.DataFrame or original value
+            The converted DataFrame or the original value if conversion fails.
+        """
+        try:
+            if isinstance(value, pd.DataFrame):
+                return value
+            df = pd.DataFrame(value)
+            if self.set_index and hasattr(df, 'index'):
+                # Attempt to set index from the first parameter if available
+                # Currently, index setting logic is not implemented
+                pass  # Implement if access to input parameter's index is possible
+            return df
+        except Exception as e:
+            self.logger.debug(f"Failed to convert value to DataFrame: {e}")
+            return value
+
+    def to_series(self, value: Any) -> Any:
+        """
+        Convert the given value to a pandas Series.
+
+        Parameters
+        ----------
+        value : Any
+            The value to convert.
+
+        Returns
+        -------
+        pd.Series or original value
+            The converted Series or the original value if conversion fails.
+        """
+        try:
+            if isinstance(value, pd.Series):
+                return value
+            series = pd.Series(value)
+            return series
+        except Exception as e:
+            self.logger.debug(f"Failed to convert value to Series: {e}")
+            return value
 
 def generate_id(
     length=12,
