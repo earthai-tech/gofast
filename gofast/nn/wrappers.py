@@ -20,14 +20,15 @@ from sklearn.base import BaseEstimator, RegressorMixin
 
 import numpy as np 
 
-from ..api.docs import doc , _shared_docs 
+from ..api.docs import _shared_docs, doc
 from ..compat.sklearn import validate_params, Interval, StrOptions
 from ..decorators import Appender
-from ..exceptions import NotFittedError 
 from ..tools.depsutils import ensure_pkg 
+from ..tools.validator import check_is_fitted 
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 from .transformers import TemporalFusionTransformer 
+from .utils import extract_callbacks_from 
 
 if KERAS_BACKEND:
     Optimizer=KERAS_DEPS.Optimizer
@@ -156,7 +157,22 @@ class TFTRegressor(BaseEstimator, RegressorMixin):
 
     {tft_params}
 
-    verbose : int, default=0
+    epochs : int, optional
+        The number of epochs (full passes through the entire dataset) 
+        to train the model. Increasing this value can improve the 
+        model's performance, but may also lead to longer training 
+        times and potential overfitting. Default is ``100``.
+
+    batch_size : int, optional
+        The number of samples per batch of computation during training. 
+        Adjusting this value can influence training dynamics, 
+        memory usage, and convergence behavior. Smaller batch sizes 
+        offer more frequent model updates but may be slower due to less 
+        efficient computation. Larger batch sizes can speed up 
+        computation but might lead to less stable convergence. 
+        Default is ``32``.
+
+    verbose : int, default=1
         Controls the level of verbosity for debug information.
         
         - `0`: No output.
@@ -179,8 +195,10 @@ class TFTRegressor(BaseEstimator, RegressorMixin):
         Constructs and compiles the TensorFlow Keras model based on the initialized
         parameters.
 
-    fit(X, y)
-        Trains the TFT model on the provided data.
+    fit(X, y, **fit_params)
+        Trains the TFT model on the provided data. `fit_params` accepts all 
+        keras API arguments passed to fit method such as callback parameters 
+        and others. 
 
     predict(X)
         Generates predictions using the trained TFT model.
@@ -271,7 +289,7 @@ class TFTRegressor(BaseEstimator, RegressorMixin):
     Best Estimator: TFTRegressor(...)
     
     """
-    
+   
     @validate_params({
         "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
@@ -286,7 +304,9 @@ class TFTRegressor(BaseEstimator, RegressorMixin):
             StrOptions({"elu", "relu", "tanh", "sigmoid", "linear", 'gelu'})],
         "use_batch_norm": [bool],
         "num_lstm_layers": [Interval(Integral, 1, None, closed='left')],
-        "lstm_units": [list, Interval(Integral, 1, None, closed='left'), None]
+        "lstm_units": [list, Interval(Integral, 1, None, closed='left'), None],
+        "epochs": [Interval(Integral, 1, None, closed ='left')], 
+        "batch_size": [Interval( Integral, 1, None, closed='left')]
         },
     )
     def __init__(
@@ -304,7 +324,9 @@ class TFTRegressor(BaseEstimator, RegressorMixin):
         use_batch_norm=False,
         num_lstm_layers=1,
         lstm_units=None, 
-        verbose=0 
+        epochs=100,
+        batch_size=32,
+        verbose=1 
     ):
         self.static_input_dim    = static_input_dim
         self.dynamic_input_dim   = dynamic_input_dim
@@ -319,6 +341,8 @@ class TFTRegressor(BaseEstimator, RegressorMixin):
         self.use_batch_norm      = use_batch_norm
         self.num_lstm_layers     = num_lstm_layers
         self.lstm_units          = lstm_units
+        self.epochs              = epochs
+        self.batch_size          = batch_size
         self.verbose             = verbose
 
     def build_model(self):
@@ -417,12 +441,25 @@ class TFTRegressor(BaseEstimator, RegressorMixin):
         
         return model
 
-    def fit(self, X, y):
+    def fit(self, X, y, **fit_params):
         """
         Fit the TFT model according to the given training data.
         """
         if self.verbose >= 3:
             print("Starting fit process...")
+        
+        # Extract callbacks from fit_params if provided
+        callbacks = None
+        if fit_params: 
+            callbacks, fit_params = extract_callbacks_from(
+                fit_params, return_fit_params=True
+            )
+        # update the epochs and batch_size if they are 
+        # explicitly provided in fit_params. This avoid 
+        # repeating the same param twice in keras fit method.
+        self.epochs = fit_params.pop('epochs', self.epochs) 
+        self.batch_size = fit_params.pop('batch_size', self.batch_size) 
+        self.verbose= fit_params.pop('verbose', self.verbose) 
         
         if isinstance(X, (list, tuple)):
             if self.verbose >= 4:
@@ -468,9 +505,11 @@ class TFTRegressor(BaseEstimator, RegressorMixin):
         self.model_.fit(
             [X_static, X_dynamic],
             y,
-            epochs=10,
-            batch_size=32,
-            verbose=self.verbose >= 4  # Show progress bar if verbose >=4
+            epochs=self.epochs,
+            batch_size=self.batch_size,
+            callbacks = callbacks, 
+            verbose=self.verbose >= 1  # Show progress bar if verbose >=1, 
+            **fit_params, 
         )
         if self.verbose >= 3:
             print("Model training completed.")
@@ -481,14 +520,10 @@ class TFTRegressor(BaseEstimator, RegressorMixin):
         """
         Predict using the TFT model.
         """
+        check_is_fitted(self, attributes =['model_'])
+        
         if self.verbose >= 3:
             print("Starting prediction process...")
-        
-        if self.model_ is None:
-            raise NotFittedError(
-                "This TFTRegressor instance is not fitted yet. Call 'fit' with "
-                "appropriate arguments before using this estimator."
-            )
         
         if isinstance(X, (list, tuple)):
             if self.verbose >= 4:
@@ -521,8 +556,8 @@ class TFTRegressor(BaseEstimator, RegressorMixin):
             print("Generating predictions...")
         predictions = self.model_.predict(
             [X_static, X_dynamic],
-            batch_size=32,
-            verbose=self.verbose >= 4  # Show progress bar if verbose >=4
+            batch_size=self.back_size,
+            verbose=self.verbose # Show progress bar if verbose >=1
         )
         
         if self.verbose >= 3:
@@ -574,6 +609,7 @@ class TFTRegressor(BaseEstimator, RegressorMixin):
         
         return X_static, X_dynamic
 
+
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @doc(tft_params=dedent(_shared_docs['tft_params_doc']))
 class TFTWrapper(BaseEstimator, RegressorMixin):
@@ -589,6 +625,21 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
     training, prediction, and evaluation within Scikit-Learn workflows.
     
     {tft_params}
+    
+    epochs : int, optional
+        The number of epochs (full passes through the entire dataset) 
+        to train the model. Increasing this value can improve the 
+        model's performance, but may also lead to longer training 
+        times and potential overfitting. Default is ``100``.
+
+    batch_size : int, optional
+        The number of samples per batch of computation during training. 
+        Adjusting this value can influence training dynamics, 
+        memory usage, and convergence behavior. Smaller batch sizes 
+        offer more frequent model updates but may be slower due to less 
+        efficient computation. Larger batch sizes can speed up 
+        computation but might lead to less stable convergence. 
+        Default is ``32``.
     
     optimizer : `Union[str, tf.keras.optimizers.Optimizer]`, default=`'adam'`
         Optimizer to use for compiling the model. Can be a string identifier 
@@ -613,8 +664,10 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
         Constructs and compiles the TensorFlow Keras model based on the initialized
         parameters.
     
-    fit(X, y)
-        Trains the TFT model on the provided data.
+    fit(X, y, **fit_params)
+        Trains the TFT model on the provided data. `fit_params` accepts all 
+        keras API arguments passed to fit method such as callback parameters 
+        and others. 
     
     predict(X)
         Generates predictions using the trained TFT model.
@@ -710,7 +763,9 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
             StrOptions({"elu", "relu", "tanh", "sigmoid", "linear", 'gelu'})],
         "use_batch_norm": [bool],
         "num_lstm_layers": [Interval(Integral, 1, None, closed='left')],
-        "lstm_units": [list, Interval(Integral, 1, None, closed='left'), None]
+        "lstm_units": [list, Interval(Integral, 1, None, closed='left'), None], 
+        "epochs": [Interval(Integral, 1, None, closed ='left')], 
+        "batch_size": [Interval( Integral, 1, None, closed='left')]
         },
     )
 
@@ -729,11 +784,13 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
         use_batch_norm=False,
         num_lstm_layers=1,
         lstm_units=None, 
+        epochs=100, 
+        batch_size= 32, 
         optimizer='adam',
         loss='mse',
         metrics=None,
         verbose=0,
-        **kwargs
+
     ):
         self.static_input_dim    = static_input_dim
         self.dynamic_input_dim   = dynamic_input_dim
@@ -748,11 +805,12 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
         self.use_batch_norm      = use_batch_norm
         self.num_lstm_layers     = num_lstm_layers
         self.lstm_units          = lstm_units
+        self.epochs              = epochs
+        self.batch_size          = batch_size 
         self.optimizer           = optimizer
         self.loss                = loss
         self.metrics             = metrics if metrics is not None else ['mae']
         self.verbose             = verbose
-        self.kwargs              = kwargs
 
     def build_model(self):
         if self.verbose >= 5:
@@ -773,7 +831,6 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
             use_batch_norm=self.use_batch_norm,
             num_lstm_layers=self.num_lstm_layers,
             lstm_units=self.lstm_units,
-            **self.kwargs
         )
         
         if self.verbose >= 6:
@@ -808,12 +865,24 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
         if self.verbose >= 5:
             print("Model building completed.")
 
-    def fit(self, X, y):
+    def fit(self, X, y, **fit_params):
         """
         Fit the TFT model according to the given training data.
         """
         if self.verbose >= 3:
             print("Starting the fit process...")
+            
+        # Extract callbacks instance object if provided 
+        callbacks =None 
+        if fit_params: 
+            callbacks = extract_callbacks_from(
+                fit_params, return_fit_params= True
+        )
+            
+        # update the epochs, batch_size and verbose if provided in fit_params 
+        self.epochs = fit_params.pop('epochs', self.epochs) 
+        self.batch_size = fit_params.pop('batch_size', self.batch_size) 
+        self.verbose= fit_params.pop('verbose', self.verbose) 
         
         # Concatenate static and dynamic inputs if provided as list or tuple
         if isinstance(X, (list, tuple)):
@@ -863,9 +932,11 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
         self.model_.fit(
             [X_static, X_dynamic],
             y,
-            epochs=10,
-            batch_size=32,
-            verbose=1 if self.verbose >= 4 else 0
+            epochs=self.epochs,
+            batch_size=self.batc_size,
+            callbacks = callbacks, 
+            verbose=self.verbose, 
+            **fit_params,
         )
         if self.verbose >= 3:
             print("Model training completed.")
@@ -876,14 +947,10 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
         """
         Predict using the TFT model.
         """
+        check_is_fitted(self, attributes =['model_'])
+        
         if self.verbose >= 3:
             print("Starting the prediction process...")
-        
-        if self.model_ is None:
-            raise NotFittedError(
-                "This TFTWrapper instance is not fitted yet. Call 'fit' with "
-                "appropriate arguments before using this estimator."
-            )
         
         # Concatenate static and dynamic inputs if provided as list or tuple
         if isinstance(X, (list, tuple)):
@@ -917,8 +984,8 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
             print("Generating predictions...")
         predictions = self.model_.predict(
             [X_static, X_dynamic],
-            batch_size=32,
-            verbose=1 if self.verbose >= 4 else 0
+            batch_size=self.batch_size,
+            verbose=self.verbose
         )
         
         if self.verbose >= 3:

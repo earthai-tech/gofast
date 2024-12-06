@@ -130,6 +130,7 @@ class KerasDependencies:
                 'callbacks',
                 'ModelCheckpoint'
             ),
+            'Callback': ('callbacks', 'Callback'), 
             'TensorBoard': ('callbacks', 'TensorBoard'),
             'LearningRateScheduler': (
                 'callbacks',

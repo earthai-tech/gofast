@@ -25,6 +25,14 @@ from ..core.io import is_data_readable
 from ..compat.sklearn import validate_params, Interval 
 from ..decorators import DynamicMethod
 from ..tools.validator import validate_sequences 
+from ..tools.depsutils import ensure_pkg 
+
+from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
+
+if KERAS_BACKEND:
+    Callback=KERAS_DEPS.Callback
+    
+DEP_MSG = dependency_message('wrappers') 
 
 __all__ = ["split_static_dynamic", "create_sequences", "compute_forecast_horizon"]
 
@@ -740,4 +748,120 @@ def compute_forecast_horizon(
             print(f"Forecast Horizon: {forecast_horizon}")
             
         return forecast_horizon
+    
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+def extract_callbacks_from(fit_params, return_fit_params=False):
+    r"""
+    Extract Keras callbacks from a dictionary of fit parameters. The
+    function scans the provided ``fit_params`` dictionary, looks for keys 
+    associated with callback instances, and removes them from 
+    ``fit_params`` returning a list of callbacks. Optionally, it can 
+    return the updated dictionary without these callbacks.
 
+    This function is particularly useful when working with scikit-learn-
+    style estimators that pass parameters through ``**fit_params``. By 
+    extracting callbacks directly, the user can seamlessly integrate 
+    TensorFlow/Keras callbacks such as `EarlyStopping` or 
+    `ModelCheckpoint` into their training pipelines.
+
+    The function can handle two scenarios:
+    1. A parameter called ``'callbacks'`` containing a list of callbacks.
+    2. Individual callback instances passed as keyword arguments.
+
+    After extraction, if ``return_fit_params=True``, it returns a tuple 
+    `(callbacks, fit_params)` where `callbacks` is the extracted list and 
+    `fit_params` is the remaining dictionary. Otherwise, it returns only 
+    `callbacks`.
+
+    .. math::
+        n_{\mathrm{callbacks}} = n_{\mathrm{list\_callbacks}} \;+\;
+        n_{\mathrm{kwarg\_callbacks}}
+
+    Here, :math:`n_{\mathrm{callbacks}}` represents the total number of 
+    extracted callbacks, :math:`n_{\mathrm{list\_callbacks}}` is the 
+    number of callbacks initially found in the ``'callbacks'`` parameter, 
+    and :math:`n_{\mathrm{kwarg\_callbacks}}` is the number of callbacks 
+    discovered among the other keyword arguments.
+
+    Parameters
+    ----------
+    fit_params : dict
+        The dictionary of parameters to be passed to a model's 
+        training method. May contain one of the following:
+        
+        * ``'callbacks'``: a list of callback instances.
+        * Arbitrary keyword arguments that are callback instances.
+
+    return_fit_params : bool, optional
+        If ``True``, returns a tuple of `(callbacks, fit_params)` where 
+        `fit_params` no longer contains the extracted callbacks. If 
+        ``False``, returns only the `callbacks` list. Default is ``False``.
+
+    Returns
+    -------
+    callbacks : list of tf.keras.callbacks.Callback
+        A list of extracted callback instances.
+
+    (callbacks, fit_params) : tuple (only if `return_fit_params=True`)
+        A tuple where the first element is a list of extracted callbacks 
+        and the second is the updated `fit_params` dictionary after 
+        removing the callbacks.
+
+    Examples
+    --------
+    >>> from gofast.nn.utils import extract_callbacks_from
+    >>> from tensorflow.keras.callbacks import EarlyStopping
+    >>> fit_params = {
+    ...     'epochs': 100,
+    ...     'batch_size': 64,
+    ...     'verbose': 1,
+    ...     'early_stopping': EarlyStopping(patience=5)
+    ... }
+    >>> callbacks, updated_params = extract_callbacks_from(fit_params, 
+    ...                                                    return_fit_params=True)
+    >>> print(callbacks)
+    [<keras.src.callbacks.EarlyStopping object at 0x...>]
+    >>> print(updated_params)
+    {'epochs': 100, 'batch_size': 64, 'verbose': 1}
+
+    Notes
+    -----
+    Consider using this function when integrating Keras callbacks within 
+    a pipeline or estimator that follows scikit-learn conventions, where 
+    parameters are passed as `fit_params`. This approach enables a clean 
+    and modular integration of callbacks into your training loops.
+
+    See Also
+    --------
+    tf.keras.callbacks.Callback :
+        Base class used to build new callbacks.
+
+    References
+    ----------
+    .. [1] François Chollet, et al. Keras Documentation. 
+           https://keras.io/api/callbacks/
+    """
+
+    callbacks = []
+
+    # If user provides a callbacks list directly
+    if 'callbacks' in fit_params and isinstance(fit_params['callbacks'], list):
+        cb_list = fit_params.pop('callbacks')
+        for c in cb_list:
+            if isinstance(c, Callback):
+                callbacks.append(c)
+
+    # If user provides individual callbacks as keyword arguments
+    keys_to_remove = []
+    for k, v in fit_params.items():
+        if isinstance(v, Callback):
+            callbacks.append(v)
+            keys_to_remove.append(k)
+
+    # Remove callback entries from fit_params
+    for k in keys_to_remove:
+        fit_params.pop(k, None)
+
+    if return_fit_params:
+        return callbacks, fit_params
+    return callbacks
