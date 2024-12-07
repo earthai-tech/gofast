@@ -2465,7 +2465,8 @@ def merge_datasets(
     0          1         3  2020      10     100
     1          2         4  2021      20     200
     """
-    [ is_frame (d, df_only=True, raise_exception=True, objname='Dataset')
+    
+    [is_frame(d, df_only=True, raise_exception=True, objname='Dataset')
             for d in dfs 
     ]
     if len(dfs) < 2:

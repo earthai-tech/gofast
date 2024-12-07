@@ -181,7 +181,7 @@ class TypeEnforcer:
         self.params = params
         self.rparams = rparams
         self.set_index = set_index
-        self.logger = gofastlog.get_logger_name(__name__)
+        self.logger = gofastlog.get_gofast_logger(__name__)
         self.type_mapping = {
             'array-like': lambda x: np.array(x),
             'list': lambda x: list(x),
