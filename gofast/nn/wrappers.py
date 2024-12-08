@@ -56,8 +56,9 @@ __all__ = ['TFTWrapper', 'TFTRegressor', "create_tft_model"]
 Notes
 -----
 - **Data Preparation**:
-    - The ``TFTRegressor`` expects the input data ``X`` to be a single 2D array where
-      the static and dynamic features are concatenated. The expected shape of ``X`` is:
+    - The ``TFTRegressor`` expects the input data ``X`` to be a single 2D 
+      array where the static and dynamic features are concatenated. The 
+      expected shape of ``X`` is:
       
       .. math::
           X = 
@@ -81,7 +82,8 @@ Notes
       consider modifying the ``build_model`` method or extending the wrapper.
 
 - **Hyperparameter Tuning**:
-    - Hyperparameter tuning with ``RandomizedSearchCV`` may be computationally intensive.
+    - Hyperparameter tuning with ``RandomizedSearchCV`` may be computationally 
+      intensive.
       Adjust ``n_iter`` and ``cv`` parameters based on available computational
       resources and the size of the parameter grid.
 

@@ -1556,7 +1556,8 @@ class Extract1dArrayOrSeries:
         elif isinstance(arr, np.ndarray):
             result = self._extract_from_ndarray(arr)
         else:
-            raise TypeError("The input must be either a Pandas DataFrame or a NumPy ndarray.")
+            raise TypeError(
+                "The input must be either a Pandas DataFrame or a NumPy ndarray.")
         
         if self.as_series and isinstance(result, np.ndarray):
             result = pd.Series(result)

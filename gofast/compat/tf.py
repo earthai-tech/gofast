@@ -257,6 +257,55 @@ def check_keras_backend(
                 raise ImportError(message) from e
             return None
 
+def standalone_keras(module_name):
+    """
+    Tries to import the specified module from tensorflow.keras or 
+    standalone keras.
+
+    Parameters
+    ----------
+    module_name : str
+        The name of the module to import (e.g., 'activations', 'layers', etc.).
+
+    Returns
+    -------
+    module
+        The imported module from tensorflow.keras or keras.
+
+    Raises
+    ------
+    ImportError
+        If neither tensorflow.keras nor standalone keras is installed or if
+        the specified module does not exist in both frameworks.
+        
+    Examples
+    ---------
+    # Usage example
+    try:
+        activations = import_keras_module("activations")
+        print("Successfully loaded activations module from:", activations)
+    except ImportError as e:
+        print(e)
+            
+    """
+    try:
+        # Try importing from tensorflow.keras
+        import tensorflow.keras as tf_keras
+        return getattr(tf_keras, module_name)
+    except (ImportError, AttributeError):
+        try:
+            # Fallback to standalone keras
+            import keras
+            return getattr(keras, module_name)
+        except (ImportError, AttributeError):
+            raise ImportError(
+                f"Module '{module_name}' could not be imported from either "
+                f"tensorflow.keras or standalone keras. Ensure that TensorFlow "
+                f"or standalone Keras is installed and the module exists."
+            )
+
+
+
 # ---------------------- class and func documentations ----------------------
 
 KerasDependencies.__doc__="""\ 

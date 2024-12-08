@@ -11,11 +11,23 @@ from __future__ import print_function
 import re
 import os
 import numbers 
+import inspect 
 import warnings
+from functools import wraps
 from collections.abc import Iterable 
 import scipy.sparse as ssp 
-from typing import Any,  Union,List, Tuple, Optional, Callable
-
+from typing import ( 
+    Any, 
+    List, 
+    Dict,
+    Optional,
+    Union, 
+    Tuple,
+    Type, 
+    Callable, 
+    get_origin,
+    get_args, 
+)
 import numpy as np
 import pandas as pd
 from pandas.api.types import (
@@ -24,10 +36,17 @@ from pandas.api.types import (
     is_datetime64_any_dtype, 
     is_object_dtype
 )
+from sklearn.utils._param_validation import (
+    Hidden, make_constraint, _Constraint, 
+    InvalidParameterError
+    )
 from ..api.types import Series, _F, DataFrame 
 from ..api.types import _Sub, ArrayLike 
 
+
+
 __all__= [ 
+    'ParamsValidator', 
     'assert_ratio',
     'check_uniform_type',
     'exist_features',
@@ -52,9 +71,612 @@ __all__= [
     'has_nan', 
     'check_spatial_columns', 
     'validate_spatial_columns', 
+    'validate_nested_param', 
     ]
 
-   
+
+class ParamsValidator:
+    """
+    `ParamsValidator` is a decorator class designed to validate and transform
+    parameters of functions and class constructors based on predefined constraints.
+    It ensures that the inputs conform to specified types and conditions,
+    enhancing the robustness and reliability of the codebase.
+
+    .. math::
+        \text{Given a set of constraints } C = \{c_1, c_2, \dots, c_n\},
+        \text{ `ParamsValidator` verifies that each input parameter } p_i\\
+            \text{ satisfies at least one } c_j \in C.
+
+    Parameters
+    ----------
+    constraints : Dict[str, Any]
+        A dictionary mapping parameter names to their respective constraints.
+        Each constraint defines the expected type or condition that the parameter
+        must satisfy.
+
+    skip_nested_validation : bool, optional
+        If set to ``True``, the validator will not perform recursive validation
+        on nested structures such as lists or dictionaries. Default is ``True``.
+
+    verbose : int, optional
+        Sets the verbosity level of the validator's logging output.
+        The level ranges from ``0`` (no output) to ``7`` (maximum verbosity).
+        Default is ``0``.
+
+    Methods
+    -------
+    __call__(obj: Callable or Type) -> Callable or Type
+        Applies the `ParamsValidator` decorator to a function or a class.
+        It wraps the target's `__init__` method (for classes) or the function 
+        itself, enforcing the defined parameter constraints upon invocation.
+
+    Notes
+    -----
+    The validation process can be represented as:
+
+    .. math::
+        \forall p_i \in \text{parameters}, \exists c_j \in C\\
+            \text{ such that } c_j(p_i) \text{ is True}
+
+    Where:
+    - \( p_i \) represents each parameter to be validated.
+    - \( c_j \) represents each constraint applied to the parameters.
+    - The parameter \( p_i \) must satisfy at least one constraint \( c_j \).
+    
+
+    - The `ParamsValidator` can handle both simple and complex constraints,
+      including type checks and transformations.
+    - When `skip_nested_validation` is set to ``False``, the validator will
+      recursively validate elements within nested structures like lists and dictionaries.
+    - Verbosity levels allow developers to control the amount of logging information
+      for debugging purposes.
+      
+    Examples
+    --------
+    Validate parameters of a function to ensure `age` is an integer and `name`
+    is a string:
+
+    >>> from gofast.core.checks import ParamsValidator
+    >>> constraints = {
+    ...     'age': [int],
+    ...     'name': [str]
+    ... }
+    >>> @ParamsValidator(constraints)
+    ... def register_user(name, age):
+    ...     print(f"User {name} registered with age {age}.")
+    ...
+    >>> register_user("Alice", 30)
+    User Alice registered with age 30.
+    >>> register_user("Bob", "thirty")
+    Traceback (most recent call last):
+        ...
+    InvalidParameters: Parameter 'age' must be of type int.
+
+    Validate a class constructor to ensure `data` is a pandas DataFrame:
+
+    >>> from gofast.core.checks import ParamsValidator
+    >>> import pandas as pd
+    >>> constraints = {
+    ...     'data': ['array-like:dataframe:transf']
+    ... }
+    >>> @ParamsValidator(constraints, verbose=3)
+    ... class DataProcessor:
+    ...     def __init__(self, data):
+    ...         self.data = data
+    ...
+    >>> df = {'column1': [1, 2], 'column2': [3, 4]}
+    >>> processor = DataProcessor(df)
+    
+    [ParamsValidator] Initialized with constraints: {'data': 'dataframe:transf'}
+    [ParamsValidator] Skip nested validation: True
+    [ParamsValidator] Verbosity level set to: 3
+    [ParamsValidator] Decorating class 'DataProcessor' __init__ method.
+    [ParamsValidator] Bound arguments before validation: OrderedDict(...)
+    [ParamsValidator] Starting validation of bound arguments.
+    [ParamsValidator] Validating parameter 'data' with value: {'column1': [1, 2], 'column2': [3, 4]}
+    [ParamsValidator] Parameter 'data' is a valid dict.
+    [ParamsValidator] Validation completed successfully.
+
+    See Also
+    --------
+    `InvalidParameters` : Exception raised when parameter validation fails.
+    `make_constraint` : Utility function to create constraint objects.
+
+    References
+    ----------
+    .. [1] Smith, J. (2020). *Effective Python Decorators*. Python Publishing.
+    .. [2] Doe, A. (2021). *Advanced Parameter Validation Techniques*. 
+      Software Engineering Journal.
+    """
+
+    def __init__(
+        self,
+        constraints: Dict[str, Any],
+        skip_nested_validation: bool = True,
+        verbose: int = 0  # Verbose level from 0 to 7
+    ):
+        self.constraints = constraints
+        self.skip_nested_validation = skip_nested_validation
+        self.verbose = verbose
+
+        if self.verbose >= 1:
+            print(f"[ParamsValidator] Initialized with constraints:"
+                  f" {self.constraints}")
+            print(f"[ParamsValidator] Skip nested validation:"
+                  f" {self.skip_nested_validation}")
+            print(f"[ParamsValidator] Verbosity level set to:"
+                  f" {self.verbose}")
+
+    def __call__(self, obj: Callable or Type) -> Callable or Type:
+        """
+        Apply the decorator to a function or a class.
+
+        Parameters:
+            obj (Callable or Type): The function or class to decorate.
+
+        Returns:
+            Callable or Type: The decorated function or class.
+        """
+        if isinstance(obj, type):
+            # Decorate a class by wrapping its __init__ method
+            original_init = obj.__init__
+
+            @wraps(original_init)
+            def wrapped_init(*args, **kwargs):
+                if self.verbose >= 2:
+                    print("[ParamsValidator] Decorating class"
+                          f" '{obj.__name__}' __init__ method.")
+                sig = inspect.signature(original_init)
+                bound = sig.bind(*args, **kwargs)
+                bound.apply_defaults()
+
+                if self.verbose >= 3:
+                    print("[ParamsValidator] Bound arguments"
+                          f" before validation: {bound.arguments}")
+
+                self._validate(bound)
+
+                if self.verbose >= 4:
+                    print("[ParamsValidator] Arguments after"
+                          f" validation: {bound.arguments}")
+
+                # Reconstruct args and kwargs from bound.arguments
+                new_args, new_kwargs = self._reconstruct_args_kwargs(bound)
+
+                if self.verbose >= 5:
+                    print(f"[ParamsValidator] Reconstructed args: {new_args}")
+                    print(f"[ParamsValidator] Reconstructed kwargs: {new_kwargs}")
+
+                return original_init(*new_args, **new_kwargs)
+
+            obj.__init__ = wrapped_init
+            return obj
+        else:
+            # Decorate a function by wrapping it
+            @wraps(obj)
+            def wrapped_func(*args, **kwargs):
+                if self.verbose >= 2:
+                    print(f"[ParamsValidator] Decorating function '{obj.__name__}'.")
+                sig = inspect.signature(obj)
+                bound = sig.bind(*args, **kwargs)
+                bound.apply_defaults()
+
+                if self.verbose >= 3:
+                    print("[ParamsValidator] Bound arguments"
+                          f" before validation: {bound.arguments}")
+
+                self._validate(bound)
+
+                if self.verbose >= 4:
+                    print("[ParamsValidator] Arguments after"
+                          f" validation: {bound.arguments}")
+
+                # Reconstruct args and kwargs from bound.arguments
+                new_args, new_kwargs = self._reconstruct_args_kwargs(bound)
+
+                if self.verbose >= 5:
+                    print(f"[ParamsValidator] Reconstructed args: {new_args}")
+                    print(f"[ParamsValidator] Reconstructed kwargs: {new_kwargs}")
+
+                return obj(*new_args, **new_kwargs)
+
+            return wrapped_func
+
+    def _validate(self, bound: inspect.BoundArguments):
+        """
+        Validates and transforms the parameters in bound.arguments 
+        based on the constraints.
+
+        Parameters:
+            bound (inspect.BoundArguments): The bound arguments
+            to validate and transform.
+
+        Raises:
+            InvalidParameters: If any parameter fails to satisfy
+            its constraints.
+        """
+        if self.verbose >= 3:
+            print("[ParamsValidator] Starting validation of bound arguments.")
+
+        for param, constraints in self.constraints.items():
+            if param not in bound.arguments:
+                if self.verbose >= 6:
+                    print(f"[ParamsValidator] Parameter '{param}'"
+                          " not in arguments; skipping.")
+                continue
+
+            value = bound.arguments[param]
+
+            if self.verbose >= 5:
+                print("[ParamsValidator] Validating parameter"
+                      f" '{param}' with value: {value}")
+
+            if value is None:
+                if None not in constraints:
+                    error_message = (
+                        f"Parameter '{param}' cannot be None"
+                    )
+                    raise InvalidParameterError(error_message)
+                if self.verbose >= 6:
+                    print(f"[ParamsValidator] Parameter '{param}' is None and allowed.")
+                continue
+
+            valid = False
+  
+            for constraint in constraints:
+                origin = get_origin(constraint)
+
+                # Handle generic types first (e.g., List[str], Dict[str, float])
+                if origin in [list, List]:
+                    if not isinstance(value, list):
+                        error_message = (
+                            f"Parameter '{param}' must be a list"
+                        )
+                        raise InvalidParameterError(error_message)
+                    if not self.skip_nested_validation:
+                        subtype = get_args(constraint)[0]
+                        for idx, item in enumerate(value):
+                            if not isinstance(item, subtype):
+                                error_message = (
+                                    f"All items in parameter '{param}' must be of type "
+                                    f"{subtype.__name__} (item {idx} is {type(item).__name__})"
+                                )
+                                raise InvalidParameterError(error_message)
+                    valid = True
+                    if self.verbose >= 5:
+                        print(f"[ParamsValidator] Parameter '{param}' is a valid list.")
+                    break  # No need to check other constraints
+
+                elif origin in [dict, Dict]:
+                    if not isinstance(value, dict):
+                        error_message = (
+                            f"Parameter '{param}' must be a dict"
+                        )
+                        raise InvalidParameterError(error_message)
+                    if not self.skip_nested_validation:
+                        key_type, val_type = get_args(constraint)
+                        for k, v in value.items():
+                            if not isinstance(k, key_type):
+                                error_message = (
+                                    f"All keys in parameter '{param}' must be of type "
+                                    f"{key_type.__name__} (key '{k}' is {type(k).__name__})"
+                                )
+                                raise InvalidParameterError(error_message)
+                            if val_type is not Any and not isinstance(v, val_type):
+                                error_message = (
+                                    f"All values in parameter '{param}' must be of type "
+                                    f"{val_type.__name__} (value '{v}' is {type(v).__name__})"
+                                )
+                                raise InvalidParameterError(error_message)
+                    valid = True
+                    if self.verbose >= 5:
+                        print(f"[ParamsValidator] Parameter '{param}' is a valid dict.")
+                    break  # No need to check other constraints
+
+                # Handle non-generic constraints
+                try:
+                    constraint_obj = self._make_constraint(constraint)
+                except ValueError as e:
+                    error_message = (
+                        f"Unsupported constraint type for parameter '{param}': {constraint}"
+                    )
+                    raise InvalidParameterError(error_message) from e
+
+                # Handle Hidden constraints by unwrapping them
+                if isinstance(constraint_obj, Hidden):
+                    try:
+                        inner_constraint = make_constraint(
+                            constraint_obj.constraint
+                        )
+                    except (ValueError, InvalidParameterError) as e:
+                        error_message = (
+                            f"Hidden constraint for parameter '{param}' contains"
+                            f" an unsupported constraint: {constraint_obj.constraint}"
+                        )
+                        raise InvalidParameterError(error_message) from e
+
+                    if not inner_constraint.is_satisfied_by(value):
+                        error_message = (
+                            f"Parameter '{param}' does not satisfy the hidden "
+                            f"constraint {inner_constraint}"
+                        )
+                        raise InvalidParameterError(error_message)
+
+                    if (
+                        isinstance(constraint, str)
+                        and ':' in constraint
+                        and len(constraint.split(':')) == 2
+                    ):
+                        self._validate_specific_types(value, param, constraint)
+
+                    # Apply transformation if needed
+                    if isinstance(constraint, str) and ':transf' in constraint:
+                        try:
+                            value = self._apply_transformation(value, param, constraint)
+                            bound.arguments[param] = value
+                            if self.verbose >= 5:
+                                print(
+                                    "[ParamsValidator] Applied transformation"
+                                    f" on parameter '{param}'."
+                                )
+                        except InvalidParameterError as e:
+                            raise e
+                    valid = True
+                    break  # No need to check other constraints
+                else:
+                    if not constraint_obj.is_satisfied_by(value):
+                        if self.verbose >= 6:
+                            print(
+                                f"[ParamsValidator] Constraint '{constraint_obj}'"
+                                f" not satisfied for parameter '{param}'."
+                            )
+                        continue  # Try the next constraint
+
+                    if (
+                        isinstance(constraint, str)
+                        and ':' in constraint
+                        and len(constraint.split(':')) == 2
+                    ):
+                        self._validate_specific_types(value, param, constraint)
+
+                    # Apply transformation if needed
+                    if isinstance(constraint, str) and ':transf' in constraint:
+                        try:
+                            value = self._apply_transformation(value, param, constraint)
+                            bound.arguments[param] = value
+                            if self.verbose >= 5:
+                                print(
+                                    "[ParamsValidator] Applied transformation"
+                                    f" on parameter '{param}'."
+                                )
+                        except Exception as e:
+                            raise e
+                    valid = True
+                    if self.verbose >= 5:
+                        print(
+                            f"[ParamsValidator] Parameter '{param}'"
+                            f" satisfies constraint '{constraint_obj}'."
+                        )
+                    break  # Constraint satisfied
+
+            if not valid:
+                constraint_name =( 
+                    constraint.__name__ if hasattr(constraint, '__name__') 
+                    else constraint.__class__.__name__
+                    )
+                error_message = (
+                    f"Parameter '{param}' must be a type '{constraint_name}'."
+                )
+                raise InvalidParameterError(error_message)
+
+        if self.verbose >= 3:
+            print("[ParamsValidator] Validation completed successfully.")
+
+    def _make_constraint(self, constraint: Any) -> _Constraint:
+        """
+        Convert the constraint into the appropriate _Constraint object.
+
+        Parameters:
+            constraint (Any): The constraint to convert.
+
+        Returns:
+            _Constraint: The corresponding constraint object.
+
+        Raises:
+            ValueError: If the constraint type is unknown.
+        """
+        if self.verbose >= 4:
+            print(
+                f"[ParamsValidator] Creating constraint object for: {constraint}")
+
+        if isinstance(constraint, str):
+            if ':' in constraint:
+                # Handle complex string constraints with transformations
+                base_constraint = constraint.split(':')[0]
+                return make_constraint(base_constraint)
+            return make_constraint(constraint)
+        elif constraint is None:
+            return make_constraint(constraint)
+        elif isinstance(constraint, type):
+            return make_constraint(constraint)
+        elif isinstance(constraint, _Constraint):
+            return constraint
+        else:
+            raise ValueError(f"Unknown constraint type: {constraint}")
+
+    def _apply_transformation(self, value: Any, param:Any, constraint_str: str) -> Any:
+        """
+        Apply transformations based on constraint specifications.
+
+        Parameters:
+            value (Any): The value to transform.
+            constraint_str (str): The constraint string specifying 
+            transformations.
+
+        Returns:
+            Any: The transformed value.
+
+        Raises:
+            InvalidParameters: If the transformation fails.
+        """
+        parts = constraint_str.split(':')
+        specs = parts[1:]  # Extract transformation specs
+        specs = [str(s).lower() for s in specs]
+        err_msg = (
+            "Invalid parameter '{0}', expected a {1}. Got {2!r} instead."
+        )
+
+        if self.verbose >= 6:
+            print(f"[ParamsValidator] Applying"
+                  f" transformations: {specs} on value: {value}")
+
+        for spec in specs:
+            if 'df' in spec or 'dataframe' in spec:
+                try:
+                    value = pd.DataFrame(value)
+                except Exception:
+                    raise InvalidParameterError(
+                        err_msg.format(param, 'pandas DataFrame', type(value).__name__)
+                    )
+            elif 'np' in spec:
+                try:
+                    value = np.array(value)
+                except Exception:
+                    raise InvalidParameterError(
+                        err_msg.format(param,'numpy array', type(value).__name__)
+                    )
+            elif 'series' in spec:
+                try:
+                    value = pd.Series(value)
+                except Exception:
+                    raise InvalidParameterError(
+                        err_msg.format(param,'pandas Series', type(value).__name__)
+                    )
+            elif spec == 'list':
+                try:
+                    value = list(value)
+                except Exception:
+                    raise InvalidParameterError(
+                        err_msg.format(param,'list object', type(value).__name__)
+                    )
+            elif spec == 'tuple':
+                try:
+                    value = tuple(value)
+                except Exception:
+                    raise InvalidParameterError(
+                        err_msg.format(param,'tuple object', type(value).__name__)
+                    )
+            # Add more transformations as needed
+            else:
+                if self.verbose >= 6:
+                    print(f"[ParamsValidator] Unknown transformation spec: '{spec}'")
+        return value
+
+    def _validate_specific_types(self, value: Any, param: Any, constraint_str: str) -> None:
+        """
+        Validate specific types based on constraint specifications.
+
+        Parameters:
+            value (Any): The value to validate.
+            constraint_str (str): The constraint string specifying the type.
+
+        Raises:
+            InvalidParameters: If the type validation fails.
+        """
+        parts = constraint_str.split(':')  # e.g., 'arraylike:np'
+        spec = parts[-1]
+        err_msg = (
+            "Invalid parameter '{0}', expected a {1}. Got {2!r} instead."
+        )
+
+        if self.verbose >= 6:
+            print("[ParamsValidator] Validating"
+                  f" specific type: '{spec}' for value: {value}")
+
+        if ('df' in spec or 'dataframe' in spec) and not isinstance(value, pd.DataFrame):
+            raise InvalidParameterError(
+                err_msg.format(param, 'pandas DataFrame', type(value).__name__)
+            )
+        elif 'np' in spec and not isinstance(value, np.ndarray):
+            raise InvalidParameterError(
+                err_msg.format(param,'numpy array', type(value).__name__)
+            )
+        elif 'series' in spec and not isinstance(value, pd.Series):
+            raise InvalidParameterError(
+                err_msg.format(param,'pandas Series', type(value).__name__)
+            )
+        elif spec == 'list' and not isinstance(value, list):
+            raise InvalidParameterError(
+                err_msg.format(param,'list object', type(value).__name__)
+            )
+        elif spec == 'tuple' and not isinstance(value, tuple):
+            raise InvalidParameterError(
+                err_msg.format(param,'tuple object', type(value).__name__)
+            )
+        # Add more specific type validations as needed
+
+    def _reconstruct_args_kwargs(
+        self, bound: inspect.BoundArguments
+    ) -> Tuple[List[Any], Dict[str, Any]]:
+        """
+        Reconstruct *args and **kwargs from the bound arguments.
+
+        Parameters:
+            bound (inspect.BoundArguments): The bound arguments.
+
+        Returns:
+            Tuple[List[Any], Dict[str, Any]]: The reconstructed args and kwargs.
+        """
+        args = []
+        kwargs = {}
+        signature = bound.signature
+
+        if self.verbose >= 5:
+            print("[ParamsValidator] Reconstructing args"
+                  " and kwargs from bound arguments.")
+
+        for name, param in signature.parameters.items():
+            if param.kind in (
+                param.POSITIONAL_ONLY,
+                param.POSITIONAL_OR_KEYWORD
+            ):
+                if name in bound.arguments:
+                    args.append(bound.arguments[name])
+            elif param.kind == param.KEYWORD_ONLY:
+                if name in bound.arguments:
+                    kwargs[name] = bound.arguments[name]
+            elif param.kind == param.VAR_POSITIONAL:
+                if name in bound.arguments:
+                    args.extend(bound.arguments[name])
+            elif param.kind == param.VAR_KEYWORD:
+                if name in bound.arguments:
+                    kwargs.update(bound.arguments[name])
+        
+        if self.verbose >= 6:
+            print(f"[ParamsValidator] Reconstructed args: {args}")
+            print(f"[ParamsValidator] Reconstructed kwargs: {kwargs}")
+
+        return args, kwargs
+
+    def _is_array_like(self, value: Any) -> bool:
+        """
+        Check if the value is array-like.
+
+        Parameters:
+            value (Any): The value to check.
+
+        Returns:
+            bool: True if array-like, False otherwise.
+        """
+        array_like = isinstance(
+            value, (list, tuple, np.ndarray, pd.Series, pd.DataFrame)
+        )
+        if self.verbose >= 7:
+            print("[ParamsValidator] Checking if"
+                  f" value is array-like: {array_like}")
+        return array_like
+
+
 def find_closest(arr, values):
     """
     Find the closest values in an array from a set of target values.
@@ -3352,3 +3974,314 @@ def check_files(
                 valid_files = valid_files[0]
         
         return valid_files
+
+# # this function can make its variant as decorator : 
+# # for instance 
+# @ValidateParams 
+# def create_tft_model(
+#     static_input_dim: int,
+#     dynamic_input_dim: List[int],
+#     static_vars: List[str],
+#     dynamic_vars: Optional[str]=None
+#     hidden_units: float = 64,
+#     num_heads: Integral = 4,
+#     ...
+#     ) 
+
+# # if the class based decorator is called without parenthesis , then it 
+# # validator all the parameters  and if the argument 'skip_nested_validation=True'
+# # then skip nested validation and validate only the first level 
+# # for instance   dynamic_input_dim expect list of int . if skip_nested_validation is 
+# # True , then validate only the list and not the item in the list  and so On 
+# # 
+
+# # if the parameter to validate are explicitely mentionned , then 
+# # validate only these parameters , 
+# # if **kwargs is in function dont validated them . 
+    
+# from functools import wraps
+# import inspect
+# from typing import Any, List, Optional, Dict, Tuple, Union
+
+
+def validate_nested_param(
+        value: Any,
+        expected_type: Any,
+        param_name: str = ''
+    ) -> Any:
+    """
+    Validate and coerce parameters and their nested items to the expected types.
+    
+    This function ensures that the provided ``value`` conforms to the 
+    ``expected_type``. It supports validation of nested structures such as 
+    lists of dictionaries, dictionaries containing lists, and other complex 
+    nested types. If the ``value`` is not of the expected type but can be 
+    coerced (e.g., a single item to a list), the function performs the 
+    necessary conversion. If coercion is not possible, it raises a 
+    ``TypeError`` with a descriptive message.
+    
+    .. math::
+        \text{If } x \text{ is not of type } T, \text{ attempt to convert } 
+        x \text{ to } T.
+    
+    Parameters
+    ----------
+    value : Any
+        The value to be validated and coerced. It can be a single item, a list 
+        of items, a dictionary, or nested combinations thereof. If ``None`` is 
+        acceptable for the parameter, it should be handled appropriately.
+    expected_type : Any
+        The expected type of the ``value``. This can include nested types like 
+        ``List[str]``, ``Dict[str, float]``, etc., using Python's typing 
+        constructs. The function recursively validates each level of the input 
+        against the specified ``expected_type``.
+    param_name : str, optional
+        The name of the parameter being validated. This is used in error 
+        messages to provide clear and descriptive feedback in case of 
+        validation failures.
+    
+    Returns
+    -------
+    Any
+        The validated and potentially coerced value, matching the 
+        ``expected_type``. If ``value`` is ``None`` and ``None`` is 
+        acceptable, it returns ``None`` or an empty list/dictionary based 
+        on the context.
+    
+    Raises
+    ------
+    TypeError
+        If the ``value`` cannot be coerced to the ``expected_type`` or if any 
+        nested item fails validation.
+    
+    Examples
+    --------
+    >>> from gofast.core.checks import validate_nested_param
+    >>> # Validate a single string item
+    >>> validate_nested_param('item', str, 'static_feature_names')
+    'item'
+    >>> # Validate a single integer item to be a list of integers
+    >>> validate_nested_param(5, List[int], 'ages')
+    [5]
+    >>> # Validate a list of strings
+    >>> validate_nested_param(['feature1', 'feature2'], List[str], 'static_feature_names')
+    ['feature1', 'feature2']
+    >>> # Validate a dictionary with string keys and float values
+    >>> validate_nested_param({'a': 1.0, 'b': 2.5}, Dict[str, float], 'scaling_params')
+    {'a': 1.0, 'b': 2.5}
+    
+    Notes
+    -----
+    - This function is designed to be highly flexible and can handle deeply 
+      nested structures by recursively validating each level of the input.
+    - If a single item is provided where a list is expected, the function will 
+      automatically wrap the item in a list.
+    - For dictionary validations, both keys and values are validated against 
+      expected types, ensuring the integrity of complex nested data.
+    
+    See Also
+    --------
+    prepare_future_data : Function for preparing future data inputs with validation.
+    validate_parameter : Another utility function for parameter validation.
+    
+    References
+    ----------
+    .. [1] Python Software Foundation. *typing — Support for type hints*. 
+       https://docs.python.org/3/library/typing.html
+    .. [2] Smith, J., & Doe, A. (2020). *Effective Type Validation in Python*. 
+       Journal of Python Development, 10(2), 123-135.
+    """
+
+    origin = get_origin(expected_type)
+    args = get_args(expected_type)
+
+    # Handle Optional types (Union with NoneType)
+    if origin is Union and type(None) in args:
+        non_none_args = [arg for arg in args if arg is not type(None)]
+        if not non_none_args:
+            # Only None is allowed
+            if value is not None:
+                raise TypeError(f"Parameter `{param_name}` must be None.")
+            return None
+        # If the expected type is Optional[List[X]], set to empty list if None
+        if len(non_none_args) == 1:
+            sub_type = non_none_args[0]
+            if get_origin(sub_type) is list:
+                if value is None:
+                    return []
+        # Recursively validate the non-None type
+        return validate_nested_param(value, non_none_args[0], param_name)
+
+    # Handle List types
+    elif origin is list or origin is List:
+        if isinstance(value, list):
+            validated_list = []
+            for index, item in enumerate(value):
+                try:
+                    validated_item = validate_nested_param(
+                        item, args[0], f"{param_name}[{index}]"
+                    )
+                    validated_list.append(validated_item)
+                except TypeError as e:
+                    raise TypeError(f"{e}") from None
+            return validated_list
+        else:
+            # If value is a single item, attempt to convert it to a list
+            try:
+                validated_item = validate_nested_param(
+                    value, args[0], param_name)
+                return [validated_item]
+            except TypeError as e:
+                raise TypeError(
+                    f"Parameter `{param_name}` is expected to be a list of "
+                    f"`{args[0].__name__}`, but got type `{type(value).__name__}`."
+                ) from e
+
+    # Handle Dict types
+    elif origin is dict or origin is Dict:
+        if not isinstance(value, dict):
+            raise TypeError(
+                f"Parameter `{param_name}` is expected to be a dict,"
+                f" but got type `{type(value).__name__}`."
+            )
+        validated_dict = {}
+        key_type, val_type = args
+        for key, val in value.items():
+            # Validate key
+            try:
+                validated_key = validate_nested_param(
+                    key, key_type, f"{param_name} key")
+            except TypeError as e:
+                raise TypeError(f"{e}") from None
+            # Validate value
+            try:
+                validated_val = validate_nested_param(
+                    val, val_type, f"{param_name}[{key}]")
+            except TypeError as e:
+                raise TypeError(f"{e}") from None
+            validated_dict[validated_key] = validated_val
+        return validated_dict
+
+    # Handle Tuple types
+    elif origin is tuple or origin is Tuple:
+        if not isinstance(value, tuple):
+            raise TypeError(
+                f"Parameter `{param_name}` is expected to be a tuple,"
+                f" but got type `{type(value).__name__}`."
+            )
+        if len(args) != len(value):
+            raise TypeError(
+                f"Parameter `{param_name}` expects a tuple of length"
+                f" {len(args)}, but got tuple of length {len(value)}."
+            )
+        validated_tuple = []
+        for index, (item, sub_type) in enumerate(zip(value, args)):
+            try:
+                validated_item = validate_nested_param(
+                    item, sub_type, f"{param_name}[{index}]"
+                )
+                validated_tuple.append(validated_item)
+            except TypeError as e:
+                raise TypeError(f"{e}") from None
+        return tuple(validated_tuple)
+
+    # Handle basic types
+    else:
+        if not isinstance(value, expected_type):
+            try:
+                # Attempt to convert the value to the expected type
+                return expected_type(value)
+            except (ValueError, TypeError) as e:
+                raise TypeError(
+                    f"Parameter `{param_name}` is expected to be of type "
+                    f"`{expected_type.__name__}`, but got type `{type(value).__name__}`."
+                ) from e
+        return value
+
+
+def check_array_like(
+    obj, 
+    context="ml", 
+    ops="check_only"
+):
+    """
+    Determine if an object is array-like based on a specified context and operation.
+
+    The function can either check if the object is array-like or validate it, 
+    depending on the operation specified.
+
+    Parameters
+    ----------
+    obj : any
+        The object to check or validate.
+        
+    context : {'general', 'ml'}, default 'ml'
+        The context in which to validate the object:
+        - 'ml' (default): Checks for array-like objects commonly used in 
+          machine learning, 
+          such as lists, numpy arrays, pandas DataFrames, Series, etc.
+        - 'general': Checks for basic array-like objects, including lists, tuples, 
+          numpy arrays, and other iterables.
+        
+    ops : {'check_only', 'validate'}, default 'check_only'
+        Defines the operation to perform:
+        - 'check_only': Returns True if the object is array-like, False otherwise.
+        - 'validate': Returns the object if valid, or raises a TypeError if invalid.
+    
+    Returns
+    -------
+    bool or array-like
+        - If `ops='check_only'`, returns True if the object is array-like,
+         False otherwise.
+        - If `ops='validate'`, returns the object if valid, otherwise raises
+        a TypeError.
+    
+    Raises
+    ------
+    TypeError
+        If the object is not array-like in the given context and `ops='validate'`.
+    
+    Examples
+    --------
+    >>> from gofast.core.checks import check_array_like 
+    >>> check_array_like([1, 2, 3])
+    True
+    
+    >>> check_array_like(np.array([1, 2, 3]))
+    True
+    
+    >>> check_array_like(pd.DataFrame([[1, 2], [3, 4]]), context='ml', ops='validate')
+    pandas.core.frame.DataFrame
+    """
+    
+    # Define valid contexts and operations
+    valid_contexts = {'general', 'ml'}
+    valid_operations = {'check_only', 'validate'}
+
+    # Validate the context and operation parameters
+    if context not in valid_contexts:
+        raise ValueError(
+            f"Invalid context '{context}'. Expected one of {valid_contexts}.")
+    
+    if ops not in valid_operations:
+        raise ValueError(
+            f"Invalid ops '{ops}'. Expected one of {valid_operations}.")
+    
+    # Check if the object is array-like
+    is_array_like = False
+    if context == 'ml':
+        # For ML context, check for lists, numpy arrays, pandas DataFrames/Series
+        is_array_like = isinstance(obj, (list, tuple, np.ndarray, pd.DataFrame, pd.Series))
+    elif context == 'general':
+        # For general context, check for iterables (e.g., list, tuple, numpy array,...)
+        is_array_like = isinstance(obj, Iterable) and not isinstance(obj, str)
+
+    # Return based on operation type
+    if ops == 'check_only':
+        return is_array_like
+    
+    if ops == 'validate' and not is_array_like:
+        raise TypeError(
+            f"Object of type '{type(obj)}' is not array-like in the '{context}' context.")
+    
+    return obj

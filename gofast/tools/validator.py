@@ -651,7 +651,8 @@ def check_has_run_method(estimator, msg=None, method_name="run"):
     
     # Step 4: If it's an instance method, ensure it's bound
     if not isinstance(method, (staticmethod, classmethod)) and not hasattr(method, '__self__'):
-        raise AttributeError(f"'{method_name}' method of '{estimator.__class__.__name__}' is unbound.")
+        raise AttributeError(
+            f"'{method_name}' method of '{estimator.__class__.__name__}' is unbound.")
 
     # If no errors were raised, the method exists and is callable
     return

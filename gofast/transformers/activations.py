@@ -16,11 +16,13 @@ import numpy as np
 
 from ..api.docs import _shared_docs, doc
 from ..backends.selector import select_backend_n 
+from ..compat.numpy import safe_erf 
 from ..compat.sklearn import validate_params, Interval, StrOptions
 from ..decorators import Appender, DataTransformer
 from ..tools.validator import check_array, filter_valid_kwargs
 from ..tools.validator import parameter_validator  
 from ..tools.depsutils import ensure_pkg 
+
 
 __all__= [ 
     'ReLUTransformer',
@@ -303,7 +305,7 @@ class ReLUTransformer(BaseEstimator, TransformerMixin):
     """
     @validate_params ( { 
         "scale": [ Interval(Real, 0, None, closed ='neither' )], 
-        "shift": [Interval(Real( -1, 1 , closed ='both'))], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None]
         }
@@ -440,7 +442,7 @@ class SigmoidTransformer(BaseEstimator, TransformerMixin):
     """
     @validate_params ( { 
         "scale": [ Interval(Real, 0, None, closed ='neither' )], 
-        "shift": [Interval(Real( -1, 1 , closed ='both'))], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
         "backend": [StrOptions (_VALID_BACKEND_SET), None]
@@ -613,7 +615,7 @@ class TanhTransformer(BaseEstimator, TransformerMixin):
     """
     @validate_params ( { 
         "scale": [ Interval(Real, 0, None, closed ='neither' )], 
-        "shift": [Interval(Real( -1, 1 , closed ='both'))], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
         "backend": [StrOptions (_VALID_BACKEND_SET), None]
@@ -919,7 +921,7 @@ class ELUTransformer(BaseEstimator, TransformerMixin):
 
     @validate_params ( { 
         "scale": [ Interval(Real, 0, None, closed ='neither' )], 
-        "shift": [Interval(Real( -1, 1 , closed ='both'))], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
         "alpha": [Interval(Real, 0 , None , closed ="neither")], 
@@ -1235,7 +1237,7 @@ class LeakyReLUTransformer(BaseEstimator, TransformerMixin):
     """
     @validate_params ( { 
         "scale": [ Interval(Real, 0, None, closed ='neither' )], 
-        "shift": [Interval(Real( -1, 1 , closed ='both'))], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
         "alpha": [Interval(Real, 0 , None , closed ="neither")], 
@@ -1499,7 +1501,7 @@ class SoftmaxTransformer(BaseEstimator, TransformerMixin):
     """
     @validate_params ( { 
         "scale": [ Interval(Real, 0, None, closed ='neither' )], 
-        "shift": [Interval(Real( -1, 1 , closed ='both'))], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
         "alpha": [Interval(Real, 0 , None , closed ="neither")], 
@@ -1694,7 +1696,7 @@ class SwishTransformer(BaseEstimator, TransformerMixin):
     """
     @validate_params ( { 
         "scale": [ Interval(Real, 0, None, closed ='neither' )], 
-        "shift": [Interval(Real( -1, 1 , closed ='both'))], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
         "alpha": [Interval(Real, 0 , None , closed ="neither")], 
@@ -1905,7 +1907,7 @@ class HardSigmoidTransformer(BaseEstimator, TransformerMixin):
     """
     @validate_params ( { 
         "scale": [ Interval(Real, 0, None, closed ='neither' )], 
-        "shift": [Interval(Real( -1, 1 , closed ='both'))], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
         "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
         "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
         "alpha": [Interval(Real, 0 , None , closed ="neither")], 
@@ -2017,6 +2019,944 @@ class HardSigmoidTransformer(BaseEstimator, TransformerMixin):
         # Stack the batches back together
         return np.vstack(transformed_batches)  
 
+
+# Hard Swish Activation Transformer
+
+@doc( 
+    mathf =dedent( 
+    """\
+The Hard Swish function is an approximation of the Swish function,
+defined as:
+
+.. math::
+    \text{HardSwish}(x) = x \cdot \text{HardSigmoid}(x)
+
+where
+
+.. math::
+    \text{HardSigmoid}(x) = \text{clip}(0.2x + 0.5, 0, 1)
+    """
+    ),  
+    parameters =_activation_doc['parameters'].format(afmt="HardSwish"), 
+    methods = _activation_doc['methods'].format(afmt='HardSwish'),
+) 
+class HardSwishTransformer(BaseEstimator, TransformerMixin):
+    """
+    Hard Swish Activation Transformer.
+
+    Applies the Hard Swish activation function element-wise to the input data.
+
+
+    {mathf}
+
+    {parameters}
+    
+    verbose : int, default ``0``
+        Verbosity level for logging. Ranges from ``0`` (no output) to
+        ``7`` (most detailed output).
+
+    {methods}
+
+    Examples
+    --------
+    >>> from gofast.transformers.activations import HardSwishTransformer
+    >>> import numpy as np
+    >>> X = np.array([[1.0, -2.0], [3.0, 4.0]])
+    >>> transformer = HardSwishTransformer(
+    ...    scale=1.0, shift=0.0, backend='numpy', verbose=1)
+    >>> transformer.fit(X)
+    HardSwishTransformer()
+    >>> transformed_X = transformer.transform(X)
+    Using backend: numpy
+    Processed batch 0 to 2.
+    >>> print(transformed_X)
+    [[ 0.7 -0.0]
+     [ 2.1  4.0]]
+
+    Notes
+    -----
+    The Hard Swish activation function is computationally efficient and
+    often used in deep learning models to introduce non-linearity. It provides
+    a balance between performance and computational cost, making it suitable
+    for various applications in neural network architectures [1]_.
+
+    See also
+    --------
+    SwishTransformer : Transformer applying the Swish activation function.
+
+    References
+    ----------
+    .. [1] Zagoruyko, S., & Komodakis, N. (2016). Paying more attention to
+       attention: Improving the performance of convolutional neural networks
+       via attention transfer. *arXiv preprint arXiv:1612.03928*.
+    """
+    @validate_params ( { 
+        "scale": [ Interval(Real, 0, None, closed ='neither' )], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
+        "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
+        "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+        "backend": [StrOptions (_VALID_BACKEND_SET), None]
+        }
+    )
+    def __init__(
+        self,
+        scale= 1.0,
+        shift= 0.0,
+        precision = 1e-6,
+        batch_size = None,
+        backend = None,
+        verbose= 0
+    ):
+        self.scale = scale
+        self.shift = shift
+        self.precision = precision
+        self.batch_size = batch_size
+        self.backend = backend
+        self.verbose = verbose
+
+    @Appender(
+        _activation_doc['fit'].format(fmt='HardSwishTransformer'), 
+        join= "\n", 
+        )
+    def fit(self, X, y=None):
+        """Fit the transformer."""
+        return self
+    
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
+    @doc(_shared_docs['activation_transform'])
+    def transform(self, X):
+        backend = select_backend_n(self.backend )
+
+        if self.verbose >= 1:
+            self._log(1, f"Using backend: {backend}")
+
+        swish_func = self._get_swish_function(backend)
+
+        X_transformed = []
+        total_samples  = X.shape[0]
+        batch_size     = self.batch_size or total_samples
+
+        for start in range(0, total_samples, batch_size):
+            end     = start + batch_size
+            batch   = X[start:end]
+            if self.verbose >= 2:
+                self._log(2, f"Processing batch {start} to {end}.")
+
+            transformed_batch = swish_func(batch)
+            transformed_batch = self.scale * transformed_batch + self.shift
+
+            if self.precision:
+                transformed_batch = self._apply_precision(
+                    transformed_batch, backend
+                )
+
+            X_transformed.append(transformed_batch)
+
+            if self.verbose >= 3:
+                self._log(3, f"Batch {start}-{end} transformed.")
+
+        return self._concatenate_batches(X_transformed, backend)
+    
+    @ensure_pkg(
+        "tensorflow", 
+        extra="'tensorflow' backend is selected while the library is missing", 
+        partial_check= True,
+        condition= lambda *args, **kwargs: kwargs.get("backend")=="tensorflow"
+    )
+    @ensure_pkg(
+        "torch", 
+        extra="'torch' backend is selected while the library is missing", 
+        partial_check= True,
+        condition= lambda *args, **kwargs: kwargs.get("backend")=="torch"
+    )
+    def _get_swish_function(self, backend):
+        if backend == 'numpy':
+            return self._hard_swish_numpy
+        elif backend == 'tensorflow':
+            return self._hard_swish_tensorflow
+        elif backend == 'torch':
+            return self._hard_swish_torch
+
+    def _hard_swish_numpy(self, x):
+        hard_sigmoid = np.clip(0.2 * x + 0.5, 0, 1)
+        return x * hard_sigmoid
+
+    def _hard_swish_tensorflow(self, x):
+        import tensorflow as tf
+        hard_sigmoid = tf.clip_by_value(0.2 * x + 0.5, 0, 1)
+        return x * hard_sigmoid
+
+    def _hard_swish_torch(self, x):
+        import torch
+        hard_sigmoid = torch.clamp(0.2 * x + 0.5, 0, 1)
+        return x * hard_sigmoid
+
+    def _apply_precision(self, transformed_batch, backend):
+        if backend == 'numpy':
+            return np.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif backend == 'tensorflow':
+            import tensorflow as tf
+            return tf.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif backend == 'torch':
+            import torch
+            return torch.round(
+                transformed_batch / self.precision
+            ) * self.precision
+
+    def _concatenate_batches(self, X_transformed, backend):
+        if backend == 'numpy':
+            return np.vstack(X_transformed)
+        elif backend == 'tensorflow':
+            import tensorflow as tf
+            return tf.concat(X_transformed, axis=0)
+        elif backend == 'torch':
+            import torch
+            return torch.cat(X_transformed, dim=0)
+
+    def _log(self, level, message):
+        if self.verbose >= level:
+            print(message)
+
+
+
+# Softplus Activation Transformer
+@doc( 
+    mathf =dedent( 
+    """\
+    The Softplus function is a smooth approximation of the ReLU function,
+    defined as:
+    
+    .. math::
+        \text{Softplus}(x) = \log(1 + \exp(x))
+
+    where :math:`x` is the input value to the activation function. The function
+    operates on each element of the input data independently, ensuring a smooth
+    transition from linear to non-linear behavior, which can aid in the training
+    of neural networks by providing differentiability.
+    """
+    ),  
+    parameters =_activation_doc['parameters'].format(afmt="Softplus"), 
+    methods = _activation_doc['methods'].format(afmt='Softplus'),
+) 
+class SoftplusTransformer(BaseEstimator, TransformerMixin):
+    """
+    Softplus Activation Transformer.
+
+    Applies the Softplus activation function element-wise to the input data.
+
+    {mathf}
+
+    {parameters}
+    
+    verbose : int, default ``0``
+        Verbosity level for logging. Ranges from ``0`` (no output) to
+        ``7`` (most detailed output).
+
+    {methods}
+
+    Examples
+    --------
+    >>> from gofast.transformers.activations import SoftplusTransformer
+    >>> import numpy as np
+    >>> X = np.array([[1.0, -2.0], [3.0, 4.0]])
+    >>> transformer = SoftplusTransformer(scale=1.0, shift=0.0, backend='numpy',
+    ...                                      verbose=1)
+    >>> transformer.fit(X)
+    SoftplusTransformer()
+    >>> transformed_X = transformer.transform(X)
+    Using backend: numpy
+    Processed batch 0 to 2.
+    >>> print(transformed_X)
+    [[1.31326169 0.12692801]
+     [3.04858735 4.01814993]]
+
+    Notes
+    -----
+    The Softplus activation function provides a smooth and differentiable
+    alternative to the ReLU activation, which can help in training neural networks
+    by mitigating issues like dying ReLUs. It is particularly useful in scenarios
+    where a non-linear activation is required but smoothness is preferred.
+
+    See also
+    --------
+    ReLUTransformer : Transformer applying the ReLU activation function.
+    HardSwishTransformer : Transformer applying the Hard Swish activation function.
+    
+    References
+    ----------
+    .. [1] Glorot, X., & Bengio, Y. (2010). Understanding the difficulty 
+       of training deep feedforward neural networks. In *Proceedings of the 
+       13th International Conference on Artificial Intelligence and 
+       Statistics* (pp. 249-256).
+    """
+    @validate_params ( { 
+        "scale": [ Interval(Real, 0, None, closed ='neither' )], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
+        "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
+        "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+        "backend": [StrOptions (_VALID_BACKEND_SET), None]
+        }
+    )
+    def __init__(
+        self,
+        scale = 1.0,
+        shift = 0.0,
+        precision = 1e-6,
+        batch_size = None,
+        backend = None,
+        verbose= 0
+    ):
+        self.scale = scale
+        self.shift = shift
+        self.precision = precision
+        self.batch_size = batch_size
+        self.backend = backend
+        self.verbose = verbose
+        
+    @Appender(
+        _activation_doc['fit'].format(fmt='SoftplusTransformer'), 
+        join= "\n", 
+        )
+    def fit(self, X, y=None):
+        """Fit the transformer."""
+        return self
+    
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
+    @doc(_shared_docs['activation_transform'])
+    def transform(self, X):
+        backend = select_backend_n(self.backend)
+        
+        if self.verbose >= 1:
+            self._log(1, f"Using backend: {backend}")
+
+        swish_func = self._get_softplus_function(backend)
+
+        X_transformed = []
+        total_samples  = X.shape[0]
+        batch_size     = self.batch_size or total_samples
+
+        for start in range(0, total_samples, batch_size):
+            end   = start + batch_size
+            batch = X[start:end]
+            if self.verbose >= 2:
+                self._log(2, f"Processing batch {start} to {end}.")
+
+            transformed_batch = swish_func(batch)
+            transformed_batch = (
+                self.scale * transformed_batch + self.shift
+            )
+
+            if self.precision:
+                transformed_batch = self._apply_precision(
+                    transformed_batch, backend
+                )
+
+            X_transformed.append(transformed_batch)
+
+            if self.verbose >= 3:
+                self._log(3, f"Batch {start}-{end} transformed.")
+
+        return self._concatenate_batches(X_transformed, backend)
+
+    @ensure_pkg(
+        "tensorflow", 
+        extra="'tensorflow' backend is selected while the library is missing", 
+        partial_check= True,
+        condition= lambda *args, **kwargs: kwargs.get("backend")=="tensorflow"
+    )
+    @ensure_pkg(
+        "torch", 
+        extra="'torch' backend is selected while the library is missing", 
+        partial_check= True,
+        condition= lambda *args, **kwargs: kwargs.get("backend")=="torch"
+    )
+    def _get_softplus_function(self, backend):
+        """
+        Retrieve the appropriate Softplus function based on the backend.
+        """
+        if backend == 'numpy':
+            return self._softplus_numpy
+        elif backend == 'tensorflow':
+            return self._softplus_tensorflow
+        elif backend == 'torch':
+            return self._softplus_torch
+
+    def _softplus_numpy(self, x):
+        """
+        Apply Softplus activation using NumPy.
+        """
+        return np.log1p(np.exp(x))  # Softplus = log(1 + exp(x))
+
+    def _softplus_tensorflow(self, x):
+        """
+        Apply Softplus activation using TensorFlow.
+        """
+        import tensorflow as tf
+        return tf.math.softplus(x)
+
+    def _softplus_torch(self, x):
+        """
+        Apply Softplus activation using PyTorch.
+        """
+        import torch
+        return torch.nn.functional.softplus(x)
+
+    def _apply_precision(self, transformed_batch, backend):
+        """
+        Apply precision rounding to the transformed batch.
+        """
+        if backend == 'numpy':
+            return np.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif backend == 'tensorflow':
+            import tensorflow as tf
+            return tf.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif backend == 'torch':
+            import torch
+            return torch.round(
+                transformed_batch / self.precision
+            ) * self.precision
+
+    def _concatenate_batches(self, X_transformed, backend):
+        """
+        Concatenate all transformed batches into a single array/tensor.
+        """
+        if backend == 'numpy':
+            return np.vstack(X_transformed)
+        elif backend == 'tensorflow':
+            import tensorflow as tf
+            return tf.concat(X_transformed, axis=0)
+        elif backend == 'torch':
+            import torch
+            return torch.cat(X_transformed, dim=0)
+
+    def _log(self, level, message):
+        """
+        Handle logging based on the verbosity level.
+        """
+        if self.verbose >= level:
+            print(message)
+
+
+# GELU Activation Transformer (Gaussian Error Linear Unit)
+@doc( 
+    mathf =dedent( 
+    """\
+    The GELU function is defined as:
+    
+    .. math::
+       \text{GELU}(x) = 0.5 \cdot x \cdot
+       \left(1 + \text{erf}\left(\frac{x}{\sqrt{2}}\right)\right)
+    
+    where :math:`\text{erf}` is the error function,
+    and :math:`x` is the input value.
+    """
+    ),  
+    parameters =_activation_doc['parameters'].format(afmt="Softplus"), 
+    methods = _activation_doc['methods'].format(afmt='Softplus'),
+) 
+class GELUTransformer(BaseEstimator, TransformerMixin):
+    """
+    GELU (Gaussian Error Linear Unit) Transformer.
+    
+    Applies the GELU activation function element-wise to the input
+    data. The GELU function introduces non-linearity in neural
+    networks, providing benefits similar to dropout and
+    regularization by enabling smoother gradients.
+    
+    {mathf}
+    
+    {parameters}
+    
+    verbose : int, default ``0``
+       Verbosity level for logging. Ranges from ``0`` (no output)
+       to ``7`` (most detailed output).
+       
+    {methods}
+    
+    Examples
+    --------
+    >>> from gofast.transformers.activations import GELUTransformer
+    >>> import numpy as np
+    >>> X = np.array([[0.0, -1.0], [2.0, 3.0]])
+    >>> transformer = GELUTransformer(scale=1.0, shift=0.0,
+    ...                              backend='numpy', verbose=2)
+    >>> transformer.fit(X)
+    GELUTransformer()
+    >>> transformed_X = transformer.transform(X)
+    Using backend: numpy
+    Processing batch 0 to 2.
+    Batch 0-2 transformed.
+    >>> print(transformed_X)
+    [[0.         -0.15865525]
+     [1.84119224 2.99627208]]
+    
+    Notes
+    -----
+    The GELU activation function is widely used in modern neural
+    network architectures, including transformers and BERT models.
+    Its probabilistic interpretation allows neurons to decide the
+    extent to which they should be activated, potentially leading
+    to better model performance and convergence properties [1]_.
+    
+    See also
+    --------
+    ReLUTransformer : Transformer applying the ReLU activation
+       function.
+    SELUTransformer : Transformer applying the SELU activation
+       function.
+    
+    References
+    ----------
+    .. [1] Hendrycks, D., & Gimpel, K. (2016). Gaussian Error Linear Units
+           (GELUs). In *Proceedings of the 33rd International Conference on
+           International Conference on Machine Learning* (Vol. 48, pp.
+           2340-2348).
+    """
+    @validate_params ( { 
+        "scale": [ Interval(Real, 0, None, closed ='neither' )], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
+        "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
+        "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+        "backend": [StrOptions (_VALID_BACKEND_SET), None]
+        }
+    )
+    def __init__(
+        self,
+        scale = 1.0,
+        shift = 0.0,
+        precision = 1e-6,
+        batch_size = None,
+        backend = None,
+        verbose= 0
+    ):
+        self.scale = scale
+        self.shift = shift
+        self.precision = precision
+        self.batch_size = batch_size
+        self.backend = backend
+        self.verbose = verbose
+
+    @Appender(
+        _activation_doc['fit'].format(fmt='GELUTransformer'), 
+        join= "\n", 
+        )
+    def fit(self, X, y=None):
+        """Fit the transformer."""
+        return self
+    
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
+    @doc(_shared_docs['activation_transform'])
+    def transform(self, X):
+
+        backend = select_backend_n(self.backend)
+
+        if self.verbose >= 1:
+            self._log(1, f"GELU computed using backend: {backend}")
+
+        gelu_func = self._get_gelu_function(backend)
+
+        X_transformed = []
+        total_samples  = X.shape[0]
+        batch_size     = self.batch_size or total_samples
+
+        for start in range(0, total_samples, batch_size):
+            end   = start + batch_size
+            batch = X[start:end]
+            if self.verbose >= 2:
+                self._log(2, f"Processing batch {start} to {end}.")
+
+            transformed_batch = gelu_func(batch)
+            transformed_batch = (
+                self.scale * transformed_batch + self.shift
+            )
+
+            if self.precision:
+                transformed_batch = self._apply_precision(
+                    transformed_batch, backend
+                )
+
+            X_transformed.append(transformed_batch)
+
+            if self.verbose >= 3:
+                self._log(3, f"Batch {start}-{end} transformed.")
+
+        return self._concatenate_batches(X_transformed, backend)
+
+    @ensure_pkg(
+        "tensorflow", 
+        extra="'tensorflow' backend is selected while the library is missing", 
+        partial_check= True,
+        condition= lambda *args, **kwargs: kwargs.get("backend")=="tensorflow"
+    )
+    @ensure_pkg(
+        "torch", 
+        extra="'torch' backend is selected while the library is missing", 
+        partial_check= True,
+        condition= lambda *args, **kwargs: kwargs.get("backend")=="torch"
+    )
+    def _get_gelu_function(self, backend):
+        """
+        Retrieve the appropriate GELU function based on the backend.
+        """
+        if backend == 'numpy':
+            return self._gelu_numpy
+        elif backend == 'tensorflow':
+            return self._gelu_tensorflow
+        elif backend == 'torch':
+            return self._gelu_torch
+
+    def _gelu_numpy(self, x):
+        """
+        Apply GELU activation using NumPy.
+        """
+        # GELU = 0.5 * x * (1 + erf(x / sqrt(2)))
+        # return 0.5 * x * (1 + np.erf(x / np.sqrt(2)))
+        return 0.5 * x * (1 + safe_erf(x / np.sqrt(2)))
+
+    def _gelu_tensorflow(self, x):
+        """
+        Apply GELU activation using TensorFlow.
+        """
+        
+        import tensorflow as tf
+        return 0.5 * x * (1 + tf.math.erf(x / np.sqrt(2)))
+
+    def _gelu_torch(self, x):
+        """
+        Apply GELU activation using PyTorch.
+        """
+        import torch
+        return 0.5 * x * (1 + torch.erf(x / np.sqrt(2)))
+
+    def _apply_precision(self, transformed_batch, backend):
+        """
+        Apply precision rounding to the transformed batch.
+        """
+        if backend == 'numpy':
+            return np.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif backend == 'tensorflow':
+            
+            import tensorflow as tf
+            return tf.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif backend == 'torch':
+            import torch
+            return torch.round(
+                transformed_batch / self.precision
+            ) * self.precision
+
+    def _concatenate_batches(self, X_transformed, backend):
+        """
+        Concatenate all transformed batches into a single array/tensor.
+        """
+        if backend == 'numpy':
+            return np.vstack(X_transformed)
+        elif backend == 'tensorflow':
+            
+            import tensorflow as tf
+            return tf.concat(X_transformed, axis=0)
+        elif backend == 'torch':
+            import torch
+            return torch.cat(X_transformed, dim=0)
+
+    def _log(self, level, message):
+        """
+        Handle logging based on the verbosity level.
+        """
+        if self.verbose >= level:
+            print(message)
+
+@doc( 
+    mathf =dedent( 
+    """\
+    The SELU function is defined as:
+    
+    {mathf}
+    .. math::
+       \text{SELU}(x) = \lambda \cdot 
+       \begin{cases}
+           x & \text{if } x > 0 \\
+           \alpha \cdot (\exp(x) - 1) & \text{otherwise}
+       \end{cases}
+    
+    where :math:`\lambda` and :math:`\alpha` are fixed constants:
+    
+    .. math::
+       \lambda = 1.0507, \quad \alpha = 1.6733
+    """
+    ),  
+    methods = _activation_doc['methods'].format(afmt='SELU'),
+) 
+class SELUTransformer(BaseEstimator, TransformerMixin):
+    """
+    SELU (Scaled Exponential Linear Unit) Transformer.
+    
+    Applies the SELU activation function element-wise to the input
+    data. The SELU function automatically scales inputs to maintain
+    mean and variance, which can help in self-normalizing neural
+    networks. This property reduces the need for other normalization
+    techniques like batch normalization.
+    
+    The SELU function is defined as:
+    
+    {mathf}
+    
+    Parameters
+    ----------
+    scale : float, default ``1.0507``
+       Scaling factor (:math:`\lambda`) applied to the transformed data.
+    
+    alpha : float, default ``1.6733``
+       Scaling factor (:math:`\alpha`) for negative inputs in the SELU
+       function.
+    
+    shift : float, default ``0.0``
+       Shifting value added to the scaled data.
+    
+    precision : float, default ``1e-6``
+       Precision for rounding the transformed data.
+    
+    batch_size : int or None, default ``None``
+       Number of samples per batch. If ``None``, the entire dataset
+       is processed in a single batch.
+    
+    backend : str or None, default ``None``
+       Computational backend to use. Supported backends are:
+       
+       - ``'numpy'``: Uses NumPy for computations.
+       - ``'tensorflow'``: Uses TensorFlow for computations.
+       - ``'torch'``: Uses PyTorch for computations.
+       
+       If ``None``, defaults to ``'numpy'``.
+    
+    verbose : int, default ``0``
+       Verbosity level for logging. Ranges from ``0`` (no output)
+       to ``7`` (most detailed output).
+    
+    {methods}
+    
+    Examples
+    --------
+    >>> from gofast.transformers.activations import SELUTransformer
+    >>> import numpy as np
+    >>> X = np.array([[0.0, -1.0], [2.0, 3.0]])
+    >>> transformer = SELUTransformer(scale=1.0507, alpha=1.6733,
+    ...                              backend='numpy', verbose=2)
+    >>> transformer.fit(X)
+    SELUTransformer()
+    >>> transformed_X = transformer.transform(X)
+    Using backend: numpy
+    Processing batch 0 to 2.
+    Batch 0-2 transformed.
+    >>> print(transformed_X)
+    [[0.         -1.75960178]
+     [2.1014     3.1521    ]]
+    
+    Notes
+    -----
+    The SELU activation function is designed to induce self-normalizing
+    properties in neural networks, helping maintain the mean and
+    variance of activations throughout the network layers. This can lead
+    to faster convergence during training and improved overall
+    performance [1]_.
+    
+    It is essential to use SELU with architectures that support
+    self-normalization, such as fully connected feedforward networks
+    with appropriate weight initialization.
+    
+    See also
+    --------
+    ReLUTransformer : Transformer applying the ReLU activation
+       function.
+    GELUTransformer : Transformer applying the GELU activation
+       function.
+    
+    References
+    ----------
+    .. [1] Klambauer, G., Unterthiner, T., Mayr, A., & Hochreiter, S.
+       (2017). Self-normalizing neural networks. In *Proceedings of the
+       30th International Conference on Neural Information Processing
+       Systems* (pp. 972-982).
+    """
+    @validate_params ( { 
+        "alpha": [Interval(Real, 1 , None , closed ="left")], 
+        "scale": [ Interval(Real, 0, None, closed ='neither' )], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
+        "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
+        "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+        "backend": [StrOptions (_VALID_BACKEND_SET), None]
+        }
+    )
+    def __init__(
+        self,
+        alpha = 1.6733,
+        scale = 1.0507,
+        shift = 0.0,
+        precision = 1e-6,
+        batch_size = None,
+        backend = None,
+        verbose= 0
+    ):
+        self.scale = scale
+        self.alpha = alpha
+        self.shift = shift
+        self.precision = precision
+        self.batch_size = batch_size
+        self.backend = backend
+        self.verbose = verbose
+
+    @Appender(
+        _activation_doc['fit'].format(fmt='SELUTransformer'), 
+        join= "\n", 
+        )
+    def fit(self, X, y=None):
+        """Fit the transformer."""
+        return self
+    
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
+    @doc(_shared_docs['activation_transform'])
+    def transform(self, X):
+
+        backend = select_backend_n(self.backend)
+
+        if self.verbose >= 1:
+            self._log(1, f"SELU computation using backend: {backend}")
+
+        selu_func = self._get_selu_function(backend)
+
+        X_transformed = []
+        total_samples  = X.shape[0]
+        batch_size     = self.batch_size or total_samples
+
+        for start in range(0, total_samples, batch_size):
+            end   = start + batch_size
+            batch = X[start:end]
+            if self.verbose >= 2:
+                self._log(2, f"Processing batch {start} to {end}.")
+
+            transformed_batch = selu_func(batch)
+            transformed_batch = (
+                self.scale * transformed_batch + self.shift
+            )
+
+            if self.precision:
+                transformed_batch = self._apply_precision(
+                    transformed_batch, backend
+                )
+
+            X_transformed.append(transformed_batch)
+
+            if self.verbose >= 3:
+                self._log(3, f"Batch {start}-{end} transformed.")
+
+        return self._concatenate_batches(X_transformed, backend)
+
+    @ensure_pkg(
+        "tensorflow", 
+        extra="'tensorflow' backend is selected while the library is missing", 
+        partial_check= True,
+        condition= lambda *args, **kwargs: kwargs.get("backend")=="tensorflow"
+    )
+    @ensure_pkg(
+        "torch", 
+        extra="'torch' backend is selected while the library is missing", 
+        partial_check= True,
+        condition= lambda *args, **kwargs: kwargs.get("backend")=="torch"
+    )
+    def _get_selu_function(self, backend):
+        """
+        Retrieve the appropriate SELU function based on the backend.
+        """
+        if backend == 'numpy':
+            return self._selu_numpy
+        elif backend == 'tensorflow':
+            return self._selu_tensorflow
+        elif backend == 'torch':
+            return self._selu_torch
+
+    def _selu_numpy(self, x):
+        """
+        Apply SELU activation using NumPy.
+        """
+        # SELU = scale * (x if x > 0 else alpha * (exp(x) - 1))
+        return self.scale * np.where(
+            x > 0,
+            x,
+            self.alpha * (np.exp(x) - 1)
+        )
+
+    def _selu_tensorflow(self, x):
+        """
+        Apply SELU activation using TensorFlow.
+        """
+        import tensorflow as tf
+        return self.scale * tf.where(
+            x > 0,
+            x,
+            self.alpha * (tf.exp(x) - 1)
+        )
+
+    def _selu_torch(self, x):
+        """
+        Apply SELU activation using PyTorch.
+        """
+        import torch
+        return self.scale * torch.where(
+            x > 0,
+            x,
+            self.alpha * (torch.exp(x) - 1)
+        )
+
+    def _apply_precision(self, transformed_batch, backend):
+        """
+        Apply precision rounding to the transformed batch.
+        """
+        if backend == 'numpy':
+            return np.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif backend == 'tensorflow':
+            import tensorflow as tf
+            return tf.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif backend == 'torch':
+            import torch
+            return torch.round(
+                transformed_batch / self.precision
+            ) * self.precision
+
+    def _concatenate_batches(self, X_transformed, backend):
+        """
+        Concatenate all transformed batches into a single array/tensor.
+        """
+        if backend == 'numpy':
+            return np.vstack(X_transformed)
+        elif backend == 'tensorflow':
+            import tensorflow as tf
+            return tf.concat(X_transformed, axis=0)
+        elif backend == 'torch':
+            import torch
+            return torch.cat(X_transformed, dim=0)
+
+    def _log(self, level, message):
+        """
+        Handle logging based on the verbosity level.
+        """
+        if self.verbose >= level:
+            print(message)
+
 #XXX OPTIMIZE 
 # revise this activation transformer and make it more robust :
 # apply 
@@ -2027,95 +2967,14 @@ class HardSigmoidTransformer(BaseEstimator, TransformerMixin):
 # backend=None, 
 # verbose=False
 # skip WRITING THE  the documentation FOR BRIVEITY  to make it more robust and apply 
-# the back size applycation if set and also the backend operatiosn 
+# the back size applIcation if set and also the backend operatiosn 
 # for numpy default if None or tensorflow or torch 
 # Dont document the __init__method and use vertical aligment for parameters listing 
-
-
-# Hard Swish Activation Transformer
-class HardSwishTransformer(BaseEstimator, TransformerMixin):
-    """
-    Hard Swish Activation Transformer.
-
-    This transformer applies the Hard Swish activation function element-wise 
-    to the input data. The Hard Swish function is an approximation of the Swish 
-    function, defined as:
-    - HardSwish(x) = x * HardSigmoid(x)
-    """
-    
-    def __init__(self):
-        pass
-    
-    def fit(self, X, y=None):
-        return self
-    
-    def transform(self, X):
-        # Using the previously defined HardSigmoid
-        hard_sigmoid = np.clip(0.2 * X + 0.5, 0, 1)
-        return X * hard_sigmoid
-
-# Softplus Activation Transformer
-class SoftplusTransformer(BaseEstimator, TransformerMixin):
-    """
-    Softplus Activation Transformer.
-
-    This transformer applies the Softplus activation function element-wise 
-    to the input data. The Softplus function is a smooth approximation of the ReLU 
-    function, defined as:
-    - Softplus(x) = log(1 + exp(x))
-    """
-    
-    def __init__(self):
-        pass
-    
-    def fit(self, X, y=None):
-        return self
-    
-    def transform(self, X):
-        return np.log1p(np.exp(X))  # Softplus = log(1 + exp(x))
-
-
-# GELU Activation Transformer (Gaussian Error Linear Unit)
-class GELUTransformer(BaseEstimator, TransformerMixin):
-    """
-    GELU (Gaussian Error Linear Unit) Transformer.
-
-    This transformer applies the GELU activation function element-wise to the 
-    input data. The GELU function is defined as:
-    - GELU(x) = 0.5 * x * (1 + erf(x / sqrt(2)))
-    where `erf` is the error function.
-    """
-    
-    def __init__(self):
-        pass
-    
-    def fit(self, X, y=None):
-        return self
-    
-    def transform(self, X):
-        return 0.5 * X * (1 + np.erf(X / np.sqrt(2)))  # GELU = 0.5 * x * (1 + erf(x / sqrt(2)))
-
+# break long line of code using the parenthesis and and vertical aligment. 
+# for long message in the code, break it using Python " strategy.
+# The verbosity should go from 0 to 7 to help debugging. 
+#  WRITE THE CODE NOT THE DOCTRINGS 
 # SELU Activation Transformer (Scaled Exponential Linear Unit)
-class SELUTransformer(BaseEstimator, TransformerMixin):
-    """
-    SELU (Scaled Exponential Linear Unit) Transformer.
-
-    This transformer applies the SELU activation function element-wise to the 
-    input data. The SELU function is defined as:
-    - SELU(x) = scale * (x if x > 0 else alpha * (exp(x) - 1))
-    where `scale` and `alpha` are fixed constants.
-    """
-    
-    def __init__(self, scale=1.0507, alpha=1.6733):
-        self.scale = scale
-        self.alpha = alpha
-    
-    def fit(self, X, y=None):
-        return self
-    
-    def transform(self, X):
-        return self.scale * np.where(X > 0, X, self.alpha * (np.exp(X) - 1))  # SELU = scale * (x if x > 0 else alpha * (exp(x) - 1))
-
 # Mish Activation Transformer
 class MishTransformer(BaseEstimator, TransformerMixin):
     """

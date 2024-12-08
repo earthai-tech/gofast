@@ -13,7 +13,7 @@ TensorFlow.
 """
 import warnings
 from .generate import create_sequences, data_generator
-from ..compat.tf import import_keras_dependencies, check_keras_backend
+from ..compat.tf import import_keras_dependencies, check_keras_backend, standalone_keras
 from ._config import configure_dependencies, Config as config
 
 # Set default configuration
@@ -108,7 +108,19 @@ if KERAS_BACKEND:
     # Get necessary classes and functions from Keras dependencies
     Layer = KERAS_DEPS.Layer 
     # Equivalent to: from tensorflow.keras import activations
-    activations = KERAS_DEPS.activations  
+    try:
+        activations = KERAS_DEPS.activations  
+    except (ImportError, AttributeError) as e: 
+        try: 
+            activations = standalone_keras('activations')
+        except: 
+            raise ImportError (str(e))
+    except: 
+        raise ImportError(
+                "Module 'activations' could not be imported from either "
+                "tensorflow.keras or standalone keras. Ensure that TensorFlow "
+                "or standalone Keras is installed and the module exists."
+            )
 
     class Activation(Layer):
         """
