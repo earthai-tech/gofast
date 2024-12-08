@@ -12,6 +12,7 @@ import copy
 import inspect
 import warnings
 import itertools
+from numbers import Real
 
 import scipy.stats as spstats
 from scipy._lib._util import float_factorial
@@ -37,18 +38,24 @@ from ..api.types import (
     _SP, 
     _T,
 )
-
-from ..decorators import AppendDocReferences
-from .validator import _is_arraylike_1d, assert_xy_in, check_y
-from .coreutils import (
-    reshape, 
-    is_iterable, 
+from ..core.array_manager import reshape 
+from ..core.checks import ( 
     _assert_all_types, 
-    ellipsis2false, 
-    smart_format, 
-    assert_ratio,
-)
+    is_iterable,
+    str2columns, 
+    exist_features, 
+    assert_ratio, 
+    )
+from ..compat.sklearn import validate_params, StrOptions, Interval 
+from ..core.io import is_data_readable 
+from ..core.utils import ellipsis2false, smart_format 
+from ..decorators import Deprecated, AppendDocReferences, isdf 
 
+from .validator import ( 
+    _is_arraylike_1d, 
+    assert_xy_in, check_y, 
+    validate_positive_integer
+    )
 
 __all__ = [
      'adaptive_moving_average',
@@ -64,7 +71,6 @@ __all__ = [
      'get_profile_angle',
      'get_station_number',
      'make_ids',
-     'make_mxs',
      'moving_average',
      'numstr2dms',
      'quality_control2',
@@ -75,10 +81,852 @@ __all__ = [
      'scale_positions',
      'show_stats',
      'station_id',
-     'torres_verdin_filter'
+     'torres_verdin_filter', 
+     'spatial_sampling', 
+     'extract_coordinates', 
+     'batch_spatial_sampling', 
+     'make_mxs_labels',
+     'extract_coordinates', 
  ]
 
-def make_mxs(
+
+@isdf 
+def extract_coordinates(
+    df: pd.DataFrame,
+    as_frame: bool = False,
+    drop_xy: bool = False,
+    error: Union[bool, str] = 'raise',
+    verbose: int = 0
+) -> Tuple[Union[Tuple[float, float], pd.DataFrame, None], pd.DataFrame, Tuple[str, str]]:
+    """
+    Identifies coordinate columns (longitude/latitude or easting/northing) 
+    in a DataFrame, returns the coordinates or their central values, and 
+    optionally removes the coordinate columns from the DataFrame.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame expected to contain coordinates (`longitude` and 
+        `latitude` or `easting` and `northing`). If both types are present, 
+        `longitude` and `latitude` are prioritized.
+
+    as_frame : bool, default=False
+        If True, returns the coordinate columns as a DataFrame. If False, 
+        computes and returns the midpoint values.
+
+    drop_xy : bool, default=False
+        If True, removes coordinate columns (`longitude`/`latitude` or 
+        `easting`/`northing`) from the DataFrame after extracting them.
+
+    error : Union[bool, str], {'raise', 'warn', 'ignore'} default='raise'
+        If True, raises an error if `df` is not a DataFrame. If set to False, 
+        converts errors to warnings. If set to ``"ignore"``, suppresses 
+        warnings.
+
+    verbose : int, default=0
+        If greater than 0, outputs messages about coordinate detection.
+
+    Returns
+    -------
+    Tuple[Union[Tuple[float, float], pd.DataFrame, None], pd.DataFrame, Tuple[str, str]]
+        - A tuple containing either the midpoint (longitude, latitude) or 
+          (easting, northing) if `as_frame=False` or the coordinate columns 
+          as a DataFrame if `as_frame=True`.
+        - The original DataFrame, optionally with coordinates removed if 
+          `drop_xy=True`.
+        - A tuple of detected coordinate column names, or an empty tuple if 
+          none are detected.
+
+    Notes
+    -----
+    - This function searches for either `longitude`/`latitude` or 
+      `easting`/`northing` columns and returns them as coordinates. If both 
+      are found, `longitude`/`latitude` is prioritized.
+      
+    - To calculate the midpoint of the coordinates, the function averages 
+      the values in the columns:
+
+      .. math::
+          \text{midpoint} = \left(\frac{\text{longitude}_{min} + \text{longitude}_{max}}{2}, 
+          \frac{\text{latitude}_{min} + \text{latitude}_{max}}{2}\right)
+
+    Examples
+    --------
+    >>> import gofast as gf
+    >>> from gofast.tools.datautils import extract_coordinates
+    >>> testdata = gf.datasets.make_erp(n_stations=7, seed=42).frame
+
+    # Extract midpoint coordinates
+    >>> xy, d, xynames = extract_coordinates(testdata)
+    >>> xy, xynames
+    ((110.48627946874444, 26.051952363176344), ('longitude', 'latitude'))
+
+    # Extract coordinates as a DataFrame without removing columns
+    >>> xy, d, xynames = extract_coordinates(testdata, as_frame=True)
+    >>> xy.head(2)
+       longitude   latitude
+    0  110.485833  26.051389
+    1  110.485982  26.051577
+
+    # Drop coordinate columns from the DataFrame
+    >>> xy, d, xynames = extract_coordinates(testdata, drop_xy=True)
+    >>> xy, xynames
+    ((110.48627946874444, 26.051952363176344), ('longitude', 'latitude'))
+    >>> d.head(2)
+       station  resistivity
+    0      0.0          1.0
+    1     20.0        167.5
+
+    References
+    ----------
+    .. [1] Fotheringham, A. Stewart, *Geographically Weighted Regression: 
+           The Analysis of Spatially Varying Relationships*, Wiley, 2002.
+
+    See Also
+    --------
+    pd.DataFrame : Main pandas data structure for handling tabular data.
+    np.nanmean : Computes the mean along specified axis, ignoring NaNs.
+    """
+    
+    def rename_if_exists(val: str, col: pd.Index, default: str) -> pd.DataFrame:
+        """Rename column in `d` if `val` is found in column names."""
+        match = list(filter(lambda x: val in x.lower(), col))
+        if match:
+            df.rename(columns={match[0]: default}, inplace=True)
+        return df
+
+    # Validate input is a DataFrame
+    if not (hasattr(df, 'columns') and hasattr(df, '__array__')):
+        emsg = ("Expected a DataFrame containing coordinates (`longitude`/"
+                "`latitude` or `easting`/`northing`). Got type: "
+                f"{type(df).__name__!r}")
+        
+        error = str(error).lower().strip()
+        if error == 'raise':
+            raise TypeError(emsg)
+        if error =='warn':
+            warnings.warn(emsg)
+        return None, df, ()
+
+    # Rename columns to standardized names if they contain coordinate values
+    for name, std_name in zip(['lat', 'lon', 'east', 'north'], 
+                              ['latitude', 'longitude', 'easting', 'northing']):
+        df = rename_if_exists(name, df.columns, std_name)
+
+    # Check for and prioritize coordinate columns
+    coord_columns = []
+    for x, y in [('longitude', 'latitude'), ('easting', 'northing')]:
+        if x in df.columns and y in df.columns:
+            coord_columns = [x, y]
+            break
+
+    # Extract coordinates as DataFrame or midpoint
+    if coord_columns:
+        xy = df[coord_columns] if as_frame else tuple(
+            np.nanmean(df[coord_columns].values, axis=0))
+    else:
+        xy = None
+    
+    # Drop coordinates if `drop_xy=True`
+    if drop_xy and coord_columns:
+        df.drop(columns=coord_columns, inplace=True)
+
+    # Verbose messaging
+    if verbose > 0:
+        print("###", "No" if not coord_columns else coord_columns, "coordinates found.")
+    
+    return xy, df, tuple(coord_columns)
+
+@Deprecated(reason=( 
+    "This function is deprecated and will be removed in future versions. "
+    "Please use `extract_coordinates` instead, which provides enhanced "
+    "flexibility and robustness for coordinate extraction.")
+)
+def get_xy_coordinates(
+        df, as_frame=False, drop_xy=False, raise_exception=True, verbose=0
+    ):
+    """Check whether the coordinate values x, y exist in the data.
+    
+    Parameters 
+    ------------
+    df: Dataframe 
+       Frame that is expected to contain the longitude/latitude or 
+       easting/northing coordinates.  Note if all types of coordinates are
+       included in the data frame, the longitude/latitude takes the 
+       priority. 
+    as_frame: bool, default= False, 
+       Returns the coordinates values if included in the data as a frame rather 
+       than computing the middle points of the line 
+    drop_xy: bool, default=False, 
+       Drop the coordinates in the data and return the data transformed inplace 
+       
+    raise_exception: bool, default=True 
+       raise error message if data is not a dataframe. If set to ``False``, 
+       exception is converted to a warning instead. To mute the warning set 
+       `raise_exception` to ``mute``
+       
+    verbose: int, default=0 
+      Send message whether coordinates are detected. 
+         
+    returns 
+    --------
+    xy, d, xynames: Tuple 
+      xy : tuple of float ( longitude, latitude) or (easting/northing ) 
+         if `as_frame` is set to ``True``. 
+      d: Dataframe transformed (coordinated removed )  or not
+      xynames: str, the name of coordinates detected. 
+      
+    Examples 
+    ----------
+    >>> import gofast as gf 
+    >>> from gofast.tools.datautils import get_xy_coordinates 
+    >>> testdata = gf.make_erp ( n_stations =7, seed =42 ).frame 
+    >>> xy, d, xynames = get_xy_coordinates ( testdata,  )
+    >>> xy , xynames 
+    ((110.48627946874444, 26.051952363176344), ('longitude', 'latitude'))
+    >>> xy, d, xynames = get_xy_coordinates ( testdata, as_frame =True  )
+    >>> xy.head(2) 
+        longitude   latitude        easting      northing
+    0  110.485833  26.051389  448565.380621  2.881476e+06
+    1  110.485982  26.051577  448580.339199  2.881497e+06
+    >>> # remove longitude and  lat in data 
+    >>> testdata = testdata.drop (columns =['longitude', 'latitude']) 
+    >>> xy, d, xynames = get_xy_coordinates ( testdata, as_frame =True  )
+    >>> xy.head(2) 
+             easting      northing
+    0  448565.380621  2.881476e+06
+    1  448580.339199  2.881497e+06
+    >>> # note testdata should be transformed inplace when drop_xy is set to True
+    >>> xy, d, xynames = get_xy_coordinates ( testdata, drop_xy =True)
+    >>> xy, xynames 
+    ((448610.25612032827, 2881538.4380570543), ('easting', 'northing'))
+    >>> d.head(2)
+       station  resistivity
+    0      0.0          1.0
+    1     20.0        167.5
+    >>> testdata.head(2) # coordinates are henceforth been dropped 
+       station  resistivity
+    0      0.0          1.0
+    1     20.0        167.5
+    >>> xy, d, xynames = get_xy_coordinates ( testdata, drop_xy =True)
+    >>> xy, xynames 
+    (None, ())
+    >>> d.head(2)
+       station  resistivity
+    0      0.0          1.0
+    1     20.0        167.5
+
+    """   
+    
+    def get_value_in ( val,  col , default): 
+        """ Get the value in the frame columns if `val` exists in """
+        x = list( filter ( lambda x: x.find (val)>=0 , col)
+                   )
+        if len(x) !=0: 
+            # now rename col  
+            df.rename (columns = {x[0]: str(default) }, inplace = True ) 
+            
+        return df
+
+    if not (
+            hasattr ( df, 'columns') and hasattr ( df, '__array__') 
+            ) : 
+        emsg = ("Expect dataframe containing coordinates longitude/latitude"
+                f" or easting/northing. Got {type (df).__name__!r}")
+        
+        raise_exception = str(raise_exception).lower().strip() 
+        if raise_exception=='true': 
+            raise TypeError ( emsg )
+        
+        if raise_exception  not in ('mute', 'silence'):  
+            warnings.warn( emsg )
+       
+        return df 
+    
+    # check whether coordinates exists in the data columns 
+    for name, tname in zip ( ('lat', 'lon', 'east', 'north'), 
+                     ( 'latitude', 'longitude', 'easting', 'northing')
+                     ) : 
+        df = get_value_in(name, col = df.columns , default = tname )
+       
+    # get the exist coodinates 
+    coord_columns  = []
+    for x, y in zip ( ( 'longitude', 'easting' ), ( 'latitude', 'northing')):
+        if ( x  in df.columns and y in df.columns ): 
+            coord_columns.extend  ( [x, y] )
+
+    xy  = df[ coord_columns] if len(coord_columns)!=0 else None 
+
+    if ( not as_frame 
+        and xy is not None ) : 
+        # take the middle of the line and if both types of 
+        # coordinates are supplied , take longitude and latitude 
+        # and drop easting and northing  
+        xy = tuple ( np.nanmean ( np.array ( xy ) , axis =0 )) [:2]
+
+    xynames = tuple ( coord_columns)[:2]
+    if ( 
+            drop_xy  and len( coord_columns) !=0
+            ): 
+        # modifie the data inplace 
+        df.drop ( columns=coord_columns, inplace = True  )
+
+    if verbose: 
+        print("###", "No" if len(xynames)==0 else ( 
+            tuple (xy.columns) if as_frame else xy), "coordinates found.")
+        
+    return  xy , df , xynames 
+@isdf
+@is_data_readable 
+def batch_spatial_sampling(
+    data,
+    sample_size=0.1,
+    n_batches=10,
+    stratify_by=['year'],
+    spatial_bins=10,
+    spatial_cols=None,
+    random_state=42
+):
+    """
+    Batch resample spatial data with stratification over spatial and
+    specified columns.
+
+    This function divides the dataset into `n_batches` batches, each
+    being a stratified sample of the data. It ensures that samples in
+    the first batch are not present in subsequent batches, and so on.
+    This is particularly useful when dealing with very large datasets
+    that cannot be processed at once, allowing for batch processing in
+    machine learning algorithms.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The input DataFrame from which samples are to be drawn. It must
+        contain the spatial coordinate columns specified in
+        `spatial_cols`, and any additional columns specified in
+        `stratify_by`.
+
+    sample_size : float or int, optional
+        The total number of samples to draw from `data`. If `sample_size`
+        is a float between 0.0 and 1.0, it represents the fraction of the
+        dataset to include in the sample (e.g., `sample_size=0.1` selects
+        10% of the data). If `sample_size` is an integer, it represents
+        the absolute number of samples to select. The default is ``0.1``.
+
+    n_batches : int, optional
+        The number of batches to divide the total samples into. The
+        samples are divided as evenly as possible among the batches. The
+        default is ``10``.
+
+    stratify_by : list of str, optional
+        A list of column names in `data` to use for stratification. The
+        sampling will ensure that the distribution of these columns in
+        each batch matches the distribution in the original dataset. The
+        default is ``['year']``.
+
+    spatial_bins : int or tuple/list of int, optional
+        The number of bins to divide the spatial coordinates into for
+        stratification. If an integer, the same number of bins is used
+        for all spatial dimensions. If a tuple or list, its length must
+        match the number of spatial columns specified in `spatial_cols`,
+        and each element specifies the number of bins for that spatial
+        dimension. The default is ``10``.
+
+    spatial_cols : list or tuple of str, optional
+        A list of column names in `data` representing spatial coordinates.
+        The function can accept one or two columns (e.g., longitude and
+        latitude). If ``None``, the function will look for columns named
+        `'longitude'` and/or `'latitude'` in `data`. If only one spatial
+        column is provided or found, a warning is issued, suggesting that
+        providing both spatial columns is recommended for more accurate
+        sampling. If more than two columns are provided, an error is
+        raised.
+
+    random_state : int, optional
+        Controls the randomness of the sampling for reproducibility. This
+        integer seed is used to initialize the random number generator.
+        The default is ``42``.
+
+    Returns
+    -------
+    batches : list of pandas.DataFrame
+        A list of DataFrames, each representing a batch of the stratified
+        sampled data.
+
+    Notes
+    -----
+    The function performs stratified sampling based on spatial bins and
+    other specified stratification columns. Spatial coordinates are
+    binned using quantile-based discretization (:func:`pandas.qcut`),
+    ensuring each bin has approximately the same number of observations.
+
+    The total number of samples, :math:`n`, is divided among the batches,
+    and within each batch, samples are drawn in a stratified manner. The
+    sample size for each batch is calculated as:
+
+    .. math::
+
+        n_{\text{batch}} = \left\lfloor \frac{n}{n_{\text{batches}}} \right\rfloor
+
+    The remaining samples are distributed among the first few batches:
+
+    .. math::
+
+        n_{\text{leftover}} = n \mod n_{\text{batches}}
+
+    For each batch, the number of samples per stratification group is
+    calculated based on the proportion of the group size to the remaining
+    data size:
+
+    .. math::
+
+        n_{i} = \left\lceil \frac{N_{i}}{N_{\text{remaining}}}\\
+            \times n_{\text{batch}} \right\rceil
+
+    where:
+
+    - :math:`N_{i}` is the size of group :math:`i`.
+    - :math:`N_{\text{remaining}}` is the total number of samples
+      remaining in the data.
+    - :math:`n_{i}` is the number of samples to draw from group
+      :math:`i`.
+
+    After sampling, the selected samples are removed from the remaining
+    data to ensure that they are not selected again in subsequent batches.
+
+    Examples
+    --------
+    >>> from gofast.tools.spatialutils import batch_spatial_sampling
+    >>> sampled_batches = batch_spatial_sampling(
+    ...     data=df,
+    ...     sample_size=0.05,
+    ...     n_batches=5,
+    ...     stratify_by=['year', 'geological_category'],
+    ...     spatial_bins=(10, 15),
+    ...     spatial_cols=['longitude', 'latitude'],
+    ...     random_state=42
+    ... )
+    >>> for i, batch in enumerate(sampled_batches):
+    ...     print(f"Batch {i+1}: {batch.shape}")
+
+    See Also
+    --------
+    resample_spatial_data : Perform stratified sampling without batching.
+
+    References
+    ----------
+    .. [1] Kotsiantis, S., Kanellopoulos, D., & Pintelas, P. (2006).
+           "Data preprocessing for supervised learning." *International
+           Journal of Computer Science*, 1(2), 111-117.
+
+    """
+
+    data = data.copy()
+    total_samples = sample_size
+    if isinstance(sample_size, float):
+        if not 0 < sample_size < 1:
+            raise ValueError("When sample_size is a float, it must be between 0 and 1.")
+        total_samples = int(len(data) * sample_size)
+    elif isinstance(sample_size, int):
+        if sample_size <= 0:
+            raise ValueError("sample_size must be positive.")
+    else:
+        raise ValueError("sample_size must be a float or int.")
+
+    if total_samples > len(data):
+        raise ValueError("sample_size is larger than the dataset.")
+
+    if n_batches <= 0:
+        raise ValueError("n_batches must be a positive integer.")
+
+    sample_size_per_batch = total_samples // n_batches
+    leftover = total_samples % n_batches
+
+    batches = []
+    remaining_data = data.copy()
+    sampled_indices = set()
+    rng = np.random.RandomState(random_state)
+
+    # Set default spatial columns if not specified
+    if spatial_cols is None:
+        spatial_cols = []
+        if 'longitude' in data.columns:
+            spatial_cols.append('longitude')
+        if 'latitude' in data.columns:
+            spatial_cols.append('latitude')
+        if not spatial_cols:
+            raise ValueError(
+                "No spatial columns specified and "
+                "'longitude' and 'latitude' not found in data."
+            )
+        if len(spatial_cols) == 1:
+            warnings.warn(
+                f"Only one spatial column '{spatial_cols[0]}' found. "
+                "Using it for spatial stratification. "
+                "For more accurate sampling, providing both spatial "
+                "columns is recommended.",
+                UserWarning
+            )
+    else:
+        if not isinstance(spatial_cols, (list, tuple)):
+            raise ValueError(
+                "spatial_cols must be a list or tuple of column names."
+            )
+        if len(spatial_cols) > 2:
+            raise ValueError(
+                "spatial_cols can have at most two columns."
+            )
+        for col in spatial_cols:
+            if col not in data.columns:
+                raise ValueError(
+                    f"Spatial column '{col}' not found in data."
+                )
+        if len(spatial_cols) == 1:
+            warnings.warn(
+                f"Only one spatial column '{spatial_cols[0]}' specified. "
+                "For more accurate sampling, providing two spatial columns "
+                "is recommended.",
+                UserWarning
+            )
+    # Validate spatial_bins
+    if isinstance(spatial_bins, int):
+        n_bins_list = [spatial_bins] * len(spatial_cols)
+    elif isinstance(spatial_bins, (tuple, list)):
+        if len(spatial_bins) != len(spatial_cols):
+            raise ValueError(
+                "Length of spatial_bins must match number of spatial_cols."
+            )
+        n_bins_list = list(spatial_bins)
+    else:
+        raise ValueError(
+            "spatial_bins must be int or tuple/list of int."
+        )
+    # Create spatial bins in the original data
+    for col, n_bins, axis in zip(
+        spatial_cols, n_bins_list, ['x_bin', 'y_bin']
+    ):
+        data[axis] = pd.qcut(
+            data[col],
+            q=n_bins,
+            duplicates='drop'
+        )
+    # Create combined stratification key in original data
+    strat_columns = stratify_by + [
+        axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]
+    ]
+    data['strat_key'] = data[strat_columns].apply(
+        lambda row: '_'.join(row.values.astype(str)),
+        axis=1
+    )
+    # Initialize remaining data
+    remaining_data = data.copy()
+    batches = []
+
+    # Set initial random state
+    rng = np.random.RandomState(random_state)
+
+    for batch_idx in range(n_batches):
+        # Adjust sample size for batches if total_samples is not divisible by n_batches
+        if batch_idx < leftover:
+            batch_sample_size = sample_size_per_batch + 1
+        else:
+            batch_sample_size = sample_size_per_batch
+
+        if batch_sample_size > len(remaining_data):
+            batch_sample_size = len(remaining_data)
+
+        # Group remaining data by stratification key
+        grouped = remaining_data.groupby('strat_key')
+        # Calculate number of samples per group
+        group_sizes = grouped.size()
+        total_size = group_sizes.sum()
+        group_sample_sizes = (
+            (group_sizes / total_size * batch_sample_size)
+            .round()
+            .astype(int)
+        )
+        # Sample data from each group
+        sampled_indices = []
+        for strat_value, group in grouped:
+            n = group_sample_sizes.loc[strat_value]
+            if n > 0 and len(group) > 0:
+                sampled_group = group.sample(
+                    n=min(n, len(group)),
+                    random_state=rng.randint(0, 10000)
+                )
+                sampled_indices.extend(sampled_group.index)
+        # Create the sampled DataFrame
+        batch_sampled_data = remaining_data.loc[sampled_indices]
+        batches.append(batch_sampled_data.drop(
+            columns=['strat_key'] + [axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]]))
+        # Remove sampled data from remaining_data
+        remaining_data = remaining_data.drop(index=sampled_indices)
+        if len(remaining_data) == 0:
+            break  # No more data to sample
+
+    return batches
+
+@isdf
+@is_data_readable 
+def spatial_sampling(
+    data,
+    sample_size=0.01,
+    stratify_by=['year'],
+    spatial_bins=10,
+    spatial_cols=None,
+    random_state=42
+):
+    """
+    Sample spatial data intelligently to represent the distribution
+    of the whole area and include different years.
+
+    This function performs stratified sampling on spatial data,
+    ensuring that the sample reflects both spatial distribution
+    and temporal aspects of the entire dataset [1]_. It combines spatial
+    stratification based on coordinates and additional stratification
+    columns specified by the user.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The input DataFrame to sample from. Must contain spatial
+        coordinate columns (e.g., `'longitude'`, `'latitude'`) and
+        any columns specified in ``stratify_by``.
+    sample_size : float or int, optional
+        The proportion or absolute number of samples to select.
+        If float, should be between 0.0 and 1.0 and represents the
+        fraction of the dataset to include in the sample.
+        If int, represents the absolute number of samples to select.
+        Default is ``0.01`` (1% of the data).
+    stratify_by : list of str, optional
+        List of column names to stratify by. Default is ``['year']``.
+    spatial_bins : int or tuple/list of int, optional
+        Number of bins to divide the spatial coordinates into.
+        If an integer, the same number of bins is used for all spatial
+        dimensions. If a tuple or list, its length must match the number
+        of spatial columns, specifying the number of bins for each spatial
+        dimension. Default is ``10``.
+    spatial_cols : list or tuple of str, optional
+        List of spatial coordinate column names. Can accept one or two
+        columns. If ``None``, the function checks for columns named
+        `'longitude'` and/or `'latitude'` in ``data``. If only one spatial
+        column is provided or found, a warning is issued, suggesting that
+        providing both spatial columns is recommended for more accurate
+        sampling. If more than two columns are provided, an error is raised.
+    random_state : int, optional
+        Random seed for reproducibility. Default is ``42``.
+
+    Returns
+    -------
+    sampled_data : pandas.DataFrame
+        A sampled DataFrame representing the distribution of the whole
+        area and including different years.
+
+    Notes
+    -----
+    The function performs stratified sampling based on spatial bins
+    and other specified stratification columns. Spatial coordinates
+    are binned using quantile-based discretization (:func:`pandas.qcut`),
+    ensuring each bin has approximately the same number of observations.
+
+    Let :math:`N` be the total number of samples in ``data``, and
+    :math:`n` be the desired sample size. The function calculates the
+    number of samples to draw from each stratification group based on
+    the proportion of the group size to the total dataset size:
+
+    .. math::
+
+        n_i = \left\lceil \frac{N_i}{N} \times n \right\rceil
+
+    where :math:`N_i` is the size of group :math:`i`, and :math:`n_i`
+    is the number of samples to draw from group :math:`i`.
+
+    The function ensures that:
+
+    - All specified spatial and stratification columns exist in ``data``.
+    - The number of spatial bins matches the number of spatial columns.
+    - The sample size is valid (positive float between 0 and 1, or
+      positive integer).
+
+    Warnings are issued if:
+
+    - Only one spatial column is used, suggesting that using two spatial
+      columns is recommended for more accurate sampling.
+
+    Examples
+    --------
+    >>> from gofast.tools.spatialutils import spatial_sampling
+    >>> import pandas as pd
+    >>> # Assume 'df' is a pandas DataFrame with columns
+    >>> # 'longitude', 'latitude', 'year', and other data.
+    >>> sampled_df = spatial_sampling(
+    ...     data=df,
+    ...     sample_size=0.05,
+    ...     stratify_by=['year', 'geological_category'],
+    ...     spatial_bins=(10, 15),
+    ...     spatial_cols=['longitude', 'latitude'],
+    ...     random_state=42
+    ... )
+    >>> print(sampled_df.shape)
+
+    See Also
+    --------
+    pandas.qcut : Quantile-based discretization function used for binning.
+    sklearn.model_selection.StratifiedShuffleSplit : For stratified sampling.
+
+    References
+    ----------
+    .. [1] Kotsiantis, S., Kanellopoulos, D., & Pintelas, P. (2006).
+           "Data preprocessing for supervised learning." *International
+           Journal of Computer Science*, 1(2), 111-117.
+
+    """
+
+    data = data.copy()
+    # Set default spatial columns if not specified
+    if spatial_cols is None:
+        spatial_cols = []
+        if 'longitude' in data.columns:
+            spatial_cols.append('longitude')
+        if 'latitude' in data.columns:
+            spatial_cols.append('latitude')
+        if not spatial_cols:
+            raise ValueError(
+                "No spatial columns specified and "
+                "'longitude' and 'latitude' not found in data."
+            )
+        if len(spatial_cols) == 1:
+            warnings.warn(
+                f"Only one spatial column '{spatial_cols[0]}' found. "
+                "Using it for spatial stratification. "
+                "For more accurate sampling, providing both spatial "
+                "columns is recommended.",
+                UserWarning
+            )
+    else:
+        if not isinstance(spatial_cols, (list, tuple)):
+            raise ValueError(
+                "spatial_cols must be a list or tuple of column names."
+            )
+        if len(spatial_cols) > 2:
+            raise ValueError(
+                "spatial_cols can have at most two columns."
+            )
+        for col in spatial_cols:
+            if col not in data.columns:
+                raise ValueError(
+                    f"Spatial column '{col}' not found in data."
+                )
+        if len(spatial_cols) == 1:
+            warnings.warn(
+                f"Only one spatial column '{spatial_cols[0]}' specified. "
+                "For more accurate sampling, providing two spatial columns "
+                "is recommended.",
+                UserWarning
+            )
+    # Validate spatial_bins
+    if isinstance(spatial_bins, int):
+        n_bins = validate_positive_integer(
+            spatial_bins,
+            'spatial_bins'
+        )
+        n_bins_list = [n_bins] * len(spatial_cols)
+    elif isinstance(spatial_bins, (tuple, list)):
+        if len(spatial_bins) != len(spatial_cols):
+            raise ValueError(
+                "Length of spatial_bins must match number of spatial_cols."
+            )
+        n_bins_list = [
+            validate_positive_integer(
+                n, 'spatial_bins'
+            ) for n in spatial_bins
+        ]
+    else:
+        raise ValueError(
+            "spatial_bins must be int or tuple/list of int."
+        )
+    # Create spatial bins
+    for col, n_bins, axis in zip(
+        spatial_cols, n_bins_list, ['x_bin', 'y_bin']
+    ):
+        data[axis] = pd.qcut(
+            data[col],
+            q=n_bins,
+            duplicates='drop'
+        )
+    # Create combined stratification key
+    strat_columns = stratify_by + [
+        axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]
+    ]
+    data['strat_key'] = data[strat_columns].apply(
+        lambda row: '_'.join(row.values.astype(str)),
+        axis=1
+    )
+    # Determine total number of samples
+    if isinstance(sample_size, float):
+        if not 0 < sample_size < 1:
+            raise ValueError(
+                "When sample_size is a float, it must be between 0 and 1."
+            )
+        n_samples = int(len(data) * sample_size)
+    elif isinstance(sample_size, int):
+        n_samples = validate_positive_integer(
+            sample_size,
+            'sample_size'
+        )
+    else:
+        raise ValueError(
+            "sample_size must be a positive float or int."
+        )
+    # Group data by stratification key
+    grouped = data.groupby('strat_key')
+    # Calculate number of samples per group
+    group_sizes = grouped.size()
+    total_size = group_sizes.sum()
+    group_sample_sizes = (
+        (group_sizes / total_size * n_samples)
+        .round()
+        .astype(int)
+    )
+    # Sample data from each group
+    sampled_indices = []
+    np.random.seed(random_state)
+    for strat_value, group in grouped:
+        n = group_sample_sizes.loc[strat_value]
+        if n > 0 and len(group) > 0:
+            sampled_group = group.sample(
+                n=min(n, len(group)),
+                random_state=np.random.randint(
+                    0,
+                    10000
+                )
+            )
+            sampled_indices.extend(
+                sampled_group.index
+            )
+    # Create the sampled DataFrame
+    sampled_data = data.loc[
+        sampled_indices
+    ]
+    # Drop helper columns
+    cols_to_drop = ['strat_key'] + [
+        axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]
+    ]
+    sampled_data = sampled_data.drop(
+        columns=cols_to_drop
+    )
+    return sampled_data.reset_index(
+        drop=True
+    )
+
+@validate_params({ 
+    'y': ['array-like'], 
+    'yt': ['array-like'], 
+    'threshold': [Interval (Real, 0, 1 , closed='neither')], 
+    'mode': [StrOptions({'strict', 'soft'})],
+    'trailer': [str], 
+    })
+def make_mxs_labels(
     y,
     yt,
     threshold=0.5, 
@@ -141,7 +989,7 @@ def make_mxs(
     --------
     >>> y = np.array([1, 2, np.nan, 4])
     >>> yt = np.array([1, 2, 3, 4])
-    >>> make_mxs(y, yt, threshold=0.5, star_mxs=True, return_ymx=True, trailer="#")
+    >>> make_mxs_labels(y, yt, threshold=0.5, star_mxs=True, return_ymx=True, trailer="#")
     array([1, 2, '3#', '44#'])
 
     >>> make_mxs(y, yt, threshold=1.5, star_mxs=False, return_ymx=False, mode="soft")
@@ -894,7 +1742,160 @@ def convert_distance_to_m(
                )
             
     return value
-       
+
+def extract_coordinates2(X, Xt=None, columns=None):
+    """
+    Extracts 'x' and 'y' coordinate arrays from training (X) and optionally
+    test (Xt) datasets. 
+    
+    Supports input as NumPy arrays or pandas DataFrames. When dealing
+    with DataFrames, `columns` can specify which columns to use for coordinates.
+
+    Parameters
+    ----------
+    X : ndarray or DataFrame
+        Training dataset with shape (M, N) where M is the number of samples and
+        N is the number of features. It represents the observed data used as
+        independent variables in learning.
+    Xt : ndarray or DataFrame, optional
+        Test dataset with shape (M, N) where M is the number of samples and
+        N is the number of features. It represents the data observed at testing
+        and prediction time, used as independent variables in learning.
+    columns : list of str or int, optional
+        Specifies the columns to use for 'x' and 'y' coordinates. Necessary when
+        X or Xt are DataFrames with more than 2 dimensions or when selecting specific
+        features from NumPy arrays.
+
+    Returns
+    -------
+    tuple of arrays
+        A tuple containing the 'x' and 'y' coordinates from the training set and, 
+        if provided, the test set. Formatted as (x, y, xt, yt).
+    tuple of str or None
+        A tuple containing the names or indices of the 'x' and 'y' columns 
+        for the training and test sets. Formatted as (xname, yname, xtname, ytname).
+        Values are None if not applicable or not provided.
+
+    Raises
+    ------
+    ValueError
+        If `columns` is not iterable, not provided for DataFrames with more 
+        than 2 dimensions, or if X or Xt cannot be validated as coordinate arrays.
+
+    Examples
+    --------
+    >>> import numpy as np 
+    >>> from gofast.tools.spatialutils import extract_coordinates
+    >>> X = np.array([[1, 2], [3, 4]])
+    >>> Xt = np.array([[5, 6], [7, 8]])
+    >>> extract_coordinates(X, Xt )
+    ((array([1, 3]), array([2, 4]), array([5, 7]), array([6, 8])), (0, 1, 0, 1))
+    """
+    if columns is None: 
+        if not isinstance ( X, pd.DataFrame) and X.shape[1]!=2: 
+            raise ValueError("Columns cannot be None when array is passed.")
+        if isinstance(X, np.ndarray) and X.shape[1]==2: 
+            columns =[0, 1] 
+    
+    columns = columns or ( list(X.columns) if isinstance (
+        X, pd.DataFrame ) else columns )
+    
+    if columns is None :
+        raise ValueError("Columns parameter is required to specify"
+                         " 'x' and 'y' coordinates.")
+    
+    if not isinstance(columns, (list, tuple)) or len(columns) != 2:
+        raise ValueError("Columns parameter must be a list or tuple with "
+                         "exactly two elements for 'x' and 'y' coordinates.")
+    
+    # Process training dataset
+    x, y, xname, yname = _process_dataset(X, columns)
+    
+    # Process test dataset, if provided
+    if Xt is not None:
+        xt, yt, xtname, ytname = _process_dataset(Xt, columns)
+    else:
+        xt, yt, xtname, ytname = None, None, None, None
+
+    return (x, y, xt, yt), (xname, yname, xtname, ytname)    
+
+
+def _process_dataset(dataset, columns):
+    """
+    Processes the dataset (X or Xt) to extract 'x' and 'y' coordinates based 
+    on provided column names or indices.
+    
+    Parameters
+    ----------
+    dataset : pandas.DataFrame or numpy.ndarray
+        The dataset from which to extract 'x' and 'y' coordinates.
+    columns : list of str or int
+        The names or indices of the columns to extract as coordinates. 
+        For ndarray, integers are expected.
+    
+    Returns
+    -------
+    x, y, xname, yname : (numpy.array or pandas.Series, numpy.array or 
+                          pandas.Series, str/int, str/int)
+        The extracted 'x' and 'y' coordinates, along with their column names 
+        or indices.
+    
+    Raises
+    ------
+    ValueError
+        If the dataset or columns are not properly specified.
+    """
+    if isinstance(dataset, pd.DataFrame):
+        x, xname, y, yname = _validate_columns(dataset, columns)
+        return x.to_numpy(), y.to_numpy(), xname, yname
+    elif isinstance(dataset, np.ndarray):
+        if not isinstance(columns, (list, tuple)) or len(columns) < 2:
+            raise ValueError("For ndarray, columns must be a list or tuple "
+                             "with at least two indices.")
+        xindex, yindex = columns[0], columns[1]
+        x, y = dataset[:, xindex], dataset[:, yindex]
+        return x, y, xindex, yindex
+    else:
+        raise ValueError("Dataset must be a pandas.DataFrame or numpy.ndarray.")
+
+
+def _validate_columns(df, columns):
+    """
+    Validates and extracts x, y coordinates from a DataFrame based on column 
+    names or indices.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame from which to extract coordinate columns.
+    columns : list of str or int
+        The names or indices of the columns to extract as coordinates.
+    
+    Returns
+    -------
+    x, xname, y, yname : (pandas.Series, str/int, pandas.Series, str/int)
+        The extracted x and y coordinate Series along with their column
+        names or indices.
+    
+    Raises
+    ------
+    ValueError
+        If the specified columns are not found in the DataFrame or if the 
+        columns list is not correctly specified.
+    """
+    if not isinstance(columns, (list, tuple)) or len(columns) < 2:
+        raise ValueError("Columns parameter must be a list or tuple with at"
+                         " least two elements.")
+    
+    try:
+        xname, yname = columns[0], columns[1]
+        x = df[xname] if isinstance(xname, str) else df.iloc[:, xname]
+        y = df[yname] if isinstance(yname, str) else df.iloc[:, yname]
+    except Exception as e:
+        raise ValueError(f"Error extracting columns: {e}")
+    
+    return x, xname, y, yname
+
 def get_station_number (
         dipole:float,
         distance:float , 
@@ -2144,3 +3145,209 @@ def numstr2dms(
     
     return tuple(map(float, [deg, mm, sec])) if return_values \
         else ':'.join([deg, mm, sec])
+        
+        
+def projection_validator (X, Xt=None, columns =None ):
+    """ Retrieve x, y coordinates of a datraframe ( X, Xt ) from columns 
+    names or indexes. 
+    
+    If X or Xt are given as arrays, `columns` may hold integers from 
+    selecting the the coordinates 'x' and 'y'. 
+    
+    Parameters 
+    ---------
+    X:  Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
+        training set; Denotes data that is observed at training and prediction 
+        time, used as independent variables in learning. The notation 
+        is uppercase to denote that it is ordinarily a matrix. When a matrix, 
+        each sample may be represented by a feature vector, or a vector of 
+        precomputed (dis)similarity with each training sample. 
+
+    Xt: Ndarray ( M x N matrix where ``M=m-samples``, & ``N=n-features``)
+        Shorthand for "test set"; data that is observed at testing and 
+        prediction time, used as independent variables in learning. The 
+        notation is uppercase to denote that it is ordinarily a matrix.
+    columns: list of str or index, optional 
+        columns is usefull when a dataframe is given  with a dimension size 
+        greater than 2. If such data is passed to `X` or `Xt`, columns must
+        hold the name to consider as 'easting', 'northing' when UTM 
+        coordinates are given or 'latitude' , 'longitude' when latlon are 
+        given. 
+        If dimension size is greater than 2 and columns is None , an error 
+        will raises to prevent the user to provide the index for 'y' and 'x' 
+        coordinated retrieval. 
+      
+    Returns 
+    -------
+    ( x, y, xt, yt ), (xname, yname, xtname, ytname), Tuple of coordinate 
+        arrays and coordinate labels 
+ 
+    """
+    # initialize arrays and names 
+    init_none = [None for i in range (4)]
+    x,y, xt, yt = init_none
+    xname,yname, xtname, ytname = init_none 
+    
+    m="{0} must be an iterable object, not {1!r}"
+    ms= ("{!r} is given while columns are not supplied. set the list of "
+        " feature names or indexes to fetch 'x' and 'y' coordinate arrays." )
+    
+    # validate X if X is np.array or dataframe 
+    X =_assert_all_types(X, np.ndarray, pd.DataFrame ) 
+    
+    if Xt is not None: 
+        # validate Xt if Xt is np.array or dataframe 
+        Xt = _assert_all_types(Xt, np.ndarray, pd.DataFrame)
+        
+    if columns is not None: 
+        if isinstance (columns, str): 
+            columns = str2columns(columns )
+        
+        if not is_iterable(columns): 
+            raise ValueError(m.format('columns', type(columns).__name__))
+        
+        columns = list(columns) + [ None for i in range (5)]
+        xname , yname, xtname, ytname , *_= columns 
+
+    if isinstance(X, pd.DataFrame):
+        x, xname, y, yname = _validate_columns(X, [xname, yname])
+        
+    elif isinstance(X, np.ndarray):
+        x, y = _is_valid_coordinate_arrays (X, xname, yname )    
+        
+        
+    if isinstance (Xt, pd.DataFrame) :
+        # the test set holds the same feature names
+        # as the train set 
+        if xtname is None: 
+            xtname = xname
+        if ytname is None: 
+            ytname = yname 
+            
+        xt, xtname, yt, ytname = _validate_columns(Xt, [xname, yname])
+
+    elif isinstance(Xt, np.ndarray):
+        
+        if xtname is None: 
+            xtname = xname
+        if ytname is None: 
+            ytname = yname 
+            
+        xt, yt = _is_valid_coordinate_arrays (Xt, xtname, ytname , 'test')
+        
+    if (x is None) or (y is None): 
+        raise ValueError (ms.format('X'))
+    if Xt is not None: 
+        if (xt is None) or (yt is None): 
+            warnings.warn (ms.format('Xt'))
+
+    return  (x, y , xt, yt ) , (
+        xname, yname, xtname, ytname ) 
+    
+def _validate_columns0 (df, xni, yni ): 
+    """ Validate the feature name  in the dataframe using either the 
+    string litteral name of the index position in the columns.
+    
+    :param df: pandas.DataFrame- Dataframe with feature names as columns. 
+    :param xni: str, int- feature name  or position index in the columns for 
+        x-coordinate 
+    :param yni: str, int- feature name  or position index in the columns for 
+        y-coordinate 
+    
+    :returns: (x, ni) Tuple of (pandas.Series, and names) for x and y 
+        coordinates respectively.
+    
+    """
+    def _r (ni): 
+        if isinstance(ni, str): # feature name
+            exist_features(df, ni ) 
+            s = df[ni]  
+        elif isinstance (ni, (int, float)):# feature index
+            s= df.iloc[:, int(ni)] 
+            ni = s.name 
+        return s, ni 
+        
+    xs , ys = [None, None ]
+    if df.ndim ==1: 
+        raise ValueError ("Expect a dataframe of two dimensions, got '1'")
+        
+    elif df.shape[1]==2: 
+       warnings.warn("columns are not specify while array has dimension"
+                     "equals to 2. Expect indexes 0 and 1 for (x, y)"
+                     "coordinates respectively.")
+       xni= df.iloc[:, 0].name 
+       yni= df.iloc[:, 1].name 
+    else: 
+        ms = ("The matrix of features is greater than 2. Need column names or"
+              " indexes to  retrieve the 'x' and 'y' coordinate arrays." ) 
+        e =' Only {!r} is given.' 
+        me=''
+        if xni is not None: 
+            me =e.format(xni)
+        if yni is not None: 
+            me=e.format(yni)
+           
+        if (xni is None) or (yni is None ): 
+            raise ValueError (ms + me)
+            
+    xs, xni = _r (xni) ;  ys, yni = _r (yni)
+  
+    return xs, xni , ys, yni 
+
+def _validate_array_indexer (arr, index): 
+    """ Select the appropriate coordinates (x,y) arrays from indexes.  
+    
+    Index is used  to retrieve the array of (x, y) coordinates if dimension 
+    of `arr` is greater than 2. Since we expect x, y coordinate for projecting 
+    coordinates, 1-d  array `X` is not acceptable. 
+    
+    :param arr: ndarray (n_samples, n_features) - if nfeatures is greater than 
+        2 , indexes is needed to fetch the x, y coordinates . 
+    :param index: int, index to fetch x, and y coordinates in multi-dimension
+        arrays. 
+    :returns: arr- x or y coordinates arrays. 
+
+    """
+    if arr.ndim ==1: 
+        raise ValueError ("Expect an array of two dimensions.")
+    if not isinstance (index, (float, int)): 
+        raise ValueError("index is needed to coordinate array with "
+                         "dimension greater than 2.")
+        
+    return arr[:, int (index) ]
+
+def _is_valid_coordinate_arrays (arr, xind, yind, ptype ='train'): 
+    """ Check whether array is suitable for projecting i.e. whether 
+    x and y (both coordinates) can be retrived from `arr`.
+    
+    :param arr: ndarray (n_samples, n_features) - if nfeatures is greater than 
+        2 , indexes is needed to fetch the x, y coordinates . 
+        
+    :param xind: int, index to fetch x-coordinate in multi-dimension
+        arrays. 
+    :param yind: int, index to fetch y-coordinate in multi-dimension
+        arrays
+    :param ptype: str, default='train', specify whether the array passed is 
+        training or test sets. 
+    :returns: (x, y)- array-like of x and y coordinates. 
+    
+    """
+    xn, yn =('x', 'y') if ptype =='train' else ('xt', 'yt') 
+    if arr.ndim ==1: 
+        raise ValueError ("Expect an array of two dimensions.")
+        
+    elif arr.shape[1] ==2 : 
+        x, y = arr[:, 0], arr[:, 1]
+        
+    else :
+        msg=("The matrix of features is greater than 2; Need index to  "
+             " retrieve the {!r} coordinate array in param 'column'.")
+        
+        if xind is None: 
+            raise ValueError(msg.format(xn))
+        else : x = _validate_array_indexer(arr, xind)
+        if yind is None : 
+            raise ValueError(msg.format(yn))
+        else : y = _validate_array_indexer(arr, yind)
+        
+    return x, y 

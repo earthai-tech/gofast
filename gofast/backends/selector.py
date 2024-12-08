@@ -65,7 +65,7 @@ from ..decorators import EnsureMethod
 from ..api.property import BaseClass 
 
 
-__all__= ["BackendSelector"]
+__all__= ["BackendSelector", "select_backend_n"]
 
 @EnsureMethod("select_backend", error='warn', mode='soft'  )
 class BackendSelector(BaseClass):
@@ -490,6 +490,102 @@ class BackendSelector(BaseClass):
         """
 
         return self.selected_nn_backend
+    
+def select_backend_n(backend):
+    """
+    Select the backend for computation based on the input string.
+
+    This function maps various input string representations to standardized 
+    backend names. It is used to choose the appropriate backend for 
+    performing computations, such as NumPy, TensorFlow, or PyTorch. This 
+    allows the user to provide different variations of backend names, and 
+    the function will return the corresponding backend in a consistent format.
+
+    Parameters
+    ----------
+    backend : str or None
+        The backend to use for computation. Accepts the following values:
+        - `None`, `'numpy'`, or `'np'` for NumPy (default).
+        - `'torch'`, `'pytorch'` for PyTorch.
+        - `'tensorflow'`, `'tf'` for TensorFlow.
+
+        The parameter is case-insensitive, so variations like `'TensorFlow'`, 
+        `'TF'`, or `'np'` are also valid. If `None` is provided, the default 
+        backend will be NumPy.
+
+    Returns
+    -------
+    str
+        The standardized backend string, one of `'numpy'`, `'torch'`, or 
+        `'tensorflow'`. These are the accepted backend names that will be 
+        used throughout the program.
+
+    Raises
+    ------
+    ValueError
+        If the provided `backend` is not recognized, a `ValueError` is raised 
+        with a message indicating the valid options.
+
+    Notes
+    -----
+    - The backend parameter allows flexibility for users to choose between 
+      different backend libraries (e.g., NumPy for standard computation, 
+      TensorFlow for GPU-accelerated computation, or PyTorch for deep learning 
+      tasks).
+    - If `None` is passed, the function defaults to NumPy, which is the 
+      fallback option for most computations.
+    - The backend parameter is case-insensitive, so it will handle different 
+      cases of the backend names (e.g., `'TensorFlow'`, `'TF'` will be 
+      correctly mapped to `'tensorflow'`).
+    - If an unsupported backend is provided, a `ValueError` will be raised.
+
+    Examples
+    --------
+    >>> from gofast.backends.selector import select_backend_n 
+    >>> select_backend_n('tf')
+    'tensorflow'
+
+    >>> select_backend_n('PyTorch')
+    'torch'
+
+    >>> select_backend_n('np')
+    'numpy'
+
+    >>> select_backend_n(None)
+    'numpy'
+
+    >>> select_backend_n('invalid_backend')
+    Traceback (most recent call last):
+        ...
+    ValueError: Unsupported backend: invalid_backend...
+
+    See Also
+    --------
+    TensorFlow : A powerful open-source machine learning library, often used 
+    for large-scale deep learning tasks.
+    
+    PyTorch : A deep learning framework popular for research and production.
+    
+    NumPy : A library for numerical computing in Python, providing support 
+    for large multi-dimensional arrays and matrices.
+    """
+    backend_map = {
+        None: "numpy",  # Default to numpy if backend is None
+        "numpy": "numpy", "np": "numpy",
+        "torch": "torch", "pytorch": "torch",
+        "tensorflow": "tensorflow", "tf": "tensorflow"
+    }
+    
+    # Normalize the backend input and check if it's in the map
+    backend = backend_map.get(backend.lower() if isinstance(backend, str) else backend)
+    
+    if backend is None:
+        raise ValueError(
+            f"Unsupported backend: {backend}. Supported backends are "
+            "'numpy', 'tensorflow', and 'torch'."
+        )
+    
+    return backend
 
 
 

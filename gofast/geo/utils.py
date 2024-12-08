@@ -19,7 +19,9 @@ from ..api.types import  Tuple,  Any, Optional, Union
 from ..api.types import  _F, ArrayLike, DataFrame 
 from ..exceptions import  DepthError 
 from ..api.property import GeoscienceProperties 
-from ..tools.coreutils import convert_value_in, ellipsis2false, find_closest 
+from ..core.checks import find_closest 
+from ..core.utils import ellipsis2false  
+from ..tools.mathext import convert_value_in 
 from ..tools.validator import  assert_xy_in  
 from .gisutils import utm_to_ll, project_point_utm2ll # HAS_GDAL 
 

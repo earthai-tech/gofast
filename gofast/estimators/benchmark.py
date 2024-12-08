@@ -285,8 +285,8 @@ class BenchmarkRegressor(BaseEstimator, RegressorMixin):
         .. [1] Bergstra, J. and Bengio, Y. (2012). Random Search for Hyper-Parameter
                Optimization. Journal of Machine Learning Research.
         """
-        from ..models.utils import get_optimizer_method 
-        optimizer = get_optimizer_method(self.optimizer)
+        from ..models.utils import get_strategy_method 
+        optimizer = get_strategy_method(self.optimizer)
         grid_search = optimizer(
             estimator, self.param_grid,
             cv=self.cv, 

@@ -20,7 +20,8 @@ from .structures import FlexDict
 from .util import to_snake_case, get_table_size 
 from .util import format_value, df_to_custom_dict, format_text, to_camel_case  
 from .util import find_maximum_table_width, format_df, format_correlations
-from .util import beautify_dict 
+from .util import beautify_dict
+TW = get_table_size()
 
 __all__=[
      'ModelSummary',
@@ -43,10 +44,11 @@ __all__=[
      'summarize_model_results',
      'summarize_optimized_results',
      'summarize_tables',
-     'uniform_dfs_formatter'
+     'uniform_dfs_formatter', 
+     'TW'
      ]
 
-class ResultSummary:
+class ResultSummary(FlexDict):
     """
     Initializes a ResultSummary object which can store, format, and display
     results in a structured format. The class allows for optional customization
@@ -93,10 +95,10 @@ class ResultSummary:
     )
     """
     def __init__(self, name=None, pad_keys=None, max_char=None,
-                 flatten_nested_dicts =True, mute_note=False):
-        """
-        Initialize the ResultSummary with optional customization for display.
-        """
+                 flatten_nested_dicts =True, mute_note=False, 
+                 **kwargs):
+
+        super().__init__(**kwargs)
         self.name = name or "Result"
         self.pad_keys = pad_keys
         self.max_char = max_char or get_table_size()

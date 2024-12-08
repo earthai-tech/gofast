@@ -146,6 +146,8 @@ untitled1.py
 untitled2.py
 untitled3.py
 untitled4.py
+untitled5.py
+untitled6.py
 betsjr.txt
 gofast/datasets/descr/world_reserves.rst
 parse_hptem.py
@@ -192,5 +194,5 @@ uv.lock
 pyproject.toml
 hw_incgn_codes.py
 
- 	
-
+data/
+ls_script_extension/
