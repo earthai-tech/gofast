@@ -3975,40 +3975,13 @@ def check_files(
         
         return valid_files
 
-# # this function can make its variant as decorator : 
-# # for instance 
-# @ValidateParams 
-# def create_tft_model(
-#     static_input_dim: int,
-#     dynamic_input_dim: List[int],
-#     static_vars: List[str],
-#     dynamic_vars: Optional[str]=None
-#     hidden_units: float = 64,
-#     num_heads: Integral = 4,
-#     ...
-#     ) 
-
-# # if the class based decorator is called without parenthesis , then it 
-# # validator all the parameters  and if the argument 'skip_nested_validation=True'
-# # then skip nested validation and validate only the first level 
-# # for instance   dynamic_input_dim expect list of int . if skip_nested_validation is 
-# # True , then validate only the list and not the item in the list  and so On 
-# # 
-
-# # if the parameter to validate are explicitely mentionned , then 
-# # validate only these parameters , 
-# # if **kwargs is in function dont validated them . 
-    
-# from functools import wraps
-# import inspect
-# from typing import Any, List, Optional, Dict, Tuple, Union
-
-
 def validate_nested_param(
-        value: Any,
-        expected_type: Any,
-        param_name: str = ''
-    ) -> Any:
+    value: Any,
+    expected_type: Any,
+    param_name: str = '',
+    coerce: bool = True, 
+    empty_as_none: bool =..., 
+) -> Any:
     """
     Validate and coerce parameters and their nested items to the expected types.
     
@@ -4039,7 +4012,14 @@ def validate_nested_param(
         The name of the parameter being validated. This is used in error 
         messages to provide clear and descriptive feedback in case of 
         validation failures.
-    
+        
+    coerce : bool, optional
+        If ``True``, attempt conversions to match `'expected_type'`. If
+        ``False``, enforce strict type checking with no conversions.
+    empty_as_none : bool, default=True
+        If True, returns `None` when type is `Optional`. If ``False``, an 
+        empty Iterable  object  `List` is returned.
+
     Returns
     -------
     Any
@@ -4087,9 +4067,9 @@ def validate_nested_param(
     References
     ----------
     .. [1] Python Software Foundation. *typing — Support for type hints*. 
-       https://docs.python.org/3/library/typing.html
+        https://docs.python.org/3/library/typing.html
     .. [2] Smith, J., & Doe, A. (2020). *Effective Type Validation in Python*. 
-       Journal of Python Development, 10(2), 123-135.
+        Journal of Python Development, 10(2), 123-135.
     """
 
     origin = get_origin(expected_type)
@@ -4099,46 +4079,59 @@ def validate_nested_param(
     if origin is Union and type(None) in args:
         non_none_args = [arg for arg in args if arg is not type(None)]
         if not non_none_args:
-            # Only None is allowed
             if value is not None:
                 raise TypeError(f"Parameter `{param_name}` must be None.")
             return None
-        # If the expected type is Optional[List[X]], set to empty list if None
+        # If the expected type is Optional[List[X]], 
+        # set to empty list if None and coerce is True
         if len(non_none_args) == 1:
             sub_type = non_none_args[0]
-            if get_origin(sub_type) is list:
-                if value is None:
-                    return []
+            if get_origin(sub_type) is list and value is None:
+                return None if empty_as_none else [] 
         # Recursively validate the non-None type
-        return validate_nested_param(value, non_none_args[0], param_name)
-
+        return validate_nested_param(value, non_none_args[0], param_name, coerce)
+    
     # Handle List types
-    elif origin is list or origin is List:
+    elif origin in (list, List):
         if isinstance(value, list):
             validated_list = []
             for index, item in enumerate(value):
                 try:
                     validated_item = validate_nested_param(
-                        item, args[0], f"{param_name}[{index}]"
+                        item, args[0],
+                        param_name = f"{param_name}[{index}]",
+                        coerce = coerce
                     )
                     validated_list.append(validated_item)
                 except TypeError as e:
                     raise TypeError(f"{e}") from None
             return validated_list
+        # If value is a single item, attempt to convert
+        # it to a list if coerce is True
         else:
-            # If value is a single item, attempt to convert it to a list
-            try:
-                validated_item = validate_nested_param(
-                    value, args[0], param_name)
-                return [validated_item]
-            except TypeError as e:
+            if coerce:
+                try:
+                    validated_item = validate_nested_param(
+                        value, args[0],
+                        param_name = param_name,
+                        coerce = coerce
+                    )
+                    return [validated_item]
+                except TypeError as e:
+                    raise TypeError(
+                        f"Parameter `{param_name}` is expected to be a "
+                        f"list of `{args[0].__name__}`, but got type "
+                        f"`{type(value).__name__}`."
+                    ) from e
+            else:
                 raise TypeError(
-                    f"Parameter `{param_name}` is expected to be a list of "
-                    f"`{args[0].__name__}`, but got type `{type(value).__name__}`."
-                ) from e
-
-    # Handle Dict types
-    elif origin is dict or origin is Dict:
+                    f"Parameter `{param_name}` is expected to be a "
+                    f"list of `{args[0].__name__}`, but got type "
+                    f"`{type(value).__name__}`."
+                )
+                
+    # Handle a Dict types 
+    elif origin in (dict, Dict):
         if not isinstance(value, dict):
             raise TypeError(
                 f"Parameter `{param_name}` is expected to be a dict,"
@@ -4147,23 +4140,27 @@ def validate_nested_param(
         validated_dict = {}
         key_type, val_type = args
         for key, val in value.items():
-            # Validate key
             try:
                 validated_key = validate_nested_param(
-                    key, key_type, f"{param_name} key")
+                    key, key_type,
+                    param_name = f"{param_name} key",
+                    coerce = coerce
+                )
             except TypeError as e:
                 raise TypeError(f"{e}") from None
-            # Validate value
             try:
                 validated_val = validate_nested_param(
-                    val, val_type, f"{param_name}[{key}]")
+                    val, val_type,
+                    param_name = f"{param_name}[{key}]",
+                    coerce = coerce
+                )
             except TypeError as e:
                 raise TypeError(f"{e}") from None
             validated_dict[validated_key] = validated_val
         return validated_dict
-
+    
     # Handle Tuple types
-    elif origin is tuple or origin is Tuple:
+    elif origin in (tuple, Tuple):
         if not isinstance(value, tuple):
             raise TypeError(
                 f"Parameter `{param_name}` is expected to be a tuple,"
@@ -4171,33 +4168,153 @@ def validate_nested_param(
             )
         if len(args) != len(value):
             raise TypeError(
-                f"Parameter `{param_name}` expects a tuple of length"
-                f" {len(args)}, but got tuple of length {len(value)}."
+                f"Parameter `{param_name}` expects a tuple of length "
+                f"{len(args)}, but got tuple of length {len(value)}."
             )
         validated_tuple = []
         for index, (item, sub_type) in enumerate(zip(value, args)):
             try:
                 validated_item = validate_nested_param(
-                    item, sub_type, f"{param_name}[{index}]"
+                    item, sub_type,
+                    param_name = f"{param_name}[{index}]",
+                    coerce = coerce
                 )
                 validated_tuple.append(validated_item)
             except TypeError as e:
                 raise TypeError(f"{e}") from None
         return tuple(validated_tuple)
-
+    
     # Handle basic types
     else:
         if not isinstance(value, expected_type):
-            try:
+            if coerce:
                 # Attempt to convert the value to the expected type
-                return expected_type(value)
-            except (ValueError, TypeError) as e:
+                try:
+                    return expected_type(value)
+                except (ValueError, TypeError) as e:
+                    raise TypeError(
+                        f"Parameter `{param_name}` is expected to be of "
+                        f"type `{expected_type.__name__}`, but got type "
+                        f"`{type(value).__name__}`."
+                    ) from e
+            else:
                 raise TypeError(
                     f"Parameter `{param_name}` is expected to be of type "
-                    f"`{expected_type.__name__}`, but got type `{type(value).__name__}`."
-                ) from e
+                    f"`{expected_type.__name__}`, but got type "
+                    f"`{type(value).__name__}`."
+                )
         return value
 
+
+def check_params(param_types: Dict[str, Any], coerce: bool = True):
+    """
+    Validate parameters of the decorated function against given
+    expected types, with optional coercion.
+
+    This `check_params` decorator verifies that function parameters
+    match their expected types specified in ``param_types``. It
+    applies :func:`validate_nested_param` to each parameter defined
+    in ``param_types``. If ``coerce`` is True, attempts are made
+    to convert the given value to the expected type. Otherwise, a
+    strict type check is enforced. If validation fails, a
+    ``TypeError`` is raised.
+
+    .. math::
+       \text{Given a parameter } x \text{ with expected type } T,
+       \text{ if } x \notin T \text{ and coerce=True, then }
+       x \rightarrow T \text{ if possible. Else, raise error.}
+
+    Parameters
+    ----------
+    param_types : Dict[str, Any]
+        Dictionary mapping parameter names to their expected types.
+        For example:
+        ::
+        
+            {
+                "x": List[int],
+                "y": Dict[str, float]
+            }
+
+        Each key corresponds to a parameter name of the decorated
+        function, and its value is the expected type that the
+        parameter must match or be coerced into.
+
+    coerce : bool, optional
+        Whether to attempt coercion if types do not initially match.
+        If ``True``, the decorator tries to convert the parameter
+        value to the expected type. If ``False``, a strict check is
+        enforced and a ``TypeError`` is raised if the type does not
+        match exactly.
+
+    Methods
+    -------
+    check_params(param_types, coerce)
+        This is the main function that creates and returns the
+        decorator.
+
+    The decorator returned by `check_params`:
+    - Binds the decorated function and applies default values.
+    - Iterates over ``param_types`` and checks each corresponding
+      parameter in the bound arguments.
+    - Calls :func:`validate_nested_param` to validate or coerce the
+      value to the expected type.
+    - Raises ``TypeError`` if validation fails.
+
+    The inner wrapper function:
+    - Applies the type checks before calling the decorated function.
+    - Returns the result of the decorated function if checks pass.
+
+    Examples
+    --------
+    >>> from gofast.core.checks import check_params
+    >>> from typing import List, Dict
+    >>> @check_params({"items": List[str], "mapping": Dict[str, float]}, coerce=True)
+    ... def process_data(items, mapping):
+    ...     return items, mapping
+    ...
+    >>> process_data(["apple", "banana"], {"a": 1.0, "b": 2.5})
+    (['apple', 'banana'], {'a': 1.0, 'b': 2.5})
+    >>> process_data("single_item", {"x": "2.0"})
+    (['single_item'], {'x': 2.0})
+
+    Notes
+    -----
+    - If ``coerce`` is True, single values can be promoted to lists,
+      and strings converted to floats if feasible.
+    - If ``coerce`` is False, strict type matching is enforced.
+    - This decorator allows writing robust, type-safe functions.
+
+    See Also
+    --------
+    validate_nested_param : Validates and optionally coerces a single 
+        parameter or nested structure to an expected type.
+
+    References
+    ----------
+    .. [1] Python Software Foundation. *typing — Support for type hints*.
+           https://docs.python.org/3/library/typing.html
+
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            sig   = inspect.signature(func)
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+
+            for p_name, p_type in param_types.items():
+                if p_name in bound.arguments:
+                    val = bound.arguments[p_name]
+                    validated_val = validate_nested_param(
+                        val, p_type,
+                        param_name = p_name,
+                        coerce     = coerce
+                    )
+                    bound.arguments[p_name] = validated_val
+
+            return func(*bound.args, **bound.kwargs)
+        return wrapper
+    return decorator
 
 def check_array_like(
     obj, 
@@ -4205,7 +4322,8 @@ def check_array_like(
     ops="check_only"
 ):
     """
-    Determine if an object is array-like based on a specified context and operation.
+    Determine if an object is array-like based on a specified context 
+    and operation.
 
     The function can either check if the object is array-like or validate it, 
     depending on the operation specified.
