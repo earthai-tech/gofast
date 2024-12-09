@@ -9,17 +9,19 @@ for regression and classification respectively.
 """
 
 import inspect 
+from numbers import Integral 
 from collections import defaultdict 
 import numpy as np 
 from tqdm import tqdm
 
 from sklearn.metrics import r2_score , accuracy_score
 from ..api.property import BaseClass 
+from ..compat.sklearn import validate_params, Interval 
 from ..tools.validator import check_X_y, get_estimator_name
 from ..tools.validator import check_is_fitted, validate_fit_weights 
 
 
-__all__=["StandardEstimator", "DecisionStumpRegressor", "DecisionStumpClassifier"]
+__all__=["StandardEstimator", "StumpRegressor", "StumpClassifier"]
 
 class StandardEstimator:
     """Base class for all classes in gofast for parameters retrievals.
@@ -130,7 +132,7 @@ class StandardEstimator:
 
         return self
 
-class DecisionStumpRegressor(BaseClass, StandardEstimator):
+class StumpRegressor(BaseClass, StandardEstimator):
     r"""
     A simple decision stump regressor for use in gradient boosting.
 
@@ -205,14 +207,24 @@ class DecisionStumpRegressor(BaseClass, StandardEstimator):
     Examples
     --------
     >>> from sklearn.datasets import make_regression
-    >>> from gofast.estimators.tree import DecisionStumpRegressor
+    >>> from gofast.estimators.tree import StumpRegressor
     >>> X, y = make_regression(n_samples=100, n_features=1, noise=10)
     >>> stump = DecisionStumpRegressor()
     >>> stump.fit(X, y)
     >>> predictions = stump.predict(X)
     """
-
-    def __init__(self, min_samples_split=2, min_samples_leaf=1, verbose=False):
+    @validate_params(
+         {"min_samples_split": [Interval(Integral, 1, None, closed="left")], 
+         "min_samples_leaf": [Interval(Integral, 1, None, closed="left")], 
+         "verbose": [bool, int]
+         }
+        )
+    def __init__(
+        self, 
+        min_samples_split=2, 
+        min_samples_leaf=1, 
+        verbose=False
+        ):
         self.min_samples_split = min_samples_split
         self.min_samples_leaf = min_samples_leaf
         self.verbose=verbose
@@ -426,7 +438,7 @@ class DecisionStumpRegressor(BaseClass, StandardEstimator):
         y_pred = self.predict(X)
         return r2_score(y, y_pred, sample_weight=sample_weight)
 
-class DecisionStumpClassifier(BaseClass, StandardEstimator):
+class StumpClassifier(BaseClass, StandardEstimator):
     r"""
     A simple decision stump classifier that uses a single-level decision tree for
     binary classification. This classifier identifies the best feature and
@@ -480,7 +492,7 @@ class DecisionStumpClassifier(BaseClass, StandardEstimator):
     Examples
     --------
     >>> from sklearn.datasets import make_classification
-    >>> from gofast.estimators.tree import DecisionStumpClassifier
+    >>> from gofast.estimators.tree import StumpClassifier
     >>> X, y = make_classification(n_samples=100, n_features=2, random_state=42)
     >>> stump = DecisionStumpClassifier(min_samples_split=4, min_samples_leaf=2)
     >>> stump.fit(X, y)
@@ -493,6 +505,13 @@ class DecisionStumpClassifier(BaseClass, StandardEstimator):
     It does not handle multi-class classification and does not support more advanced
     tree-building methods that consider information gain or Gini impurity.
     """
+    @validate_params(
+         {
+             "min_samples_split": [Interval(Integral, 1, None, closed="left")], 
+             "min_samples_leaf": [Interval(Integral, 1, None, closed="left")], 
+             "verbose": [bool, int]
+        }
+    )
     def __init__(self, min_samples_split=2, min_samples_leaf=1, verbose=False):
         self.min_samples_split = min_samples_split
         self.min_samples_leaf = min_samples_leaf
@@ -550,7 +569,7 @@ class DecisionStumpClassifier(BaseClass, StandardEstimator):
         --------
         >>> from sklearn.datasets import make_classification
         >>> X, y = make_classification(n_samples=100, n_features=2, random_state=42)
-        >>> stump = DecisionStumpClassifier()
+        >>> stump = StumpClassifier()
         >>> stump.fit(X, y)
         >>> stump.predict([[0.1, -0.1], [0.3, 0.3]])
         array([0, 1])
@@ -628,7 +647,7 @@ class DecisionStumpClassifier(BaseClass, StandardEstimator):
         --------
         >>> from sklearn.datasets import make_classification
         >>> X, y = make_classification(n_samples=100, n_features=2, random_state=42)
-        >>> stump = DecisionStumpClassifier()
+        >>> stump = StumpClassifier()
         >>> stump.fit(X, y)
         >>> print(stump.predict([[0.1, -0.1], [0.3, 0.3]]))
         [0 1]
@@ -809,7 +828,7 @@ class _GradientBoostingClassifier:
             residuals = -1 * y * self._sigmoid(-y * F_m)
 
             # Fit a decision stump to the pseudo-residuals
-            stump = DecisionStumpRegressor()
+            stump = StumpRegressor()
             stump.fit(X, residuals)
 
             # Update the model
@@ -992,7 +1011,7 @@ class _GradientBoostingRegressor:
             residuals = y - F_m
 
             # # Fit a regression tree to the negative gradient
-            tree = DecisionStumpRegressor(max_depth=self.max_depth)
+            tree = StumpRegressor(max_depth=self.max_depth)
             tree.fit(X, residuals)
 
             # Update the model predictions

@@ -18,7 +18,7 @@ from sklearn.decomposition import PCA
 
 from ..api.types import NDArray, ArrayLike
 from ..api.types import List, Tuple, Optional
-from ..tools.coreutils import is_iterable 
+from ..core.checks import is_iterable 
 from ..tools.validator import check_array, _check_array_in 
 from .utils import pobj, make_mpl_properties 
 

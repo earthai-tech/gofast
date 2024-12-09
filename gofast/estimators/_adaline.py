@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 
-from abc import ABCMeta, abstractmethod
+from abc import abstractmethod
 import numpy as np 
 
 from sklearn.base import BaseEstimator
 from sklearn.utils._param_validation import Interval, StrOptions, Real, Integral
 
-class BaseAdalineStochastic(BaseEstimator, metaclass=ABCMeta):
+from ..api.property import LearnerMeta 
+
+class BaseAdalineStochastic(BaseEstimator, metaclass=LearnerMeta):
     """
     Base class for Adaline Stochastic Gradient Descent.
 
@@ -154,7 +156,7 @@ class BaseAdalineStochastic(BaseEstimator, metaclass=ABCMeta):
             "eta0_decay": [Interval(Real, 0., 1., closed="neither")],
             "shuffle": [bool],
             "random_state": [Integral, None],
-            "verbose": [bool]
+            "verbose": [bool, int]
         }
     
     @abstractmethod

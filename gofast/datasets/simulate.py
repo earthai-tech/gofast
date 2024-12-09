@@ -12,7 +12,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from ..tools.coreutils import is_iterable, unpack_list_of_dicts
+from ..core.checks import is_iterable
+from ..core.utils import unpack_list_of_dicts 
 from ..tools.validator import (
     validate_dates,
     validate_distribution,

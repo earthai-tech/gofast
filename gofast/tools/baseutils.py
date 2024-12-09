@@ -26,6 +26,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 from tqdm import tqdm
+from scipy import stats
 from scipy.signal import argrelextrema
 from scipy.interpolate import interp1d, griddata
 from matplotlib.ticker import FixedLocator
@@ -34,21 +35,23 @@ from sklearn.utils import all_estimators
 from ..api.property import PandasDataHandlers
 from ..api.types import (
     Union, List, Optional, Tuple, Iterable, Any, Set, 
-    _T, _F, DataFrame, ArrayLike, Series, NDArray
+    _T, _F, DataFrame, ArrayLike, Series, NDArray, 
 )
+from ..core.array_manager import  to_numeric_dtypes, reshape 
+from ..core.checks import( 
+    _assert_all_types,  is_iterable, exist_features, validate_feature, 
+    )
+from ..core.utils import ellipsis2false, smart_format 
+from ..core.io import is_data_readable 
 from ..compat.scipy import check_scipy_interpolate
 from ..decorators import Dataify
 from ..exceptions import FileHandlingError
 from ._dependency import import_optional_dependency
-from .coreutils import (
-    is_iterable, ellipsis2false, smart_format, to_numeric_dtypes, 
-    validate_feature, _assert_all_types, exist_features, reshape
-)
 from .validator import (
     check_consistent_length, get_estimator_name, _is_arraylike_1d, 
     array_to_frame, build_data_if, _is_numeric_dtype, check_y, 
     check_consistency_size, is_categorical, is_valid_policies, 
-    contains_nested_objects, parameter_validator, normalize_array
+    contains_nested_objects, parameter_validator, normalize_array, 
 )
 
 __all__ = [
@@ -57,11 +60,12 @@ __all__ = [
     'extract_target', 'fancier_downloader', 'fillNaN', 'get_target', 
     'interpolate_grid', 'interpolate_data', 'labels_validator', 
     'make_df', 'normalizer', 'remove_outliers', 'remove_target_from_array', 
-    'rename_labels_in', 'save_or_load', 'scale_y', 'select_features', 
-    'smooth1d', 'smoothing', 'soft_bin_stat', 'speed_rowwise_process'
+    'rename_labels_in', 'scale_y', 'select_features', 
+    'smooth1d', 'smoothing', 'soft_bin_stat', 'speed_rowwise_process', 
+    'nan_to_mode', 'handle_outliers', 
 ]
 
-
+@is_data_readable 
 def detect_categorical_columns(
     data,
     detect_integer_as_categorical=True,
@@ -152,6 +156,9 @@ def detect_categorical_columns(
     - pandas.DataFrame : A DataFrame object for handling tabular data.
     - numpy.all : Evaluates whether all elements in a given array meet a 
       condition.
+    - gofast.transformers.OutlierHandler : 
+        Detects and handles outliers in numerical data using specified methods
+        and strategies.
     
     References
     ----------
@@ -168,7 +175,7 @@ def detect_categorical_columns(
         raise_exception=True, 
         input_name='col'
     )
-    data = to_numeric_dtypes(data) 
+  
     # Initialize an empty list to store detected categorical columns.
     categorical_columns = []
 
@@ -197,6 +204,559 @@ def detect_categorical_columns(
                     categorical_columns.append(col)
 
     return categorical_columns
+
+def handle_outliers(
+    ar: Union[np.ndarray, Series, DataFrame],
+    method: str = 'iqr',
+    threshold: float = 1.5,
+    fill_strategy: str = 'replace',  
+    fill_value: Optional[float] = np.nan,
+    axis: Optional[int] = None,  
+    interpolate_method: str = 'linear',  
+    inplace: bool = False,
+    verbose: bool = False, 
+    batch_size : int ='auto', 
+    batch_processor: bool=False, 
+) -> Union[np.ndarray, pd.Series, pd.DataFrame, None]:
+    """
+    Handle outliers in data structures with flexible strategies.
+
+    This function detects and handles outliers in NumPy arrays,
+    pandas Series, or pandas DataFrames using various statistical
+    methods. It provides options to replace, interpolate, or drop
+    outliers based on the specified strategy.
+
+    Parameters
+    ----------
+    ar : np.ndarray, pd.Series, pd.DataFrame
+        The input data to process for outliers.
+
+    method : str, optional
+        The method to use for outlier detection. Options are ``'iqr'``,
+         ``'zscore'``, and ``'modified_zscore'``. Default is ``'iqr'``.
+
+        - ``'iqr'``: Uses the Interquartile Range method.
+          Outliers are points outside of
+          :math:`[Q_1 - k \times IQR, \ Q_3 + k \times IQR]`,
+          where :math:`Q_1` and :math:`Q_3` are the first and
+          third quartiles, :math:`IQR = Q_3 - Q_1`, and
+          :math:`k` is the ``threshold``.
+
+        - ``'zscore'``: Uses the standard Z-score method. Outliers are points
+          with a Z-score greater than the ``threshold``.
+
+        - ``'modified_zscore'``: Uses the modified Z-score,
+          which is more robust to outliers in small samples [1]_. Outliers are
+          points with a modified Z-score greater than the ``threshold``.
+
+    threshold : float, optional
+        The threshold to use with the chosen ``method``. Its interpretation 
+        depends on the method:
+
+        - For ``'iqr'``, it is the multiplier of the IQR. Common values are
+          1.5 (mild outliers) or 3.0
+          (extreme outliers).
+
+        - For ``'zscore'`` and ``'modified_zscore'``, it is the Z-score cutoff.
+          Common values are 2.0 or 3.0.
+
+        Default is 1.5.
+
+    fill_strategy : str, optional
+        The strategy to handle detected outliers.
+        Options are ``'replace'``, ``'interpolate'``, and ``'drop'``
+        . Default is ``'replace'``.
+
+        - ``'replace'``: Replaces outliers with ``fill_value``.
+
+        - ``'interpolate'``: Replaces outliers with interpolated values using
+           the method specified in ``interpolate_method``.
+
+        - ``'drop'``: Removes outliers from the data.
+
+    fill_value : float, optional
+        The value to replace outliers with when ``fill_strategy`` is
+         ``'replace'``. Default is ``np.nan``.
+
+    axis : int or None, optional
+        The axis along which to detect outliers:
+
+        - For ``DataFrame`` and 2D ``ndarray``, ``0`` applies the method 
+         to each column, ``1`` to each row, and ``None`` to the flattened 
+         array.
+
+        - For ``Series`` and 1D ``ndarray``, this parameter is ignored.
+
+        Default is ``None``.
+
+    interpolate_method : str, optional
+        The interpolation method to use when ``fill_strategy``
+        is ``'interpolate'``. Options include methods supported
+        by ``pandas.Series.interpolate`` or
+        ``pandas.DataFrame.interpolate``, such as ``'linear'``, ``'nearest'``,
+        ``'spline'``, etc. Default is ``'linear'``.
+
+    inplace : bool, optional
+        If ``True``, perform the operation in-place and return ``None``. 
+        Default is ``False``.
+
+    verbose : bool, optional
+        If ``True``, print the number of outliers detected in each column 
+        or row. Default is ``False``.
+
+    Returns
+    -------
+    np.ndarray, pd.Series, pd.DataFrame, or None
+        The data with outliers handled according to the specified strategy.
+        Returns ``None`` if ``inplace`` is ``True``.
+
+    Notes
+    -----
+    **Outlier Detection Methods:**
+
+    - *Interquartile Range (IQR) Method*:
+
+      The IQR method identifies outliers based on the spread of the middle 50%
+      of the data. It is robust to non-normal distributions.
+
+      .. math::
+
+          IQR = Q_3 - Q_1
+
+          \text{Lower Bound} = Q_1 - k \times IQR
+
+          \text{Upper Bound} = Q_3 + k \times IQR
+
+      Where :math:`Q_1` and :math:`Q_3` are the first and third quartiles,
+      and :math:`k` is the ``threshold``.
+
+    - *Z-score Method*:
+
+      Assumes a normal distribution and identifies outliers based on standard 
+      deviations from the mean.
+
+      .. math::
+
+          Z = \frac{X - \mu}{\sigma}
+
+      Where :math:`\mu` is the mean and :math:`\sigma` is the standard 
+      deviation.
+      
+
+    - *Modified Z-score Method*:
+
+      Uses the Median Absolute Deviation (MAD) instead of standard
+      deviation, making it more robust to outliers, especially in smaller 
+      datasets [1]_.
+
+      .. math::
+
+          \text{Modified Z} = 0.6745 \times \frac{X - \tilde{X}}{\text{MAD}}
+
+      Where :math:`\tilde{X}` is the median and
+
+      .. math::
+
+          \text{MAD} = \text{median}(|X - \tilde{X}|)
+
+    **Handling Strategies:**
+
+    - *Replace*: Outliers are replaced with ``fill_value``.
+
+    - *Interpolate*: Outliers are replaced using interpolation
+      methods. This is useful for time-series data.
+
+    - *Drop*: Outliers are removed from the dataset.
+    
+    **Additional Notes:**
+
+    - **Data Types and NaN Representation:**
+    
+      NumPy integer arrays cannot represent `np.nan`. When working with 
+      missing values or outlier replacement that involves `np.nan`, always 
+      ensure your array is of a floating-point type.
+    
+    - **Interpolation at Edges:**
+    
+      By default, `pandas` interpolation methods won't fill NaNs at the start 
+      or end of a series. The `limit_direction` parameter controls the 
+      direction in which to fill missing values:
+    
+      - `'forward'`: Only fill NaNs forward.
+      - `'backward'`: Only fill NaNs backward.
+      - `'both'`: Fill NaNs in both directions.
+
+    Examples
+    --------
+    Detect and replace outliers in a pandas Series:
+
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from gofast.tools.baseutils import handle_outliers
+    >>> data = pd.Series([1, 2, 2, 3, 4, 100])
+    >>> clean_data = handle_outliers(data, method='iqr', threshold=1.5)
+    >>> print(clean_data)
+    0      1.0
+    1      2.0
+    2      2.0
+    3      3.0
+    4      4.0
+    5      NaN
+    dtype: float64
+
+    Handle outliers in a DataFrame along columns:
+
+    >>> df = pd.DataFrame({
+    ...     'A': [1, 2, 2, 3, 4, 100],
+    ...     'B': [10, 12, 12, 13, 14, -100]
+    ... })
+    >>> clean_df = handle_outliers(df, method='zscore', threshold=2, axis=0)
+    >>> print(clean_df)
+          A     B
+    0   1.0  10.0
+    1   2.0  12.0
+    2   2.0  12.0
+    3   3.0  13.0
+    4   4.0  14.0
+    5   NaN   NaN
+
+    Interpolate outliers in a NumPy array:
+
+    >>> arr = np.array([1, 2, 2, 3, 4, 100])
+    >>> clean_arr = handle_outliers(
+    ...     arr, method='modified_zscore', threshold=3.5,
+    ...     fill_strategy='interpolate', interpolate_method='linear'
+    ... )
+    >>> print(clean_arr)
+    [1. 2. 2. 3. 4. 4.]
+
+    See Also
+    --------
+    interpolate_grid : Interpolate missing values in a 2D grid.
+
+    References
+    ----------
+    .. [1] Iglewicz, Boris, and David Hoaglin. "Volume 16: How to Detect and
+        Handle Outliers." The ASQC Basic References in Quality Control:
+       Statistical Techniques (1993).
+
+    """
+    # Validate parameters (external function)
+    supported_methods = {'iqr', 'zscore', 'modified_zscore'}
+    supported_fill_strategies = {'replace', 'interpolate', 'drop'}
+    method, fill_strategy = _validate_parameters(
+        method,
+        fill_strategy,
+        supported_methods,
+        supported_fill_strategies
+    )
+    if fill_strategy == 'interpolate' and not np.isnan(fill_value):
+        raise ValueError(
+            "When `fill_strategy` is 'interpolate', `fill_value` must be np.nan."
+        )
+    if not isinstance(ar, (np.ndarray, pd.Series, pd.DataFrame)):
+        raise TypeError(
+            "Input `ar` must be a NumPy array, pandas Series, or pandas DataFrame."
+        )
+    if isinstance(ar, pd.DataFrame):
+        return _process_dataframe(
+            df=ar,
+            method=method,
+            threshold=threshold,
+            fill_strategy=fill_strategy,
+            fill_value=fill_value,
+            axis=axis,
+            interpolate_method=interpolate_method,
+            inplace=inplace,
+            verbose=verbose,
+            batch_size=batch_size,
+        )
+    elif isinstance(ar, pd.Series):
+        return _process_series(
+            series=ar,
+            method=method,
+            threshold=threshold,
+            fill_strategy=fill_strategy,
+            fill_value=fill_value,
+            interpolate_method=interpolate_method,
+            inplace=inplace,
+            verbose=verbose,
+            batch_size=batch_size,
+        )
+    elif isinstance(ar, np.ndarray):
+        return _process_ndarray(
+            array=ar,
+            method=method,
+            threshold=threshold,
+            fill_strategy=fill_strategy,
+            fill_value=fill_value,
+            interpolate_method=interpolate_method,
+            axis=axis,
+            inplace=inplace,
+            batch_size=batch_size,
+        )
+
+def _process_dataframe(
+    df: pd.DataFrame,
+    method: str,
+    threshold: float,
+    fill_strategy: str,
+    fill_value: Optional[float],
+    axis: Optional[int],
+    interpolate_method: str,
+    inplace: bool,
+    verbose: bool,
+    batch_size: Optional[Union[str, int]] = None,
+) -> pd.DataFrame:
+    if not inplace:
+        df = df.copy()
+
+    if batch_size is not None:
+        if batch_size == 'auto':
+            batch_size = 10000  # Adjust as needed
+        else:
+            batch_size = int(batch_size)
+        total_rows = len(df)
+
+        def batch_generator():
+            for start in range(0, total_rows, batch_size):
+                end = min(start + batch_size, total_rows)
+                df_batch = df.iloc[start:end]
+                processed_batch = _process_dataframe(
+                    df=df_batch,
+                    method=method,
+                    threshold=threshold,
+                    fill_strategy=fill_strategy,
+                    fill_value=fill_value,
+                    axis=axis,
+                    interpolate_method=interpolate_method,
+                    inplace=False,
+                    verbose=verbose,
+                    batch_size=None  # Avoid recursion
+                )
+                yield processed_batch
+                if verbose:
+                    print(f"Processed batch {start} to {end}")
+        result = pd.concat(batch_generator(), ignore_index=True)
+        return result
+    else:
+        if method == 'iqr':
+            Q1 = df.quantile(0.25)
+            Q3 = df.quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - threshold * IQR
+            upper_bound = Q3 + threshold * IQR
+            outlier_mask = (df < lower_bound) | (df > upper_bound)
+        elif method == 'zscore':
+            mean = df.mean()
+            std = df.std()
+            z_scores = (df - mean) / std
+            outlier_mask = (z_scores < -threshold) | (z_scores > threshold)
+        else:  # modified_zscore
+            median = df.median()
+            mad = df.mad()
+            modified_z_scores = 0.6745 * (df - median) / mad
+            outlier_mask = (modified_z_scores < -threshold) | (modified_z_scores > threshold)
+        # Apply outlier strategy
+        if fill_strategy == 'replace':
+            df[outlier_mask] = fill_value
+        elif fill_strategy == 'interpolate':
+            df[outlier_mask] = np.nan
+            df = df.interpolate(method=interpolate_method, axis=axis)
+        elif fill_strategy == 'drop':
+            df = df[~outlier_mask.any(axis=1)]
+        return df
+
+def _process_series(
+    series: pd.Series,
+    method: str,
+    threshold: float,
+    fill_strategy: str,
+    fill_value: Optional[float],
+    interpolate_method: str,
+    inplace: bool,
+    verbose: bool,
+    batch_size: Optional[Union[str, int]] = None,
+) -> pd.Series:
+    if not inplace:
+        series = series.copy()
+
+    if batch_size is not None:
+        if batch_size == 'auto':
+            batch_size = 10000  # Adjust as needed
+        else:
+            batch_size = int(batch_size)
+        total_length = len(series)
+
+        def batch_generator():
+            for start in range(0, total_length, batch_size):
+                end = min(start + batch_size, total_length)
+                series_batch = series.iloc[start:end]
+                processed_batch = _process_series(
+                    series=series_batch,
+                    method=method,
+                    threshold=threshold,
+                    fill_strategy=fill_strategy,
+                    fill_value=fill_value,
+                    interpolate_method=interpolate_method,
+                    inplace=False,
+                    verbose=verbose,
+                    batch_size=None  # Avoid recursion
+                )
+                yield processed_batch
+                if verbose:
+                    print(f"Processed batch {start} to {end}")
+        result = pd.concat(batch_generator(), ignore_index=True)
+        return result
+    else:
+        if method == 'iqr':
+            Q1 = series.quantile(0.25)
+            Q3 = series.quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - threshold * IQR
+            upper_bound = Q3 + threshold * IQR
+            outlier_mask = (series < lower_bound) | (series > upper_bound)
+        elif method == 'zscore':
+            mean = series.mean()
+            std = series.std()
+            z_scores = (series - mean) / std
+            outlier_mask = (z_scores < -threshold) | (z_scores > threshold)
+        else:  # modified_zscore
+            median = series.median()
+            mad = series.mad()
+            modified_z_scores = 0.6745 * (series - median) / mad
+            outlier_mask = (
+                modified_z_scores < -threshold) | (modified_z_scores > threshold)
+        # Apply outlier strategy
+        if fill_strategy == 'replace':
+            series[outlier_mask] = fill_value
+        elif fill_strategy == 'interpolate':
+            series[outlier_mask] = np.nan
+            series = series.interpolate(method=interpolate_method)
+        elif fill_strategy == 'drop':
+            series = series[~outlier_mask]
+        return series
+
+def _process_ndarray(
+    array: np.ndarray,
+    method: str,
+    threshold: float,
+    fill_strategy: str,
+    fill_value: Optional[float],
+    interpolate_method: str,
+    axis: Optional[int],
+    inplace: bool,
+    batch_size: Optional[Union[str, int]] = None,
+) -> np.ndarray:
+    if not inplace:
+        array = array.copy()
+
+    if batch_size is not None:
+        if batch_size == 'auto':
+            batch_size = 10000  # Adjust as needed
+        else:
+            batch_size = int(batch_size)
+        if axis == 0 or axis is None:
+            total_rows = array.shape[0]
+
+            def batch_generator():
+                for start in range(0, total_rows, batch_size):
+                    end = min(start + batch_size, total_rows)
+                    array_batch = array[start:end]
+                    processed_batch = _process_ndarray(
+                        array=array_batch,
+                        method=method,
+                        threshold=threshold,
+                        fill_strategy=fill_strategy,
+                        fill_value=fill_value,
+                        interpolate_method=interpolate_method,
+                        axis=axis,
+                        inplace=False,
+                        batch_size=None  # Avoid recursion
+                    )
+                    yield processed_batch
+            result = np.concatenate(list(batch_generator()), axis=0)
+            return result
+        else:
+            # Implement batch processing along other axes if needed
+            raise NotImplementedError(
+                "Batch processing for axis > 0 is not implemented.")
+    else:
+        original_dtype = array.dtype
+        if method == 'iqr':
+            Q1 = np.percentile(array, 25, axis=axis, keepdims=True)
+            Q3 = np.percentile(array, 75, axis=axis, keepdims=True)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - threshold * IQR
+            upper_bound = Q3 + threshold * IQR
+            outlier_mask = (array < lower_bound) | (array > upper_bound)
+        elif method == 'zscore':
+            mean = np.mean(array, axis=axis, keepdims=True)
+            std = np.std(array, axis=axis, keepdims=True)
+            z_scores = (array - mean) / std
+            outlier_mask = (z_scores < -threshold) | (z_scores > threshold)
+        else:  # modified_zscore
+            median = np.median(array, axis=axis, keepdims=True)
+            mad = np.median(np.abs(array - median), axis=axis, keepdims=True)
+            modified_z_scores = 0.6745 * (array - median) / mad
+            outlier_mask = (
+                modified_z_scores < -threshold) | (modified_z_scores > threshold)
+        # Apply outlier strategy
+        if fill_strategy == 'replace':
+            array = array.astype(np.float64)  # To accommodate np.nan if necessary
+            array[outlier_mask] = fill_value
+            array = array.astype(original_dtype)
+        elif fill_strategy == 'interpolate':
+            if not np.isnan(fill_value):
+                raise ValueError(
+                    "Interpolate is feasible only if `fill_value=np.nan`.")
+            array = array.astype(np.float64)
+            array[outlier_mask] = np.nan
+            array = interpolate_grid(array, method=interpolate_method)
+            array = array.astype(original_dtype)
+        elif fill_strategy == 'drop':
+            if array.ndim == 1:
+                axis = None
+            if axis is None:
+                array = array[~outlier_mask]
+            elif axis == 0:
+                rows_to_keep = ~np.any(outlier_mask, axis=1)
+                array = array[rows_to_keep, :]
+            elif axis == 1:
+                cols_to_keep = ~np.any(outlier_mask, axis=0)
+                array = array[:, cols_to_keep]
+            else:
+                raise ValueError("Invalid axis for drop strategy in ndarray.")
+        return array
+
+def _validate_parameters(
+    method: str,
+    fill_strategy: str,
+    supported_methods: set,
+    supported_fill_strategies: set
+) -> Tuple[str, str]:
+
+    method = method.lower()
+    fill_strategy = fill_strategy.lower()
+
+    method = parameter_validator(
+        "method", target_strs=supported_methods, 
+        error_msg= ( 
+            f"Unsupported method '{method}'."
+            " Supported methods are: {supported_methods}"
+            )
+        ) (method)
+    # validate method 
+    fill_strategy = parameter_validator(
+        "method", target_strs=supported_fill_strategies, 
+        error_msg=  (
+            f"Unsupported fill_strategy '{fill_strategy}'."
+            f" Supported strategies are: {supported_fill_strategies}"
+            )
+        ) (fill_strategy)
+    
+
+    return method, fill_strategy
 
 
 def remove_outliers(
@@ -297,7 +857,11 @@ def remove_outliers(
     >>> import matplotlib.pyplot as plt
     >>> plt.plot(np.arange(len(data)), data, 'r-')
     """
+
     method = str(method).lower()
+    # Validation of inputs
+    method = parameter_validator(
+        "method", target_strs={"iqr", 'z-score'}) (method)
     
     if isinstance (ar, pd.DataFrame):
         return _remove_outliers( ar, n_std= threshold )
@@ -320,7 +884,6 @@ def remove_outliers(
         arr[ lower_arr]= fill_value if fill_value else np.nan 
         
     if method =='z-score': 
-        from scipy import stats
         z = np.abs(stats.zscore(arr[~np.isnan(arr)]))
         zmask  = np.array ( z > threshold )
         arr [zmask]= fill_value if fill_value else np.nan
@@ -331,6 +894,9 @@ def remove_outliers(
                   ]  if np.ndim (arr) > 1 else arr [~np.isnan(arr)]
 
     if interpolate: 
+        if fill_value !=np.nan: 
+            raise ValueError(
+                "Interpolate is feasible only if ``fill_value=np.nan``.")
         arr = interpolate_grid (arr, method = kind)
         
     if is_series: 
@@ -354,13 +920,13 @@ def _remove_outliers(data, n_std=3):
     # get the index and select only the index 
     index = df.index 
     # get the data by index then 
-    # concatename 
+    # concatenate 
     df_cat = data [catf].iloc [ index ]
     df = pd.concat ( [df_cat, df ], axis = 1 )
     
     return df
 
-def interpolate_grid (
+def interpolate_grid(
     arr,
     method ='cubic', 
     fill_value='auto', 
@@ -399,7 +965,7 @@ def interpolate_grid (
     Examples
     ---------
     >>> import numpy as np
-    >>> from gofast.tools.coreutils import interpolate_grid 
+    >>> from gofast.tools.baseutils import interpolate_grid 
     >>> x = [28, np.nan, 50, 60] ; y = [np.nan, 1000, 2000, 3000]
     >>> xy = np.vstack ((x, y))._T
     >>> xyi = interpolate_grid (xy, view=True ) 
@@ -415,8 +981,7 @@ def interpolate_grid (
         return None
     
     is2d = True 
-    if not hasattr(arr, '__array__'): 
-        arr = np.array (arr) 
+    arr = np.asarray (arr) 
     
     if arr.ndim==1: 
         #convert to two dimension array
@@ -465,6 +1030,79 @@ def interpolate_grid (
         arri = arri[0, :]
         
     return arri 
+
+def interpolate_grid_in(
+    arr: np.ndarray,
+    method: str = 'linear',
+    fill_value: str = 'auto',
+    view: bool = False
+) -> np.ndarray:
+    """
+    Interpolate missing values in a 2D grid.
+
+    Parameters
+    ----------
+    arr : np.ndarray
+        Two-dimensional array with missing values (np.nan).
+    method : str, default='linear'
+        Interpolation method: 'nearest', 'linear', 'cubic', etc.
+    fill_value : str or float, default='auto'
+        How to fill values outside the convex hull:
+        - 'auto': Use nearest-neighbor interpolation.
+        - Any float: Use the specified value.
+    view : bool, default=False
+        If True, display the original and interpolated grids.
+
+    Returns
+    -------
+    np.ndarray
+        Interpolated 2D array.
+    """
+    spi = check_scipy_interpolate()
+    if spi is None:
+        return None
+    
+    if arr.ndim != 2:
+        raise ValueError("`arr` must be a two-dimensional array.")
+
+    x = np.arange(arr.shape[1])
+    y = np.arange(arr.shape[0])
+    xx, yy = np.meshgrid(x, y)
+
+    # Mask invalid values
+    mask = np.isnan(arr)
+    valid = ~mask
+    if not np.any(valid):
+        raise ValueError("Array contains only NaNs.")
+
+    # Perform interpolation
+    interpolated = spi.griddata(
+        points=(xx[valid], yy[valid]),
+        values=arr[valid],
+        xi=(xx, yy),
+        method=method,
+        fill_value=np.nan
+    )
+
+    if fill_value == 'auto':
+        # Simple fill: forward and backward fill along both axes
+        df_interp = pd.DataFrame(interpolated)
+        df_interp = df_interp.fillna(method='ffill').fillna(method='bfill')
+        df_interp = df_interp.fillna(axis=1, method='ffill').fillna(
+            axis=1, method='bfill')
+        interpolated = df_interp.to_numpy()
+    elif isinstance(fill_value, (int, float)):
+        interpolated[np.isnan(interpolated)] = fill_value
+
+    if view:
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+        axes[0].imshow(arr, interpolation='nearest', cmap='viridis')
+        axes[0].set_title('Original Grid')
+        axes[1].imshow(interpolated, interpolation='nearest', cmap='viridis')
+        axes[1].set_title('Interpolated Grid')
+        plt.show()
+
+    return interpolated
 
 def fillNaN(
     arr: Union[ArrayLike, Series, DataFrame], 
@@ -702,7 +1340,7 @@ def convert_array_dimensions(
 def filter_nan_entries(
     nan_policy, *listof, 
     sample_weights=None, 
-    mode="strict", 
+    mode='strict', 
     trim_weights=False
     ):
     """
@@ -878,7 +1516,7 @@ def _flatten(items):
             yield x
             
 def filter_nan_values(
-        nan_policy, *data_lists, sample_weights=None, error="raise",
+        nan_policy, *data_lists, sample_weights=None, error='raise',
         flatten=False, preserve_type=False):
     """
     Filters out NaN values from provided lists based on a specified policy,
@@ -971,10 +1609,10 @@ def filter_nan_values(
 def adjust_weights(
     data_lengths, 
     original_weights, 
-    mode="auto", 
+    mode='auto', 
     fill_value=None,
     normalize=False, 
-    normalize_method="01"
+    normalize_method='01'
     ):
     """
     Adjusts sample weights to match the lengths of filtered or transformed datasets.
@@ -1882,198 +2520,6 @@ def is_readable (
 
     return f 
 
-def lowertify(
-    *values,
-    strip: bool = True, 
-    return_origin: bool = False, 
-    unpack: bool = False
-    ) -> Union[Tuple[str, ...], Tuple[Tuple[str, Any], ...], Tuple[Any, ...]]:
-    """
-    Convert all input values to lowercase strings, optionally stripping 
-    whitespace, and optionally return the original values alongside the 
-    lowercased versions.
-    
-    Can also unpack the tuples of lowercased and original values into a single
-    flat tuple.
-
-    Parameters
-    ----------
-    *values : Any
-        Arbitrary number of values to be converted to lowercase. Non-string 
-        values will be converted to strings before processing.
-    strip : bool, optional
-        If True (default), leading and trailing whitespace will be removed 
-        from the strings.
-    return_origin : bool, optional
-        If True, each lowercased string is returned as a tuple with its 
-        original value; otherwise, only the lowercased strings are returned.
-    unpack : bool, optional
-        If True, and `return_origin` is also True, the function returns a 
-        single flat tuple containing all lowercased and original values 
-        alternatively. This parameter is ignored if `return_origin` is False.
-
-    Returns
-    -------
-    Union[Tuple[str, ...], Tuple[Tuple[str, Any], ...], Tuple[Any, ...]]
-        Depending on `return_origin` and `unpack` flags, returns either:
-        - A tuple of lowercased (and optionally stripped) strings.
-        - A tuple of tuples, each containing the lowercased string and its 
-          original value.
-        - A single flat tuple containing all lowercased and original values 
-          alternatively (if `unpack` is True).
-
-    Examples
-    --------
-    >>> from gofast.tools.baseutils import lowertify
-    >>> lowertify('KIND')
-    ('kind',)
-    
-    >>> lowertify("KIND", return_origin=True)
-    (('kind', 'KIND'),)
-    
-    >>> lowertify("args1", 120, 'ArG3')
-    ('args1', '120', 'arg3')
-    
-    >>> lowertify("args1", 120, 'ArG3', return_origin=True)
-    (('args1', 'args1'), ('120', 120), ('arg3', 'ArG3'))
-    
-    >>> lowertify("KIND", "task ", return_origin=True, unpack=True)
-    ('kind', 'KIND', 'task', 'task ')
-    """
-    processed_values = [(str(val).strip().lower() if strip 
-                         else str(val).lower(), val) for val in values]
-    if return_origin:
-        if unpack:
-            # Flatten the list of tuples into a single tuple for unpacking
-            return tuple(item for pair in processed_values for item in pair)
-        else:
-            return tuple(processed_values)
-    else:
-        return tuple(lowered for lowered, _ in processed_values)
-
-
-def save_or_load(
-    fname:str, 
-    arr: NDArray=None,  
-    task: str='save', 
-    format: str='.txt', 
-    compressed: bool=...,  
-    comments: str="#",
-    delimiter: str=None, 
-    **kws 
-): 
-    """Save or load Numpy array. 
-    
-    Parameters 
-    -----------
-    fname: file, str, or pathlib.Path
-       File or filename to which the data is saved. 
-       - >.npy , .npz: If file is a file-object, then the filename is unchanged. 
-       If file is a string or Path, a .npy extension will be appended to the 
-       filename if it does not already have one. 
-       - >.txt: If the filename ends in .gz, the file is automatically saved in 
-       compressed gzip format. loadtxt understands gzipped files transparently.
-       
-    arr: 1D or 2D array_like
-      Data to be saved to a text, npy or npz file.
-      
-    task: str {"load", "save"}
-      Action to perform. "Save" for storing file into the format 
-      ".txt", "npy", ".npz". "load" for loading the data from storing files. 
-      
-    format: str {".txt", ".npy", ".npz"}
-       The kind of format to save and load.  Note that when loading the 
-       compressed data saved into `npz` format, it does not return 
-       systematically the array rather than `np.lib.npyio.NpzFile` files. 
-       Use either `files` attributes to get the list of registered files 
-       or `f` attribute dot the data name to get the loaded data set. 
-
-    compressed: bool, default=False 
-       Compressed the file especially when file format is set to `.npz`. 
-
-    comments: str or sequence of str or None, default='#'
-       The characters or list of characters used to indicate the start 
-       of a comment. None implies no comments. For backwards compatibility, 
-       byte strings will be decoded as 'latin1'. This is useful when `fname`
-       is in `txt` format. 
-      
-     delimiter: str,  optional
-        The character used to separate the values. For backwards compatibility, 
-        byte strings will be decoded as 'latin1'. The default is whitespace.
-        
-    kws: np.save ,np.savetext,  np.load , np.loadtxt 
-       Additional keywords arguments for saving and loading data. 
-       
-    Return 
-    ------
-    None| data: ArrayLike 
-    
-    Examples 
-    ----------
-    >>> import numpy as np 
-    >>> from gofast.tools.baseutils import save_or_load 
-    >>> data = np.random.randn (2, 7)
-    >>> # save to txt 
-    >>> save_or_load ( "test.txt" , data)
-    >>> save_or_load ( "test",  data, format='.npy')
-    >>> save_or_load ( "test",  data, format='.npz')
-    >>> save_or_load ( "test_compressed",  data, format='.npz', compressed=True )
-    >>> # load files 
-    >>> save_or_load ( "test.txt", task ='load')
-    Out[36]: 
-    array([[ 0.69265852,  0.67829574,  2.09023489, -2.34162127,  0.48689125,
-            -0.04790965,  1.36510779],
-           [-1.38349568,  0.63050939,  0.81771051,  0.55093818, -0.43066737,
-            -0.59276321, -0.80709192]])
-    >>> save_or_load ( "test.npy", task ='load')
-    Out[39]: array([-2.34162127,  0.55093818])
-    >>> save_or_load ( "test.npz", task ='load')
-    <numpy.lib.npyio.NpzFile at 0x1b0821870a0>
-    >>> npzo = save_or_load ( "test.npz", task ='load')
-    >>> npzo.files
-    Out[44]: ['arr_0']
-    >>> npzo.f.arr_0
-    Out[45]: 
-    array([[ 0.69265852,  0.67829574,  2.09023489, -2.34162127,  0.48689125,
-            -0.04790965,  1.36510779],
-           [-1.38349568,  0.63050939,  0.81771051,  0.55093818, -0.43066737,
-            -0.59276321, -0.80709192]])
-    >>> save_or_load ( "test_compressed.npz", task ='load')
-    ...
-    """
-    r_formats = {"npy", "txt", "npz"}
-   
-    (kind, kind0), ( task, task0 ) = lowertify(
-        format, task, return_origin =True )
-    
-    assert  kind.replace ('.', '') in r_formats, (
-        f"File format expects {smart_format(r_formats, 'or')}. Got {kind0!r}")
-    kind = '.' + kind.replace ('.', '')
-    assert task in {'save', 'load'}, ( 
-        "Wrong task {task0!r}. Valid tasks are 'save' or 'load'") 
-    
-    save= {'.txt': np.savetxt, '.npy':np.save,  
-           ".npz": np.savez_compressed if ellipsis2false(
-               compressed)[0] else np.savez 
-           }
-    if task =='save': 
-        arr = np.array (is_iterable( arr, exclude_string= True, 
-                                    transform =True ))
-        save.get(kind) (fname, arr, **kws )
-        
-    elif task =='load': 
-         ext = os.path.splitext(fname)[1].lower() 
-         if ext not in (".txt", '.npy', '.npz', '.gz'): 
-             raise ValueError ("Unrecognized file format {ext!r}."
-                               " Expect '.txt', '.npy', '.gz' or '.npz'")
-         if ext in ('.txt', '.gz'): 
-            arr = np.loadtxt ( fname , comments= comments, 
-                              delimiter= delimiter,   **kws ) 
-         else : 
-            arr = np.load(fname,**kws )
-         
-    return arr if task=='load' else None 
-
 def array2hdf5 (
     filename: str, 
     arr: NDArray=None , 
@@ -2192,7 +2638,6 @@ def remove_target_from_array(arr,  target_indices):
     target_arr = arr[:, target_indices]
     modified_arr = np.delete(arr, target_indices, axis=1)
     return modified_arr, target_arr
-
 
 def extract_target(
     data: Union[ArrayLike, DataFrame], 
@@ -3509,7 +3954,6 @@ def _handle_non_numeric(data, action='normalize'):
     
     return numeric_data
 
-
 def _nan_checker(arr, allow_nan=False):
     """Check and handle NaN values in a numpy array, pandas Series, 
     or pandas DataFrame.
@@ -3536,10 +3980,120 @@ def _nan_checker(arr, allow_nan=False):
                 raise ValueError("NaN values found, set allow_nan=True to handle them.")
     if allow_nan:
         if isinstance(arr, np.ndarray):
-            arr = np.nan_to_mode(arr)  # Replace NaNs with zero for numpy arrays
+            arr = nan_to_mode(arr)  # Replace NaNs with zero for numpy arrays
         elif isinstance(arr, (pd.Series, pd.DataFrame)):
             arr = arr.fillna(0)  # Replace NaNs with zero for pandas Series or DataFrame
     
+    return arr
+
+def nan_to_mode(
+    arr: np.ndarray,
+    nan_policy: str = 'omit',
+    axis: int = None,
+    keepdims: bool = False,
+    fill_value: float = None
+) -> np.ndarray:
+    """
+    Replace NaN values in a numpy array with the mode (most frequent value).
+    
+    This function calculates the mode (the most frequent value) of the given 
+    array, and replaces NaN values with this mode [1]_. The mode is computed 
+    across the array, and the behavior can be customized based on the axis, 
+    nan_policy, and whether to keep the dimensions of the array after 
+    the operation [2]_.
+
+    Parameters
+    ----------
+    arr : ndarray
+        The input array which may contain NaN values. It can be a 
+        one-dimensional or multi-dimensional numpy array. NaN values will
+        be replaced with the computed mode.
+    
+    nan_policy : {'omit', 'raise'}, optional, default 'omit'
+        Defines how to handle NaN values while computing the mode. If 'omit', 
+        the NaN values are ignored during the computation. If 'raise', a 
+        `ValueError` is raised if NaN values are encountered in the array.
+        
+    axis : int, optional, default None
+        The axis along which to compute the mode. If `None`, the mode is 
+        computed over the flattened array. If an integer is provided, it 
+        computes the mode along that axis.
+    
+    keepdims : bool, optional, default False
+        If True, the reduced dimensions will be retained as dimensions of 
+        size one. If False, the reduced dimensions are removed.
+
+    fill_value : float, optional, default None
+        If provided, it replaces NaN values with the specified `fill_value` 
+        instead of the mode.
+
+    Returns
+    -------
+    ndarray
+        The array with NaN values replaced by the mode (or the specified `fill_value`). 
+        The shape of the output array will match the input array, except for 
+        the dimensions reduced by the `axis` if specified.
+
+    Notes
+    -----
+    - The mode is computed using `scipy.stats.mode` with the `nan_policy='omit'`
+      argument.
+    - If `nan_policy` is set to `'raise'`, an error is thrown if NaN values 
+      are encountered.
+    - `fill_value` can be used to specify a custom replacement for NaN values
+      instead of the mode.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.tools.baseutils import nan_to_mode
+
+    >>> arr = np.array([1, 2, 2, 3, np.nan, 4, np.nan, 2])
+    >>> nan_to_mode(arr)
+    array([1., 2., 2., 3., 2., 4., 2., 2.])
+
+    >>> arr2 = np.array([[1, 2], [np.nan, 4]])
+    >>> nan_to_mode(arr2, axis=0)
+    array([[1., 2.],
+           [2., 4.]])
+           
+    >>> nan_to_mode(arr, nan_policy='raise')
+    ValueError: Input array contains NaN values
+
+    References
+    ----------
+    .. [1] Harris, C. R., Millman, K. J., van der Walt, S. J., et al.
+           "Array programming with NumPy." Nature 585, 357–362 (2019).
+           https://doi.org/10.1038/s41586-019-1556-0
+
+    .. [2] Virtanen, P., Gommers, R., Oliphant, T. E., et al. "SciPy 1.0: 
+           fundamental algorithms for scientific computing in Python." 
+           Nature Methods 17, 261–272 (2020). https://doi.org/10.1038/s41592-019-0686-2
+
+    See Also
+    --------
+    numpy.nan_to_num : Replace NaN with a specified value
+    scipy.stats.mode : Compute the mode of an array
+    """
+    arr = np.asarray( arr)
+
+    # Calculate the mode, ignoring NaN values
+    mode_result = stats.mode(
+        arr, nan_policy=nan_policy, 
+        axis=axis, 
+        keepdims=keepdims
+    )
+    # mode_result is a tuple: (mode_values, count_values)
+    mode_value = mode_result.mode
+    
+    # If a fill_value is provided, replace NaN values with
+    # the fill_value instead of the mode
+    if fill_value is not None:
+        arr = np.where(np.isnan(arr), fill_value, arr)
+    else:
+        # Replace NaNs with the mode value
+        arr = np.where(np.isnan(arr), mode_value, arr)
+
     return arr
 
 def normalizer(
@@ -3953,7 +4507,7 @@ def _count_local_minima(arr: ArrayLike, method: str = 'robust') -> int:
 def scale_y(
     y: ArrayLike, 
     x: ArrayLike = None, 
-    deg: Union [int, str] = "auto", 
+    deg: Union [int, str] = 'auto', 
     func: _F = None, 
     return_xf: bool = False, 
     view: bool = False
@@ -4570,7 +5124,7 @@ def make_df(
     >>> from gofast.tools.baseutils import make_df
     >>> X = np.random.rand(90, 5)
     >>> y = np.random.rand(100)
-    >>> df = make_data(X, y, coerce=True, error='ignore')
+    >>> df = make_df(X, y, coerce=True, error='ignore')
     >>> print(df.head())
 
     See Also
@@ -4655,10 +5209,173 @@ def make_df(
     
     return X
 
+def update_df(
+    old_df: pd.DataFrame,
+    new_df: pd.DataFrame,
+    return_common_dfs=False, 
+    return_common_columns=False,
+    error='warn'
+):
+    """
+    `update_df` function is designed to update a given DataFrame (`old_df`) 
+    by replacing the common columns with the corresponding values from a 
+    new DataFrame (`new_df`). This function supports a variety of use cases, 
+    such as returning updated DataFrames, extracting common columns, or 
+    handling potential errors when the common columns are missing.
 
-        
+    Parameters
+    ----------
+    old_df : pandas.DataFrame
+        The original DataFrame to be updated. It must contain columns 
+        that can be matched with those in `new_df`.
+
+    new_df : pandas.DataFrame
+        The DataFrame that contains updated values for the common columns 
+        with `old_df`. It should have columns that overlap with `old_df`.
+
+    return_common_dfs : bool, optional, default=False
+        If set to True, the function will return two DataFrames containing 
+        only the common columns between `old_df` and `new_df`:
+        - The first DataFrame will be from `old_df`.
+        - The second DataFrame will be from `new_df`.
+        If False (default), the function will update the common columns in 
+        `old_df` with the corresponding values from `new_df`.
+
+    return_common_columns : bool, optional, default=False
+        If set to True, the function will return a list of common column 
+        names between `old_df` and `new_df`. This can be useful to 
+        inspect which columns will be updated or matched between the DataFrames.
+
+    error: {'warn', 'raise'}, optional, default='warn'
+        Defines the action to take if no common columns are found between 
+        `old_df` and `new_df`. 
+        - 'warn' (default) will display a warning message.
+        - 'raise' will raise an exception (`ValueError`).
+
+    Returns
+    -------
+    updated_df : pandas.DataFrame
+        If neither `return_common_columns` nor `return_common_dfs` is 
+        specified, this function returns the original `old_df` with its 
+        common columns updated to the values from `new_df`.
+
+    common_columns : list
+        If `return_common_columns` is set to True, returns a list of 
+        column names common to both `old_df` and `new_df`.
+
+    common_old_df : pandas.DataFrame
+        If `return_common_dfs` is set to True, returns a DataFrame 
+        containing the common columns of `old_df`.
+
+    common_new_df : pandas.DataFrame
+        If `return_common_dfs` is set to True, returns a DataFrame 
+        containing the common columns of `new_df`.
+
+    Examples
+    --------
+    >>> from gofast.tools.baseutils import update_df
+
+    # Example 1: Return only common columns
+    >>> updated_common = update_df(old_df, new_df, return_common_columns=True)
+    >>> print(updated_common)
+    ['A', 'B']
+
+    # Example 2: Return DataFrames for common columns
+    >>> common_old, common_new = update_df(
+    ...    old_df, new_df, return_common_dfs=True)
+    >>> print(common_old)
+       A  B
+    0  1  4
+    1  2  5
+    2  3  6
+    >>> print(common_new)
+        A   B
+    0  10  40
+    1  20  50
+    2  30  60
+
+    # Example 3: Update full DataFrame with common columns
+    >>> updated_full = update_df(
+    ...    old_df, new_df, return_common_columns=False, return_common_dfs=False)
+    >>> print(updated_full)
+        A   B  C
+    0  10  40  7
+    1  20  50  8
+    2  30  60  9
+
+    Notes
+    -----
+
+    Given two DataFrames `old_df` and `new_df`, we define a set of common 
+    columns:
+
+    .. math:: 
+        C = \text{columns}(old\_df) \cap \text{columns}(new\_df)
+
+    The function then replaces the values in the common columns of `old_df` 
+    with the corresponding values from `new_df`:
+
+    .. math::
+        \text{updated\_df}[C] = \text{new\_df}[C]
+
+    Where `C` is the set of common columns between `old_df` and `new_df`. 
+    This operation is done only for the common columns, and other columns 
+    remain unchanged.
+
+    - The function allows flexibility in handling errors and selecting 
+      what to return: the updated DataFrame, common columns, or common 
+      DataFrames.
+    - The error policy can be customized to either raise an exception or 
+      warn the user when no common columns are found.
+    - The function assumes that `old_df` and `new_df` are pandas DataFrames 
+      with at least some overlapping column names.
+
+
+    See Also
+    --------
+    - :func:`pandas.DataFrame`
+    - :func:`pandas.DataFrame.intersection`
+
+    References
+    ----------
+    .. [1] McKinney, W. "Data Structures for Statistical Computing in 
+       Python." Proceedings of the 9th Python in Science Conference, 
+       2010.
+       https://conference.scipy.org/proceedings/scipy2010/pdfs/mckinney.pdf
+    """
+
+    # Check if the DataFrames are valid
+    if not isinstance(old_df, pd.DataFrame) or not isinstance(new_df, pd.DataFrame):
+        raise ValueError("Both old_df and new_df must be pandas DataFrame.")
+
+    # Find common columns
+    common_columns = old_df.columns.intersection(new_df.columns)
     
-        
+    # Handle error policy for missing common columns
+    if len(common_columns) == 0:
+        if error== "warn":
+            print("Warning: No common columns between the two DataFrames.")
+        elif error== "raise":
+            raise ValueError("No common columns found between the two DataFrames.")
+    
+    # Case 1: Return only the common columns
+    if return_common_columns:
+        return common_columns.tolist()
+
+    # Case 2: Return DataFrames for common columns
+    if return_common_dfs:
+        common_old_df = old_df[common_columns]
+        common_new_df = new_df[common_columns]
+        return common_old_df, common_new_df
+    
+    # Case 3: Return the full DataFrame with updated common columns
+    # Update the common columns from new_df to old_df
+    updated_df = old_df.copy()
+    updated_df[common_columns] = new_df[common_columns]
+    
+    return updated_df
+
+
 
 
         

@@ -28,16 +28,29 @@ import h5py
 import tarfile
 from pathlib import Path
 from typing import Optional, Union, Any, Tuple , List, Dict, Text 
-from tqdm import tqdm
 
 from six.moves import urllib 
 from zipfile import ZipFile
- 
+from tqdm import tqdm
+
 import numpy as np 
 import pandas as pd 
 
+from .._gofastlog import gofastlog 
+from ..api.property import BaseClass 
+from ..compat.sklearn import validate_params
+from ..core.array_manager import to_numeric_dtypes 
+from ..core.checks import ( 
+    exist_features, check_files, is_in_if, str2columns 
+    )
+from ..decorators import RunReturn 
+from .validator import to_iterable, check_is_runned, is_frame
+from ._dependency import import_optional_dependency
+ 
+logger = gofastlog().get_gofast_logger(__name__) 
+
 __all__ = [
-    'cparser_manager',
+    'FileManager', 
     'cpath',
     'deserialize_data', 
     'extract_tar_with_progress', 
@@ -47,7 +60,6 @@ __all__ = [
     'fetch_json_data_from_url',
     'get_config_fname_from_varname',
     'get_valid_key', 
-    'is_in_if',
     'key_checker',
     'key_search',
     'load_serialized_data',
@@ -59,129 +71,257 @@ __all__ = [
     'parse_yaml',
     'print_cmsg',
     'rename_files',
-    'return_ctask',
     'sanitize_unicode_string',
     'save_job',
     'save_path',
     'serialize_data',
     'spath',
     'store_or_write_hdf5',
-    'str2columns',
     'to_hdf5',
-    'to_iterable',
     'zip_extractor'
  ]
 
-def to_iterable(
-    obj: Any,
-    exclude_string: bool = False,
-    transform: bool = False,
-    parse_string: bool = False,
-    flatten: bool = False,
-    unique: bool = False,
-    delimiter: str = r'[ ,;|\t\n]+'
-) -> Union[bool, List[Any]]:
+class FileManager(BaseClass):
     """
-    Determines if an object is iterable, with options to transform, parse,
-    and modify the input for flexible iterable handling.
+    A class for managing and organizing files in directories.
+
+    This class provides methods to organize files based on file types,
+    name patterns, and to rename files in bulk. All operations are
+    executed via the `run` method to ensure proper initialization.
 
     Parameters
     ----------
-    obj : Any
-        Object to be evaluated or transformed into an iterable.
-    exclude_string : bool, default=False
-        Excludes strings from being considered as iterable objects.
-    transform : bool, default=False
-        Transforms `obj` into an iterable if it isn't already. Defaults to
-        wrapping `obj` in a list.
-    parse_string : bool, default=False
-        If `obj` is a string, splits it into a list based on the specified
-        `delimiter`. Requires `transform=True`.
-    flatten : bool, default=False
-        If `obj` is a nested iterable, flattens it into a single list.
-    unique : bool, default=False
-        Ensures unique elements in the output if `transform=True`.
-    delimiter : str, default=r'[ ,;|\t\n]+'
-        Regular expression pattern for splitting strings when `parse_string=True`.
+    root_dir : str
+        The root directory containing the files to manage.
 
-    Returns
+    target_dir : str
+        The directory where the organized files will be placed.
+
+    file_types : list of str, optional
+        A list of file extensions to filter by (e.g., ``['.csv', '.json']``).
+        If ``None``, all file types are included. Default is ``None``.
+
+    name_patterns : list of str, optional
+        A list of name patterns to filter by (e.g., ``['2023', 'report']``).
+        If ``None``, all file names are included. Default is ``None``.
+
+    move : bool, optional
+        If ``True``, files are moved instead of copied. Default is ``False``.
+
+    overwrite : bool, optional
+        If ``True``, existing files at the target location will be overwritten.
+        If ``False``, existing files are skipped. Default is ``False``.
+
+    create_dirs : bool, optional
+        If ``True``, missing directories in the target path are created.
+        Default is ``False``.
+
+    Attributes
+    ----------
+    root_dir_ : str
+        The root directory containing the files to manage.
+
+    target_dir_ : str
+        The directory where the organized files will be placed.
+
+    Methods
     -------
-    bool or List[Any]
-        Returns a boolean if `transform=False`, or an iterable if
-        `transform=True`.
-
-    Raises
-    ------
-    ValueError
-        If `parse_string=True` without `transform=True`, or if `delimiter`
-        is invalid.
-
-    Notes
-    -----
-    - When `parse_string` is used, strings are split by `delimiter` to form a
-      list of substrings.
-    - `flatten` and `unique` apply only when `transform=True`.
-    - Using `unique=True` ensures no duplicate values in the output.
+    run(pattern=None, replacement=None)
+        Executes the data management operations.
 
     Examples
     --------
-    >>> from gofast.tools.iotuils import to_iterable
-    >>> to_iterable("word", exclude_string=True)
-    False
+    >>> from gofast.tools.datautils import DataManager
+    >>> manager = DataManager(
+    ...     root_dir='data/raw',
+    ...     target_dir='data/processed',
+    ...     file_types=['.csv', '.json'],
+    ...     name_patterns=['2023', 'report'],
+    ...     move=True,
+    ...     overwrite=True,
+    ...     create_dirs=True
+    ... )
+    >>> manager.run(pattern='old', replacement='new')
 
-    >>> to_iterable(123, transform=True)
-    [123]
+    Notes
+    -----
+    The `run` method organizes files and performs renaming based on the
+    initialization parameters and arguments provided to `run`.
 
-    >>> to_iterable("parse, this sentence", transform=True, parse_string=True)
-    ['parse', 'this', 'sentence']
-
-    >>> to_iterable([1, [2, 3], [4]], transform=True, flatten=True)
-    [1, 2, 3, 4]
-
-    >>> to_iterable("a,b,a,b", transform=True, parse_string=True, unique=True)
-    ['a', 'b']
+    See Also
+    --------
+    shutil.move : Moves a file or directory to another location.
+    shutil.copy : Copies a file to another location.
     """
-    if parse_string and not transform:
-        raise ValueError("Set 'transform=True' when using 'parse_string=True'.")
 
-    # Check if object is iterable (excluding strings if specified)
-    is_iterable = hasattr(obj, '__iter__') and not (exclude_string and isinstance(obj, str))
+    @validate_params({
+        'root_dir': [str],
+        'target_dir': [str],
+        'file_types': [list, None],
+        'name_patterns': [list, None],
+        'move': [bool],
+        'overwrite': [bool],
+        'create_dirs': [bool]
+    })
+    def __init__(
+        self,
+        root_dir: str,
+        target_dir: str,
+        file_types: Optional[List[str]] = None,
+        name_patterns: Optional[List[str]] = None,
+        move: bool = False,
+        overwrite: bool = False,
+        create_dirs: bool = False
+    ):
+        self.root_dir = root_dir
+        self.target_dir = target_dir
+        self.file_types = file_types
+        self.name_patterns = name_patterns
+        self.move = move
+        self.overwrite = overwrite
+        self.create_dirs = create_dirs
+    
+        # Ensure root_dir exists
+        if not os.path.isdir(self.root_dir):
+            raise ValueError(f"Root directory '{self.root_dir}' does not exist.")
 
-    # If transformation is not needed, return the boolean check
-    if not transform:
-        return is_iterable
+        # Create target_dir if create_dirs is True
+        if self.create_dirs and not os.path.exists(self.target_dir):
+            os.makedirs(self.target_dir, exist_ok=True)
 
-    # If string parsing is enabled and obj is a string, split it using delimiter
-    if isinstance(obj, str) and parse_string:
-        obj = re.split(delimiter, obj.strip())
+        logger.debug(f"Initialized DataManager with root_dir: {self.root_dir}, "
+                     f"target_dir: {self.target_dir}")
 
-    # Wrap non-iterables into a list if they aren't iterable
-    elif not is_iterable:
-        obj = [obj]
+    @RunReturn
+    def run(self, pattern: Optional[str] = None, replacement: Optional[str] = None):
+        """
+        Executes the data management operations.
 
-    # Flatten nested iterables if flatten=True
-    if flatten:
-        obj = _flatten(obj)
+        This method organizes files based on the specified filters and
+        optionally renames files by replacing a pattern with a replacement
+        string.
 
-    # Apply unique filtering if requested
-    if unique:
-        obj = list(dict.fromkeys(obj))  # Preserves order while ensuring uniqueness
+        Parameters
+        ----------
+        pattern : str, optional
+            The pattern to search for in file names during renaming.
+            If ``None``, renaming is skipped. Default is ``None``.
 
-    return obj
+        replacement : str, optional
+            The string to replace the pattern with during renaming.
+            Required if `pattern` is provided.
 
+        Returns
+        -------
+        self : DataManager
+            Returns self.
 
-def _flatten(nested_list: Any) -> List[Any]:
-    """ Helper function to recursively flatten a nested list structure. """
-    flattened = []
-    for element in nested_list:
-        if isinstance(element, (list, tuple, set)):
-            flattened.extend(_flatten(element))
+        Examples
+        --------
+        >>> manager = DataManager(...)
+        >>> manager.run(pattern='old', replacement='new')
+
+        Notes
+        -----
+        The `run` method must be called before invoking any other methods.
+        It sets up the necessary state for the object.
+        """
+        self._organize_files()
+        if pattern is not None:
+            if replacement is None:
+                raise ValueError(
+                    "Replacement string must be provided if pattern is specified.")
+            self._rename_files(pattern, replacement)
+        self._is_runned = True  # Mark as runned
+
+    def get_processed_files(self) -> List[str]:
+        """
+        Retrieves a list of files that have been processed.
+
+        Returns
+        -------
+        files : list of str
+            A list of file paths that have been processed.
+
+        Examples
+        --------
+        >>> manager = DataManager(...)
+        >>> manager.run()
+        >>> files = manager.get_processed_files()
+        """
+        check_is_runned(self, attributes=['_is_runned'])
+        
+        processed_files = []
+        for dirpath, _, filenames in os.walk(self.target_dir):
+            for filename in filenames:
+                processed_files.append(os.path.join(dirpath, filename))
+        return processed_files
+
+    def _organize_files(self):
+        """Private method to organize files based on specified filters."""
+        try:
+            files = self._get_filtered_files()
+            for file_path in files:
+                self._handle_file(file_path)
+        except Exception as e:
+            logger.error(f"Failed to organize files: {str(e)}")
+            raise RuntimeError(f"Organizing files failed: {str(e)}") from e
+
+    def _rename_files(self, pattern: str, replacement: str):
+        """Private method to rename files by replacing a pattern."""
+        try:
+            for dirpath, _, filenames in os.walk(self.target_dir):
+                for filename in filenames:
+                    if pattern in filename:
+                        old_path = os.path.join(dirpath, filename)
+                        new_filename = filename.replace(pattern, replacement)
+                        new_path = os.path.join(dirpath, new_filename)
+                        if os.path.exists(new_path) and not self.overwrite:
+                            logger.info(f"File {new_path} already exists; skipping.")
+                            continue
+                        os.rename(old_path, new_path)
+                        logger.debug(f"Renamed {old_path} to {new_path}")
+        except Exception as e:
+            logger.error(f"Failed to rename files: {str(e)}")
+            raise RuntimeError(f"Renaming files failed: {str(e)}") from e
+
+    def _get_filtered_files(self):
+        """Retrieves files from root_dir filtered by file_types and name_patterns."""
+        matched_files = []
+        for dirpath, _, filenames in os.walk(self.root_dir):
+            for filename in filenames:
+                if self.file_types and not any(
+                        filename.endswith(ext) for ext in self.file_types):
+                    continue
+                if self.name_patterns and not any(
+                        pat in filename for pat in self.name_patterns):
+                    continue
+                matched_files.append(os.path.join(dirpath, filename))
+        return matched_files
+
+    def _handle_file(self, file_path):
+        """Handles moving or copying of a single file."""
+        relative_path = os.path.relpath(file_path, self.root_dir)
+        target_path = os.path.join(self.target_dir, relative_path)
+
+        # Create target directories if needed
+        target_dir = os.path.dirname(target_path)
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir, exist_ok=True)
+
+        if os.path.exists(target_path) and not self.overwrite:
+            logger.info(f"File {target_path} already exists; skipping.")
+            return
+
+        if self.move:
+            shutil.move(file_path, target_path)
+            logger.debug(f"Moved {file_path} to {target_path}")
         else:
-            flattened.append(element)
-    return flattened
+            shutil.copy2(file_path, target_path)
+            logger.debug(f"Copied {file_path} to {target_path}")
 
 def zip_extractor(
-    zip_file ,
+    zip_file,
     samples ='*', 
     ftype=None,  
     savepath = None,
@@ -217,7 +357,7 @@ def zip_extractor(
      
     Examples 
     ----------
-    >>> from gofast.tools.coreutils import zip_extractor 
+    >>> from gofast.tools.ioutils import zip_extractor 
     >>> zip_extractor ('gofast/datasets/data/edis/e.E.zip')
     
     """
@@ -237,14 +377,8 @@ def zip_extractor(
                               f"the {ft!r}. Available file types are {msg}")
         return objn 
     
-    if not os.path.isfile (zip_file ): 
-        raise FileExistsError( f"File {os.path.basename(zip_file)!r} does"
-                              " not exist. Expect a Path-like object,"
-                              f" got {type(zip_file).__name__!r}")
-        
-    if not os.path.basename(zip_file ).lower().endswith ('.zip'): 
-        raise FileNotFoundError("Unrecognized zip-file.")
-        
+    zip_file = check_files (zip_file, formats='.zip', return_valid=True )
+    
     samples = str(samples) 
     if samples !='*': 
         try :samples = int (samples )
@@ -270,7 +404,7 @@ def zip_extractor(
     
     return objnames 
 
-def to_hdf5(d, fn, objname =None, close =True,  **hdf5_kws): 
+def to_hdf5(data, fn, objname =None, close =True,  **hdf5_kws): 
     """
     Store a frame data in hierachical data format 5 (HDF5) 
     
@@ -323,8 +457,9 @@ def to_hdf5(d, fn, objname =None, close =True,  **hdf5_kws):
     Examples 
     ------------
     >>> import os 
-    >>> from gofast.tools.coreutils import sanitize_frame_cols, to_hdf5 
-    >>> from gofast.tools import read_data 
+    >>> from gofast.core.utils import sanitize_frame_cols
+    >>> from gofast.tools.ioutils import  to_hdf5 
+    >>> from gofast.core.io import read_data 
     >>> data = read_data('data/boreholes/H502.xlsx') 
     >>> sanitize_frame_cols (data, fill_pattern='_', inplace =True ) 
     >>> store_path = os.path.join('gofast/datasets/data', 'h') # 'h' is the name of the data 
@@ -337,42 +472,38 @@ def to_hdf5(d, fn, objname =None, close =True,  **hdf5_kws):
     ... Index(['hole_number', 'depth_top', 'depth_bottom'], dtype='object')
 
     """
-    from ._dependency import import_optional_dependency 
-    
     store =None 
     if ( 
-        not hasattr (d, '__array__') 
-        or not hasattr (d, 'columns')
-            ) : 
+        not isinstance (data, np.ndarray) 
+        or not hasattr (data, pd.DataFrame)
+        ) : 
         raise TypeError ("Expect an array or dataframe,"
-                         f" not {type (d).__name__!r}")
+                         f" not {type (data).__name__!r}")
         
-    if hasattr (d, '__array__') and hasattr (d, "columns"): 
+    if isinstance(data, pd.DataFrame): 
         # assert whether pytables is installed 
-        import_optional_dependency ('tables') 
+        import_optional_dependency('tables') 
         # remove extension if exist.
         fn = str(fn).replace ('.h5', "").replace(".hdf5", "")
         # then store. 
         store = pd.HDFStore(fn +'.h5' ,  **hdf5_kws)
         objname = objname or 'data'
-        store[ str(objname) ] = d 
+        store[ str(objname) ] = data
 
-    
-    elif not hasattr(d, '__array__'): 
-        d = np.asarray(d) 
- 
+    else: 
+        data = np.asarray(data) 
         store= h5py.File(f"{fn}.hdf5", "w") 
         store.create_dataset("dataset_01", store.shape, 
                              dtype=store.dtype,
                              data=store
                              )
-        
-    if close : store.close () 
+    if close :
+        store.close () 
 
     return store 
     
 def store_or_write_hdf5 (
-    d,  
+    df,  
     key:str= None, 
     mode:str='a',  
     kind: str=None, 
@@ -381,7 +512,7 @@ def store_or_write_hdf5 (
     csv_sep: str=",",
     index: bool=..., 
     columns:Union [str, List[Any]]=None, 
-    sanitize_columns:bool=...,  
+    sanitize_columns:bool=False,  
     func: Optional[callable]= None, 
     args: tuple=(), 
     applyto: Union [str, List[Any]]=None, 
@@ -517,8 +648,6 @@ def store_or_write_hdf5 (
     >>> store_or_write_hdf5 ( d, key='test0', path_or_buf= 'test_data', 
                           kind ='export')
     """
-    # XXX revise imports 
-    from .coreutils import to_numeric_dtypes,  exist_features  
     
     kind= key_search (str(kind), default_keys=(
         "none", "store", "write", "export", "tocsv"), 
@@ -526,10 +655,11 @@ def store_or_write_hdf5 (
     
     kind = "export" if kind in ('write', 'tocsv') else kind 
     
-    if sanitize_columns is ...: 
-        sanitize_columns=False 
-    d = to_numeric_dtypes(d, columns=columns,sanitize_columns=sanitize_columns, 
-                          fill_pattern='_')
+    is_frame(df, df_only =True, raise_exception=True, objname="Data") 
+    
+    d = to_numeric_dtypes(
+        df, columns=columns,sanitize_columns=sanitize_columns, 
+        fill_pattern='_')
    
     # get categorical variables 
     if ( sanitize_columns 
@@ -581,7 +711,7 @@ def key_checker (
     valid_keys:List[str], 
     regex:re = None, 
     pattern:str = None , 
-    deep_search:bool =...
+    deep_search:bool =False
     ): 
     """check whether a give key exists in valid_keys and return a list if 
     many keys are found.
@@ -616,7 +746,7 @@ def key_checker (
     Examples
     --------
     
-    >>> from gofast.tools.coreutils import key_checker
+    >>> from gofast.tools.ioutils import key_checker
     >>> key_checker('h502', valid_keys= ['h502', 'h253','h2601'])  
     Out[68]: 'h502'
     >>> key_checker('h502+h2601', valid_keys= ['h502', 'h253','h2601'])
@@ -633,7 +763,6 @@ def key_checker (
     Out[57]: ['h502', 'h2601']
     
     """
-    deep_search= False if deep_search ==... else True 
 
     _keys = copy.deepcopy(keys)
     valid_keys = to_iterable(valid_keys , exclude_string =True, transform =True )
@@ -674,137 +803,6 @@ def key_checker (
     
     return keys
  
-def is_in_if (o: iter,  items: Union [str , iter], error = 'raise', 
-               return_diff =False, return_intersect = False): 
-    """ Raise error if item is not  found in the iterable object 'o' 
-    
-    :param o: unhashable type, iterable object,  
-        object for checkin. It assumes to be an iterable from which 'items' 
-        is premused to be in. 
-    :param items: str or list, 
-        Items to assert whether it is in `o` or not. 
-    :param error: str, default='raise'
-        raise or ignore error when none item is found in `o`. 
-    :param return_diff: bool, 
-        returns the difference items which is/are not included in 'items' 
-        if `return_diff` is ``True``, will put error to ``ignore`` 
-        systematically.
-    :param return_intersect:bool,default=False
-        returns items as the intersection between `o` and `items`.
-    :raise: ValueError 
-        raise ValueError if `items` not in `o`. 
-    :return: list,  
-        `s` : object found in ``o` or the difference object i.e the object 
-        that is not in `items` provided that `error` is set to ``ignore``.
-        Note that if None object is found  and `error` is ``ignore`` , it 
-        will return ``None``, otherwise, a `ValueError` raises. 
-        
-    :example: 
-        >>> from gofast.datasets import load_hlogs 
-        >>> from gofast.tools.coreutils import is_in_if 
-        >>> X0, _= load_hlogs (as_frame =True )
-        >>> is_in_if  (X0 , items= ['depth_top', 'top']) 
-        ... ValueError: Item 'top' is missing in the object 
-        >>> is_in_if (X0, ['depth_top', 'top'] , error ='ignore') 
-        ... ['depth_top']
-        >>> is_in_if (X0, ['depth_top', 'top'] , error ='ignore',
-                       return_diff= True) 
-        ... ['sp',
-         'well_diameter',
-         'layer_thickness',
-         'natural_gamma',
-         'short_distance_gamma',
-         'strata_name',
-         'gamma_gamma',
-         'depth_bottom',
-         'rock_name',
-         'resistivity',
-         'hole_id']
-    """
-    
-    if isinstance (items, str): 
-        items =[items]
-    elif not to_iterable(o): 
-        raise TypeError (f"Expect an iterable object, not {type(o).__name__!r}")
-    # find intersect object 
-    s= set (o).intersection (items) 
-    
-    miss_items = list(s.difference (o)) if len(s) > len(
-        items) else list(set(items).difference (s)) 
-
-    if return_diff or return_intersect: 
-        error ='ignore'
-    
-    if len(miss_items)!=0 :
-        if error =='raise': 
-            v= ','.join(miss_items) # use ','. join instead of smart_format
-            verb = f"{ ' '+ v +' is' if len(miss_items)<2 else  's '+ v + 'are'}"
-            raise ValueError (
-                f"Item{verb} missing in the {type(o).__name__.lower()} {o}.")
-            
-       
-    if return_diff : 
-        # get difference 
-        s = list(set(o).difference (s))  if len(o) > len( 
-            s) else list(set(items).difference (s)) 
-        # s = set(o).difference (s)  
-    elif return_intersect: 
-        s = list(set(o).intersection(s))  if len(o) > len( 
-            items) else list(set(items).intersection (s))     
-    
-    s = None if len(s)==0 else list (s) 
-    
-    return s  
-
-def str2columns (text,  regex=None , pattern = None): 
-    """Split text from the non-alphanumeric markers using regular expression. 
-    
-    Remove all string non-alphanumeric and some operator indicators,  and 
-    fetch attributes names. 
-    
-    Parameters 
-    -----------
-    text: str, 
-        text litteral containing the columns the names to retrieve
-        
-    regex: `re` object,  
-        Regular expresion object. the default is:: 
-            
-            >>> import re 
-            >>> re.compile (r'[#&*@!_,;\s-]\s*', flags=re.IGNORECASE) 
-    pattern: str, default = '[#&*@!_,;\s-]\s*'
-        The base pattern to split the text into a columns
-        
-    Returns
-    -------
-    attr: List of attributes 
-    
-    Examples
-    ---------
-    >>> from gofast.tools.coreutils import str2columns 
-    >>> text = ('this.is the text to split. It is an: example of; splitting str - to text.')
-    >>> str2columns (text )  
-    ... ['this',
-         'is',
-         'the',
-         'text',
-         'to',
-         'split',
-         'It',
-         'is',
-         'an:',
-         'example',
-         'of',
-         'splitting',
-         'str',
-         'to',
-         'text']
-
-    """
-    pattern = pattern or  r'[#&.*@!_,;\s-]\s*'
-    regex = regex or re.compile (pattern, flags=re.IGNORECASE) 
-    text= list(filter (None, regex.split(str(text))))
-    return text 
 
 def key_search (
     keys: str,  
@@ -860,7 +858,7 @@ def key_search (
 
     Examples
     ---------
-    >>> from gofast.tools.coreutils import key_search 
+    >>> from gofast.tools.ioutils import key_search 
     >>> key_search('h502-hh2601', default_keys= ['h502', 'h253','HH2601'])
     Out[44]: ['h502']
     >>> key_search('h502-hh2601', default_keys= ['h502', 'h253','HH2601'], 
@@ -1167,7 +1165,6 @@ def dummy_csv_translator(
     
     return df, list(untranslated_terms)
 
-
 def rename_files(
     src_files: Union[str, List[str]], 
     dst_files: Union[str, List[str]], 
@@ -1384,8 +1381,9 @@ def spath(name_of_path: str) -> str:
         warnings.warn("The path already exists.")
     return savepath
 
-
-def load_serialized_data(filename: str, verbose: int = 0):
+def load_serialized_data(
+        filename: str, verbose: int = 0
+        ):
     """
     Load data from a serialized file (e.g., pickle or joblib format).
 
@@ -1428,11 +1426,7 @@ def load_serialized_data(filename: str, verbose: int = 0):
     joblib.load : High-performance loading utility.
     pickle.load : General-purpose Python serialization library.
     """
-    if not isinstance(filename, str):
-        raise TypeError(f"filename should be a <str> not <{type(filename)}>")
-
-    if not os.path.isfile(filename):
-        raise FileExistsError(f"File {filename!r} does not exist.")
+    filename = check_files(filename, return_valid = True )
 
     _filename = os.path.basename(filename)
     data = None
@@ -1458,9 +1452,8 @@ def load_serialized_data(filename: str, verbose: int = 0):
 
     return data
 
-
 def save_job(
-    job , 
+    job, 
     savefile ,* ,  
     protocol =None,  
     append_versions=True, 
@@ -1550,6 +1543,7 @@ def save_job(
 
     import sklearn
 
+    check_files(savefile)
     # Generate versioning metadata
     versions = 'sklearn_v{0}.numpy_v{1}.pandas_v{2}'.format(
         sklearn.__version__, np.__version__, pd.__version__)
@@ -1576,7 +1570,7 @@ def save_job(
 
     return savefile
 
-def cparser_manager(
+def _cparser_manager(
     cfile: str,
     savepath: Optional[str] = None, 
     todo: str = 'load', 
@@ -1606,6 +1600,7 @@ def cparser_manager(
     in the correct location, and calls `print_cmsg` to provide user feedback.
 
     """
+    check_files(cfile)
     if savepath == 'default':
         savepath = None
     yml_fn, _ = move_cfile(cfile, savepath, dpath=dpath)
@@ -1641,6 +1636,7 @@ def move_cfile(
     >>> print(new_path, msg)
 
     """
+    check_files(cfile)
     savepath = cpath(savepath or '_default_path_', **ckws)
     destination_file_path = os.path.join(savepath, os.path.basename(cfile))
 
@@ -1690,8 +1686,6 @@ def print_cmsg(
             " data was successfully saved."
             )
     return msg
-
-
 
 def parse_csv(
     csv_fn: str = None,
@@ -1754,10 +1748,13 @@ def parse_csv(
     [{'name': 'Alice', 'age': 30}, {'name': 'Bob', 'age': 25}]
 
     """
-    todo, domsg = return_ctask(todo)
+    csv_fn = check_files(csv_fn, formats ='.csv', return_valid=True ) 
+    
+    todo, domsg = _return_ctask(todo)
 
     if 'write' in todo:
-        csv_fn = get_config_fname_from_varname(data, config_fname=csv_fn, config='.csv')
+        csv_fn = get_config_fname_from_varname(
+            data, config_fname=csv_fn, config='.csv')
 
     try:
         if todo == 'reader':
@@ -1788,11 +1785,11 @@ def parse_csv(
         raise TypeError(f"{msg} {csv_fn!r}. Check your"
                         f" {'file' if 'read' in todo else 'data'}. {e}")
 
-    cparser_manager(f"{csv_fn}.csv", savepath, todo=todo, dpath='_savecsv_',
+    _cparser_manager(f"{csv_fn}.csv", savepath, todo=todo, dpath='_savecsv_',
                     verbose=verbose, config='CSV')
     return data
 
-def return_ctask(todo: Optional[str] = None) -> Tuple[str, str]:
+def _return_ctask(todo: Optional[str] = None) -> Tuple[str, str]:
     """
     Determine the action to perform based on the `todo` input.
 
@@ -1840,7 +1837,6 @@ def return_ctask(todo: Optional[str] = None) -> Tuple[str, str]:
             f"Invalid action '{todo}'. Use 'load' or 'dump' (YAML|CSV|JSON).")
 
     return todo, domsg
-
 
 def parse_yaml(
     yml_fn: str = None,
@@ -1901,6 +1897,8 @@ def parse_yaml(
     `get_config_fname_from_varname` : Utility for generating YAML configuration 
     filenames based on variable names.
     """
+    yml_fn = check_files(yml_fn, formats =['.yml', '.yam'], return_valid=True ) 
+    
     # Determine task for loading or dumping YAML
     todo = todo.lower()
     if todo.startswith('dump'):
@@ -1922,7 +1920,7 @@ def parse_yaml(
         raise ValueError(f"Invalid value for 'todo': {todo}. Use 'load' or 'dump'.")
 
     # Manage paths and configurations
-    cparser_manager(f"{yml_fn}.yml", savepath, todo=todo, dpath='_saveyaml_',
+    _cparser_manager(f"{yml_fn}.yml", savepath, todo=todo, dpath='_saveyaml_',
                     verbose=verbose, config='YAML')
 
     return data
@@ -2042,6 +2040,7 @@ def parse_json(
     `get_config_fname_from_varname` : Utility for generating JSON configuration 
     filenames based on variable names.
     """
+    json_fn = check_files(json_fn, formats ='.json', return_valid=True ) 
     # Set task for loading or dumping JSON
     if json_fn and "http" in json_fn:
         todo, json_fn, data = fetch_json_data_from_url(json_fn, todo)
@@ -2074,7 +2073,7 @@ def parse_json(
         raise TypeError(
             f"Error with {json_fn!r}. Verify your {'file' if 'load' in todo else 'data'}.")
 
-    cparser_manager(
+    _cparser_manager(
         f"{json_fn}.json", savepath, todo=todo,
         dpath='_savejson_', verbose=verbose, config='JSON'
     )
@@ -2183,16 +2182,7 @@ def deserialize_data(filename: str, verbose: int = 0) -> Any:
     .. [1] Joblib Documentation - https://joblib.readthedocs.io
     .. [2] Python Pickle Module - https://docs.python.org/3/library/pickle.html
     """
-    # Check if filename is a valid string
-    if not isinstance(filename, str):
-        raise TypeError(
-            "Expected 'filename' to be a string,"
-            f" got {type(filename)} instead."
-        )
-    
-    # Confirm that the specified file exists
-    if not os.path.isfile(filename):
-        raise FileNotFoundError(f"File {filename!r} does not exist.")
+    filename = check_files ( filename, return_valid =True )
     
     # Attempt to load data using joblib
     try:
@@ -2297,7 +2287,6 @@ def serialize_data(
         raise IOError(f"An error occurred during data serialization: {e}")
     
     return full_path
-
 
 def fetch_tgz_from_url(
     data_url: str,
@@ -2631,7 +2620,7 @@ def get_valid_key(input_key, default_key, substitute_key_dict=None,
     
     Example
     -------
-    >>> from gofast.tools.coreutils import get_valid_key
+    >>> from gofast.tools.ioutils import get_valid_key
     >>> substitute_key_dict = {'valid_key1': ['vk1', 'key1'], 'valid_key2': ['vk2', 'key2']}
     >>> get_valid_key('vk1', 'default_key', substitute_key_dict)
     'valid_key1'
