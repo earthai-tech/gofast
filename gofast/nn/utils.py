@@ -37,7 +37,12 @@ if KERAS_BACKEND:
     
 DEP_MSG = dependency_message('wrappers') 
 
-__all__ = ["split_static_dynamic", "create_sequences", "compute_forecast_horizon"]
+__all__ = [
+    "split_static_dynamic", 
+    "create_sequences",
+    "compute_forecast_horizon", 
+    "prepare_future_data"
+   ]
 
 @TypeEnforcer({"0": 'array-like', "1": 'array-like'})
 @validate_params({ 

@@ -72,6 +72,7 @@ __all__= [
     'check_spatial_columns', 
     'validate_spatial_columns', 
     'validate_nested_param', 
+    'check_params', 
     ]
 
 
@@ -376,7 +377,7 @@ class ParamsValidator:
                 # Handle non-generic constraints
                 try:
                     constraint_obj = self._make_constraint(constraint)
-                except ValueError as e:
+                except ( InvalidParameterError, ValueError) as e:
                     error_message = (
                         f"Unsupported constraint type for parameter '{param}': {constraint}"
                     )
@@ -499,7 +500,7 @@ class ParamsValidator:
             return make_constraint(constraint)
         elif isinstance(constraint, type):
             return make_constraint(constraint)
-        elif isinstance(constraint, _Constraint):
+        elif isinstance(constraint, (_Constraint, Hidden)):
             return constraint
         else:
             raise ValueError(f"Unknown constraint type: {constraint}")
@@ -531,6 +532,15 @@ class ParamsValidator:
                   f" transformations: {specs} on value: {value}")
 
         for spec in specs:
+            if 'tf' in spec: 
+                try: 
+                    import tensorflow as tf 
+                    # Convert list to TensorFlow tensor
+                    value = tf.convert_to_tensor(value)
+                except: 
+                    # fallback to numpy conversion 
+                    spec ='np'
+            
             if 'df' in spec or 'dataframe' in spec:
                 try:
                     value = pd.DataFrame(value)
@@ -545,6 +555,7 @@ class ParamsValidator:
                     raise InvalidParameterError(
                         err_msg.format(param,'numpy array', type(value).__name__)
                     )
+                
             elif 'series' in spec:
                 try:
                     value = pd.Series(value)
@@ -613,7 +624,15 @@ class ParamsValidator:
             raise InvalidParameterError(
                 err_msg.format(param,'tuple object', type(value).__name__)
             )
-        # Add more specific type validations as needed
+        try: 
+            import tensorflow as tf 
+            if spec =='tf' and not isinstance (value, tf.Tensor): 
+                raise InvalidParameterError(
+                    err_msg.format(
+                        param,'tensorflow Tensor object', type(value).__name__)
+                )
+        except: 
+            pass 
 
     def _reconstruct_args_kwargs(
         self, bound: inspect.BoundArguments
@@ -4074,6 +4093,13 @@ def validate_nested_param(
 
     origin = get_origin(expected_type)
     args = get_args(expected_type)
+    
+    # **New logic for Callable:**
+    # Detect if expected_type is a Callable or a Union that includes Callable.
+    if expected_type is Callable or origin is Callable or (
+        origin is Union and any(t is Callable for t in args)
+    ):
+        return check_callable(value, expected_type, param_name)
 
     # Handle Optional types (Union with NoneType)
     if origin is Union and type(None) in args:
@@ -4184,6 +4210,7 @@ def validate_nested_param(
                 raise TypeError(f"{e}") from None
         return tuple(validated_tuple)
     
+    # Handle all other basic types
     # Handle basic types
     else:
         if not isinstance(value, expected_type):
@@ -4315,6 +4342,83 @@ def check_params(param_types: Dict[str, Any], coerce: bool = True):
             return func(*bound.args, **bound.kwargs)
         return wrapper
     return decorator
+
+
+def check_callable(
+        value, expected_type, param_name: str = ''):
+    """
+    Validate that a parameter matches a Callable type or an Optional[Callable]
+    (or Union[Callable, None]).
+
+    Parameters
+    ----------
+    value : Any
+        The value to validate.
+    expected_type : Any
+        The expected type, which might be `Callable`, `Optional[Callable]`,
+        or `Union[Callable, None]`.
+    param_name : str, optional
+        Name of the parameter (for better error messages).
+
+    Returns
+    -------
+    Any
+        Returns the validated value if it matches the expected callable type.
+        Returns None if None is allowed by the type hint and value is None.
+
+    Raises
+    ------
+    TypeError
+        If the value does not match the expected Callable requirements.
+        
+    Examples 
+    ---------
+    # Example usages:
+    check_callable(lambda x: x+1, Callable)        # returns <lambda>
+    check_callable(None, Callable)                 # raises TypeError
+    check_callable(None, Union[Callable, None])    # returns None
+    check_callable(None, Optional[Callable])       # returns None
+    check_callable(int, Callable)                  # int is callable (class), so returns int
+
+    """
+
+
+    origin = get_origin(expected_type)
+    args = get_args(expected_type)
+
+    # Check for Optional[Callable] or Union[Callable, None]
+    if origin is Union and type(None) in args:
+        # If the value is None and None is allowed, return None immediately
+        if value is None:
+            return None
+
+        # Otherwise, we proceed with the non-None args to validate value
+        non_none_args = [t for t in args if t is not type(None)]
+        if not non_none_args:
+            # Means only None is allowed, and we've already handled value=None
+            # If code reaches here and value is not None, it's an error:
+            raise TypeError(
+                f"Parameter '{param_name}' must be None because only NoneType is allowed."
+            )
+        
+        # Validate against the non-None callable type
+        return check_callable(value, non_none_args[0], param_name)
+
+    # If `None` is provided but the expected type is strictly Callable, raise an error
+    if value is None:
+        raise TypeError(
+            f"Parameter {param_name} is expected to be a Callable, but got `None`."
+        )
+
+    # Check if the value is callable
+    if not callable(value):
+        raise TypeError(
+            f"Parameter {param_name} is expected to be a Callable,"
+            f" but got type `{type(value).__name__}`."
+        )
+
+    return value
+
 
 def check_array_like(
     obj, 

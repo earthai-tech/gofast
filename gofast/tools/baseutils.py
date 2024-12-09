@@ -215,7 +215,7 @@ def handle_outliers(
     interpolate_method: str = 'linear',  
     inplace: bool = False,
     verbose: bool = False, 
-    batch_size : int ="auto", 
+    batch_size : int ='auto', 
     batch_processor: bool=False, 
 ) -> Union[np.ndarray, pd.Series, pd.DataFrame, None]:
     """
@@ -566,7 +566,6 @@ def _process_dataframe(
         elif fill_strategy == 'drop':
             df = df[~outlier_mask.any(axis=1)]
         return df
-
 
 def _process_series(
     series: pd.Series,
@@ -1341,7 +1340,7 @@ def convert_array_dimensions(
 def filter_nan_entries(
     nan_policy, *listof, 
     sample_weights=None, 
-    mode="strict", 
+    mode='strict', 
     trim_weights=False
     ):
     """
@@ -1517,7 +1516,7 @@ def _flatten(items):
             yield x
             
 def filter_nan_values(
-        nan_policy, *data_lists, sample_weights=None, error="raise",
+        nan_policy, *data_lists, sample_weights=None, error='raise',
         flatten=False, preserve_type=False):
     """
     Filters out NaN values from provided lists based on a specified policy,
@@ -1610,10 +1609,10 @@ def filter_nan_values(
 def adjust_weights(
     data_lengths, 
     original_weights, 
-    mode="auto", 
+    mode='auto', 
     fill_value=None,
     normalize=False, 
-    normalize_method="01"
+    normalize_method='01'
     ):
     """
     Adjusts sample weights to match the lengths of filtered or transformed datasets.
@@ -2639,7 +2638,6 @@ def remove_target_from_array(arr,  target_indices):
     target_arr = arr[:, target_indices]
     modified_arr = np.delete(arr, target_indices, axis=1)
     return modified_arr, target_arr
-
 
 def extract_target(
     data: Union[ArrayLike, DataFrame], 
@@ -4509,7 +4507,7 @@ def _count_local_minima(arr: ArrayLike, method: str = 'robust') -> int:
 def scale_y(
     y: ArrayLike, 
     x: ArrayLike = None, 
-    deg: Union [int, str] = "auto", 
+    deg: Union [int, str] = 'auto', 
     func: _F = None, 
     return_xf: bool = False, 
     view: bool = False
@@ -5211,13 +5209,12 @@ def make_df(
     
     return X
 
-
 def update_df(
     old_df: pd.DataFrame,
     new_df: pd.DataFrame,
     return_common_dfs=False, 
     return_common_columns=False,
-    error_policy="warn"
+    error='warn'
 ):
     """
     `update_df` function is designed to update a given DataFrame (`old_df`) 
@@ -5228,15 +5225,15 @@ def update_df(
 
     Parameters
     ----------
-    `old_df` : pandas.DataFrame
+    old_df : pandas.DataFrame
         The original DataFrame to be updated. It must contain columns 
         that can be matched with those in `new_df`.
 
-    `new_df` : pandas.DataFrame
+    new_df : pandas.DataFrame
         The DataFrame that contains updated values for the common columns 
         with `old_df`. It should have columns that overlap with `old_df`.
 
-    `return_common_dfs` : bool, optional, default=False
+    return_common_dfs : bool, optional, default=False
         If set to True, the function will return two DataFrames containing 
         only the common columns between `old_df` and `new_df`:
         - The first DataFrame will be from `old_df`.
@@ -5244,12 +5241,12 @@ def update_df(
         If False (default), the function will update the common columns in 
         `old_df` with the corresponding values from `new_df`.
 
-    `return_common_columns` : bool, optional, default=False
+    return_common_columns : bool, optional, default=False
         If set to True, the function will return a list of common column 
         names between `old_df` and `new_df`. This can be useful to 
         inspect which columns will be updated or matched between the DataFrames.
 
-    `error_policy` : {'warn', 'raise'}, optional, default='warn'
+    error: {'warn', 'raise'}, optional, default='warn'
         Defines the action to take if no common columns are found between 
         `old_df` and `new_df`. 
         - 'warn' (default) will display a warning message.
@@ -5273,8 +5270,6 @@ def update_df(
     common_new_df : pandas.DataFrame
         If `return_common_dfs` is set to True, returns a DataFrame 
         containing the common columns of `new_df`.
-
-
 
     Examples
     --------
@@ -5358,9 +5353,9 @@ def update_df(
     
     # Handle error policy for missing common columns
     if len(common_columns) == 0:
-        if error_policy == "warn":
+        if error== "warn":
             print("Warning: No common columns between the two DataFrames.")
-        elif error_policy == "raise":
+        elif error== "raise":
             raise ValueError("No common columns found between the two DataFrames.")
     
     # Case 1: Return only the common columns
