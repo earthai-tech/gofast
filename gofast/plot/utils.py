@@ -605,7 +605,7 @@ def plot_spatial_features(
         " please use `plot_categorical_feature` instead."
     )
     check_features_types(
-        data, features= features, objective='numeric',
+        data, features= features, dtype='numeric',
         extra=extra_msg
     )
     # Handle dates parameter
@@ -993,7 +993,7 @@ def plot_categorical_feature(
     )
 
     check_features_types(
-        data, features= feature, objective='category', extra=extra_msg)
+        data, features= feature, dtype='category', extra=extra_msg)
     # Get unique categories
     categories = data[feature].unique()
     num_categories = len(categories)
@@ -1093,7 +1093,7 @@ def plot_categorical_feature(
     plt.show()
 
 def boxplot(
-    data: ArrayLike | DataFrame, /, 
+    data: ArrayLike | DataFrame, 
     labels: list[str],
     title: str, 
     y_label: str, 
@@ -1690,65 +1690,7 @@ def resetting_colorbar_bound(
                 startpoint, endpoint, number_of_ticks)]
         )
     
-def fmt_text(
-    data_text: str, 
-    fmt: str = '~', 
-    leftspace: int = 3, 
-    return_to_line: int = 77
-    ) -> str:
-    """
-    Formats a given text with specified left padding and underlines to make 
-    a formatted report.
 
-    Parameters
-    ----------
-    data_text : str
-        The long text to be formatted.
-    fmt : str, optional
-        The character used for underlining and formatting. Default is '~'.
-    leftspace : int, optional
-        The number of spaces to indent the text from the left margin. 
-        Default is 3.
-    return_to_line : int, optional
-        The maximum number of characters in a line before wrapping to the next 
-        line. Default is 77.
-
-    Returns
-    -------
-    str
-        The formatted text as a string with underlines and line breaks.
-
-    Examples
-    --------
-    >>> text = "This is a sample text that will be formatted with left spaces, 
-    ...  underlines, and auto-wrapping."
-    >>> print(fmt_text(text))
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-       This is a sample text that will be formatted with left -
-       spaces, underlines, and auto-wrapping. ~
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    """
-    return_to_line = int(return_to_line)
-    begin_text = ' ' * leftspace
-    formatted_text = begin_text + fmt * (return_to_line + 7) + '\n' + begin_text
-
-    ss = 0
-    for ii, char in enumerate(data_text):  # loop through the text
-        if ii == len(data_text) - 1:  # if it is the last character of the text
-            formatted_text += char + f' {fmt}\n' + begin_text + fmt * (
-                return_to_line + 7) + '\n'
-            break
-        if ss == return_to_line:
-            if data_text[ii + 1] != ' ':
-                formatted_text += f' {fmt}-\n' + begin_text + fmt
-            else:
-                formatted_text += f' {fmt}\n' + begin_text + fmt
-            ss = 0
-        formatted_text += char  # add character
-        ss += 1
-
-    return formatted_text
- 
 def plotvec1(u: np.ndarray, z: np.ndarray, v: np.ndarray) -> None:
     """
     Plot three vectors as arrows on a 2D graph to visualize their 

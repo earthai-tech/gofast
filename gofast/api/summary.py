@@ -148,7 +148,8 @@ class ResultSummary(FlexDict):
         """
         Return a formatted string representation of the results dictionary.
         """
-        result_title = to_camel_case(self.name)+ '(\n  {\n'
+        _name = to_camel_case(self.name)
+        result_title = _name + '(\n  {\n'
         formatted_results = []
         
         # Determine key padding if auto pad_keys is specified
@@ -190,9 +191,14 @@ class ResultSummary(FlexDict):
         # that some data has been truncated
         # for brevity. For the complete dictionary result, please access the 
         # corresponding attribute."
-        note = ( "\n\n[ Note: Data may be truncated. For the complete dictionary"
-                " data, access the corresponding 'results' attribute ]"
-                ) if "..." in result_str else ''
+        # note = ( "\n\n[ Note: Data may be truncated. For the complete dictionary"
+        #         " data, access the corresponding 'results' attribute ]"
+        #         ) if "..." in result_str else ''
+        note = (
+            "\n\n[ Note: Output may be truncated. To access the complete data,"
+            f" use the `results` attribute of the {_name} object:`<obj>.results`. ]"
+            ) if "..." in result_str else ''
+
         if self.mute_note: 
             note =''
         return f"{result_title}\n{result_str}{note}"

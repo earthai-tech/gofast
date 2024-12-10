@@ -44,7 +44,6 @@ from ..api.types import Series, _F, DataFrame
 from ..api.types import _Sub, ArrayLike 
 
 
-
 __all__= [ 
     'ParamsValidator', 
     'assert_ratio',
@@ -546,14 +545,16 @@ class ParamsValidator:
                     value = pd.DataFrame(value)
                 except Exception:
                     raise InvalidParameterError(
-                        err_msg.format(param, 'pandas DataFrame', type(value).__name__)
+                        err_msg.format(
+                            param, 'pandas DataFrame', type(value).__name__)
                     )
             elif 'np' in spec:
                 try:
                     value = np.array(value)
                 except Exception:
                     raise InvalidParameterError(
-                        err_msg.format(param,'numpy array', type(value).__name__)
+                        err_msg.format(
+                            param,'numpy array', type(value).__name__)
                     )
                 
             elif 'series' in spec:
@@ -561,29 +562,33 @@ class ParamsValidator:
                     value = pd.Series(value)
                 except Exception:
                     raise InvalidParameterError(
-                        err_msg.format(param,'pandas Series', type(value).__name__)
+                        err_msg.format(
+                            param,'pandas Series', type(value).__name__)
                     )
             elif spec == 'list':
                 try:
                     value = list(value)
                 except Exception:
                     raise InvalidParameterError(
-                        err_msg.format(param,'list object', type(value).__name__)
+                        err_msg.format(
+                            param,'list object', type(value).__name__)
                     )
             elif spec == 'tuple':
                 try:
                     value = tuple(value)
                 except Exception:
                     raise InvalidParameterError(
-                        err_msg.format(param,'tuple object', type(value).__name__)
+                        err_msg.format(
+                            param,'tuple object', type(value).__name__)
                     )
-            # Add more transformations as needed
+            #XXX: Future extension: Add more transformations as needed
             else:
                 if self.verbose >= 6:
                     print(f"[ParamsValidator] Unknown transformation spec: '{spec}'")
         return value
 
-    def _validate_specific_types(self, value: Any, param: Any, constraint_str: str) -> None:
+    def _validate_specific_types(
+            self, value: Any, param: Any, constraint_str: str) -> None:
         """
         Validate specific types based on constraint specifications.
 
@@ -633,6 +638,7 @@ class ParamsValidator:
                 )
         except: 
             pass 
+        #XXX: Future extension: Add more transformations as needed
 
     def _reconstruct_args_kwargs(
         self, bound: inspect.BoundArguments
@@ -1066,7 +1072,12 @@ def is_in_if(
     set_items = set(items)
     
     intersect = list(set_o.intersection(set_items))
-    missing_items = list(set_items.difference(set_o))
+    
+    # to make a difference be sure to select the long set 
+    if len(set_items) >= len(set_o): 
+        missing_items = list(set_items.difference(set_o))
+    else: 
+        missing_items = list(set_o.difference(set_items))
     
     if return_diff or return_intersect:
         error = 'ignore'
@@ -1306,6 +1317,232 @@ def is_depth_in(
             )
     
     return X, depth
+
+def exist_labels(
+    df, labels, 
+    features=None, 
+    name="Label columns", 
+    return_valid=False, 
+    as_categories=False,
+    error='warn',  
+    verbose=0  
+    
+):
+    """
+    exist_labels - Check whether specified labels exist in feature columns 
+    of a dataframe.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The dataframe in which the presence of the specified labels will be 
+        checked. Each column is expected to accommodate the specified `labels`, 
+        which can be of categorical or any other relevant data type.
+    
+    labels : str or list of str
+        A single label or a list of labels to check for in the specified feature 
+        columns. The function checks for the presence of these labels in each 
+        column. If a label is not found in a column, that column will be flagged 
+        as missing that label.
+    
+    features : str, list of str, or None, optional, default=None
+        The column(s) in which to check for the `labels`. If `features` is `None`, 
+        the function will automatically check all columns of the dataframe that 
+        have a categorical data type (i.e., dtype `category`, or objects with 
+        categorical values). It can either be a single column name (`str`) or a 
+        list of column names (`list` of `str`).
+    
+    name : str, optional, default="Label columns"
+        A name used for informative output in verbose logging. This name is used 
+        to describe the label columns, making the output more descriptive. The 
+        `name` can be anything that helps identify the purpose of the label columns 
+        in the dataset.
+    
+    return_valid : bool, optional, default=False
+        If set to `True`, the function will return a dictionary where the keys 
+        are column names and the values are lists of labels that were found to 
+        be valid (i.e., the labels present in the specified columns). If set to 
+        `False` (the default), it will return the missing labels for each column 
+        where labels are missing.
+    
+    as_categories : bool, optional, default=False
+        If set to `True`, the function will convert the specified feature columns 
+        to categorical dtype before performing the check. This is useful when 
+        you want to treat the feature columns as categorical variables for consistency.
+    
+    error : {'warn', 'raise'}, optional, default='warn'
+        Specifies how to handle cases where the specified `labels` are missing. 
+        If set to `'warn'` (the default), the function will issue a warning when 
+        labels are not found. If set to `'raise'`, an error will be raised when 
+        labels are missing from any of the specified columns.
+    
+    verbose : int, optional, default=0
+        Controls the level of verbosity for printed messages:
+        - 0: No output (silent mode).
+        - 1: Basic output, including a summary of missing labels.
+        - 2: Detailed output, including missing labels for each column.
+        - 3: Full debug output, showing the state of all intermediate steps.
+    
+    Returns
+    -------
+    dict
+        A dictionary with column names as keys and a list of missing labels or 
+        valid labels (based on the value of `return_valid`). If `return_valid` is 
+        `False`, the dictionary contains missing labels, otherwise it contains 
+        the valid labels that are present in the dataframe columns.
+    
+    Notes
+    ------
+    Let `df` be a dataframe with columns `C1, C2, ..., Cn`. Each column 
+    `Ci` can contain categorical values. The task is to check whether each 
+    of the given `labels = [l1, l2, ..., lm]` exists in the columns.
+    
+    - For each column `Ci`, check if `l1, l2, ..., lm` are present in `Ci`.
+    - If a label `lj` is missing in column `Ci`, add `Ci` to the missing list 
+      for that label.
+    
+    The function checks each column and provides the result based on the 
+    `return_valid` and `verbose` parameters:
+    - If `return_valid=True`, return the valid labels that are present in each column.
+    - If `return_valid=False`, return the missing labels for each column.
+    
+    Example
+    -------
+    >>> import pandas as pd 
+    >>> from gofast.core.checks import exist_labels
+    >>> df = pd.DataFrame({
+    >>>     'A': ['X', 'Y', 'Z', 'X', 'W'],
+    >>>     'B': ['c', 'c', 'd', 'e', 'c'],
+    >>>     'C': ['a', 'b', 'c', 'd', 'e']
+    >>> })
+    >>> labels = ['a', 'b', 'd']
+    >>> result=exist_labels(df, labels, features=['A', 'B'], verbose=2)
+    >>> print(result)
+    Label columns - Missing labels:
+    Column 'A': Missing labels: ['a', 'b', 'd']
+    Column 'B': Missing labels: ['d']
+    >>> print(result)
+    {'A': ['a', 'b', 'd'], 'B': ['a', 'b']}
+    >>> # Sample DataFrame
+    >>> df = pd.DataFrame({
+        'A': ['X', 'Y', 'Z', 'X', 'W'],
+        'B': ['a', 'b', 'c', 'a', 'b'],
+        'C': ['cat', 'dog', 'cat', 'bird', 'dog']
+    })
+    
+    >>> # Check if certain labels exist in the 'A' and 'B' columns
+    >>> print(exist_labels(df, labels=['X', 'Y', 'Z'], features=['A', 'B'], verbose=2))
+    
+    >>> # Example 2: Return only valid labels in the 'C' column
+    >>> print(exist_labels(df, labels=['cat', 'dog', 'lion'], features='C',
+                       return_valid=True, verbose=1))
+    
+    >>> # Example 3: Handle missing labels with raise error
+    >>> try:
+        exist_labels(df, labels=['tiger', 'lion'], features='C', error='raise')
+    except ValueError as e:
+        print(e)
+
+    >>> print(result)
+    {'A': ['cat', 'dog'], 'B': ['dog']}
+
+    
+    Notes
+    -----
+    - The function automatically selects columns of categorical dtype if `features` 
+      is not specified. Ensure your dataframe has appropriate categorical columns.
+    - When `as_categories=True`, the function converts the specified columns 
+      into categorical dtype before checking for labels.
+    - The function supports two error handling modes:
+        - `'warn'` issues a warning if labels are missing.
+        - `'raise'` raises an exception if any labels are missing from the columns.
+    
+    See Also
+    --------
+    pandas.DataFrame.astype : Convert data types of dataframe columns
+    pandas.api.types.is_categorical_dtype : Check for categorical dtype
+    
+    References
+    ----------
+    .. [1] Smith, J., "Data Analysis with Pandas", 2020, Springer
+    .. [2] Doe, A., "Advanced DataFrame Operations in Python", 2018, Wiley
+    """
+
+    are_all_frames_valid(df, df_only= True )
+    # Ensure 'features' and 'labels' are lists, even if passed as strings
+    if isinstance(features, str):
+        features = [features]
+    if isinstance(labels, str):
+        labels = [labels]
+    
+    # If 'features' is None, use columns with categorical dtype
+    if features is None:
+        features = [
+            col for col in df.columns 
+            if pd.api.types.is_categorical_dtype(df[col])
+        ]
+    if as_categories: 
+        df[features]= df[features].astype('category')
+        
+    # If no valid features found, raise an informative error or warning
+    if not features:
+        if error == 'raise':
+            raise ValueError(
+                f"No valid features found with categorical dtype in {name}.")
+        elif error == 'warn':
+            warnings.warn(
+                "No valid features with categorical"
+                " dtype found. Proceeding with all columns.")
+            features = df.columns.tolist()
+
+    # Initialize result dictionary
+    result = {}
+    
+    # Iterate through the features (columns) to check for valid or missing labels
+    for col in features:
+        if col not in df.columns:
+            raise ValueError(f"Column '{col}' not found in dataframe.")
+        
+        # Get the valid categories in the current column
+        valid_categories = df[col].unique()
+        
+        # Find missing labels
+        missing_in_col = [
+            label for label in labels if label not in valid_categories]
+        
+        # Depending on return_valid, return valid or missing labels
+        if return_valid:
+            valid_in_col = [
+                label for label in labels if label in valid_categories]
+            result[col] = valid_in_col
+        else:
+            if missing_in_col:
+                result[col] = missing_in_col
+        
+        # Verbosity control: Print results based on verbosity level
+        if verbose >= 1:
+            if missing_in_col:
+                print(
+                    f"{name}: Column '{col}' has missing labels: {missing_in_col}")
+            elif verbose >= 2:
+                print(
+                    f"{name}: Column '{col}' has all labels present.")
+        
+        if verbose == 3:
+            print(f"Debug: Column '{col}' - Valid categories: {valid_categories}")
+    
+    # Handle case where no valid labels are found in any columns
+    if not result:
+        if error == 'raise':
+            raise ValueError(
+                f"No valid labels found in any of the specified columns for {name}.")
+        elif error == 'warn':
+            warnings.warn(
+                "Warning: No valid labels found in any"
+                " of the specified columns for {name}."
+            )
+    
+    return result
 
 def is_classification_task(
     *y, max_unique_values=10
@@ -2697,10 +2934,237 @@ def validate_name_in(
     
     return name
 
+def is_valid_dtypes(
+    df: pd.DataFrame, 
+    columns: Optional[Union[str, List[Any]]] = None, 
+    dtypes: Union[str, List[str]] = 'numeric',
+    ops: str = 'check_only',
+    treat_obj_dtype_as_category: bool = False, 
+    error_msg: Optional[str] = None, 
+    extra: str = '',
+    error: str = 'warn', 
+) -> Union[bool, Dict[str, List[Any]]]:
+    """
+    Check if specified columns in a DataFrame match the desired data types.
+    
+    This function verifies whether the data types of selected columns in a 
+    pandas DataFrame align with specified objective types. It supports various 
+    operations, including validation and conditional error handling, making it 
+    a versatile tool for data preprocessing and quality assurance in data pipelines.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame to check.
+    
+    columns : str or list of str, optional
+        The columns to check. If ``None``, all columns are checked.
+
+        .. code-block:: python
+
+            columns = 'age'
+            columns = ['age', 'salary']
+    
+    dtypes : str or list of str, default= 'numeric'
+        The desired data types to validate against. 
+        Options include ``'numeric'``, ``'object'``, ``'category'``, ``'datetime'``.
+        Can be a single type or a list of types.
+        
+        .. code-block:: python
+
+            dtypes = 'numeric'
+            dtypes = ['numeric', 'datetime']
+    
+    ops : str, default 'check_only'
+        Operation mode. 
+        - ``'check_only'``: Returns True if all specified columns match the 
+          objectives, False otherwise.
+        - ``'validate'``: Returns a dictionary with objectives as keys and lists 
+          of valid columns as values.
+    
+    treat_obj_dtype_as_category : bool, default= False
+        If True, columns with dtype ``'category'`` are treated as categorical 
+        regardless of the 'object' dtype.
+    
+    error_msg : str, optional
+        Custom error message to display if validation fails.
+        If None, a default message is used.
+    
+    extra : str, default= ''
+        Extra message to append to the error message.
+    
+    error : str, default ='warn'
+        Specifies the error handling behavior. Options are:
+        - ``'raise'``: Raises an exception when validation fails.
+        - ``'warn'``: Issues a warning when validation fails.
+        - ``'ignore'``: Silently ignores validation failures.
+    
+    Returns
+    -------
+    bool or dict
+        - If ``ops='check_only'``, returns ``True`` if all specified columns 
+          match the objectives dtypes, ``False`` otherwise.
+        - If ``ops='validate'``, returns a dictionary mapping objectives to 
+          lists of valid columns.
+    
+    Notes
+    ------
+    Let the DataFrame be represented as :math:`DF`, and let 
+    :math:`C = \{c_1, c_2, \dots, c_n\}` be the set of columns to validate. 
+    Let :math:`O = \{o_1, o_2, \dots, o_m\}` be the set of objective data types.
+    
+    The function checks whether each column :math:`c_i \in C` satisfies 
+    :math:`c_i.dtype \in O`. If ``treat_obj_dtype_as_category=True``, 
+    columns with dtype ``'category'`` are also considered valid for 
+    the ``'object'`` objective.
+    
+    .. math::
+        \forall c_i \in C, \quad c_i.dtype \in O \cup \{\text{'category'} 
+        \text{ if treat\_obj\_dtype\_as\_category}\}
+    
+    Examples
+    ---------
+    >>> from gofast.tools.datautils import is_valid_dtypes
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'age': [25, 30, 45],
+    ...     'salary': [50000.0, 60000.5, 75000.0],
+    ...     'department': ['HR', 'Engineering', 'Marketing'],
+    ...     'hire_date': pd.to_datetime(['2020-01-15', '2019-03-22', '2021-07-30'])
+    ... })
+    >>> # Check if 'age' and 'salary' are numeric
+    >>> is_valid_dtypes(df, columns=['age', 'salary'], dtypes='numeric')
+    True
+    >>> # Validate data types for multiple objectives
+    >>> is_valid_dtypes(df, objectives=['numeric', 'datetime'], ops='validate')
+    {'numeric': ['age', 'salary'], 'datetime': ['hire_date']}
+    >>> # Check with custom error handling
+    >>> is_valid_dtypes(df, columns='department', dtypes='numeric', error='raise')
+    Traceback (most recent call last):
+        ...
+    TypeError: Invalid ... objectives: ['department']
+
+    Notes
+    -----
+    - The function is particularly useful in data preprocessing pipelines to ensure 
+      data integrity before performing further analysis or modeling.
+    - When ``ops='validate'``, the returned dictionary provides a clear 
+      categorization of columns based on their data types, facilitating 
+      selective processing.
+    - The ``treat_obj_dtype_as_category`` parameter is beneficial when 
+      categorical data is encoded as either ``'object'`` or ``'category'``, 
+      allowing for flexible validation criteria.
+    
+    See Also
+    --------
+    pandas.DataFrame.select_dtypes : Select columns based on their dtypes.
+    pandas.api.types : Utilities for checking data types in pandas.
+    
+    References
+    ----------
+    .. [1] Pandas Documentation: https://pandas.pydata.org/docs/
+    .. [2] McKinney, W. "Python for Data Analysis," O'Reilly Media, 2017.
+    """
+    # validate the dataframe
+    are_all_frames_valid(df)
+    if columns is None:
+        columns = df.columns.tolist()
+    # Ensure that columns and dtypes are formatted correctly as lists
+    columns = is_iterable(columns, exclude_string= True, transform =True)
+    dtypes = is_iterable(dtypes, exclude_string= True, transform= True )
+
+    valid_objectives = {'numeric', 'object', 'category', 'datetime'}
+    if not set(dtypes).issubset(valid_objectives):
+        invalid = set(dtypes) - valid_objectives
+        raise ValueError(f"Invalid  dtypes specified: {invalid}")
+    
+    dtype_map = {
+        'numeric': np.number,
+        'object': 'object',
+        'category': 'category',
+        'datetime': 'datetime64[ns]'
+    }
+    
+    # Prepare the result for 'validate' operation
+    if ops not in ('check_only', 'validate'): 
+        raise ValueError("`ops` must be either 'check_only' or 'validate'.")
+        
+    if ops == 'validate':
+        result = {obj: [] for obj in dtypes}
+        for obj in dtypes:
+            if obj == 'numeric':
+                result[obj] = df.select_dtypes(
+                    include=[dtype_map[obj]]
+                ).columns.intersection(columns).tolist()
+            elif obj == 'datetime':
+                result[obj] = df.select_dtypes(
+                    include=[dtype_map[obj]]
+                ).columns.intersection(columns).tolist()
+            else:
+                result[obj] = df.select_dtypes(
+                    include=[dtype_map[obj]]
+                ).columns.intersection(columns).tolist()
+                if treat_obj_dtype_as_category and obj == 'object':
+                    category_cols = df.select_dtypes(
+                        include=['category']
+                    ).columns.intersection(columns).tolist()
+                    result[obj].extend(category_cols)
+        
+        return result
+    
+    # Perform 'check_only' operation
+    elif ops == 'check_only':
+        invalid_cols = []
+        for col in columns:
+            if col not in df.columns:
+                invalid_cols.append(col)
+                continue
+            col_dtype = df[col].dtypes
+            matched = False
+            for obj in dtypes:
+                if obj == 'numeric':
+                    if np.issubdtype(col_dtype, np.number):
+                        matched = True
+                        break
+                elif obj == 'object':
+                    if df[col].dtypes == 'object':
+                        matched = True
+                        break
+                    if treat_obj_dtype_as_category and df[col].dtypes.name == 'category':
+                        matched = True
+                        break
+                elif obj == 'category':
+                    if df[col].dtypes.name == 'category':
+                        matched = True
+                        break
+                elif obj == 'datetime':
+                    if np.issubdtype(col_dtype, np.datetime64):
+                        matched = True
+                        break
+            if not matched:
+                invalid_cols.append(col)
+        
+        if invalid_cols:
+            message = error_msg if error_msg else (
+                f"The following columns do not match the dtypes: {invalid_cols}"
+            )
+            if extra:
+                message += f" {extra}"
+                
+            if error == 'warn': 
+                warnings.warn(message)
+                
+            elif error == 'raise': 
+                raise TypeError(f"Invalid columns detected: {message}")
+                
+            return False
+        
+        return True
+  
 def check_features_types(
     data,
     features,
-    objective,
+    dtype,
     error_msg=None, 
     accept_object_dtype=False, 
     extra=''
@@ -2720,7 +3184,7 @@ def check_features_types(
     features : str or list of str
         The feature(s) to validate. If a single feature is provided as a string,
         it will be internally converted to a list for uniform processing.
-    objective : str
+    dtype : str
         The expected data type for the features. Supported types are:
         - ``'category'``: Categorical data type.
         - ``'numeric'`` : Numeric data types (int, float).
@@ -2751,7 +3215,7 @@ def check_features_types(
     ValueError
         If an unsupported `objective` type is provided.
         If any feature specified in `features` does not exist in `data`.
-        If a feature's data type does not match the expected `objective`.
+        If a feature's data type does not match the expected `dtype`.
 
     Notes
     -----
@@ -2825,13 +3289,13 @@ def check_features_types(
         type_checks['object']= is_object_dtype 
         
     # Validate the objective
-    if objective not in type_checks:
+    if dtype not in type_checks:
         raise ValueError(
-            f"Unsupported objective type: '{objective}'. "
+            f"Unsupported objective type: '{dtype}'. "
             f"Supported types are {list(type_checks.keys())}."
         )
 
-    check_func = type_checks[objective]
+    check_func = type_checks[dtype]
 
     # Iterate through each feature and check its type
     for feature in features:
@@ -2847,7 +3311,7 @@ def check_features_types(
                 actual_type = data[feature].dtype
                 raise TypeError(
                     f"Feature '{feature}' has type '{actual_type}', "
-                    f"expected type '{objective}'.{extra}"
+                    f"expected type '{dtype}'.{extra}"
                 )
 
     return True

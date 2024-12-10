@@ -2943,7 +2943,8 @@ def build_dataset_description(
 
     return dataset_description, features_description
 
-def _format_feature_descriptions(feature_descriptions, title, error_handling):
+def _format_feature_descriptions(
+        feature_descriptions, title, error_handling='raise', **kws):
     """
     Validates and formats feature descriptions.
     """
@@ -2957,7 +2958,7 @@ def _format_feature_descriptions(feature_descriptions, title, error_handling):
         elif error_handling == 'ignore':
             return None
     return DescriptionFormatter(
-        title=title, content=feature_descriptions) if feature_descriptions else None
+        title=title, content=feature_descriptions, **kws) if feature_descriptions else None
 
 def _format_dataset_overview(overview, title):
     """

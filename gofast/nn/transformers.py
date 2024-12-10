@@ -5,9 +5,12 @@
 """Implements the Temporal Fusion Transformer (TFT), a state-of-the-art 
 architecture for multi-horizon time-series forecasting.
 """
+from textwrap import dedent 
 from numbers import Real, Integral  
 from typing import List, Optional, Union 
+
 from .._gofastlog import gofastlog
+from ..api.docs import _shared_docs, doc 
 from ..api.docstring import DocstringComponents, _shared_nn_params 
 from ..api.property import  NNLearner 
 from ..core.checks import is_iterable, validate_nested_param, ParamsValidator 
@@ -1404,14 +1407,16 @@ class TemporalFusionTransformer(Model, NNLearner):
     
 # -----------------XTFT implementation ----------------------------------------
 
-class LearnedNormalization(Layer):
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class LearnedNormalization(Layer, NNLearner):
     """
     A layer that learns mean and std for normalization of inputs.  
     Input: (B, D)  
     Output: (B, D), normalized
     """
     def __init__(self):
-        super(LearnedNormalization, self).__init__()
+        super().__init__()
 
     def build(self, input_shape):
         self.mean = self.add_weight(
@@ -1438,8 +1443,9 @@ class LearnedNormalization(Layer):
     def from_config(cls, config):
         return cls(**config)
 
-
-class MultiModalEmbedding(Layer):
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class MultiModalEmbedding(Layer, NNLearner):
     """
     This layer takes multiple input modalities (e.g., dynamic and future covariates), 
     embeds them into a common space, and concatenates them along the feature dimension.
@@ -1448,7 +1454,7 @@ class MultiModalEmbedding(Layer):
     Output: (B, T, sum_of_embed_dims)
     """
     def __init__(self, embed_dim: int):
-        super(MultiModalEmbedding, self).__init__()
+        super().__init__()
         self.embed_dim = embed_dim
         self.dense_layers = []
 
@@ -1478,8 +1484,10 @@ class MultiModalEmbedding(Layer):
     @classmethod
     def from_config(cls, config):
         return cls(**config)
-
-class HierarchicalAttention(Layer):
+    
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class HierarchicalAttention(Layer, NNLearner):
     """
     Hierarchical attention layer that first processes short-term and long-term 
     sequences separately and then combines their attention outputs.
@@ -1488,7 +1496,7 @@ class HierarchicalAttention(Layer):
     Output: (B, T, U) where U is attention_units
     """
     def __init__(self, units: int, num_heads: int):
-        super(HierarchicalAttention, self).__init__()
+        super().__init__()
         self.units = units
         self.short_term_dense = Dense(units)
         self.long_term_dense = Dense(units)
@@ -1518,8 +1526,9 @@ class HierarchicalAttention(Layer):
     def from_config(cls, config):
         return cls(**config)
 
-
-class CrossAttention(Layer):
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class CrossAttention(Layer, NNLearner):
     """
     Cross attention layer that attends one source to another.
 
@@ -1527,7 +1536,7 @@ class CrossAttention(Layer):
     Output: (B, T, U)
     """
     def __init__(self, units: int, num_heads: int):
-        super(CrossAttention, self).__init__()
+        super().__init__()
         self.units = units
         self.source1_dense = Dense(units)
         self.source2_dense = Dense(units)
@@ -1548,8 +1557,9 @@ class CrossAttention(Layer):
     def from_config(cls, config):
         return cls(**config)
 
-
-class MemoryAugmentedAttention(Layer):
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class MemoryAugmentedAttention(Layer, NNLearner):
     """
     Memory-augmented attention layer that uses a learned memory matrix to enhance 
     temporal representation.
@@ -1558,7 +1568,7 @@ class MemoryAugmentedAttention(Layer):
     Output: (B, T, D)
     """
     def __init__(self, units: int, memory_size: int, num_heads: int):
-        super(MemoryAugmentedAttention, self).__init__()
+        super().__init__()
         self.units = units
         self.memory_size = memory_size
         self.attention = MultiHeadAttention(num_heads=num_heads, key_dim=units)
@@ -1573,8 +1583,10 @@ class MemoryAugmentedAttention(Layer):
 
     def call(self, inputs, training=False):
         batch_size = tf.shape(inputs)[0]
-        memory_expanded = tf.tile(tf.expand_dims(self.memory, axis=0), [batch_size, 1, 1])
-        memory_attended = self.attention(query=inputs, value=memory_expanded, key=memory_expanded)
+        memory_expanded = tf.tile(tf.expand_dims(
+            self.memory, axis=0), [batch_size, 1, 1])
+        memory_attended = self.attention(
+            query=inputs, value=memory_expanded, key=memory_expanded)
         return memory_attended + inputs
 
     def get_config(self):
@@ -1589,15 +1601,16 @@ class MemoryAugmentedAttention(Layer):
     def from_config(cls, config):
         return cls(**config)
 
-
-class AdaptiveQuantileLoss(Layer):
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class AdaptiveQuantileLoss(Layer, NNLearner):
     """
     Computes adaptive quantile loss for given quantiles.
 
     Input: y_true (B, H, O), y_pred (B, H, Q, O) if quantiles are not None
     """
     def __init__(self, quantiles: Optional[List[float]]):
-        super(AdaptiveQuantileLoss, self).__init__()
+        super().__init__()
         if quantiles == 'auto':
             quantiles = [0.1, 0.5, 0.9]
         self.quantiles = quantiles
@@ -1621,15 +1634,16 @@ class AdaptiveQuantileLoss(Layer):
     def from_config(cls, config):
         return cls(**config)
 
-
-class AnomalyLoss(Layer):
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class AnomalyLoss(Layer, NNLearner):
     """
     Computes anomaly loss as mean squared anomaly score.
 
     Input: anomaly_scores (B, H, D)
     """
     def __init__(self, weight: float = 1.0):
-        super(AnomalyLoss, self).__init__()
+        super().__init__()
         self.weight = weight
 
     def call(self, anomaly_scores: tf.Tensor):
@@ -1644,8 +1658,9 @@ class AnomalyLoss(Layer):
     def from_config(cls, config):
         return cls(**config)
 
-
-class MultiObjectiveLoss(Layer):
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class MultiObjectiveLoss(Layer, NNLearner):
     """
     Combines quantile loss and anomaly loss into a single objective.
 
@@ -1655,18 +1670,18 @@ class MultiObjectiveLoss(Layer):
         anomaly_scores: (B, H, D)
     """
     def __init__(self, quantile_loss_fn: Layer, anomaly_loss_fn: Layer):
-        super(MultiObjectiveLoss, self).__init__()
+        super().__init__()
         self.quantile_loss_fn = quantile_loss_fn
         self.anomaly_loss_fn = anomaly_loss_fn
 
     def call(self, y_true, y_pred, anomaly_scores=None, training=False):
-        # XXX  nomaly_scores henceform can take None 
+        # XXX :MARK: anomaly_scores henceform can take None 
         quantile_loss = self.quantile_loss_fn(y_true, y_pred)
         if anomaly_scores is not None:
             anomaly_loss = self.anomaly_loss_fn(anomaly_scores)
             return quantile_loss + anomaly_loss
         
-        return quantile_loss #
+        return quantile_loss # retuns quantile loss only
 
     def get_config(self):
         config = super().get_config().copy()
@@ -1689,8 +1704,9 @@ class MultiObjectiveLoss(Layer):
         return cls(
             quantile_loss_fn=quantile_loss_fn, anomaly_loss_fn=anomaly_loss_fn)
 
-
-class ExplainableAttention(Layer):
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class ExplainableAttention(Layer, NNLearner):
     """
     Returns attention scores from multi-head attention, useful for 
     interpretation.
@@ -1699,7 +1715,7 @@ class ExplainableAttention(Layer):
     Output: attention_scores (B, num_heads, T, T)
     """
     def __init__(self, num_heads: int, key_dim: int):
-        super(ExplainableAttention, self).__init__()
+        super().__init__()
         self.num_heads = num_heads
         self.key_dim = key_dim
         self.attention = MultiHeadAttention(num_heads=num_heads, key_dim=key_dim)
@@ -1721,8 +1737,9 @@ class ExplainableAttention(Layer):
     def from_config(cls, config):
         return cls(**config)
 
-
-class MultiDecoder(Layer):
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class MultiDecoder(Layer, NNLearner):
     """
     Multi-horizon decoder:
     Takes a single feature vector per example (B, F) and produces a prediction 
@@ -1732,12 +1749,12 @@ class MultiDecoder(Layer):
     Output: (B, H, O)
     """
     def __init__(self, output_dim: int, num_horizons: int):
-        super(MultiDecoder, self).__init__()
+        super().__init__()
         self.output_dim = output_dim
         self.num_horizons = num_horizons
         self.decoders = [Dense(output_dim) for _ in range(num_horizons)]
 
-    def call(self, x):
+    def call(self, x, training=False):
         outputs = [decoder(x) for decoder in self.decoders]
         return tf.stack(outputs, axis=1)
 
@@ -1753,8 +1770,9 @@ class MultiDecoder(Layer):
     def from_config(cls, config):
         return cls(**config)
 
-
-class MultiResolutionAttentionFusion(Layer):
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class MultiResolutionAttentionFusion(Layer, NNLearner):
     """
     Applies multi-head attention fusion over features.
     
@@ -1762,7 +1780,7 @@ class MultiResolutionAttentionFusion(Layer):
     Output: (B, T, D)
     """
     def __init__(self, units: int, num_heads: int):
-        super(MultiResolutionAttentionFusion, self).__init__()
+        super().__init__()
         self.units = units
         self.num_heads = num_heads
         self.attention = MultiHeadAttention(num_heads=num_heads, key_dim=units)
@@ -1782,7 +1800,9 @@ class MultiResolutionAttentionFusion(Layer):
     def from_config(cls, config):
         return cls(**config)
 
-class DynamicTimeWindow(Layer):
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class DynamicTimeWindow(Layer, NNLearner):
     """
     Slices the last max_window_size steps from the input sequence.
 
@@ -1790,7 +1810,7 @@ class DynamicTimeWindow(Layer):
     Output: (B, W, D) where W = max_window_size
     """
     def __init__(self, max_window_size: int):
-        super(DynamicTimeWindow, self).__init__()
+        super().__init__()
         self.max_window_size = max_window_size
 
     def call(self, inputs, training=False):
@@ -1805,8 +1825,9 @@ class DynamicTimeWindow(Layer):
     def from_config(cls, config):
         return cls(**config)
 
-
-class QuantileDistributionModeling(Layer):
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class QuantileDistributionModeling(Layer, NNLearner):
     """
     Projects deterministic outputs (B, H, O) into quantile predictions (B, H, Q, O),
     or returns (B, H, O) if quantiles are None (no extra quantile dimension).
@@ -1817,7 +1838,7 @@ class QuantileDistributionModeling(Layer):
         - If quantiles is a list: (B, H, Q, O)
     """
     def __init__(self, quantiles: Optional[Union[str, List[float]]], output_dim: int):
-        super(QuantileDistributionModeling, self).__init__()
+        super().__init__()
         if quantiles == 'auto':
             quantiles = [0.1, 0.5, 0.9]
         self.quantiles = quantiles
@@ -1854,7 +1875,9 @@ class QuantileDistributionModeling(Layer):
     def from_config(cls, config):
         return cls(**config)
 
-class MultiScaleLSTM(Layer):
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+class MultiScaleLSTM(Layer, NNLearner):
     """
     Multi-scale LSTM layer that can output either the last hidden state
     from each LSTM or full sequences. Behavior controlled by `return_sequences`.
@@ -1873,7 +1896,7 @@ class MultiScaleLSTM(Layer):
         return_sequences: bool = False,
         **kwargs
     ):
-        super(MultiScaleLSTM, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         if scales is None or scales == 'auto':
             scales = [1]
         scales = validate_nested_param(scales, List[int], 'scales')
@@ -1922,9 +1945,348 @@ class MultiScaleLSTM(Layer):
     def from_config(cls, config):
         return cls(**config)
 
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable()
+@doc (
+    key_improvements= dedent(_shared_docs['xtft_key_improvements']), 
+    key_functions= dedent(_shared_docs['xtft_key_functions']), 
+    methods= dedent( 
+    """
+    Methods
+    -------
+    call(inputs, training=False)
+        Perform the forward pass through the model. Given a tuple
+        ``(static_input, dynamic_input, future_covariate_input)``,
+        it processes all features through embeddings, LSTMs, and
+        attention mechanisms before producing final forecasts.
+        
+        - ``static_input``: 
+          A tensor of shape :math:`(B, D_{static})` representing 
+          the static features. These do not vary with time.
+        - ``dynamic_input``: 
+          A tensor of shape :math:`(B, T, D_{dynamic})` representing
+          dynamic features across :math:`T` time steps. These include
+          historical values and time-dependent covariates.
+        - ``future_covariate_input``: 
+          A tensor of shape :math:`(B, T, D_{future})` representing
+          future-known features, aiding multi-horizon forecasting.
 
+        Depending on the presence of quantiles:
+        - If ``quantiles`` is not `None`: 
+          The output shape is :math:`(B, H, Q, D_{out})`, where 
+          :math:`H` is `forecast_horizons`, :math:`Q` is the number of
+          quantiles, and :math:`D_{out}` is `output_dim`.
+        - If ``quantiles`` is `None`: 
+          The output shape is :math:`(B, H, D_{out})`, providing a 
+          deterministic forecast for each horizon.
+
+        Parameters
+        ----------
+        inputs : tuple of tf.Tensor
+            Input tensors `(static_input, dynamic_input, 
+            future_covariate_input)`.
+        training : bool, optional
+            Whether the model is in training mode (default False).
+            In training mode, layers like dropout and batch norm
+            behave differently.
+
+        Returns
+        -------
+        tf.Tensor
+            The prediction tensor. Its shape and dimensionality depend
+            on the `quantiles` setting. In probabilistic scenarios,
+            multiple quantiles are returned. In deterministic mode, 
+            a single prediction per horizon is provided.
+
+    compute_objective_loss(y_true, y_pred, anomaly_scores)
+        Compute the total loss, combining both quantile loss (if 
+        `quantiles` is not `None`) and anomaly loss. Quantile loss
+        measures forecasting accuracy at specified quantiles, while
+        anomaly loss penalizes unusual deviations or anomalies.
+
+        Parameters
+        ----------
+        y_true : tf.Tensor
+            Ground truth targets. Shape: :math:`(B, H, D_{out})`.
+        y_pred : tf.Tensor
+            Model predictions. If quantiles are present:
+            :math:`(B, H, Q, D_{out})`. Otherwise:
+            :math:`(B, H, D_{out})`.
+        anomaly_scores : tf.Tensor
+            Tensor indicating anomaly severity. Its shape typically
+            matches `(B, H, D_{dynamic})` or a related dimension.
+
+        Returns
+        -------
+        tf.Tensor
+            A scalar tensor representing the combined loss. Lower 
+            values indicate better performance, balancing accuracy
+            and anomaly handling.
+
+    anomaly_loss(anomaly_scores)
+        Compute the anomaly loss component. This term encourages the
+        model to be robust against abnormal patterns in the data.
+        Higher anomaly scores lead to higher loss, prompting the model
+        to adjust predictions or representations to reduce anomalies.
+
+        Parameters
+        ----------
+        anomaly_scores : tf.Tensor
+            A tensor reflecting the presence and intensity of anomalies.
+            Its shape often corresponds to time steps and dynamic 
+            features, e.g., `(B, H, D_{dynamic})`.
+
+        Returns
+        -------
+        tf.Tensor
+            A scalar tensor representing the anomaly loss. Minimizing
+            this term encourages the model to learn patterns that 
+            mitigate anomalies and produce more stable forecasts.
+    """    
+   )
+ )
 class XTFT(Model, NNLearner):
+    """
+    Extreme Temporal Fusion Transformer (XTFT) model for complex time
+    series forecasting.
 
+    The Extreme Temporal Fusion Transformer (XTFT) is an advanced
+    architecture for time series forecasting, particularly suited to
+    scenarios featuring intricate temporal patterns, multiple forecast
+    horizons, and inherent uncertainties [1]_. By extending the original
+    Temporal Fusion Transformer, XTFT incorporates additional modules
+    and strategies that enhance its representational capacity, stability,
+    and interpretability.
+
+    {key_improvements}
+
+    Parameters
+    ----------
+    static_input_dim : int
+        Dimensionality of static input features (no time dimension).  
+        These features remain constant over time steps and provide
+        global context or attributes related to the time series. For
+        example, a store ID or geographic location. Increasing this
+        dimension allows the model to utilize more contextual signals
+        that do not vary with time. A larger `static_input_dim` can
+        help the model specialize predictions for different entities
+        or conditions and improve personalized forecasts.
+
+    dynamic_input_dim : int
+        Dimensionality of dynamic input features. These features vary
+        over time steps and typically include historical observations
+        of the target variable, and any time-dependent covariates such
+        as past sales, weather variables, or sensor readings. A higher
+        `dynamic_input_dim` enables the model to incorporate more
+        complex patterns from a richer set of temporal signals. These
+        features help the model understand seasonality, trends, and
+        evolving conditions over time.
+
+    future_covariate_dim : int
+        Dimensionality of future known covariates. These are features
+        known ahead of time for future predictions (e.g., holidays,
+        promotions, scheduled events, or future weather forecasts).
+        Increasing `future_covariate_dim` enhances the model’s ability
+        to leverage external information about the future, improving
+        the accuracy and stability of multi-horizon forecasts.
+
+    embed_dim : int, optional
+        Dimension of feature embeddings. Default is ``32``. After
+        variable transformations, inputs are projected into embeddings
+        of size `embed_dim`. Larger embeddings can capture more nuanced
+        relationships but may increase model complexity. A balanced
+        choice prevents overfitting while ensuring the representation
+        capacity is sufficient for complex patterns.
+
+    forecast_horizons : int, optional
+        Number of future time steps to predict. Default is ``1``. This
+        parameter specifies how many steps ahead the model provides
+        forecasts. For instance, `forecast_horizons=3` means the model
+        predicts values for three future periods simultaneously.
+        Increasing this allows multi-step forecasting, but may
+        complicate learning if too large.
+
+    quantiles : list of float or str, optional
+        Quantiles to predict for probabilistic forecasting. For example,
+        ``[0.1, 0.5, 0.9]`` indicates lower, median, and upper bounds.
+        If set to ``'auto'``, defaults to ``[0.1, 0.5, 0.9]``. If
+        `None`, the model makes deterministic predictions. Providing
+        quantiles helps the model estimate prediction intervals and
+        uncertainty, offering more informative and robust forecasts.
+
+    max_window_size : int, optional
+        Maximum dynamic time window size. Default is ``10``. Defines
+        the length of the dynamic windowing mechanism that selects
+        relevant recent time steps for modeling. A larger `max_window_size`
+        enables the model to consider more historical data at once,
+        potentially capturing longer-term patterns, but may also
+        increase computational cost.
+
+    memory_size : int, optional
+        Size of the memory for memory-augmented attention. Default is
+        ``100``. Introduces a fixed-size memory that the model can
+        attend to, providing a global context or reference to distant
+        past information. Larger `memory_size` can help the model
+        recall patterns from further back in time, improving long-term
+        forecasting stability.
+
+    num_heads : int, optional
+        Number of attention heads. Default is ``4``. Multi-head
+        attention allows the model to attend to different representation
+        subspaces of the input sequence. Increasing `num_heads` can
+        improve model performance by capturing various aspects of the
+        data, but also raises the computational complexity and the
+        number of parameters.
+
+    dropout_rate : float, optional
+        Dropout rate for regularization. Default is ``0.1``. Controls
+        the fraction of units dropped out randomly during training.
+        Higher values can prevent overfitting but may slow convergence.
+        A small to moderate `dropout_rate` (e.g. 0.1 to 0.3) is often
+        a good starting point.
+
+    output_dim : int, optional
+        Dimensionality of the output. Default is ``1``. Determines how
+        many target variables are predicted at each forecast horizon.
+        For univariate forecasting, `output_dim=1` is typical. For
+        multi-variate forecasting, set a larger value to predict
+        multiple targets simultaneously.
+
+    anomaly_loss_weight : float, optional
+        Weight of the anomaly loss term. Default is ``1.0``. Balances
+        the contribution of anomaly detection against the primary
+        forecasting task. A higher value emphasizes identifying and
+        penalizing anomalies, potentially improving robustness to
+        irregularities in the data, while a lower value prioritizes
+        general forecasting performance.
+
+    attention_units : int, optional
+        Number of units in attention layers. Default is ``32``.
+        Controls the dimensionality of internal representations in
+        attention mechanisms. More `attention_units` can allow the
+        model to represent more complex dependencies, but may also
+        increase risk of overfitting and computation.
+
+    hidden_units : int, optional
+        Number of units in hidden layers. Default is ``64``. Influences
+        the capacity of various dense layers within the model, such as
+        those processing static features or for residual connections.
+        More units allow modeling more intricate functions, but can
+        lead to overfitting if not regularized.
+
+    lstm_units : int or None, optional
+        Number of units in LSTM layers. Default is ``64``. If `None`,
+        LSTM layers may be disabled or replaced with another mechanism.
+        Increasing `lstm_units` improves the model’s ability to capture
+        temporal dependencies, but also raises computational cost and
+        potential overfitting.
+
+    scales : list of int, str or None, optional
+        Scales for multi-scale LSTM. If ``'auto'``, defaults are chosen
+        internally. This parameter configures multiple LSTMs to operate
+        at different temporal resolutions. For example, `[1, 7, 30]`
+        might represent daily, weekly, and monthly scales. Multi-scale
+        modeling can enhance the model’s understanding of hierarchical
+        time structures and seasonalities.
+
+    multi_scale_agg : str or None, optional
+        Aggregation method for multi-scale outputs. Options:
+        ``'last'``, ``'average'``, ``'flatten'``, ``'auto'``. If `None`,
+        no special aggregation is applied. This parameter determines
+        how the multiple scales’ outputs are combined. For instance,
+        `average` can produce a more stable representation by averaging
+        across scales, while `flatten` preserves all scale information
+        in a concatenated form.
+
+    activation : str or callable, optional
+        Activation function. Default is ``'relu'``. Common choices
+        include ``'tanh'``, ``'elu'``, or a custom callable. The choice
+        of activation affects the model’s nonlinearity and can influence
+        convergence speed and final accuracy. For complex datasets,
+        experimenting with different activations may yield better
+        results.
+
+    use_residuals : bool, optional
+        Whether to use residual connections. Default is ``True``.
+        Residuals help in stabilizing and speeding up training by
+        allowing gradients to flow more easily through the model and
+        mitigating vanishing gradients. They also enable deeper model
+        architectures without significant performance degradation.
+
+    use_batch_norm : bool, optional
+        Whether to use batch normalization. Default is ``False``.
+        Batch normalization can accelerate training by normalizing
+        layer inputs, reducing internal covariate shift. It often makes
+        model training more stable and can improve convergence,
+        especially in deeper architectures. However, it adds complexity
+        and may not always be beneficial.
+
+    final_agg : str, optional
+        Final aggregation of the time window. Options:
+        ``'last'``, ``'average'``, ``'flatten'``. Default is ``'last'``.
+        Determines how the time-windowed representations are reduced
+        into a final vector before decoding into forecasts. For example,
+        `last` takes the most recent time step’s feature vector, while
+        `average` merges information across the entire window. Choosing
+        a suitable aggregation can influence forecast stability and
+        sensitivity to recent or aggregate patterns.
+
+    **kwargs : dict
+        Additional keyword arguments passed to the model. These may
+        include configuration options for layers, optimizers, or
+        training routines not covered by the parameters above.
+
+    {methods}
+
+    {key_functions} 
+    
+    Examples
+    --------
+    >>> from gofast.nn.transformers import XTFT
+    >>> import tensorflow as tf
+    >>> model = XTFT(
+    ...     static_input_dim=10,
+    ...     dynamic_input_dim=45,
+    ...     future_covariate_dim=5,
+    ...     forecast_horizons=3,
+    ...     quantiles=[0.1, 0.5, 0.9],
+    ...     scales='auto',
+    ...     final_agg='last'
+    ... )
+    >>> batch_size = 32
+    >>> time_steps = 20
+    >>> output_dim=1
+    >>> static_input = tf.random.normal([batch_size, 10])
+    >>> dynamic_input = tf.random.normal([batch_size, time_steps, 45])
+    >>> future_covariate_input = tf.random.normal([batch_size, time_steps, 5])
+    >>> output = model([static_input, dynamic_input, future_covariate_input])
+    >>> output.shape
+    TensorShape([32, 3, 3, 1])
+
+    >>>  # True targets
+    >>> y_true_forecast = tf.random.normal([batch_size, time_steps, 3, output_dim])
+    >>> model.compile(optimizer ='adam', loss=['mse'])
+    >>> output = model.fit(
+        x=[static_input, dynamic_input, future_covariate_input], 
+        y=y_true_forecast
+        )
+    >>> output.shape
+    TensorShape([32, 3, 3, 1])
+    
+    See Also
+    --------
+    gofast.nn.transformers.TemporalFusionTransformer : 
+        The original TFT model for comparison.
+    MultiHeadAttention : Keras layer for multi-head attention.
+    LSTM : Keras LSTM layer for sequence modeling.
+
+    References
+    ----------
+    .. [1] Wang, X., et al. (2021). "Enhanced Temporal Fusion Transformer
+           for Time Series Forecasting." International Journal of
+           Forecasting, 37(3), 1234-1245.
+    """
+     
     @validate_params({
         "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
@@ -2099,7 +2461,6 @@ class XTFT(Model, NNLearner):
         self.residual_dense = Dense(2 * embed_dim) if use_residuals else None
         self.final_dense = Dense(output_dim)
 
-
     def call(self, inputs, training=False):
         (static_input,
          dynamic_input,
@@ -2201,7 +2562,7 @@ class XTFT(Model, NNLearner):
                     axis=-1
                 )  # (B, units * len(scales))
         
-        # Since you are concatenating along the time dimension, you need 
+        # Since we are concatenating along the time dimension, we need 
         # all tensors to have the same shape along that dimension.
         time_steps = tf.shape(dynamic_input)[1]
         # Expand lstm_features to (B, 1, features)
@@ -2355,9 +2716,10 @@ class XTFT(Model, NNLearner):
         else:
             # Probabilistic scenario with multiple quantile losses
             loss_functions = {}
+            
             for q in self.quantiles:
                 loss_functions[f'quantile_loss_{q}'] = self.quantile_loss(q)
-            super(XTFT, self).compile(
+            super().compile(
                 optimizer=optimizer, loss=loss_functions, **kwargs)
 
     def get_config(self):
@@ -2394,577 +2756,3 @@ class XTFT(Model, NNLearner):
         logger.debug("Creating XTFT instance from config.")
         return cls(**config)
 
-
-XTFT.__doc__ = r"""\
-Extreme Temporal Fusion Transformer (XTFT) model for complex time
-series forecasting.
-
-The Extreme Temporal Fusion Transformer (XTFT) is an advanced
-architecture for time series forecasting, particularly suited to
-scenarios featuring intricate temporal patterns, multiple forecast
-horizons, and inherent uncertainties [1]_. By extending the original
-Temporal Fusion Transformer, XTFT incorporates additional modules
-and strategies that enhance its representational capacity, stability,
-and interpretability.
-
-**Key Enhancements:**
-
-- **Enhanced Variable Embeddings**: 
-  Employs learned normalization and multi-modal embeddings to
-  flexibly integrate static, dynamic, and future covariates. 
-  This allows the model to effectively handle heterogeneous 
-  inputs and exploit relevant signals from different data 
-  modalities.
-  
-  The model applies learned normalization and multi-modal embeddings
-  to unify static, dynamic, and future covariates into a common
-  representation space. Let :math:`\mathbf{x}_{static}`, 
-  :math:`\mathbf{X}_{dynamic}`, and :math:`\mathbf{X}_{future}` 
-  denote the static, dynamic, and future input tensors:
-  .. math::
-     \mathbf{x}_{norm} = \frac{\mathbf{x}_{static} - \mu}
-     {\sigma + \epsilon}
-     
-  After normalization, static and dynamic features are embedded:
-  .. math::
-     \mathbf{E}_{dyn} = \text{MultiModalEmbedding}
-     ([\mathbf{X}_{dynamic}, \mathbf{X}_{future}])
-     
-  and similarly, static embeddings 
-  :math:`\mathbf{E}_{static}` are obtained. This enables flexible 
-  integration of heterogeneous signals.
-
-- **Multi-Scale LSTM Mechanisms**: 
-  Adopts multiple LSTMs operating at various temporal resolutions
-  as controlled by `scales`. By modeling patterns at multiple
-  time scales (e.g., daily, weekly, monthly), the model can 
-  capture long-term trends, seasonalities, and short-term 
-  fluctuations simultaneously.
-  
-  Multiple LSTMs process the input at different scales defined by 
-  `scales`. For a set of scales 
-  :math:`S = \{s_1, s_2, \ldots, s_k\}`, each scale selects 
-  time steps at intervals of :math:`s_i`:
-  .. math::
-     \mathbf{H}_{lstm} = \text{Concat}(
-     [\text{LSTM}_{s_i}(\mathbf{E}_{dyn}^{(s_i)})]_{i=1}^{k})
-     
-  where :math:`\mathbf{E}_{dyn}^{(s_i)}` represents 
-  :math:`\mathbf{E}_{dyn}` sampled at stride :math:`s_i`. This 
-  approach captures patterns at multiple temporal resolutions 
-  (e.g., daily, weekly).
-
-
-- **Enhanced Attention Mechanisms**: 
-  Integrates hierarchical, cross, and memory-augmented attention. 
-  Hierarchical attention highlights critical temporal regions,
-  cross attention fuses information from diverse feature spaces,
-  and memory-augmented attention references a learned memory to
-  incorporate long-range dependencies beyond the immediate 
-  input window.
-  
-  XTFT integrates hierarchical, cross, and memory-augmented attention
-  layers to enrich temporal and contextual relationships.  
-  Hierarchical attention:
-  .. math::
-     \mathbf{H}_{hier} = \text{HierarchicalAttention}
-     ([\mathbf{X}_{dynamic}, \mathbf{X}_{future}])
-  
-  Cross attention:
-  .. math::
-     \mathbf{H}_{cross} = \text{CrossAttention}
-     ([\mathbf{X}_{dynamic}, \mathbf{E}_{dyn}])
-  
-  Memory-augmented attention with memory :math:`\mathbf{M}`:
-  .. math::
-     \mathbf{H}_{mem} = \text{MemoryAugmentedAttention}(
-     \mathbf{H}_{hier}, \mathbf{M})
-     
-  Together, these attentions enable the model to focus on 
-  short-term critical points, fuse different feature spaces,
-  and reference long-range contexts.
-  
-
-- **Dynamic Quantile Loss**: 
-  Implements adaptive quantile loss to produce probabilistic
-  forecasts. This enables the model to return predictive intervals
-  and quantify uncertainty, offering more robust and informed 
-  decision-making capabilities.
-  
-  The model supports probabilistic forecasting via quantile loss.
-  For quantiles :math:`q \in \{q_1,\ldots,q_Q\}`, and errors 
-  :math:`e = y_{true} - y_{pred}`, quantile loss is defined as:
-  .. math::
-     \mathcal{L}_{quantile}(q) = \frac{1}{N}\sum_{n=1}^{N} 
-     \max(q \cdot e_n, (q-1) \cdot e_n)
-     
-  This yields predictive intervals rather than single-point
-  estimates, facilitating uncertainty-aware decision-making.
-  
-
-- **Multi-Horizon Output Strategies**:
-  Facilitates forecasting over multiple future steps at once, 
-  enabling practitioners to assess future scenarios and plan 
-  accordingly. This functionality supports both deterministic 
-  and probabilistic forecasts.
-  
-  XTFT predicts multiple horizons simultaneously. If 
-  `forecast_horizons = H`, the decoder produces:
-  .. math::
-     \mathbf{Y}_{decoder} = \text{MultiDecoder}(\mathbf{H}_{combined})
-     
-  resulting in a forecast:
-  .. math::
-     \hat{\mathbf{Y}} \in \mathbb{R}^{B \times H \times D_{out}}
-  
-  This allows practitioners to assess future scenarios over 
-  multiple steps rather than a single forecast instant.
-
-- **Optimization for Complex Time Series**:
-  Utilizes multi-resolution attention fusion, dynamic time 
-  windowing, and residual connections to handle complex and 
-  noisy data distributions. Such mechanisms improve training 
-  stability and convergence rates, even in challenging 
-  environments.
-  
-  Multi-resolution attention fusion and dynamic time windowing 
-  improve the model's capability to handle complex, noisy data:
-  .. math::
-     \mathbf{H}_{fused} = \text{MultiResolutionAttentionFusion}(
-     \mathbf{H}_{combined})
-  
-  Along with residual connections:
-  .. math::
-     \mathbf{H}_{res} = \mathbf{H}_{fused} + \mathbf{H}_{combined}
-  
-  These mechanisms stabilize training, enhance convergence, and 
-  improve performance on challenging datasets.
-
-- **Advanced Output Mechanisms**:
-  Employs quantile distribution modeling to generate richer
-  uncertainty estimations, thereby enabling the model to
-  provide more detailed and informative predictions than 
-  single-point estimates.
-  
-  Quantile distribution modeling converts decoder outputs into a
-  set of quantiles:
-  .. math::
-     \mathbf{Y}_{quantiles} = \text{QuantileDistributionModeling}(
-     \mathbf{Y}_{decoder})
-  
-  enabling richer uncertainty estimation and more informative 
-  predictions, such as lower and upper bounds for future values.
-
-When `quantiles` are specified, XTFT delivers probabilistic 
-forecasts that include lower and upper bounds, enabling better 
-risk management and planning. Moreover, anomaly detection 
-capabilities, governed by `anomaly_loss_weight`, allow the 
-model to identify and adapt to irregularities or abrupt changes
-in the data.
-
-This class inherits from both 
-:class:`~tensorflow.keras.Model` and 
-:class:`~gofast.api.property.NNLearner`, ensuring seamless 
-integration with Keras workflows and extended functionality 
-for handling model properties and training processes.
-
-
-Parameters
-----------
-static_input_dim : int
-    Dimensionality of static input features (no time dimension).  
-    These features remain constant over time steps and provide
-    global context or attributes related to the time series. For
-    example, a store ID or geographic location. Increasing this
-    dimension allows the model to utilize more contextual signals
-    that do not vary with time. A larger `static_input_dim` can
-    help the model specialize predictions for different entities
-    or conditions and improve personalized forecasts.
-
-dynamic_input_dim : int
-    Dimensionality of dynamic input features. These features vary
-    over time steps and typically include historical observations
-    of the target variable, and any time-dependent covariates such
-    as past sales, weather variables, or sensor readings. A higher
-    `dynamic_input_dim` enables the model to incorporate more
-    complex patterns from a richer set of temporal signals. These
-    features help the model understand seasonality, trends, and
-    evolving conditions over time.
-
-future_covariate_dim : int
-    Dimensionality of future known covariates. These are features
-    known ahead of time for future predictions (e.g., holidays,
-    promotions, scheduled events, or future weather forecasts).
-    Increasing `future_covariate_dim` enhances the model’s ability
-    to leverage external information about the future, improving
-    the accuracy and stability of multi-horizon forecasts.
-
-embed_dim : int, optional
-    Dimension of feature embeddings. Default is ``32``. After
-    variable transformations, inputs are projected into embeddings
-    of size `embed_dim`. Larger embeddings can capture more nuanced
-    relationships but may increase model complexity. A balanced
-    choice prevents overfitting while ensuring the representation
-    capacity is sufficient for complex patterns.
-
-forecast_horizons : int, optional
-    Number of future time steps to predict. Default is ``1``. This
-    parameter specifies how many steps ahead the model provides
-    forecasts. For instance, `forecast_horizons=3` means the model
-    predicts values for three future periods simultaneously.
-    Increasing this allows multi-step forecasting, but may
-    complicate learning if too large.
-
-quantiles : list of float or str, optional
-    Quantiles to predict for probabilistic forecasting. For example,
-    ``[0.1, 0.5, 0.9]`` indicates lower, median, and upper bounds.
-    If set to ``'auto'``, defaults to ``[0.1, 0.5, 0.9]``. If
-    `None`, the model makes deterministic predictions. Providing
-    quantiles helps the model estimate prediction intervals and
-    uncertainty, offering more informative and robust forecasts.
-
-max_window_size : int, optional
-    Maximum dynamic time window size. Default is ``10``. Defines
-    the length of the dynamic windowing mechanism that selects
-    relevant recent time steps for modeling. A larger `max_window_size`
-    enables the model to consider more historical data at once,
-    potentially capturing longer-term patterns, but may also
-    increase computational cost.
-
-memory_size : int, optional
-    Size of the memory for memory-augmented attention. Default is
-    ``100``. Introduces a fixed-size memory that the model can
-    attend to, providing a global context or reference to distant
-    past information. Larger `memory_size` can help the model
-    recall patterns from further back in time, improving long-term
-    forecasting stability.
-
-num_heads : int, optional
-    Number of attention heads. Default is ``4``. Multi-head
-    attention allows the model to attend to different representation
-    subspaces of the input sequence. Increasing `num_heads` can
-    improve model performance by capturing various aspects of the
-    data, but also raises the computational complexity and the
-    number of parameters.
-
-dropout_rate : float, optional
-    Dropout rate for regularization. Default is ``0.1``. Controls
-    the fraction of units dropped out randomly during training.
-    Higher values can prevent overfitting but may slow convergence.
-    A small to moderate `dropout_rate` (e.g. 0.1 to 0.3) is often
-    a good starting point.
-
-output_dim : int, optional
-    Dimensionality of the output. Default is ``1``. Determines how
-    many target variables are predicted at each forecast horizon.
-    For univariate forecasting, `output_dim=1` is typical. For
-    multi-variate forecasting, set a larger value to predict
-    multiple targets simultaneously.
-
-anomaly_loss_weight : float, optional
-    Weight of the anomaly loss term. Default is ``1.0``. Balances
-    the contribution of anomaly detection against the primary
-    forecasting task. A higher value emphasizes identifying and
-    penalizing anomalies, potentially improving robustness to
-    irregularities in the data, while a lower value prioritizes
-    general forecasting performance.
-
-attention_units : int, optional
-    Number of units in attention layers. Default is ``32``.
-    Controls the dimensionality of internal representations in
-    attention mechanisms. More `attention_units` can allow the
-    model to represent more complex dependencies, but may also
-    increase risk of overfitting and computation.
-
-hidden_units : int, optional
-    Number of units in hidden layers. Default is ``64``. Influences
-    the capacity of various dense layers within the model, such as
-    those processing static features or for residual connections.
-    More units allow modeling more intricate functions, but can
-    lead to overfitting if not regularized.
-
-lstm_units : int or None, optional
-    Number of units in LSTM layers. Default is ``64``. If `None`,
-    LSTM layers may be disabled or replaced with another mechanism.
-    Increasing `lstm_units` improves the model’s ability to capture
-    temporal dependencies, but also raises computational cost and
-    potential overfitting.
-
-scales : list of int, str or None, optional
-    Scales for multi-scale LSTM. If ``'auto'``, defaults are chosen
-    internally. This parameter configures multiple LSTMs to operate
-    at different temporal resolutions. For example, `[1, 7, 30]`
-    might represent daily, weekly, and monthly scales. Multi-scale
-    modeling can enhance the model’s understanding of hierarchical
-    time structures and seasonalities.
-
-multi_scale_agg : str or None, optional
-    Aggregation method for multi-scale outputs. Options:
-    ``'last'``, ``'average'``, ``'flatten'``, ``'auto'``. If `None`,
-    no special aggregation is applied. This parameter determines
-    how the multiple scales’ outputs are combined. For instance,
-    `average` can produce a more stable representation by averaging
-    across scales, while `flatten` preserves all scale information
-    in a concatenated form.
-
-activation : str or callable, optional
-    Activation function. Default is ``'relu'``. Common choices
-    include ``'tanh'``, ``'elu'``, or a custom callable. The choice
-    of activation affects the model’s nonlinearity and can influence
-    convergence speed and final accuracy. For complex datasets,
-    experimenting with different activations may yield better
-    results.
-
-use_residuals : bool, optional
-    Whether to use residual connections. Default is ``True``.
-    Residuals help in stabilizing and speeding up training by
-    allowing gradients to flow more easily through the model and
-    mitigating vanishing gradients. They also enable deeper model
-    architectures without significant performance degradation.
-
-use_batch_norm : bool, optional
-    Whether to use batch normalization. Default is ``False``.
-    Batch normalization can accelerate training by normalizing
-    layer inputs, reducing internal covariate shift. It often makes
-    model training more stable and can improve convergence,
-    especially in deeper architectures. However, it adds complexity
-    and may not always be beneficial.
-
-final_agg : str, optional
-    Final aggregation of the time window. Options:
-    ``'last'``, ``'average'``, ``'flatten'``. Default is ``'last'``.
-    Determines how the time-windowed representations are reduced
-    into a final vector before decoding into forecasts. For example,
-    `last` takes the most recent time step’s feature vector, while
-    `average` merges information across the entire window. Choosing
-    a suitable aggregation can influence forecast stability and
-    sensitivity to recent or aggregate patterns.
-
-**kwargs : dict
-    Additional keyword arguments passed to the model. These may
-    include configuration options for layers, optimizers, or
-    training routines not covered by the parameters above.
-
-
-Methods
--------
-call(inputs, training=False)
-    Perform the forward pass through the model. Given a tuple
-    ``(static_input, dynamic_input, future_covariate_input)``,
-    it processes all features through embeddings, LSTMs, and
-    attention mechanisms before producing final forecasts.
-    
-    - ``static_input``: 
-      A tensor of shape :math:`(B, D_{static})` representing 
-      the static features. These do not vary with time.
-    - ``dynamic_input``: 
-      A tensor of shape :math:`(B, T, D_{dynamic})` representing
-      dynamic features across :math:`T` time steps. These include
-      historical values and time-dependent covariates.
-    - ``future_covariate_input``: 
-      A tensor of shape :math:`(B, T, D_{future})` representing
-      future-known features, aiding multi-horizon forecasting.
-
-    Depending on the presence of quantiles:
-    - If ``quantiles`` is not `None`: 
-      The output shape is :math:`(B, H, Q, D_{out})`, where 
-      :math:`H` is `forecast_horizons`, :math:`Q` is the number of
-      quantiles, and :math:`D_{out}` is `output_dim`.
-    - If ``quantiles`` is `None`: 
-      The output shape is :math:`(B, H, D_{out})`, providing a 
-      deterministic forecast for each horizon.
-
-    Parameters
-    ----------
-    inputs : tuple of tf.Tensor
-        Input tensors `(static_input, dynamic_input, 
-        future_covariate_input)`.
-    training : bool, optional
-        Whether the model is in training mode (default False).
-        In training mode, layers like dropout and batch norm
-        behave differently.
-
-    Returns
-    -------
-    tf.Tensor
-        The prediction tensor. Its shape and dimensionality depend
-        on the `quantiles` setting. In probabilistic scenarios,
-        multiple quantiles are returned. In deterministic mode, 
-        a single prediction per horizon is provided.
-
-compute_loss(y_true, y_pred, anomaly_scores)
-    Compute the total loss, combining both quantile loss (if 
-    `quantiles` is not `None`) and anomaly loss. Quantile loss
-    measures forecasting accuracy at specified quantiles, while
-    anomaly loss penalizes unusual deviations or anomalies.
-
-    Parameters
-    ----------
-    y_true : tf.Tensor
-        Ground truth targets. Shape: :math:`(B, H, D_{out})`.
-    y_pred : tf.Tensor
-        Model predictions. If quantiles are present:
-        :math:`(B, H, Q, D_{out})`. Otherwise:
-        :math:`(B, H, D_{out})`.
-    anomaly_scores : tf.Tensor
-        Tensor indicating anomaly severity. Its shape typically
-        matches `(B, H, D_{dynamic})` or a related dimension.
-
-    Returns
-    -------
-    tf.Tensor
-        A scalar tensor representing the combined loss. Lower 
-        values indicate better performance, balancing accuracy
-        and anomaly handling.
-
-anomaly_loss(anomaly_scores)
-    Compute the anomaly loss component. This term encourages the
-    model to be robust against abnormal patterns in the data.
-    Higher anomaly scores lead to higher loss, prompting the model
-    to adjust predictions or representations to reduce anomalies.
-
-    Parameters
-    ----------
-    anomaly_scores : tf.Tensor
-        A tensor reflecting the presence and intensity of anomalies.
-        Its shape often corresponds to time steps and dynamic 
-        features, e.g., `(B, H, D_{dynamic})`.
-
-    Returns
-    -------
-    tf.Tensor
-        A scalar tensor representing the anomaly loss. Minimizing
-        this term encourages the model to learn patterns that 
-        mitigate anomalies and produce more stable forecasts.
-
-Notes
-------
-Consider a batch of time series data. Let:
-
-- :math:`\mathbf{x}_{static} \in \mathbb{R}^{B \times D_{static}}`
-  represent the static (time-invariant) features, where
-  :math:`B` is the batch size and :math:`D_{static}` is the
-  dimensionality of static inputs.
-  
-- :math:`\mathbf{X}_{dynamic} \in \mathbb{R}^{B \times T \times D_{dynamic}}`
-  represent the dynamic (time-varying) features over :math:`T` time steps.
-  Here, :math:`D_{dynamic}` corresponds to the dimensionality of
-  dynamic inputs (e.g., historical observations).
-
-- :math:`\mathbf{X}_{future} \in \mathbb{R}^{B \times T \times D_{future}}`
-  represent the future known covariates, also shaped by
-  :math:`T` steps and :math:`D_{future}` features. These may
-  include planned events or predicted conditions known ahead of time.
-
-The model first embeds dynamic and future features via multi-modal
-embeddings, producing a unified representation:
-.. math::
-   \mathbf{E}_{dyn} = \text{MultiModalEmbedding}\left(
-   [\mathbf{X}_{dynamic}, \mathbf{X}_{future}]\right)
-
-To capture temporal dependencies at various resolutions, multi-scale
-LSTMs are applied. These can process data at different temporal scales:
-.. math::
-   \mathbf{H}_{lstm} = \text{MultiScaleLSTM}(\mathbf{E}_{dyn})
-
-Multiple attention mechanisms enhance the model’s representational
-capacity:
-
-1. Hierarchical attention focuses on both short-term and long-term
-   interactions between dynamic and future features:
-   .. math::
-      \mathbf{H}_{hier} = \text{HierarchicalAttention}\left(
-      [\mathbf{X}_{dynamic}, \mathbf{X}_{future}]\right)
-
-2. Cross attention integrates information from different modalities
-   or embedding spaces, here linking original dynamic inputs and
-   their embeddings:
-   .. math::
-      \mathbf{H}_{cross} = \text{CrossAttention}\left(
-      [\mathbf{X}_{dynamic}, \mathbf{E}_{dyn}]\right)
-
-3. Memory-augmented attention incorporates an external memory for
-   referencing distant past patterns not directly present in the
-   current window:
-   .. math::
-      \mathbf{H}_{mem} = \text{MemoryAugmentedAttention}(\mathbf{H}_{hier})
-
-Next, static embeddings :math:`\mathbf{E}_{static}` (obtained from
-processing static inputs) are combined with the outputs from LSTMs
-and attention mechanisms:
-.. math::
-   \mathbf{H}_{combined} = \text{Concatenate}\left(
-   [\mathbf{E}_{static}, \mathbf{H}_{lstm}, \mathbf{H}_{mem},
-   \mathbf{H}_{cross}]\right)
-
-The combined representation is decoded into multi-horizon forecasts:
-.. math::
-   \mathbf{Y}_{decoder} = \text{MultiDecoder}(\mathbf{H}_{combined})
-
-For probabilistic forecasting, quantile distribution modeling
-
-transforms the decoder outputs into quantile predictions:
-.. math::
-   \mathbf{Y}_{quantiles} = \text{QuantileDistributionModeling}\left(
-   \mathbf{Y}_{decoder}\right)
-
-The final predictions are thus:
-.. math::
-   \hat{\mathbf{Y}} = \mathbf{Y}_{quantiles}
-
-The loss function incorporates both quantile loss for probabilistic
-forecasting and anomaly loss for robust handling of irregularities:
-.. math::
-   \mathcal{L} = \mathcal{L}_{quantile} + \lambda \mathcal{L}_{anomaly}
-
-By adjusting :math:`\lambda`, the model can balance predictive
-accuracy against robustness to anomalies.
-
-Furthermore: 
-    
-- Multi-modal embeddings and multi-scale LSTMs enable the model to
-  represent complex temporal patterns at various resolutions.
-- Attention mechanisms (hierarchical, cross, memory-augmented)
-  enrich the context and allow the model to focus on relevant
-  aspects of the data.
-- Quantile modeling provides probabilistic forecasts, supplying
-  uncertainty intervals rather than single-point predictions.
-- Techniques like residual connections, normalization, and
-  anomaly loss weighting improve training stability and
-  model robustness.
-
-Examples
---------
->>> from gofast.nn.transformers import XTFT
->>> import tensorflow as tf
->>> model = XTFT(
-...     static_input_dim=10,
-...     dynamic_input_dim=45,
-...     future_covariate_dim=5,
-...     forecast_horizons=3,
-...     quantiles=[0.1, 0.5, 0.9],
-...     scales='auto',
-...     final_agg='last'
-... )
->>> batch_size = 32
->>> time_steps = 20
->>> static_input = tf.random.normal([batch_size, 10])
->>> dynamic_input = tf.random.normal([batch_size, time_steps, 45])
->>> future_covariate_input = tf.random.normal([batch_size, time_steps, 5])
->>> output = model([static_input, dynamic_input, future_covariate_input])
->>> output.shape
-TensorShape([32, 3, 3, 1])
-
-See Also
---------
-gofast.nn.transformers.TemporalFusionTransformer : 
-    The original TFT model for comparison.
-MultiHeadAttention : Keras layer for multi-head attention.
-LSTM : Keras LSTM layer for sequence modeling.
-
-References
-----------
-.. [1] Wang, X., et al. (2021). "Enhanced Temporal Fusion Transformer
-       for Time Series Forecasting." International Journal of
-       Forecasting, 37(3), 1234-1245.
-"""

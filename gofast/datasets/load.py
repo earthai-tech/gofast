@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from ..api.structures import Boxspace
+from ..api.summary import ResultSummary
 from ..core.array_manager import to_numeric_dtypes, convert_to_structured_format 
 from ..core.array_manager import split_train_test_by_id 
 from ..core.checks import assert_ratio, is_in_if, validate_feature 
@@ -28,6 +29,7 @@ from ..tools.baseutils import check_file_exists, fancier_downloader
 from ..tools.ioutils import get_valid_key, key_checker
 from .io import DMODULE, RemoteDataURL, _to_dataframe, csv_data_loader
 from .io import DESCR, description_loader
+from .util import _format_feature_descriptions 
 
 
 __all__= [ "load_iris",  "load_hlogs",  "load_nansha", "load_forensic", 
@@ -41,7 +43,7 @@ def load_hydro_metrics(*, return_X_y=False, as_frame=False, tag=None,
     Load and return the Hydro-Meteorological dataset collected in Yobouakro, 
     S-P Agnibilekro, Cote d'Ivoire(West-Africa).
 
-    This dataset encompasses a comprehensive range of environmental and 
+    The dataset encompasses a comprehensive range of environmental and 
     hydro-meteorological variables, including temperature, humidity, wind speed,
     solar radiation, evapotranspiration, rainfall, and river flow metrics. 
     It's instrumental for studies in environmental science, agriculture, 
@@ -359,6 +361,13 @@ def load_dyspnea(
     from ..dataops.preprocessing import transform_dates 
     from ._globals import DYSPNEA_DICT, DYSPNEA_LABELS_DESCR
     
+    cdescr = _format_feature_descriptions( 
+        DYSPNEA_DICT, title ='Dyspnea Features', 
+        descriptor='dyspnea', 
+        ) 
+    ldescr = ResultSummary('DyspneaLabels').add_results(DYSPNEA_LABELS_DESCR)
+    # ---- end formattage 
+    
     key = get_valid_key(key, "pp", {
         "pp": ("pp", 'preprocessed', 'cleaned', 'transformed', 'structured'), 
         "raw": ["raw", "unprocessed", "source", "original"]
@@ -401,8 +410,8 @@ def load_dyspnea(
         feature_names=feature_names,
         filename=data_file,
         data_module=DMODULE,
-        labels_descr=DYSPNEA_LABELS_DESCR,
-        columns_descr=DYSPNEA_DICT
+        labels_descr=ldescr,
+        columns_descr=cdescr
     )
 
 def load_hlogs(
@@ -511,6 +520,7 @@ def _finalize_return(data, target_names, frame, data_file):
         filename=data_file,
         data_module=DMODULE,
     )
+
 load_hlogs.__doc__ =r"""\
 Load hydro-logging dataset for hydrogeophysical analysis.
 
@@ -1361,8 +1371,6 @@ def _split_and_convert(Xy, test_ratio, seed, shuffle, as_frame):
     return X_train, X_test, y_train, y_test
 
 
-
-
 def _get_subsidence_data (
         data_file, /, 
         years: str="2022", 
@@ -1430,7 +1438,6 @@ def _get_subsidence_data (
     
     return  data,  feature_names, target_columns     
     
-
 def load_forensic( *, 
     return_X_y=False, 
     as_frame=False, 
@@ -1443,7 +1450,14 @@ def load_forensic( *,
     exclude_vectorized_features=True,  
     **kws
 ):
+    # data formatters 
     from ._globals import FORENSIC_BF_DICT, FORENSIC_LABELS_DESCR 
+    cdescr = _format_feature_descriptions( 
+        FORENSIC_BF_DICT, title ='Forensic Features', 
+        descriptor='forensic', 
+        ) 
+    ldescr = ResultSummary('Forensic Labels').add_results(FORENSIC_LABELS_DESCR)
+    # ---- end formattage 
     
     key = get_valid_key(key, "pp", {
         "pp": ("pp", 'preprocessed', 'cleaned', 'transformed', 'structured'), 
@@ -1465,8 +1479,9 @@ def load_forensic( *,
     target_columns = [
         "dna_use_terrorism_fight",
     ]
+ 
     feature_names= is_in_if(data, items=target_columns, return_diff=True)
-    
+
     frame, data, target = _to_dataframe(
          data, feature_names = feature_names, target_names = target_columns, 
          )
@@ -1492,9 +1507,10 @@ def load_forensic( *,
         feature_names=feature_names,
         filename=data_file,
         data_module=DMODULE,
-        labels_descr=FORENSIC_LABELS_DESCR,
-        colums_descr= FORENSIC_BF_DICT
+        labels_descr=ldescr,
+        colums_descr= cdescr
     )
+
 load_forensic.__doc__="""\
 Load and return the forensic dataset for criminal investigation studies.
 

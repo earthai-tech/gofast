@@ -11,6 +11,8 @@ from __future__ import annotations
 import os 
 import pathlib
 import warnings 
+import textwrap
+
 import numpy as np 
 import pandas as pd 
 from collections.abc import Iterable
@@ -19,10 +21,13 @@ from typing import List, Union, Optional, Callable
 
 from ..exceptions import FileHandlingError 
 from ..api.types import DataFrame, NDArray
+from ..api.util import get_table_size
 from ..api.property import PandasDataHandlers
 from .array_manager import to_numeric_dtypes 
-from .checks import is_iterable 
+from .checks import is_iterable, check_params 
 from .utils import  ellipsis2false, lowertify, smart_format 
+
+TW = get_table_size()
 
 __all__=[
     "EnsureFileExists", 
@@ -30,7 +35,8 @@ __all__=[
     "save_or_load",
     "is_data_readable",
     "to_frame_if", 
-    "SaveFile"
+    "SaveFile", 
+    "fmt_text",
     ]
 
 
@@ -246,7 +252,6 @@ class EnsureFileExists:
 
 # Allow decorator to be used without parentheses
 EnsureFileExists = EnsureFileExists.ensure_file_exists
-
 
 class SaveFile:
     """
@@ -969,6 +974,173 @@ def to_frame_if(
                 "Unsupported data type. The input must be a file path,"
                 " pandas Series, numpy array, list, or pandas DataFrame."
                 ) from e 
+
+@check_params ( 
+    { 
+        'text': str, 
+        'style':Optional[str], 
+        'alignment': str, 
+        'extra_space': int, 
+        'text_size': Optional[int],
+        'break_word': bool
+    }
+ )
+def fmt_text(
+    text: str, 
+    style: Optional[str] = '-', 
+    border_style: Optional[str] = None, 
+    alignment: str = 'left', 
+    extra_space: int = 3, 
+    text_size: Optional[int] = None, 
+    break_word: bool = False
+) -> str:
+    """
+    Format text with specified styling, alignment, and wrapping.
+
+    Parameters
+    ----------
+    text : str
+        The input text to be formatted.
+    
+    style : str, optional
+        The character used for the top and bottom border lines. 
+        If `None`, no top and bottom borders are added. Default is ``'-'``.
+    
+    border_style : str, optional
+        The character used to frame the text lines on the left and right.
+        If ``None``, no side borders are added. Default is ``None``.
+    
+    alignment : str, {'left', 'center', 'right', 'justify'}, default='left'
+        The alignment of the text within the borders. Options are:
+        - ``'left'``
+        - ``'center'``
+        - ``'right'``
+        - ``'justify'``
+    
+    extra_space : int, default 3
+        The number of extra spaces added based on the alignment:
+        - For 'left' and 'right', spaces are added to the respective side.
+        - For 'center', spaces are added to both sides.
+        - For 'justify', spaces are distributed evenly between words.
+    
+    text_size : int, optional
+        The maximum width of the formatted text. If ``None``, uses the 
+        terminal width obtained from `get_table_size()`. Default is ``None``.
+    
+    break_word : bool, default False
+        If `True`, words longer than the remaining space in a line will be 
+        broken with a hyphen. If ``False``, the word moves to the next line.
+    
+    Returns
+    -------
+    str
+        The formatted text as a single string with appropriate styling 
+        and alignment.
+    
+    Examples
+    --------
+    >>> from gofast.core.io import fmt_text
+    >>> sample_text = "This is a sample text that will be formatted with"
+    " left spaces, underlines, and auto-wrapping."
+    >>> print(fmt_text(sample_text, alignment='center', extra_space=2))
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      This is a sample text that will be formatted with left    
+      spaces, underlines, and auto-wrapping.                   
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    
+    >>> print(fmt_text(sample_text, border_style='|', alignment='right', extra_space=1))
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    | This is a sample text that will be formatted with left  |
+    | spaces, underlines, and auto-wrapping.                  |
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    """
+    if text_size is None:
+        text_size = TW
+    else:
+        if text_size <= 0:
+            raise ValueError("`text_size` must be a positive integer or None.")
+    
+    if alignment not in {'left', 'center', 'right', 'justify'}:
+        raise ValueError(
+            "`alignment` must be one of {'left', 'center', 'right', 'justify'}.")
+    
+    if border_style is not None and len(border_style) != 1:
+        raise ValueError(
+            "`border_style` must be a single character or None."
+            )
+    
+    if style is not None and len(style) != 1:
+        raise ValueError("`style` must be a single character or None.")
+    
+    # Calculate available width for text
+    border_width = 2 if border_style else 0
+    available_width = text_size - border_width - 2 * extra_space
+    if available_width <= 0:
+        raise ValueError(
+            "`text_size` is too small for the given `extra_space` and borders.")
+    
+    # Function to handle word breaking
+    def wrap_text(text: str, width: int) -> List[str]:
+        if break_word:
+            return textwrap.wrap(
+                text, width=width, break_long_words=True, 
+                break_on_hyphens=True
+                )
+        else:
+            return textwrap.wrap(
+                text, width=width, break_long_words=False, 
+                break_on_hyphens=False
+                )
+    
+    wrapped_lines = wrap_text(text, available_width)
+    
+    # Function to apply alignment
+    def align_line(line: str) -> str:
+        if alignment == 'left':
+            return line.ljust(available_width)
+        elif alignment == 'right':
+            return line.rjust(available_width)
+        elif alignment == 'center':
+            return line.center(available_width)
+        elif alignment == 'justify':
+            words = line.split()
+            if len(words) == 1:
+                return words[0].ljust(available_width)
+            total_spaces = available_width - sum(len(word) for word in words)
+            space_between_words, extra = divmod(total_spaces, len(words) - 1)
+            justified_line = ''
+            for i, word in enumerate(words[:-1]):
+                justified_line += word + ' ' * (space_between_words + (1 if i < extra else 0))
+            justified_line += words[-1]
+            return justified_line
+        else:
+            return line  # Fallback to no alignment
+    
+    aligned_lines = [align_line(line) for line in wrapped_lines]
+    
+    # Add borders and extra spaces
+    formatted_lines = []
+    for line in aligned_lines:
+        if border_style:
+            formatted_line = (
+                border_style + 
+                ' ' * extra_space + 
+                line + 
+                ' ' * extra_space + 
+                border_style
+            )
+        else:
+            formatted_line = ' ' * extra_space + line + ' ' * extra_space
+        formatted_lines.append(formatted_line)
+    
+    # Create border lines
+    if style:
+        border_line = style * text_size
+        formatted_text = [border_line] + formatted_lines + [border_line]
+    else:
+        formatted_text = formatted_lines
+    
+    return '\n'.join(formatted_text)
 
 
   

@@ -546,6 +546,265 @@ References
   Series". 
 """
 
+_shared_docs [ 
+    'xtft_key_improvements'
+]=r"""
+
+**Key Enhancements:**
+
+- **Enhanced Variable Embeddings**: 
+  Employs learned normalization and multi-modal embeddings to
+  flexibly integrate static, dynamic, and future covariates. 
+  This allows the model to effectively handle heterogeneous 
+  inputs and exploit relevant signals from different data 
+  modalities.
+  
+  The model applies learned normalization and multi-modal embeddings
+  to unify static, dynamic, and future covariates into a common
+  representation space. Let :math:`\mathbf{x}_{static}`, 
+  :math:`\mathbf{X}_{dynamic}`, and :math:`\mathbf{X}_{future}` 
+  denote the static, dynamic, and future input tensors:
+  .. math::
+     \mathbf{x}_{norm} = \frac{\mathbf{x}_{static} - \mu}
+     {\sigma + \epsilon}
+     
+  After normalization, static and dynamic features are embedded:
+  .. math::
+     \mathbf{E}_{dyn} = \text{MultiModalEmbedding}
+     ([\mathbf{X}_{dynamic}, \mathbf{X}_{future}])
+     
+  and similarly, static embeddings 
+  :math:`\mathbf{E}_{static}` are obtained. This enables flexible 
+  integration of heterogeneous signals.
+
+- **Multi-Scale LSTM Mechanisms**: 
+  Adopts multiple LSTMs operating at various temporal resolutions
+  as controlled by `scales`. By modeling patterns at multiple
+  time scales (e.g., daily, weekly, monthly), the model can 
+  capture long-term trends, seasonalities, and short-term 
+  fluctuations simultaneously.
+  
+  Multiple LSTMs process the input at different scales defined by 
+  `scales`. For a set of scales 
+  :math:`S = \{s_1, s_2, \ldots, s_k\}`, each scale selects 
+  time steps at intervals of :math:`s_i`:
+  .. math::
+     \mathbf{H}_{lstm} = \text{Concat}(
+     [\text{LSTM}_{s_i}(\mathbf{E}_{dyn}^{(s_i)})]_{i=1}^{k})
+     
+  where :math:`\mathbf{E}_{dyn}^{(s_i)}` represents 
+  :math:`\mathbf{E}_{dyn}` sampled at stride :math:`s_i`. This 
+  approach captures patterns at multiple temporal resolutions 
+  (e.g., daily, weekly).
+
+
+- **Enhanced Attention Mechanisms**: 
+  Integrates hierarchical, cross, and memory-augmented attention. 
+  Hierarchical attention highlights critical temporal regions,
+  cross attention fuses information from diverse feature spaces,
+  and memory-augmented attention references a learned memory to
+  incorporate long-range dependencies beyond the immediate 
+  input window.
+  
+  XTFT integrates hierarchical, cross, and memory-augmented attention
+  layers to enrich temporal and contextual relationships.  
+  Hierarchical attention:
+  .. math::
+     \mathbf{H}_{hier} = \text{HierarchicalAttention}
+     ([\mathbf{X}_{dynamic}, \mathbf{X}_{future}])
+  
+  Cross attention:
+  .. math::
+     \mathbf{H}_{cross} = \text{CrossAttention}
+     ([\mathbf{X}_{dynamic}, \mathbf{E}_{dyn}])
+  
+  Memory-augmented attention with memory :math:`\mathbf{M}`:
+  .. math::
+     \mathbf{H}_{mem} = \text{MemoryAugmentedAttention}(
+     \mathbf{H}_{hier}, \mathbf{M})
+     
+  Together, these attentions enable the model to focus on 
+  short-term critical points, fuse different feature spaces,
+  and reference long-range contexts.
+  
+
+- **Dynamic Quantile Loss**: 
+  Implements adaptive quantile loss to produce probabilistic
+  forecasts. This enables the model to return predictive intervals
+  and quantify uncertainty, offering more robust and informed 
+  decision-making capabilities.
+  
+  For quantiles :math:`q \in \{q_1,\ldots,q_Q\}`, and errors 
+  :math:`e = y_{true} - y_{pred}`, quantile loss is defined as:
+  .. math::
+     \mathcal{L}_{quantile}(q) = \frac{1}{N}\sum_{n=1}^{N} 
+     \max(q \cdot e_n, (q-1) \cdot e_n)
+     
+  This yields predictive intervals rather than single-point
+  estimates, facilitating uncertainty-aware decision-making.
+  
+- **Multi-Horizon Output Strategies**:
+  Facilitates forecasting over multiple future steps at once, 
+  enabling practitioners to assess future scenarios and plan 
+  accordingly. This functionality supports both deterministic 
+  and probabilistic forecasts.
+  
+  XTFT predicts multiple horizons simultaneously. If 
+  `forecast_horizons = H`, the decoder produces:
+  .. math::
+     \mathbf{Y}_{decoder} = \text{MultiDecoder}(\mathbf{H}_{combined})
+     
+  resulting in a forecast:
+  .. math::
+     \hat{\mathbf{Y}} \in \mathbb{R}^{B \times H \times D_{out}}
+  
+  This allows practitioners to assess future scenarios over 
+  multiple steps rather than a single forecast instant.
+
+- **Optimization for Complex Time Series**:
+  Utilizes multi-resolution attention fusion, dynamic time 
+  windowing, and residual connections to handle complex and 
+  noisy data distributions. Such mechanisms improve training 
+  stability and convergence rates, even in challenging 
+  environments.
+  
+  Multi-resolution attention fusion and dynamic time windowing 
+  improve the model's capability to handle complex, noisy data:
+  .. math::
+     \mathbf{H}_{fused} = \text{MultiResolutionAttentionFusion}(
+     \mathbf{H}_{combined})
+  
+  Along with residual connections:
+  .. math::
+     \mathbf{H}_{res} = \mathbf{H}_{fused} + \mathbf{H}_{combined}
+  
+  These mechanisms stabilize training, enhance convergence, and 
+  improve performance on challenging datasets.
+
+- **Advanced Output Mechanisms**:
+  Employs quantile distribution modeling to generate richer
+  uncertainty estimations, thereby enabling the model to
+  provide more detailed and informative predictions than 
+  single-point estimates.
+  
+  Quantile distribution modeling converts decoder outputs into a
+  set of quantiles:
+  .. math::
+     \mathbf{Y}_{quantiles} = \text{QuantileDistributionModeling}(
+     \mathbf{Y}_{decoder})
+  
+  enabling richer uncertainty estimation and more informative 
+  predictions, such as lower and upper bounds for future values.
+
+When `quantiles` are specified, XTFT delivers probabilistic 
+forecasts that include lower and upper bounds, enabling better 
+risk management and planning. Moreover, anomaly detection 
+capabilities, governed by `anomaly_loss_weight`, allow the 
+model to identify and adapt to irregularities or abrupt changes
+in the data.
+
+"""
+
+_shared_docs [
+    'xtft_key_functions'
+]=r"""
+
+Key Functions
+--------------
+Consider a batch of time series data. Let:
+
+- :math:`\mathbf{x}_{static} \in \mathbb{R}^{B \times D_{static}}`
+  represent the static (time-invariant) features, where
+  :math:`B` is the batch size and :math:`D_{static}` is the
+  dimensionality of static inputs.
+  
+- :math:`\mathbf{X}_{dynamic} \in \mathbb{R}^{B \times T \times D_{dynamic}}`
+  represent the dynamic (time-varying) features over :math:`T` time steps.
+  Here, :math:`D_{dynamic}` corresponds to the dimensionality of
+  dynamic inputs (e.g., historical observations).
+
+- :math:`\mathbf{X}_{future} \in \mathbb{R}^{B \times T \times D_{future}}`
+  represent the future known covariates, also shaped by
+  :math:`T` steps and :math:`D_{future}` features. These may
+  include planned events or predicted conditions known ahead of time.
+
+The model first embeds dynamic and future features via multi-modal
+embeddings, producing a unified representation:
+.. math::
+   \mathbf{E}_{dyn} = \text{MultiModalEmbedding}\left(
+   [\mathbf{X}_{dynamic}, \mathbf{X}_{future}]\right)
+
+To capture temporal dependencies at various resolutions, multi-scale
+LSTMs are applied. These can process data at different temporal scales:
+.. math::
+   \mathbf{H}_{lstm} = \text{MultiScaleLSTM}(\mathbf{E}_{dyn})
+
+Multiple attention mechanisms enhance the model’s representational
+capacity:
+
+1. Hierarchical attention focuses on both short-term and long-term
+   interactions between dynamic and future features:
+   .. math::
+      \mathbf{H}_{hier} = \text{HierarchicalAttention}\left(
+      [\mathbf{X}_{dynamic}, \mathbf{X}_{future}]\right)
+
+2. Cross attention integrates information from different modalities
+   or embedding spaces, here linking original dynamic inputs and
+   their embeddings:
+   .. math::
+      \mathbf{H}_{cross} = \text{CrossAttention}\left(
+      [\mathbf{X}_{dynamic}, \mathbf{E}_{dyn}]\right)
+
+3. Memory-augmented attention incorporates an external memory for
+   referencing distant past patterns not directly present in the
+   current window:
+   .. math::
+      \mathbf{H}_{mem} = \text{MemoryAugmentedAttention}(\mathbf{H}_{hier})
+
+Next, static embeddings :math:`\mathbf{E}_{static}` (obtained from
+processing static inputs) are combined with the outputs from LSTMs
+and attention mechanisms:
+.. math::
+   \mathbf{H}_{combined} = \text{Concatenate}\left(
+   [\mathbf{E}_{static}, \mathbf{H}_{lstm}, \mathbf{H}_{mem},
+   \mathbf{H}_{cross}]\right)
+
+The combined representation is decoded into multi-horizon forecasts:
+.. math::
+   \mathbf{Y}_{decoder} = \text{MultiDecoder}(\mathbf{H}_{combined})
+
+For probabilistic forecasting, quantile distribution modeling
+
+transforms the decoder outputs into quantile predictions:
+.. math::
+   \mathbf{Y}_{quantiles} = \text{QuantileDistributionModeling}\left(
+   \mathbf{Y}_{decoder}\right)
+
+The final predictions are thus:
+.. math::
+   \hat{\mathbf{Y}} = \mathbf{Y}_{quantiles}
+
+The loss function incorporates both quantile loss for probabilistic
+forecasting and anomaly loss for robust handling of irregularities:
+.. math::
+   \mathcal{L} = \mathcal{L}_{quantile} + \lambda \mathcal{L}_{anomaly}
+
+By adjusting :math:`\lambda`, the model can balance predictive
+accuracy against robustness to anomalies.
+
+Furthermore: 
+    
+- Multi-modal embeddings and multi-scale LSTMs enable the model to
+  represent complex temporal patterns at various resolutions.
+- Attention mechanisms (hierarchical, cross, memory-augmented)
+  enrich the context and allow the model to focus on relevant
+  aspects of the data.
+- Quantile modeling provides probabilistic forecasts, supplying
+  uncertainty intervals rather than single-point predictions.
+- Techniques like residual connections, normalization, and
+  anomaly loss weighting improve training stability and
+  model robustness.
+"""
 
 def filter_docs(keys, input_dict=None):
     """
