@@ -1042,17 +1042,20 @@ def fmt_text(
     >>> from gofast.core.io import fmt_text
     >>> sample_text = "This is a sample text that will be formatted with"
     " left spaces, underlines, and auto-wrapping."
-    >>> print(fmt_text(sample_text, alignment='center', extra_space=2))
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-      This is a sample text that will be formatted with left    
-      spaces, underlines, and auto-wrapping.                   
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    >>> print(fmt_text(sample_text, alignment='center', style='~', 
+                       extra_space=2, text_size =45))
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+          This is a sample text that will be     
+       formatted with left spaces, underlines,   
+                  and auto-wrapping.             
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     
-    >>> print(fmt_text(sample_text, border_style='|', alignment='right', extra_space=1))
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    | This is a sample text that will be formatted with left  |
-    | spaces, underlines, and auto-wrapping.                  |
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    >>> print(fmt_text(sample_text, border_style='|', alignment='right', 
+                       extra_space=1, text_size =60))
+    ------------------------------------------------------------
+    |   This is a sample text that will be formatted with left |
+    |                   spaces, underlines, and auto-wrapping. |
+    ------------------------------------------------------------
     """
     if text_size is None:
         text_size = TW

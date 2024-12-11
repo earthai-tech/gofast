@@ -139,7 +139,6 @@ class _PositionalEncoding(Layer):
             config = super().get_config().copy()
             return config
         
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class GatedResidualNetwork(Layer, NNLearner):
     @validate_params({
@@ -150,6 +149,7 @@ class GatedResidualNetwork(Layer, NNLearner):
             "use_batch_norm": [bool],
         },
     )
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
         self,
         units,
@@ -331,7 +331,6 @@ References
 """.format(params=_param_docs) 
 
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class VariableSelectionNetwork(Layer, NNLearner):
     @validate_params({
@@ -344,6 +343,7 @@ class VariableSelectionNetwork(Layer, NNLearner):
             "use_batch_norm": [bool],
         },
     )
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
         self,
         input_dim,
@@ -523,8 +523,6 @@ References
        Society A*, 379(2194), 20200209.
 """.format( params=_param_docs) 
 
-
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class TemporalAttentionLayer(Layer, NNLearner):
     @validate_params({
@@ -535,6 +533,7 @@ class TemporalAttentionLayer(Layer, NNLearner):
             "use_batch_norm": [bool],
         },
     )
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
         self,
         units,
@@ -711,7 +710,6 @@ References
 """.format( params =_param_docs )
 
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class StaticEnrichmentLayer(Layer, NNLearner):
     @validate_params({
@@ -720,6 +718,7 @@ class StaticEnrichmentLayer(Layer, NNLearner):
             "use_batch_norm": [bool],
         },
     )
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
             self, units,
             activation='elu', 
@@ -1023,7 +1022,6 @@ References
     indents=0
 )
     
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class TemporalFusionTransformer(Model, NNLearner):
     """
@@ -1144,6 +1142,7 @@ class TemporalFusionTransformer(Model, NNLearner):
         "lstm_units": [list, Interval(Integral, 1, None, closed='left'), None]
         },
     )
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
         self,
         static_input_dim,
@@ -1407,7 +1406,6 @@ class TemporalFusionTransformer(Model, NNLearner):
     
 # -----------------XTFT implementation ----------------------------------------
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class LearnedNormalization(Layer, NNLearner):
     """
@@ -1415,6 +1413,7 @@ class LearnedNormalization(Layer, NNLearner):
     Input: (B, D)  
     Output: (B, D), normalized
     """
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(self):
         super().__init__()
 
@@ -1443,7 +1442,6 @@ class LearnedNormalization(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class MultiModalEmbedding(Layer, NNLearner):
     """
@@ -1453,6 +1451,7 @@ class MultiModalEmbedding(Layer, NNLearner):
     Input: list of [ (B, T, D_mod1), (B, T, D_mod2), ... ]  
     Output: (B, T, sum_of_embed_dims)
     """
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(self, embed_dim: int):
         super().__init__()
         self.embed_dim = embed_dim
@@ -1485,7 +1484,7 @@ class MultiModalEmbedding(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
     
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+
 @register_keras_serializable()
 class HierarchicalAttention(Layer, NNLearner):
     """
@@ -1495,6 +1494,7 @@ class HierarchicalAttention(Layer, NNLearner):
     Input: short_term (B, T, D), long_term (B, T, D)  
     Output: (B, T, U) where U is attention_units
     """
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(self, units: int, num_heads: int):
         super().__init__()
         self.units = units
@@ -1526,7 +1526,6 @@ class HierarchicalAttention(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class CrossAttention(Layer, NNLearner):
     """
@@ -1535,6 +1534,7 @@ class CrossAttention(Layer, NNLearner):
     Input: source1 (B, T, D), source2 (B, T, D)  
     Output: (B, T, U)
     """
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(self, units: int, num_heads: int):
         super().__init__()
         self.units = units
@@ -1557,7 +1557,7 @@ class CrossAttention(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+
 @register_keras_serializable()
 class MemoryAugmentedAttention(Layer, NNLearner):
     """
@@ -1567,6 +1567,7 @@ class MemoryAugmentedAttention(Layer, NNLearner):
     Input: (B, T, D)  
     Output: (B, T, D)
     """
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(self, units: int, memory_size: int, num_heads: int):
         super().__init__()
         self.units = units
@@ -1601,7 +1602,6 @@ class MemoryAugmentedAttention(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class AdaptiveQuantileLoss(Layer, NNLearner):
     """
@@ -1609,6 +1609,7 @@ class AdaptiveQuantileLoss(Layer, NNLearner):
 
     Input: y_true (B, H, O), y_pred (B, H, Q, O) if quantiles are not None
     """
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(self, quantiles: Optional[List[float]]):
         super().__init__()
         if quantiles == 'auto':
@@ -1634,7 +1635,7 @@ class AdaptiveQuantileLoss(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+
 @register_keras_serializable()
 class AnomalyLoss(Layer, NNLearner):
     """
@@ -1642,6 +1643,7 @@ class AnomalyLoss(Layer, NNLearner):
 
     Input: anomaly_scores (B, H, D)
     """
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(self, weight: float = 1.0):
         super().__init__()
         self.weight = weight
@@ -1658,7 +1660,7 @@ class AnomalyLoss(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+
 @register_keras_serializable()
 class MultiObjectiveLoss(Layer, NNLearner):
     """
@@ -1669,6 +1671,7 @@ class MultiObjectiveLoss(Layer, NNLearner):
         y_pred: (B, H, Q, O) if quantiles is not None else (B, H, 1, O)
         anomaly_scores: (B, H, D)
     """
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(self, quantile_loss_fn: Layer, anomaly_loss_fn: Layer):
         super().__init__()
         self.quantile_loss_fn = quantile_loss_fn
@@ -1704,7 +1707,7 @@ class MultiObjectiveLoss(Layer, NNLearner):
         return cls(
             quantile_loss_fn=quantile_loss_fn, anomaly_loss_fn=anomaly_loss_fn)
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+
 @register_keras_serializable()
 class ExplainableAttention(Layer, NNLearner):
     """
@@ -1714,6 +1717,7 @@ class ExplainableAttention(Layer, NNLearner):
     Input: (B, T, D)
     Output: attention_scores (B, num_heads, T, T)
     """
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(self, num_heads: int, key_dim: int):
         super().__init__()
         self.num_heads = num_heads
@@ -1737,7 +1741,7 @@ class ExplainableAttention(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+
 @register_keras_serializable()
 class MultiDecoder(Layer, NNLearner):
     """
@@ -1748,6 +1752,7 @@ class MultiDecoder(Layer, NNLearner):
     Input: (B, F)
     Output: (B, H, O)
     """
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(self, output_dim: int, num_horizons: int):
         super().__init__()
         self.output_dim = output_dim
@@ -1770,7 +1775,7 @@ class MultiDecoder(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+
 @register_keras_serializable()
 class MultiResolutionAttentionFusion(Layer, NNLearner):
     """
@@ -1779,6 +1784,7 @@ class MultiResolutionAttentionFusion(Layer, NNLearner):
     Input: (B, T, D)
     Output: (B, T, D)
     """
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(self, units: int, num_heads: int):
         super().__init__()
         self.units = units
@@ -1800,7 +1806,6 @@ class MultiResolutionAttentionFusion(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class DynamicTimeWindow(Layer, NNLearner):
     """
@@ -1809,6 +1814,7 @@ class DynamicTimeWindow(Layer, NNLearner):
     Input: (B, T, D)
     Output: (B, W, D) where W = max_window_size
     """
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(self, max_window_size: int):
         super().__init__()
         self.max_window_size = max_window_size
@@ -1944,8 +1950,7 @@ class MultiScaleLSTM(Layer, NNLearner):
     @classmethod
     def from_config(cls, config):
         return cls(**config)
-
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+    
 @register_keras_serializable()
 @doc (
     key_improvements= dedent(_shared_docs['xtft_key_improvements']), 
@@ -2043,7 +2048,7 @@ class MultiScaleLSTM(Layer, NNLearner):
             this term encourages the model to learn patterns that 
             mitigate anomalies and produce more stable forecasts.
     """    
-   )
+    )
  )
 class XTFT(Model, NNLearner):
     """
@@ -2328,6 +2333,7 @@ class XTFT(Model, NNLearner):
         "final_agg": [StrOptions({"last", "average",  "flatten"})],
         },
     )
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
         self,
         static_input_dim: int,
@@ -2716,7 +2722,6 @@ class XTFT(Model, NNLearner):
         else:
             # Probabilistic scenario with multiple quantile losses
             loss_functions = {}
-            
             for q in self.quantiles:
                 loss_functions[f'quantile_loss_{q}'] = self.quantile_loss(q)
             super().compile(

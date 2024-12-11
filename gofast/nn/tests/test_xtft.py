@@ -5,7 +5,7 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import MeanSquaredError
 
 from gofast.nn.transformers import XTFT
-#%%
+#%
 @pytest.fixture
 def basic_model():
     """Fixture to create a basic XTFT model."""
@@ -95,7 +95,6 @@ def test_serialization(basic_model):
     # Check that newly created model is also XTFT and has same parameters
     assert isinstance(new_model, XTFT), "Deserialized model should be an XTFT instance."
     assert new_model.static_input_dim == basic_model.static_input_dim, "Parameters should be preserved after deserialization."
-
 
 
 @pytest.fixture

@@ -1752,10 +1752,6 @@ References
    in Statistical Inference*. Springer.
 """
 
-@ensure_pkg(
-    "statsmodels", 
-    "'statsmodels' is required for RegressionModels to proceed."
- )
 class RegressionModel(BaseClass):
     @validate_params(
         {
@@ -1771,6 +1767,10 @@ class RegressionModel(BaseClass):
                 ],
         }
     )
+    @ensure_pkg(
+        "statsmodels", 
+        "'statsmodels' is required for RegressionModels to proceed."
+     )
     def __init__(self, full_model=None, reduced_model=None):
         self.full_model = full_model
         self.reduced_model = reduced_model
@@ -1924,7 +1924,6 @@ References
 """
 
 @smartFitRun 
-
 class TimeSeriesTests(BaseClass):
     @validate_params ({"lags": [ int, list, None]})
     def __init__(self, lags=None):
@@ -2228,9 +2227,6 @@ References
 
 
 @smartFitRun 
-@ensure_pkg(
-    "pymc3", extra="pymc3 is needed for BayesianMethods to proceed.",
-)
 class BayesianMethods(BaseClass):
     @validate_params(
         {
@@ -2240,6 +2236,9 @@ class BayesianMethods(BaseClass):
             "random_seed": ["random_state"],
             "cores": Interval(Integral, 1, None, closed="left"),
         }
+    )
+    @ensure_pkg(
+        "pymc3", extra="pymc3 is needed for BayesianMethods to proceed.",
     )
     def __init__(
         self, 
