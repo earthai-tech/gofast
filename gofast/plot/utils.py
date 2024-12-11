@@ -11,6 +11,7 @@ import copy
 import datetime 
 import warnings
 import itertools 
+from numbers import Real, Integral 
 import numpy as np
 import pandas as pd 
 import seaborn as sns 
@@ -20,20 +21,28 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.patches import Ellipse
 import matplotlib.transforms as transforms 
+from scipy.interpolate import griddata
 
 from sklearn.metrics import r2_score 
 from sklearn.utils import resample
 
-from ..api.types import Optional, Tuple,  Union 
+from ..api.types import Optional, Tuple,  Union, List 
 from ..api.types import Dict, ArrayLike, DataFrame
 from ..api.property import BasePlot
-from ..tools.coreutils import ( 
-    _assert_all_types, is_iterable, str2columns, is_in_if
+from ..core.checks import ( 
+    _assert_all_types, is_iterable, str2columns, is_in_if, 
+    exist_features, check_features_types, check_spatial_columns 
 )
-from ..tools.validator import  assert_xy_in
+from ..core.handlers import columns_manager 
+from ..compat.sklearn import validate_params, StrOptions, Interval 
+from ..decorators import isdf
+from ..tools.validator import  assert_xy_in, build_data_if
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
-__all__=["boxplot", "plot_r_squared", "plot_text"]
+__all__=["boxplot", "plot_r_squared", "plot_text", "plot_spatial_features", 
+         "plot_categorical_feature", 'plot_sensitivity', 
+         'plot_spatial_distribution', 
+         ]
 
 class PlotUtils(BasePlot):
     def __init__(self, **kwargs):
@@ -141,8 +150,950 @@ See also:
 """
 # ##################################################
 
+@validate_params ({ 
+    "sensitivity_values": ['array-like'], 
+    "baseline_prediction": ['array-like', Real, None ], 
+    "plot_type": [StrOptions({'hist', 'bar', 'line', 'boxplot', 'box'})], 
+    "x_ticks_rotation": [Interval( Integral, 0, None, closed="left")], 
+    "y_ticks_rotation": [Interval( Integral, 0, None, closed="left")], 
+    })
+def plot_sensitivity(
+    sensitivity_values, *,
+    baseline=None, 
+    plot_type='line',
+    baseline_color='r',
+    baseline_linewidth=2,
+    baseline_linestyle='--',
+    title=None,
+    xlabel=None,
+    ylabel=None,
+    x_ticks_rotation=0,
+    y_ticks_rotation=0,
+    grid=True,
+    legend=True,
+    figsize=(10, 6),
+    color_palette='muted',
+    boxplot_showfliers=False
+):
+    """
+    Plot the feature sensitivity values.
+
+    Parameters
+    ----------
+    sensitivity_values : pandas.DataFrame
+        A DataFrame containing sensitivity values for each feature. Each column 
+        represents the sensitivity values for a specific feature. The index 
+        represents individual observations or instances.
+        
+    baseline: array-like or scalar, optional 
+        The baseline prediction, either a scalar value or an array-like object 
+        (e.g., list, numpy array) representing the baseline prediction to be 
+        compared with feature sensitivities.
+
+    plot_type : {'line', 'bar', 'hist', 'boxplot'}, optional, default='line'
+        The type of plot to generate. Options include:
+        - 'line': Line plot to visualize feature sensitivity trends.
+        - 'bar': Bar plot for visualizing feature sensitivity comparisons.
+        - 'hist': Histogram to show the distribution of sensitivities for 
+          each feature.
+        - 'boxplot': Boxplot to summarize the distribution and outliers 
+          of sensitivities.
+
+    baseline_color : str, optional, default='r'
+        The color for the baseline prediction line. Can be any valid Matplotlib
+         color specification (e.g., named color, hex, RGB tuple).
+
+    baseline_linewidth : float, optional, default=2
+        The line width for the baseline prediction line.
+
+    baseline_linestyle : {'-', '--', '-.', ':'}, optional, default='--'
+        The line style for the baseline prediction line. 
+        Options include solid, dashed, dash-dot, and dotted lines.
+
+    title : str, optional, default=None
+        The title for the plot. If not provided, a default title is generated 
+        based on the plot type.
+
+    xlabel : str, optional, default='Features'
+        The label for the x-axis, which typically corresponds to the feature 
+        names or identifiers in `sensitivity_values`.
+
+    ylabel : str, optional, default='Sensitivity Value'
+        The label for the y-axis, representing the sensitivity value or 
+        measure associated with each feature.
+
+    x_ticks_rotation : int, optional, default=0
+        The angle in degrees to rotate the x-axis tick labels. Helps in cases 
+        where feature names or labels overlap.
+
+    y_ticks_rotation : int, optional, default=0
+        The angle in degrees to rotate the y-axis tick labels.
+
+    grid : bool, optional, default=True
+        Whether to show gridlines on the plot. True will enable gridlines, 
+        False will disable them.
+
+    legend : bool, optional, default=True
+        Whether to display the legend in the plot. Set to True to show the 
+        legend, False to hide it.
+
+    figsize : tuple of two floats, optional, default=(10, 6)
+        The dimensions of the plot as a tuple representing (width, height) 
+        in inches.
+
+    color_palette : str, optional, default='muted'
+        The seaborn color palette to use for the plot. A string specifying 
+        a predefined color palette (e.g., 'deep', 'muted', 'bright').
+
+    boxplot_showfliers : bool, optional, default=False
+        Whether to display outliers in the boxplot when `plot_type='boxplot'`. 
+        Set to False to hide outliers, True to show them.
+
+    Returns
+    -------
+    None
+        The function generates and displays a plot showing the baseline 
+        prediction and feature sensitivity with the specified 
+        customization options.
+
+
+    Notes
+    -----
+    The function will automatically determine whether to construct the 
+    `sensitivity_values` DataFrame if not provided directly as a DataFrame.
+    It uses the `build_data_if` helper function to convert the data into a 
+    DataFrame before proceeding with plotting.
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_sensitivity
+    1. Basic line plot:
+       >>> plot_sensitivity(baseline=0.5, 
+                            sensitivity_values=pd.DataFrame({
+                                'Feature 1': [0.1, 0.2, 0.3],
+                                'Feature 2': [0.05, 0.15, 0.25],
+                                'Feature 3': [0.2, 0.3, 0.4]
+                            }), 
+                            plot_type='line')
+       
+    2. Bar plot with customized appearance:
+       >>> plot_sensitivity(baseline=0.5, 
+                            sensitivity_values=pd.DataFrame({
+                                'Feature 1': [0.1, 0.2, 0.3],
+                                'Feature 2': [0.05, 0.15, 0.25],
+                                'Feature 3': [0.2, 0.3, 0.4]
+                            }), 
+                            plot_type='bar', baseline_color='g', 
+                            baseline_linestyle='-', figsize=(8, 5))
+       
+    3. Histogram plot:
+       >>> plot_sensitivity(baseline=0.5, 
+                            sensitivity_values=pd.DataFrame({
+                                'Feature 1': [0.1, 0.2, 0.3],
+                                'Feature 2': [0.05, 0.15, 0.25],
+                                'Feature 3': [0.2, 0.3, 0.4]
+                            }), 
+                            plot_type='hist')
+    
+    4. Boxplot with outliers:
+       >>> plot_sensitivity(baseline=0.5, 
+                            sensitivity_values=pd.DataFrame({
+                                'Feature 1': [0.1, 0.2, 0.3],
+                                'Feature 2': [0.05, 0.15, 0.25],
+                                'Feature 3': [0.2, 0.3, 0.4]
+                            }), 
+                            plot_type='boxplot', boxplot_showfliers=True)
+    """
+
+    if not isinstance (sensitivity_values, pd.DataFrame): 
+        # build dataframe using the default column name 'feature' 
+        sensitivity_values = build_data_if(
+            sensitivity_values, 
+            force=True, 
+            input_name="feature", 
+            raise_exception=True 
+    ) 
+
+    if len(sensitivity_values) == 1:
+        # Transpose if single perturbation
+        sensitivity_values = sensitivity_values.T  
+    
+    sns.set(style="whitegrid", palette=color_palette)
+    
+    # Default plot title
+    if title is None:
+        title = 'Feature Sensitivity vs Baseline Prediction'
+
+    plt.figure(figsize=figsize)
+
+    if plot_type == 'line':
+        for col in sensitivity_values.columns:
+            plt.plot(
+                sensitivity_values.index, 
+                sensitivity_values[col], 
+                label=col, 
+                marker='o'
+            )
+        if baseline is not None:
+            if isinstance(baseline, (list, np.ndarray)):
+                baseline = baseline[0]  # Use the first element if it's an array-like
+            plt.axhline(
+                y=baseline, 
+                color=baseline_color, 
+                linestyle=baseline_linestyle, 
+                linewidth=baseline_linewidth, 
+                label='Baseline Prediction'
+            )
+        plt.title(title) 
+        plt.xlabel(xlabel or "Pertubations")
+        plt.ylabel(ylabel or 'Sensitivity Value')
+        plt.xticks(rotation=x_ticks_rotation)
+        plt.yticks(rotation=y_ticks_rotation)
+        if grid:
+            plt.grid(True)
+        if legend:
+            plt.legend()
+
+    elif plot_type == 'bar':
+        sensitivity_values_mean = sensitivity_values.mean(axis=0)
+        plt.bar(
+            sensitivity_values_mean.index, 
+            sensitivity_values_mean.values, 
+            label='Feature Sensitivity'
+        )
+        if baseline is not None:
+            if isinstance(baseline, (list, np.ndarray)):
+                baseline = baseline[0]  # Use the first element if it's an array-like
+            plt.axhline(
+                y=baseline, 
+                color=baseline_color, 
+                linestyle=baseline_linestyle, 
+                linewidth=baseline_linewidth, 
+                label='Baseline Prediction'
+            )
+        plt.title(title)
+        plt.xlabel(xlabel or "Pertubations")
+        plt.ylabel(ylabel or 'Sensitivity Value')
+        plt.xticks(rotation=x_ticks_rotation)
+        plt.yticks(rotation=y_ticks_rotation)
+        if grid:
+            plt.grid(True)
+        if legend:
+            plt.legend()
+
+    elif plot_type == 'hist':
+        for col in sensitivity_values.columns:
+            sns.histplot(
+                sensitivity_values[col], 
+                kde=True, 
+                label=col, 
+                element='step', 
+                fill=False
+            )
+        if baseline is not None:
+            if isinstance(baseline, (list, np.ndarray)):
+                baseline = baseline[0]  # Use the first element if it's an array-like
+            plt.axvline(
+                x=baseline, 
+                color=baseline_color, 
+                linestyle=baseline_linestyle, 
+                linewidth=baseline_linewidth, 
+                label='Baseline Prediction'
+            )
+        plt.title(title)
+        plt.xlabel(xlabel or 'Sensitivity Value')
+        plt.ylabel('Frequency')
+        if grid:
+            plt.grid(True)
+        if legend:
+            plt.legend()
+
+    elif plot_type in ['boxplot', 'box']:
+        sns.boxplot(
+            data=sensitivity_values, 
+            showfliers=boxplot_showfliers
+        )
+        if baseline is not None:
+            if isinstance(baseline, (list, np.ndarray)):
+                baseline = baseline[0]  # Use the first element if it's an array-like
+            plt.axhline(
+                y=baseline, 
+                color=baseline_color, 
+                linestyle=baseline_linestyle, 
+                linewidth=baseline_linewidth, 
+                label='Baseline Prediction'
+            )
+        plt.title(title)
+        plt.xlabel(xlabel or "Pertubations")
+        plt.ylabel(ylabel or 'Sensitivity Value')
+        if grid:
+            plt.grid(True)
+        if legend:
+            plt.legend()
+
+    else:
+        raise ValueError(
+            "Unsupported plot type. Choose from 'line', 'bar', 'hist', or 'boxplot'."
+        )
+    
+    plt.xticks(rotation=x_ticks_rotation)
+    plt.yticks(rotation=y_ticks_rotation)
+    plt.tight_layout()
+    plt.show()
+
+@isdf 
+def plot_spatial_features(
+    data,
+    features,
+    dates=None,
+    date_col="year",
+    x_col='longitude',
+    y_col='latitude',
+    colormaps=None,
+    figsize=None,
+    point_size=10,
+    marker='o',
+    plot_type='scatter',
+    colorbar_orientation='vertical',
+    cbar_labelsize=10,
+    axis_off=True,
+    titles=None,
+    vmin_vmax=None,
+    **kwargs
+):
+    """
+    Plot spatial distribution of specified features over given dates.
+
+    This function creates a grid of subplots, each displaying the
+    geographical distribution of a specified feature at particular
+    dates or times. It supports multiple plot types including
+    ``'scatter'``, ``'hexbin'``, and ``'contour'``, allowing for
+    extensive customization of plot appearance. The function leverages
+    Matplotlib's plotting capabilities [1]_ to visualize spatial data.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The input DataFrame containing the data to plot. It must
+        include the specified `features`, `x_col`, `y_col`, and
+        the `date_col` if `dates` are provided.
+
+    features : list of str
+        List of feature names to plot. Each feature must exist
+        in `data`. A subplot will be created for each feature.
+
+    dates : str or datetime-like or list of str or datetime-like, optional
+        Dates or times to plot. Each date must correspond to an entry
+        in the `date_col` of `data`. If `None`, the function plots
+        the features without considering dates.
+
+    date_col : str, default ``'year'``
+        Name of the column in `data` to use for date or time filtering.
+        This column can contain datetime objects, years, or any other
+        temporal representation.
+
+    x_col : str, default ``'longitude'``
+        Name of the column in `data` to use for the x-axis coordinates.
+
+    y_col : str, default ``'latitude'``
+        Name of the column in `data` to use for the y-axis coordinates.
+
+    colormaps : list of str, optional
+        List of colormap names to use for each feature. If not
+        provided, default colormaps are used.
+
+    figsize : tuple of float, optional
+        Figure size in inches, as a tuple ``(width, height)``. If not
+        provided, the figure size is determined based on the number of
+        features and dates.
+
+    point_size : int, default 10
+        Size of the points in the scatter plot.
+
+    marker : str, default ``'o'``
+        Marker style for scatter plots.
+
+    plot_type : {'scatter', 'hexbin', 'contour'}, default ``'scatter'``
+        Type of plot to create. Supported options are ``'scatter'``,
+        ``'hexbin'``, and ``'contour'``.
+
+    colorbar_orientation : {'vertical', 'horizontal'}, default ``'vertical'``
+        Orientation of the colorbar.
+
+    cbar_labelsize : int, default 10
+        Font size for the colorbar tick labels.
+
+    axis_off : bool, default True
+        If ``True``, axes are turned off. If ``False``, axes are shown.
+
+    titles : dict of str, optional
+        Dictionary of titles for each feature. Keys are feature names,
+        and values are title templates that can include ``{date}``.
+
+    vmin_vmax : dict of tuple, optional
+        Dictionary specifying the color scale (vmin and vmax) for each
+        feature. Keys are feature names, and values are tuples
+        ``(vmin, vmax)``.
+
+    **kwargs
+        Additional keyword arguments passed to the plotting functions
+        (``scatter``, ``hexbin``, or ``contourf``).
+
+    Notes
+    -----
+    The function supports different plot types:
+
+    - For ``plot_type='scatter'``, it creates a scatter plot using
+      ``matplotlib.pyplot.scatter``.
+
+    - For ``plot_type='hexbin'``, it creates a hexbin plot using
+      ``matplotlib.pyplot.hexbin``.
+
+    - For ``plot_type='contour'``, it creates a contour plot by
+      interpolating the data onto a grid using
+      :func:`scipy.interpolate.griddata` and then plotting using
+      ``matplotlib.pyplot.contourf``.
+
+    The color normalization is performed using:
+
+    .. math::
+
+        c_{\text{norm}} = \frac{c - v_{\text{min}}}{v_{\text{max}} - v_{\text{min}}}
+
+    where :math:`c` is the feature value, :math:`v_{\text{min}}` and
+    :math:`v_{\text{max}}` are the minimum and maximum values for the
+    color scale.
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_spatial_features
+    >>> plot_spatial_features(
+    ...     data=df,
+    ...     features=['temperature', 'humidity'],
+    ...     dates=['2023-01-01', '2023-06-01'],
+    ...     date_col='date',
+    ...     x_col='lon',
+    ...     y_col='lat',
+    ...     colormaps=['coolwarm', 'YlGnBu'],
+    ...     point_size=15,
+    ...     plot_type='scatter',
+    ...     axis_off=False,
+    ...     titles={'temperature': 'Temp on {date}',
+    ...             'humidity': 'Humidity on {date}'},
+    ...     alpha=0.7
+    ... )
+
+    See Also
+    --------
+    matplotlib.pyplot.scatter : Create a scatter plot.
+    matplotlib.pyplot.hexbin : Make a hexagonal binning plot.
+    matplotlib.pyplot.contourf : Create a filled contour plot.
+    scipy.interpolate.griddata : Interpolate unstructured D-dimensional data.
+
+    References
+    ----------
+    .. [1] Hunter, J. D. (2007). Matplotlib: A 2D graphics environment.
+       *Computing in Science & Engineering*, 9(3), 90-95.
+    """
+
+    # Validate that features exist in data
+    exist_features(data, features)
+    extra_msg = (
+        "If a numeric feature is stored as an 'object' type, "
+        "it should be explicitly converted to a numeric type"
+        " (e.g., using `pd.to_numeric`). For categorical features,"
+        " please use `plot_categorical_feature` instead."
+    )
+    check_features_types(
+        data, features= features, dtype='numeric',
+        extra=extra_msg
+    )
+    # Handle dates parameter
+    if dates is not None:
+        # Convert single value to list
+        if not isinstance(dates, (list, tuple, np.ndarray, pd.Series)):
+            dates = [dates]
+        else:
+            dates = list(dates)
+
+        # Check that 'date_col' exists
+        if date_col not in data.columns:
+            raise ValueError(f"Column '{date_col}' not found in data.")
+
+        # Depending on the type of 'date_col', process accordingly
+        if np.issubdtype(data[date_col].dtype, np.datetime64):
+            # If date_col is datetime, convert dates to datetime
+            data[date_col] = pd.to_datetime(data[date_col])
+
+            # Convert dates parameter to datetime
+            dates = [pd.to_datetime(d) for d in dates]
+
+            # Normalize dates to remove time component
+            data_dates = data[date_col].dt.normalize().unique()
+            dates_normalized = [d.normalize() for d in dates]
+
+            # Check that dates exist in data
+            missing_dates = set(dates_normalized) - set(data_dates)
+            if missing_dates:
+                missing_dates_str = ', '.join(
+                    [d.strftime('%Y-%m-%d') for d in missing_dates]
+                )
+                raise ValueError(f"Dates {missing_dates_str} not found in data.")
+
+            ncols = len(dates)
+        else:
+            # date_col is not datetime, treat as categorical or numeric
+            data_dates = data[date_col].unique()
+            missing_dates = set(dates) - set(data_dates)
+            if missing_dates:
+                missing_dates_str = ', '.join(map(str, missing_dates))
+                raise ValueError(f"Dates {missing_dates_str} not found in data.")
+
+            ncols = len(dates)
+    else:
+        ncols = 1
+
+    nrows = len(features)
+ 
+    colormaps = columns_manager(colormaps) 
+    
+    if colormaps is None:
+        colormaps = ['viridis', 'plasma', 'inferno', 'magma', 'cividis']
+
+    if figsize is None:
+        figsize = (5 * ncols, 5 * nrows)
+
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=figsize,
+        squeeze=False
+    )
+
+    for i, feature in enumerate(features):
+        cmap = colormaps[i % len(colormaps)]
+
+        if vmin_vmax and feature in vmin_vmax:
+            vmin, vmax = vmin_vmax[feature]
+        else:
+            vmin = data[feature].min()
+            vmax = data[feature].max()
+
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+
+        if dates is not None:
+            for j, date in enumerate(dates):
+                ax = axes[i, j]
+                if np.issubdtype(data[date_col].dtype, np.datetime64):
+                    # Normalize date to remove time component
+                    date_normalized = pd.to_datetime(date).normalize()
+                    subset = data[
+                        (data[date_col].dt.normalize() == date_normalized)
+                        & data[feature].notnull()
+                    ]
+                    date_str = date_normalized.strftime('%Y-%m-%d')
+                else:
+                    subset = data[
+                        (data[date_col] == date)
+                        & data[feature].notnull()
+                    ]
+                    date_str = str(date)
+
+                x = subset[x_col].values
+                y = subset[y_col].values
+                c = subset[feature].values
+
+                if plot_type == 'scatter':
+                    sc = ax.scatter(
+                        x,
+                        y,
+                        c=c,
+                        cmap=cmap,
+                        norm=norm,
+                        s=point_size,
+                        marker=marker,
+                        **kwargs
+                    )
+                elif plot_type == 'hexbin':
+                    sc = ax.hexbin(
+                        x,
+                        y,
+                        C=c,
+                        gridsize=50,
+                        cmap=cmap,
+                        norm=norm,
+                        **kwargs
+                    )
+                elif plot_type == 'contour':
+                    # Create a grid to interpolate data
+                    xi = np.linspace(x.min(), x.max(), 100)
+                    yi = np.linspace(y.min(), y.max(), 100)
+                    xi, yi = np.meshgrid(xi, yi)
+                    # Interpolate using griddata
+                    zi = griddata((x, y), c, (xi, yi), method='linear')
+                    # Plot contour
+                    sc = ax.contourf(
+                        xi,
+                        yi,
+                        zi,
+                        levels=15,
+                        cmap=cmap,
+                        norm=norm,
+                        **kwargs
+                    )
+                else:
+                    raise ValueError(f"Unsupported plot_type: {plot_type}")
+
+                if titles and feature in titles:
+                    title = titles[feature].format(date=date_str)
+                else:
+                    title = f"{feature} - {date_str}"
+
+                ax.set_title(title)
+                if axis_off:
+                    ax.axis('off')
+
+                if j == ncols - 1:
+                    cbar = fig.colorbar(
+                        sc,
+                        ax=ax,
+                        orientation=colorbar_orientation
+                    )
+                    cbar.ax.tick_params(labelsize=cbar_labelsize)
+        else:
+            ax = axes[i, 0]
+            subset = data[data[feature].notnull()]
+            x = subset[x_col].values
+            y = subset[y_col].values
+            c = subset[feature].values
+
+            if plot_type == 'scatter':
+                sc = ax.scatter(
+                    x,
+                    y,
+                    c=c,
+                    cmap=cmap,
+                    norm=norm,
+                    s=point_size,
+                    marker=marker,
+                    **kwargs
+                )
+            elif plot_type == 'hexbin':
+                sc = ax.hexbin(
+                    x,
+                    y,
+                    C=c,
+                    gridsize=50,
+                    cmap=cmap,
+                    norm=norm,
+                    **kwargs
+                )
+            elif plot_type == 'contour':
+                # Create a grid to interpolate data
+                xi = np.linspace(x.min(), x.max(), 100)
+                yi = np.linspace(y.min(), y.max(), 100)
+                xi, yi = np.meshgrid(xi, yi)
+                # Interpolate using griddata
+                
+                zi = griddata((x, y), c, (xi, yi), method='linear')
+                # Plot contour
+                sc = ax.contourf(
+                    xi,
+                    yi,
+                    zi,
+                    levels=15,
+                    cmap=cmap,
+                    norm=norm,
+                    **kwargs
+                )
+            else:
+                raise ValueError(f"Unsupported plot_type: {plot_type}")
+
+            if titles and feature in titles:
+                title = titles[feature]
+            else:
+                title = f"{feature}"
+
+            ax.set_title(title)
+            if axis_off:
+                ax.axis('off')
+
+            cbar = fig.colorbar(
+                sc,
+                ax=ax,
+                orientation=colorbar_orientation
+            )
+            cbar.ax.tick_params(labelsize=cbar_labelsize)
+
+    plt.tight_layout()
+    plt.show()
+
+@isdf 
+def plot_categorical_feature(
+    data,
+    feature,
+    dates=None,
+    date_col='year',
+    x_col='longitude',
+    y_col='latitude',
+    cmap='tab10',
+    figsize=None,
+    point_size=10,
+    marker='o',
+    axis_off=True,
+    legend_loc='upper left',
+    titles=None,
+    **kwargs
+):
+    """
+    Plot the geographical distribution of a categorical feature.
+
+    This function creates scatter plots showing the spatial
+    distribution of a categorical feature over geographical
+    coordinates. It supports plotting multiple dates or times,
+    creating subplots for each specified date. The function allows
+    extensive customization of the plot's appearance, including
+    colormaps, point sizes, markers, and more.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The input DataFrame containing the data to plot. It must
+        include the specified `feature`, `x_col`, `y_col`, and
+        `date_col` if `dates` are provided.
+
+    feature : str
+        The name of the categorical feature to plot. This feature
+        must exist in `data`.
+
+    dates : scalar, list, or array-like, optional
+        Dates or times to plot. If provided, the function will
+        create subplots for each date specified. If `None`, the
+        feature is plotted without considering dates.
+
+    date_col : str, default ``'year'``
+        The name of the column in `data` to use for date or time
+        filtering.
+
+    x_col : str, default ``'longitude'``
+        Name of the column in `data` to use for the x-axis
+        coordinates.
+
+    y_col : str, default ``'latitude'``
+        Name of the column in `data` to use for the y-axis
+        coordinates.
+
+    cmap : str, default ``'tab10'``
+        The name of the colormap to use for different categories.
+
+    figsize : tuple, optional
+        Figure size in inches, as a tuple ``(width, height)``. If
+        not provided, the figure size is determined based on the
+        number of dates and default settings.
+
+    point_size : int, default 10
+        Size of the points in the scatter plot.
+
+    marker : str, default ``'o'``
+        Marker style for scatter plots.
+
+    axis_off : bool, default ``True``
+        If ``True``, axes are turned off. If ``False``, axes are
+        shown.
+
+    legend_loc : str, default ``'upper left'``
+        Location of the legend in the plot. Valid locations are
+        strings such as ``'upper right'``, ``'lower left'``, etc.
+
+    titles : dict or str, optional
+        Titles for the subplots. If a dictionary, keys should
+        correspond to subplot indices or dates, and values are
+        title strings. If a string, it is used as a title template
+        and can include placeholders like ``{date}`` which will be
+        replaced with the actual date.
+
+    **kwargs
+        Additional keyword arguments passed to the plotting
+        function (`matplotlib.pyplot.scatter`).
+
+    Returns
+    -------
+    None
+        The function displays the plot and does not return any
+        value.
+
+    Notes
+    -----
+    The function plots the spatial distribution of a categorical
+    feature over geographical coordinates specified by `x_col` and
+    `y_col`. If `dates` are provided, it filters the data for each
+    date and creates a subplot for each one.
+
+    The colors for each category are determined using the specified
+    `colormap`. The categories are mapped to colors using:
+
+    .. math::
+
+        \\text{color}_i = \\text{colormap}\\left( \\frac{i}{N} \\right)
+
+    where :math:`i` is the category index and :math:`N` is the total
+    number of categories.
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_categorical_feature
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> # Sample data
+    >>> data = pd.DataFrame({
+    ...     'longitude': np.random.uniform(-10, 10, 100),
+    ...     'latitude': np.random.uniform(-10, 10, 100),
+    ...     'category': np.random.choice(['A', 'B', 'C'], 100),
+    ...     'year': np.random.choice([2018, 2019, 2020], 100)
+    ... })
+    >>> # Plotting without dates
+    >>> plot_categorical_feature(
+    ...     data,
+    ...     feature='category',
+    ...     x_col='longitude',
+    ...     y_col='latitude',
+    ...     point_size=20,
+    ...     legend_loc='upper right'
+    ... )
+    >>> # Plotting with dates
+    >>> plot_categorical_feature(
+    ...     data,
+    ...     feature='category',
+    ...     dates=[2018, 2019, 2020],
+    ...     date_col='year',
+    ...     x_col='longitude',
+    ...     y_col='latitude',
+    ...     point_size=20,
+    ...     legend_loc='upper right',
+    ...     titles='Category Distribution in {date}'
+    ... )
+
+    See Also
+    --------
+    plot_spatial_features : Function to plot spatial distribution of
+        numerical features.
+
+    References
+    ----------
+    .. [1] Hunter, J. D. (2007). Matplotlib: A 2D graphics environment.
+       *Computing in Science & Engineering*, 9(3), 90-95.
+
+    """
+    # Validate that the feature exists in data
+    exist_features(data, features= feature)
+    extra_msg = (
+    "To explicitly convert a feature of type 'object' to 'category', "
+    "use `data[feature].astype('category')`. For numerical features, "
+    "please use `plot_spatial_features` instead."
+    )
+
+    check_features_types(
+        data, features= feature, dtype='category', extra=extra_msg)
+    # Get unique categories
+    categories = data[feature].unique()
+    num_categories = len(categories)
+
+    # Generate colors for each category
+    cmap = plt.get_cmap(cmap, num_categories)
+    colors = [cmap(i) for i in range(num_categories)]
+    category_color_map = dict(zip(categories, colors))
+
+    # Handle dates parameter
+    if dates is not None:
+        if not isinstance(dates, (list, tuple, np.ndarray, pd.Series)):
+            dates = [dates]
+        else:
+            dates = list(dates)
+
+        if date_col not in data.columns:
+            raise ValueError(f"Column '{date_col}' not found in data.")
+
+        if np.issubdtype(data[date_col].dtype, np.datetime64):
+            data[date_col] = pd.to_datetime(data[date_col])
+            dates = [pd.to_datetime(d) for d in dates]
+            data_dates = data[date_col].dt.normalize().unique()
+            dates_normalized = [d.normalize() for d in dates]
+            missing_dates = set(dates_normalized) - set(data_dates)
+            if missing_dates:
+                missing_dates_str = ', '.join(
+                    [d.strftime('%Y-%m-%d') for d in missing_dates]
+                )
+                raise ValueError(f"Dates {missing_dates_str} not found in data.")
+            ncols = len(dates)
+        else:
+            data_dates = data[date_col].unique()
+            missing_dates = set(dates) - set(data_dates)
+            if missing_dates:
+                missing_dates_str = ', '.join(map(str, missing_dates))
+                raise ValueError(f"Dates {missing_dates_str} not found in data.")
+            ncols = len(dates)
+    else:
+        ncols = 1
+
+    nrows = 1
+
+    if figsize is None:
+        figsize = (5 * ncols, 6)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
+    axes = axes.flatten()
+
+    for i in range(ncols):
+        ax = axes[i]
+        if dates is not None:
+            date = dates[i]
+            if np.issubdtype(data[date_col].dtype, np.datetime64):
+                date_normalized = pd.to_datetime(date).normalize()
+                subset = data[data[date_col].dt.normalize() == date_normalized]
+                date_str = date_normalized.strftime('%Y-%m-%d')
+            else:
+                subset = data[data[date_col] == date]
+                date_str = str(date)
+            title = f"{feature} - {date_str}"
+        else:
+            subset = data
+            title = f"Geographical Distribution of '{feature}'"
+
+        for category in categories:
+            cat_subset = subset[subset[feature] == category]
+            x = cat_subset[x_col].values
+            y = cat_subset[y_col].values
+            ax.scatter(
+                x, y,
+                label=category,
+                c=[category_color_map[category]],
+                s=point_size,
+                marker=marker,
+                **kwargs
+            )
+
+        if titles:
+            if isinstance(titles, dict) and i in titles:
+                ax.set_title(titles[i])
+            elif isinstance(titles, str):
+                ax.set_title(titles)
+            else:
+                ax.set_title(title)
+        else:
+            ax.set_title(title)
+
+        if axis_off:
+            ax.axis('off')
+
+        if i == ncols - 1:
+            # Add legend to the last subplot
+            ax.legend(title=feature, bbox_to_anchor=(1.05, 1), loc=legend_loc)
+
+    plt.tight_layout()
+    plt.show()
+
 def boxplot(
-    data: ArrayLike | DataFrame, /, 
+    data: ArrayLike | DataFrame, 
     labels: list[str],
     title: str, 
     y_label: str, 
@@ -739,65 +1690,7 @@ def resetting_colorbar_bound(
                 startpoint, endpoint, number_of_ticks)]
         )
     
-def fmt_text(
-    data_text: str, 
-    fmt: str = '~', 
-    leftspace: int = 3, 
-    return_to_line: int = 77
-    ) -> str:
-    """
-    Formats a given text with specified left padding and underlines to make 
-    a formatted report.
 
-    Parameters
-    ----------
-    data_text : str
-        The long text to be formatted.
-    fmt : str, optional
-        The character used for underlining and formatting. Default is '~'.
-    leftspace : int, optional
-        The number of spaces to indent the text from the left margin. 
-        Default is 3.
-    return_to_line : int, optional
-        The maximum number of characters in a line before wrapping to the next 
-        line. Default is 77.
-
-    Returns
-    -------
-    str
-        The formatted text as a string with underlines and line breaks.
-
-    Examples
-    --------
-    >>> text = "This is a sample text that will be formatted with left spaces, 
-    ...  underlines, and auto-wrapping."
-    >>> print(fmt_text(text))
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-       This is a sample text that will be formatted with left -
-       spaces, underlines, and auto-wrapping. ~
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    """
-    return_to_line = int(return_to_line)
-    begin_text = ' ' * leftspace
-    formatted_text = begin_text + fmt * (return_to_line + 7) + '\n' + begin_text
-
-    ss = 0
-    for ii, char in enumerate(data_text):  # loop through the text
-        if ii == len(data_text) - 1:  # if it is the last character of the text
-            formatted_text += char + f' {fmt}\n' + begin_text + fmt * (
-                return_to_line + 7) + '\n'
-            break
-        if ss == return_to_line:
-            if data_text[ii + 1] != ' ':
-                formatted_text += f' {fmt}-\n' + begin_text + fmt
-            else:
-                formatted_text += f' {fmt}\n' + begin_text + fmt
-            ss = 0
-        formatted_text += char  # add character
-        ss += 1
-
-    return formatted_text
- 
 def plotvec1(u: np.ndarray, z: np.ndarray, v: np.ndarray) -> None:
     """
     Plot three vectors as arrows on a 2D graph to visualize their 
@@ -1767,18 +2660,495 @@ def is_colormap(color_name):
     # Check if the given color_name is in the list of colormaps
     return color_name in colormaps
 
+@validate_params ({ 
+    "sensitivity_values": ['array-like'], 
+    "features": [str, 'array-like', None ], 
+    "plot_type": [StrOptions({'single', 'pair', 'triple'})], 
+    })
+def plot_distributions(
+    data: pd.DataFrame,
+    features: Optional[Union[List[str], str]] = None,
+    bins: int = 30,
+    kde: bool = True,
+    hist: bool = True,
+    figsize: tuple = (10, 6),
+    title: str = "Feature Distributions",
+    plot_type: str = 'single', 
+    **kwargs
+):
+    """
+    Plots the distribution of numeric columns in the DataFrame. The function 
+    allows customization of the plot to include histograms and/or kernel 
+    density estimates (KDE). It supports univariate, bivariate, and trivariate 
+    distributions.
 
-  
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The DataFrame containing the data to plot. Only numeric columns 
+        are used for plotting the distribution.
+
+    features : list of str or str, optional
+        The specific features (columns) to plot. If not provided, all 
+        numeric features are plotted. If a single feature is provided as 
+        a string, it is automatically treated as a list.
+
+    bins : int, optional, default=30
+        The number of bins to use for the histogram. This parameter is 
+        ignored if `hist` is set to False.
     
-  
+    kde : bool, optional, default=True
+        Whether or not to include the Kernel Density Estimate (KDE) plot. 
+        If False, only the histogram will be shown.
     
-  
+    hist : bool, optional, default=True
+        Whether or not to include the histogram in the plot. If False, 
+        only the KDE plot will be shown.
     
-  
+    figsize : tuple, optional, default=(10, 6)
+        The size of the figure (width, height) to create for the plot.
     
-  
+    title : str, optional, default="Feature Distributions"
+        Title of the plot.
     
-  
+    plot_type : str, optional, default='single'
+        Type of distribution plot to generate:
+        - 'single': Univariate distribution (1D plot for each feature).
+        - 'pair': Bivariate distribution (2D plot for two features).
+        - 'triple': Trivariate distribution (3D plot for three features).
+
+    **kwargs : additional keyword arguments passed to seaborn or matplotlib 
+              functions for further customization.
+
+    Returns
+    -------
+    None
+        Displays the plot of the distributions.
+
+    Examples
+    --------
+    >>> from gofast.tools.mlutils import plot_distributions
+    >>> from gofast.datasets import load_hlogs
+    >>> data = load_hlogs().frame  # get the frame
+    >>> plot_distributions(data, features=['longitude', 'latitude', 'subsidence'],
+                           plot_type='triple')
+    """
+
+    # If no specific features provided, select numeric features automatically
+    if features is None:
+        features = data.select_dtypes(include=np.number).columns.tolist()
+    
+    features = columns_manager(features) 
+    
+    # Ensure features are valid
+    invalid_features = [f for f in features if f not in data.columns]
+    if invalid_features:
+        raise ValueError(f"Invalid features: {', '.join(invalid_features)}")
+
+    # Univariate Plot (Single feature distribution)
+    if plot_type == 'single':
+        plt.figure(figsize=figsize)
+        for feature in features:
+            plt.subplot(len(features), 1, features.index(feature) + 1)
+            if hist:
+                sns.histplot(data[feature], kde=kde, bins=bins, **kwargs)
+            plt.title(f"{feature} Distribution")
+        plt.tight_layout()
+        plt.show()
+
+    # Bivariate Plot (Pairwise feature distribution)
+    elif plot_type == 'pair':
+        if len(features) != 2:
+            raise ValueError(
+                "For 'pair' plot type, exactly 2 features must be specified.")
+        
+        plt.figure(figsize=figsize)
+        sns.jointplot(data=data, x=features[0], y=features[1], kind="kde", **kwargs)
+        plt.suptitle(f"{features[0]} vs {features[1]} Distribution")
+        plt.show()
+
+    # Trivariate Plot (3D distribution)
+    elif plot_type == 'triple':
+        if len(features) != 3:
+            raise ValueError(
+                "For 'triple' plot type, exactly 3 features must be specified.")
+
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111, projection='3d')
+        
+        x = data[features[0]]
+        y = data[features[1]]
+        z = data[features[2]]
+        
+        ax.scatter(x, y, z, c=z, cmap='viridis')
+        
+        ax.set_xlabel(features[0])
+        ax.set_ylabel(features[1])
+        ax.set_zlabel(features[2])
+        plt.title(f"{features[0]} vs {features[1]} vs {features[2]} Distribution")
+        plt.show()
+
+@isdf 
+def plot_spatial_distribution(
+    df: DataFrame,
+    category_column: str,  
+    continuous_bins: Union[str, List[float]] = 'auto',  
+    categories: Optional[List[str]] = None,  
+    filter_categories: Optional[List[str]] = None,
+    spatial_cols: tuple = ('longitude', 'latitude'), 
+    cmap: str = 'coolwarm',  
+    plot_type: str = 'scatter', 
+    alpha: float = 0.7, 
+    show_grid:bool=True, 
+    axis_off: bool = False,  
+    figsize: tuple = (10, 8)  
+) -> None:
+    """
+    Plot the Spatial Distribution of a Specified Category or Continuous Variable.
+
+    This function visualizes the spatial distribution of geographical data points
+    based on a specified categorical or continuous variable. For continuous data,
+    it categorizes the values into defined bins, allowing for an intuitive
+    representation of data intensity across a geographical area. The visualization
+    can be rendered using scatter plots or hexbin plots, facilitating the analysis
+    of spatial patterns and concentrations.
+
+    The categorization of continuous variables is performed using either user-defined
+    bins or the Freedman-Diaconis rule to determine an optimal bin width:
+    
+    .. math::
+        \text{Bin Width} = 2 \times \frac{\text{IQR}}{n^{1/3}}
+    
+    where :math:`\text{IQR}` is the interquartile range of the data and :math:`n`
+    is the number of observations.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input dataframe containing the geographical and categorical or 
+        continuous data. It must include at least the following columns:
+        
+        - `longitude`: Longitude coordinates of the data points.
+        - `latitude`: Latitude coordinates of the data points.
+        - *category_column*: The column specified by `category_column` parameter.
+
+    category_column : str
+        The name of the column in `df` to be used for categorization. This column 
+        can be either categorical or continuous. If categorical, the data will be 
+        used directly. If continuous, the data will be binned into categories 
+        based on `continuous_bins`.
+
+    continuous_bins : Union[str, List[float]], default='auto'
+        Defines the bin edges for categorizing continuous data. 
+        
+        - If set to `'auto'`, the function applies the Freedman-Diaconis rule to 
+          determine optimal bin widths.
+        - If a list of floats is provided, these values are used as the bin edges. 
+          The provided bins must encompass the entire range of the data in 
+          `category_column`.
+        
+        Raises a `ValueError` if the provided bins do not cover the data range.
+    
+    spatial_cols : tuple, optional, default=('longitude', 'latitude')
+            A tuple containing the names of the longitude and latitude columns.
+            Must consist of exactly two elements. The function will validate that
+            these columns exist in the dataframe and are used as the spatial 
+            coordinates for plotting.
+            
+            .. note::
+                Ensure that the specified `spatial_cols` are present in 
+                the dataframe and accurately represent geographical coordinates.
+                
+    categories : Optional[List[str]], default=None
+        A list of labels corresponding to each bin when categorizing continuous 
+        data. 
+        
+        - If `None`, the categories are auto-generated based on the bin ranges.
+        - If provided, the length of `categories` must match the number of bins 
+          minus one.
+        
+        If the number of categories does not match the number of bins, a warning 
+        is issued and categories are auto-generated.
+
+    filter_categories : Optional[List[str]], default=None
+        Specifies which categories to include in the visualization. 
+        
+        - If `None`, all categories are plotted.
+        - If a list is provided, only the specified categories are visualized, and 
+          others are excluded. The legend reflects only the displayed categories.
+        
+        Raises a `ValueError` if none of the `filter_categories` are valid.
+
+    cmap : str, default='coolwarm'
+        The colormap to use for the visualization. This parameter utilizes matplotlib's 
+        colormap names (e.g., `'viridis'`, `'plasma'`, `'inferno'`, `'magma'`, 
+        `'cividis'`, etc.).
+
+    plot_type : str, default='scatter'
+        The type of plot to generate. 
+        
+        - `'scatter'`: Generates a scatter plot.
+        - `'hexbin'`: Generates a hexbin plot, suitable for large datasets.
+        
+        Raises a `ValueError` if an unsupported `plot_type` is provided.
+
+    alpha : float, default=0.7
+        The transparency level for scatter plots. Ranges from 0 (completely 
+        transparent) to 1 (completely opaque).
+        
+    show_grid : bool, default=True
+        If set to `False`, the grid are turned off, providing a cleaner 
+        visualization without grid lines.
+
+    axis_off : bool, default=False
+        If set to `True`, the plot axes are turned off, providing a cleaner 
+        visualization without axis lines and labels.
+
+    figsize : tuple, default=(10, 8)
+        Specifies the size of the plot in inches as `(width, height)`.
+
+    Returns
+    -------
+    None
+        This function does not return any value. It renders the plot directly.
+
+    Raises
+    ------
+    ValueError
+        - If `category_column` does not exist in `df`.
+        - If `category_column` is neither numeric nor categorical.
+        - If `spatial_cols` is not a tuple of two elements or columns 
+          are missing.
+        - If `continuous_bins` is neither `'auto'` nor a list of numbers.
+        - If provided `continuous_bins` do not cover the data range.
+        - If the number of `categories` does not match the number of bins.
+        - If no valid `filter_categories` are provided after filtering.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from gofast.plot.utils import plot_spatial_distribution
+
+    >>> # Sample DataFrame
+    >>> data = {
+    ...     'longitude': np.random.uniform(-100, -90, 100),
+    ...     'latitude': np.random.uniform(30, 40, 100),
+    ...     'subsidence': np.random.choice(['minimal', 'moderate', 'severe'], 100)
+    ... }
+    >>> df = pd.DataFrame(data)
+    
+    >>> # Plot only 'severe' subsidence
+    >>> plot_spatial_distribution(
+    ...     df=df,
+    ...     category_column='subsidence',
+    ...     categories=['minimal', 'moderate', 'severe'],
+    ...     filter_categories=['severe'],
+    ...     plot_type='scatter'
+    ... )
+    
+    >>> # Plot 'moderate' and 'severe' subsidence
+    >>> plot_spatial_distribution(
+    ...     df=df,
+    ...     category_column='subsidence',
+    ...     categories=['minimal', 'moderate', 'severe'],
+    ...     filter_categories=['moderate', 'severe'],
+    ...     plot_type='scatter'
+    ... )
+    
+    >>> # Plot all categories
+    >>> plot_spatial_distribution(
+    ...     df=df,
+    ...     category_column='subsidence',
+    ...     categories=['minimal', 'moderate', 'severe'],
+    ...     filter_categories=None,
+    ...     plot_type='scatter'
+    ... )
+
+    Notes
+    -----
+    - The function automatically determines whether the `category_column` is 
+      categorical or continuous based on its data type.
+    - When categorizing continuous data, ensure that the provided `continuous_bins` 
+      comprehensively cover the data range to avoid missing data points.
+    - The legend in the plot dynamically adjusts based on the `filter_categories` 
+      parameter, displaying only the relevant categories.
+
+    See Also
+    --------
+    pandas.cut : Function to bin continuous data into discrete intervals.
+    seaborn.scatterplot : Function to create scatter plots.
+    matplotlib.pyplot.hexbin : Function to create hexbin plots.
+    check_spatial_columns : Function to validate spatial columns in the dataframe.
+
+    References
+    ----------
+    .. [1] Freedman, D., & Diaconis, P. (1981). On the histogram as a density estimator:
+       L2 theory. *Probability Theory and Related Fields*, 57(5), 453-476.
+    .. [2] Seaborn: Statistical Data Visualization. https://seaborn.pydata.org/
+    .. [3] Matplotlib: Visualization with Python. https://matplotlib.org/
+    """
+    # make a copy for safety 
+    df =df.copy() 
+    # Check if category_column exists in dataframe
+    if category_column not in df.columns:
+        raise ValueError(
+            f"Column '{category_column}' does not exist in the dataframe."
+        )
+    # Check whether 
+    check_spatial_columns(df )
+    
+    # Determine if the category_column is categorical
+    if pd.api.types.is_categorical_dtype(df[category_column]) or \
+       df[category_column].dtype == object:
+        is_categorical = True
+    elif pd.api.types.is_numeric_dtype(df[category_column]):
+        is_categorical = False
+    else:
+        raise ValueError(
+            f"Column '{category_column}' must be either numeric or categorical."
+        )
+
+    if not is_categorical:
+        # Handle continuous data
+        if continuous_bins == 'auto':
+            # Use Freedman-Diaconis rule for bin width
+            q25, q75 = np.percentile(
+                df[category_column].dropna(), [25, 75]
+            )
+            iqr = q75 - q25
+            bin_width = 2 * iqr * len(df) ** (-1 / 3)
+            if bin_width == 0:
+                bin_width = 1  # Fallback to bin width of 1
+            bins = np.arange(
+                df[category_column].min(),
+                df[category_column].max() + bin_width,
+                bin_width
+            )
+            bins = np.round(bins, decimals=2)
+        elif isinstance(continuous_bins, list):
+            bins = sorted(continuous_bins)
+            if (bins[0] > df[category_column].min()) or \
+               (bins[-1] < df[category_column].max()):
+                raise ValueError(
+                    "Provided continuous_bins do not cover the range of the data."
+                )
+        else:
+            raise ValueError(
+                "continuous_bins must be 'auto' or a list of numbers."
+            )
+
+        # Categorize the continuous data based on bins
+        df['category'] = pd.cut(
+            df[category_column],
+            bins=bins,
+            labels=categories[:len(bins) - 1] if categories else None,
+            include_lowest=True,
+            right=False
+        )
+
+        # Handle category labels if not provided
+        if categories is None:
+            df['category'] = df['category'].astype(str)
+        else:
+            if len(categories) != len(bins) - 1:
+                warnings.warn(
+                    "Number of categories does not match number of bins. "
+                    "Categories will be auto-generated.",
+                    UserWarning
+                )
+                df['category'] = df['category'].astype(str)
+    else:
+        # Handle categorical data
+        df['category'] = df[category_column].astype(str)
+        if categories:
+            missing_categories = set(categories) - set(df['category'].unique())
+            if missing_categories:
+                warnings.warn(
+                    f"The following categories are not present in the data and "
+                    f"will be ignored: {missing_categories}",
+                    UserWarning
+                )
+            categories = [
+                cat for cat in categories if cat in df['category'].unique()
+            ]
+            if not categories:
+                raise ValueError(
+                    "No valid categories to plot after filtering."
+                )
+        else:
+            categories = sorted(df['category'].unique())
+
+    # Filter the data if specified filter categories are provided
+    if filter_categories:
+        invalid_filters = set(filter_categories) - set(categories)
+        if invalid_filters:
+            warnings.warn(
+                f"The following filter_categories are not in the available "
+                f"categories and will be ignored: {invalid_filters}",
+                UserWarning
+            )
+        filter_categories = [
+            cat for cat in filter_categories if cat in categories
+        ]
+        if filter_categories:
+            df = df[df['category'].isin(filter_categories)]
+            categories = filter_categories  # Update categories to filtered ones
+        else:
+            raise ValueError(
+                "No valid categories to filter after applying filter_categories."
+            )
+
+    # Plot the spatial distribution using selected plot type
+    plt.figure(figsize=figsize)
+
+    if plot_type == 'scatter':
+        # Scatter plot using longitude, latitude as the axes
+        sns.scatterplot(
+            x='longitude',
+            y='latitude',
+            hue='category',
+            data=df,
+            palette=cmap,
+            alpha=alpha
+        )
+    elif plot_type == 'hexbin':
+        # Hexbin plot for large number of points
+        hb = plt.hexbin(
+            df['longitude'],
+            df['latitude'],
+            gridsize=50,
+            cmap=cmap,
+            mincnt=1
+        )
+        plt.colorbar(hb, label='Count')
+    else:
+        raise ValueError(
+            f"Unsupported plot_type: {plot_type}"
+        )
+
+    # Labels and title
+    plt.title(f"Spatial Distribution of {category_column}")
+    plt.xlabel('Longitude')
+    plt.ylabel('Latitude')
+
+    if plot_type == 'scatter':
+        plt.legend(
+            title='Categories',
+            bbox_to_anchor=(1.05, 1),
+            loc='upper left'
+        )
+ 
+    if not show_grid: 
+        plt.grid(False)
+        
+    if axis_off:
+        plt.axis('off')
+    
+    # Show plot
+    plt.tight_layout()
+    plt.show()
+
     
   
     

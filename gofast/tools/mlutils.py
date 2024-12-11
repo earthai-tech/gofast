@@ -20,6 +20,7 @@ import shutil
 from six.moves import urllib
 from collections import Counter
 from pathlib import Path
+from numbers import Real
 
 import numpy as np
 import pandas as pd
@@ -35,41 +36,52 @@ from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import (
     OneHotEncoder, RobustScaler, OrdinalEncoder, StandardScaler,
-    MinMaxScaler, LabelBinarizer, LabelEncoder, Normalizer, PolynomialFeatures
+    MinMaxScaler, LabelBinarizer, LabelEncoder, Normalizer,
+    PolynomialFeatures
 )
 from sklearn.utils import resample
 
 from .._gofastlog import gofastlog
+from ..api.docstring import DocstringComponents, _core_docs 
 from ..api.types import List, Tuple, Any, Dict, Optional, Union, Series
 from ..api.types import _F, ArrayLike, NDArray, DataFrame, Callable
 from ..api.formatter import MetricFormatter
 from ..api.summary import ReportFactory, ResultSummary
-from ..compat.sklearn import get_feature_names, train_test_split
-from ..exceptions import DependencyError
-from ..decorators import SmartProcessor
-from .baseutils import select_features
-from .coreutils import (
-    _assert_all_types, is_in_if, ellipsis2false, smart_format, is_iterable,
-    get_valid_kwargs, is_classification_task, to_numeric_dtypes,
-    validate_feature, exist_features, contains_delimiter, 
-    str2columns 
+from ..compat.sklearn import ( 
+    get_feature_names, train_test_split, validate_params, 
+    Interval, HasMethods
+    ) 
+from ..core.array_manager import to_numeric_dtypes 
+from ..core.checks import (
+    is_in_if, is_iterable, is_classification_task, 
+    validate_feature, exist_features,  str2columns 
 )
+from ..core.handlers import get_valid_kwargs 
+from ..core.io import EnsureFileExists, is_data_readable
+from ..core.utils import smart_format, contains_delimiter 
+from ..exceptions import DependencyError
+from ..decorators import SmartProcessor, Dataify
+from .baseutils import select_features
 from .depsutils import ensure_pkg
 from .validator import (
     _is_numeric_dtype, _is_arraylike_1d, get_estimator_name, check_array,
     check_consistent_length, is_frame, build_data_if, check_is_fitted,
-    check_mixed_data_types, validate_data_types, _check_consistency_size
+    check_mixed_data_types, validate_data_types, _check_consistency_size, 
+    validate_numeric 
 )
-
 
 # Logger Configuration
 _logger = gofastlog().get_gofast_logger(__name__)
+# Parametrize the documentation 
+_param_docs = DocstringComponents.from_nested_components(
+    core=_core_docs["params"],
+)
 
 __all__ = [
     'bi_selector',
     'bin_counting',
     'build_data_preprocessor',
-    'compute_smart_batch_size', 
+    'compute_batch_size', 
     'discretize_categories',
     'display_feature_contributions',
     'dynamic_batch_size', 
@@ -78,6 +90,8 @@ __all__ = [
     'fetch_tgz',
     'fetch_tgz2',
     'format_model_score',
+    'generate_dirichlet_features', 
+    'generate_proxy_feature', 
     'get_correlated_features',
     'get_feature_contributions',
     'get_global_score',
@@ -365,7 +379,7 @@ def get_batch_size(
                 )
                 heuristic_batch_size = max(1, dataset_size // 4)
             else:
-                heuristic_batch_size = compute_smart_batch_size(
+                heuristic_batch_size = compute_batch_size(
                     dataset_size, num_features, max_batch_size)
 
             if verbose:
@@ -643,7 +657,7 @@ def get_tf_dataset_size(tf_dataset):
     except Exception:
         raise ValueError("Unable to determine TensorFlow dataset size.")
 
-def compute_smart_batch_size( 
+def compute_batch_size( 
         dataset_size=None, num_features=None, data=None, max_batch_size=512):
     """
     Compute a smart batch size based on dataset size and number of features.
@@ -678,7 +692,7 @@ def compute_smart_batch_size(
     
     Examples
     --------
-    >>> from gofast.tools.mlutils import compute_smart_batch_size
+    >>> from gofast.tools.mlutils import compute_batch_size
     >>> batch_size = compute_smart_batch_size(1000, 50, 512)
     >>> print(batch_size)
     32
@@ -900,6 +914,7 @@ def dynamic_batch_size(
                 )
             return current_batch_size
 
+@is_data_readable
 def one_click_prep (
     data: DataFrame, 
     target_columns=None,
@@ -1095,14 +1110,15 @@ def one_click_prep (
     # Return the preprocessed DataFrame.
     return data_processed
 
+@is_data_readable
 def soft_encoder(
     data: Union[DataFrame, ArrayLike], 
     columns: List[str] = None, 
     func: _F = None, 
     categories: Dict[str, List] = None, 
-    get_dummies: bool = ..., 
-    parse_cols: bool = ..., 
-    return_cat_codes: bool = ..., 
+    get_dummies: bool = False, 
+    parse_cols: bool = False, 
+    return_cat_codes: bool = False, 
 ) -> DataFrame:
     """
     Encode multiple categorical variables in a dataset.
@@ -1248,8 +1264,6 @@ def soft_encoder(
     
     # Convert ellipsis inputs to False for get_dummies, parse_cols,
     # return_cat_codes if not explicitly defined
-    get_dummies, parse_cols, return_cat_codes = ellipsis2false(
-        get_dummies, parse_cols, return_cat_codes)
 
     # Convert input data to DataFrame if not already a DataFrame
     df = build_data_if(data, to_frame=True, force=True, input_name='col',
@@ -1278,7 +1292,8 @@ def soft_encoder(
         return (pd.get_dummies(df, columns=columns), mapresult
                 ) if return_cat_codes else pd.get_dummies(df, columns=columns)
 
-    # Automatically select numeric and categorical columns if not manually specified
+    # Automatically select numeric and categorical columns
+    # if not manually specified
     num_columns, cat_columns = bi_selector(df)
 
     # Apply provided function to categorical columns if func is given
@@ -1454,21 +1469,22 @@ def resampling(
                                      )
     Xs, ys = rsampler.fit_resample(X, y)
     
-    if ellipsis2false(verbose)[0]: 
+    if verbose: 
         print("{:<20}".format(f"Counters: {strategy.title()}"))
         print( "{:>35}".format( "Raw counter y:") , Counter (y))
         print( "{:>35}".format(f"{kind.title()}Sampling counter y:"), Counter (ys))
         
     return Xs, ys 
 
+@is_data_readable
 def bin_counting(
     data: DataFrame, 
     bin_columns: Union[str, List[str]], 
     tname: Union[str, Series[int]], 
     odds: str = "N+", 
-    return_counts: bool = ..., 
-    tolog: bool = ..., 
-    encode_categorical: bool = ..., 
+    return_counts: bool = False, 
+    tolog: bool = False, 
+    encode_categorical: bool = False, 
 ) -> None:
     """ Bin counting categorical variable and turn it into probabilistic 
     ratio.
@@ -1592,8 +1608,7 @@ def bin_counting(
            Targeting. Proceedings of the 15th ACM SIGKDD International 
            Conference on Knowledge Discovery and Data Mining (2009): 209–218     
     """
-    return_counts, tolog, encode_categorical= ellipsis2false(
-        return_counts, tolog, encode_categorical)   
+  
     # assert everything
     if not is_frame (data, df_only =True ):
         raise TypeError(f"Expect dataframe. Got {type(data).__name__!r}")
@@ -1809,6 +1824,7 @@ def laplace_smoothing_word(word, class_,  word_counts, class_counts, V):
     probability = (word_class_count + 1) / (class_word_count + V)
     return probability
 
+@is_data_readable
 def laplace_smoothing_categorical(
         data, feature_col, class_col, V=None):
     """
@@ -1875,6 +1891,7 @@ def laplace_smoothing_categorical(
 
     return probability_table
 
+@is_data_readable
 def laplace_smoothing(
     data: Union[ArrayLike, DataFrame], 
     alpha: float = 1.0, 
@@ -1955,6 +1972,18 @@ def laplace_smoothing(
     else:
         return np.column_stack(smoothed_probs_list)
 
+
+@validate_params ({
+    'model': [HasMethods (['fit', 'predict']), None], 
+    'X': ['array-like', None], 
+    'Xt':['array-like', None], 
+    'y': ['array-like', None], 
+    'yt':['array-like', None], 
+    'y_pred':['array-like', None], 
+    'scorer': [ str, callable ], 
+    'eval': [bool] 
+    }
+ )
 def evaluate_model(
     model: Optional[_F] = None,
     X: Optional[Union[NDArray, DataFrame]] = None,
@@ -1962,35 +1991,49 @@ def evaluate_model(
     y: Optional[Union[NDArray, Series]] = None, 
     yt: Optional[Union[NDArray, Series]] = None,
     y_pred: Optional[Union[NDArray, Series]] = None,
-    scorer: Union[str, _F] = 'accuracy_score',
+    scoring: Union[str, _F] = 'accuracy_score',
     eval: bool = False,
     **kws: Any
 ) -> Union[Tuple[Optional[Union[NDArray, Series]], Optional[float]],
            Optional[Union[NDArray, Series]]]:
     """
-    Evaluates a predictive model's performance or the effectiveness of predictions 
-    using a specified scoring metric.
+    Evaluates a predictive model's performance or the effectiveness of 
+    predictions using a specified scoring metric.
 
     Parameters
     ----------
-    model : Callable, optional
-        A machine learning model that implements fit and predict methods.
-        Required if `y_pred` is not provided.
-    X : np.ndarray or pd.DataFrame, optional
-        Training data features. Required if `model` is provided and `y_pred` is None.
-    Xt : np.ndarray or pd.DataFrame, optional
-        Test data features. Required if `model` is provided and `y_pred` is None.
-    y : np.ndarray or pd.Series, optional
-        Training data labels. Required if `model` is provided and `y_pred` is None.
-    yt : np.ndarray or pd.Series, optional
-        Test data labels. Required if `eval` is True.
-    y_pred : np.ndarray or pd.Series, optional
-        Predictions for test data. Required if `model` is None.
-    scorer : str or Callable, default='accuracy'
-        The scoring metric name or a scorer callable object/function with signature 
-        scorer(y_true, y_pred, **kws). 
-    eval : bool, default=False
-        If True, performs evaluation using `scorer` on `yt` and `y_pred`.
+    {params.core.model} 
+    {params.core.X}
+    {params.core.Xt}
+    {params.core.y} 
+    {params.core.yt}
+
+    y_pred : array-like, optional
+        The predicted labels or values generated by the model, or provided 
+        directly as input. This can be a one-dimensional array or series of 
+        predicted values for classification or regression tasks. If not provided, 
+        the model's predictions will be computed using the `model.predict` method. 
+
+        If `eval=True`, `y_pred` is compared against the true labels (`yt`) using 
+        the specified scoring metric (e.g., accuracy, precision, etc.).
+
+        Note that if `y_pred` is provided directly, the `model`'s `fit` and `
+        predict` methods will not be called. This is useful when you want to 
+        evaluate pre-computed predictions, such as when predictions are already 
+        available from another process or dataset.
+
+    {params.core.scoring}
+    
+    eval : bool, optional, default=False
+        If True, the function will evaluate the model's predictions (`y_pred`) 
+        against the true labels (`yt`) using the specified scoring function 
+        (`scorer`). The score, computed by the `scorer`, is returned along
+        with the predictions.
+        
+        If False, only the predictions are returned without evaluation. 
+        This is useful when you want to obtain the model's predictions without
+        performing any evaluation or scoring.
+
     **kws : Any
         Additional keyword arguments to pass to the scoring function.
 
@@ -1999,7 +2042,8 @@ def evaluate_model(
     predictions : np.ndarray or pd.Series
         The predicted labels or probabilities.
     score : float, optional
-        The score of the predictions based on `scorer`. Only returned if `eval` is True.
+        The score of the predictions based on `scorer`. Only returned if 
+        `eval` is True.
 
     Raises
     ------
@@ -2010,6 +2054,7 @@ def evaluate_model(
 
     Examples
     --------
+    >>> import numpy as np 
     >>> from sklearn.datasets import load_iris
     >>> from sklearn.model_selection import train_test_split
     >>> from sklearn.linear_model import LogisticRegression
@@ -2018,15 +2063,42 @@ def evaluate_model(
     >>> X, y = iris.data, iris.target
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
     >>> model = LogisticRegression()
+    
+    # Case 1: Model predicts y_pred using model.fit and model.predict
     >>> y_pred, score = evaluate_model(model=model, X=X_train, Xt=X_test,
     ...                                y=y_train, yt=y_test, eval=True)
-    >>> print(f'Score: {score:.2f}')
+    >>> print(f'Score: {{score:.2f}}')
+
+    # Case 2: Provide y_pred directly (e.g., pre-computed predictions)
+    >>> y_pred = np.array([0, 1, 2, 2, 0])  # Pre-computed predictions
+    >>> y_test_2 = y_test [: len(y_pred)]
+    >>> y_pred, score = evaluate_model(y_pred=y_pred, yt=y_test_2,
+                                       scoring='accuracy',
+    ...                                eval=True)
+    >>> print(f'Accuracy: {{score:.2f}}')
+    
+    >>> y_pred, score = evaluate_model(model=model, X=X_train, Xt=X_test,
+    ...                                y=y_train, yt=y_test, eval=True)
+    >>> print(f'Score: {{score:.2f}}')
     
     >>> # Providing predictions directly
-    >>> y_pred, _ = evaluate_model(y_pred=y_pred, yt=y_test, scorer='accuracy',
+    >>> y_pred, _ = evaluate_model(y_pred=y_pred, yt=y_test, 
+                                   scoring='accuracy',
     ...                            eval=True)
-    >>> print(f'Accuracy: {score:.2f}')
-    """
+    >>> print(f'Accuracy: {{score:.2f}}')
+    
+    # Case 3: Perform evaluation using the specified scorer
+    >>> y_pred, score = evaluate_model(model=model, X=X_train, Xt=X_test,
+    ...                                y=y_train, yt=y_test, eval=True)
+    >>> print(f'Score: {{score:.2f}}')
+
+    # Case 4: Get predictions without evaluation
+    >>> y_pred = evaluate_model(model=model, X=X_train, Xt=X_test,
+    ...                         y=y_train, eval=False)
+    >>> print(f'Predictions: {{y_pred}}')
+    
+    """.format (params= _param_docs )
+    
     from ..metrics import fetch_scorers
     
     if y_pred is None:
@@ -2053,17 +2125,18 @@ def evaluate_model(
     if eval:
         if yt is None:
             raise ValueError("yt must be provided when eval is True.")
-        if not isinstance(scorer, (str, callable)):
+        if not isinstance(scoring, (str, callable)):
             raise TypeError("scorer must be a string or a callable,"
-                            f" got {type(scorer).__name__}.")
-        if isinstance (scorer, str): 
-            scorer= fetch_scorers (scorer) 
+                            f" got {type(scoring).__name__}.")
+        if isinstance (scoring, str): 
+            scoring= fetch_scorers (scoring) 
         # score_func = get_scorer(scorer, include_sklearn= True )
-        score = scorer(yt, y_pred, **kws)
+        score = scoring(yt, y_pred, **kws)
         return y_pred, score
 
     return y_pred
 
+@is_data_readable
 def get_correlated_features(
     data:DataFrame ,
     corr:str ='pearson', 
@@ -2364,6 +2437,8 @@ def save_dataframes(
         else:
             raise ValueError("Unsupported output format. Choose 'excel' or 'csv'.")
 
+
+@EnsureFileExists(file_param="data_url") 
 def fetch_tgz(
     data_url: str,
     tgz_filename: str,
@@ -2442,6 +2517,8 @@ def fetch_tgz(
     if show_progress:
         print("Download and extraction complete.")
 
+
+@is_data_readable
 def process_data_types(
     data,
     target_name=None, 
@@ -2618,6 +2695,7 @@ def process_data_types(
         else:
             return numeric_df.columns.tolist(), categorical_df.columns.tolist()
 
+@is_data_readable
 def discretize_categories(
     data: Union[DataFrame, Series],
     in_cat: str,
@@ -2680,6 +2758,7 @@ def discretize_categories(
     
     return data
 
+@is_data_readable
 def stratify_categories(
     data: Union[DataFrame, ArrayLike],
     cat_name: str, 
@@ -2756,6 +2835,7 @@ def stratify_categories(
 
     return strat_train_set, strat_test_set
 
+@EnsureFileExists
 def fetch_model(
     file: str,
     path: Optional[str] = None,
@@ -2851,6 +2931,7 @@ def fetch_model(
 
     return model_data
 
+@EnsureFileExists(file_param="tgz_file") 
 def fetch_tgz2(
     tgz_file: str, 
     filename: str, 
@@ -2911,8 +2992,6 @@ def fetch_tgz2(
           f"and saved to '{save_path}'.")
     return str(final_file_path)
 
-
-     
 def _assert_sl_target (target,  df=None, obj=None): 
     """ Check whether the target name into the dataframe for supervised 
     learning.
@@ -3367,6 +3446,7 @@ def soft_data_split(
         return  train_test_split(
             X, test_size=test_size,random_state=random_state, **split_kwargs)
  
+@EnsureFileExists
 def load_model(
     file_path: str, *,
     retrieve_default: bool = True,
@@ -3467,38 +3547,56 @@ def load_model(
 
     return loaded_data
      
-def bi_selector (d,  features =None, return_frames = False,
-                 parse_features:bool=... ):
-    """ Auto-differentiates the numerical from categorical attributes.
-    
-    This is usefull to select the categorial features from the numerical 
-    features and vice-versa when we are a lot of features. Enter features 
-    individually become tiedous and a mistake could probably happenned. 
-    
-    Parameters 
-    ------------
-    d: pandas dataframe 
-        Dataframe pandas 
-    features : list of str
-        List of features in the dataframe columns. Raise error is feature(s) 
-        does/do not exist in the frame. 
-        Note that if `features` is ``None``, it returns the categorical and 
-        numerical features instead. 
-        
-    return_frames: bool, default =False 
-        return the difference columns (features) from the given features  
-        as a list. If set to ``True`` returns bi-frames composed of the 
-        given features and the remaining features. 
-        
-    Returns 
+@Dataify(auto_columns=True)
+@is_data_readable
+def bi_selector(
+    data,  
+    features=None, 
+    return_frames=False,
+    parse_features: bool=False 
+):
+    """
+    Automatically differentiates numerical and categorical attributes 
+    in a dataset.
+
+    This function is useful for efficiently selecting categorical features from 
+    numerical features, and vice versa, when dealing with a large number 
+    of features. Manually selecting features can be tedious and prone to errors, 
+    especially in large datasets.
+
+    Parameters
     ----------
-    - Tuple ( list, list)
-        list of features and remaining features 
-    - Tuple ( pd.DataFrame, pd.DataFrame )
-        List of features and remaing features frames.  
-            
-    Example 
-    --------
+    data : pandas.DataFrame
+        The input DataFrame containing the data.
+    
+    features : list of str, optional
+        A list of feature names (column names) to be considered for selection. 
+        If any feature does not exist in the DataFrame, an error is raised. 
+        If `features` is `None`, the function will return the categorical and 
+        numerical features from the entire DataFrame.
+    
+    return_frames : bool, default=False
+        If `True`, the function will return two DataFrames: one containing the 
+        specified features and the other containing the remaining features. 
+        If `False`, it returns the features as a list.
+    
+    parse_features : bool, default=False
+        If `True`, the function will parse and construct a list of features 
+        from a string input, using regular expressions to handle special 
+        characters like  commas (`,`) and at symbols (`@`).
+    
+    Returns
+    -------
+    tuple
+        - If `return_frames=False`, returns a tuple of two lists:
+          - A list of the selected features.
+          - A list of the remaining features in the DataFrame.
+        - If `return_frames=True`, returns a tuple of two DataFrames:
+          - A DataFrame containing the selected features.
+          - A DataFrame containing the remaining features.
+    
+    Example
+    -------
     >>> from gofast.tools.mlutils import bi_selector 
     >>> from gofast.datasets import load_hlogs 
     >>> data = load_hlogs().frame # get the frame 
@@ -3539,18 +3637,17 @@ def bi_selector (d,  features =None, return_frames = False,
     ... ['hole_id', 'strata_name', 'rock_name', 'aquifer_group', 
          'pumping_level']
     """
-    parse_features, = ellipsis2false(parse_features )
-    _assert_all_types( d, pd.DataFrame, objname=" unfunc'bi-selector'")
+
     if features is None: 
-        d, diff_features, features = to_numeric_dtypes(
-            d,  return_feature_types= True ) 
+        data, diff_features, features = to_numeric_dtypes(
+            data,  return_feature_types= True ) 
     if features is not None: 
         features = is_iterable(features, exclude_string= True, transform =True, 
                                parse_string=parse_features )
-        diff_features = is_in_if( d.columns, items =features, return_diff= True )
+        diff_features = is_in_if( data.columns, items =features, return_diff= True )
         if diff_features is None: diff_features =[]
     return  ( diff_features, features ) if not return_frames else  (
-        d [diff_features] , d [features ] ) 
+        data [diff_features] , data [features ] ) 
 
 def make_pipe(
     X, 
@@ -4667,7 +4764,6 @@ def get_feature_contributions(X, model=None, view=False):
 
     return shap_values
 
-          
 def smart_label_classifier(
     y: ArrayLike, *,
     values: Union[float, List[float], None] = None,
@@ -5016,7 +5112,469 @@ def _smart_mapper(
 
     return np.nan
         
+
+@Dataify(auto_columns=True, prefix='feature_')
+@is_data_readable
+@validate_params ({ 
+    "data": ['array-like'], 
+    "target": [str, 'array-like'], 
+    "model": [HasMethods(['fit', 'predict']), None], 
+    "columns": [str, list, None], 
+    "proxy_name": [str, None], 
+    "infer_data": [bool], 
+    "random_state": ['random_state', None], 
+    'verbose': [bool]
+    })
+def generate_proxy_feature(
+    data,
+    target,
+    model=None,
+    columns=None,
+    proxy_name=None,
+    infer_data=False,
+    random_state=None, 
+    verbose=False
+):
+    """
+    Generate a proxy feature based on the available features in the dataset 
+    (both numeric and categorical).
+
+    The function generates a proxy feature by training a machine learning 
+    model (default: RandomForestRegressor) on the input dataset, using a 
+    subset of features (numeric and categorical) and the specified target. 
+    The model's predictions on the input data are returned as the proxy 
+    feature.
+
+    Parameters:
+    ----------
+    data : pd.DataFrame
+        The input dataset containing both numeric and categorical features.
+
+        - `data` is a pandas DataFrame that includes both numeric and 
+          categorical features, with the target column specified separately.
         
+    target : str or array-like
+        The target column or an array-like object containing the target values.
+
+        - `target` refers to the name of the column in `data` that holds the 
+          target values to be predicted by the model.
+
+    model : estimator object, default=None
+        The machine learning model to use for generating the proxy feature.
+        If None, defaults to RandomForestRegressor.
+
+        - `model` is a scikit-learn estimator used to fit the model on the data. 
+          If no model is provided, a default RandomForestRegressor will be used.
         
+    columns : list of str, optional
+        A list of feature names to use for generating the proxy. 
+        If None, all features except the target column are used.
+
+        - `columns` is an optional parameter specifying which features from 
+          `data` will be used in model training. If not specified, all 
+          columns except the target column are included.
+
+    proxy_name : str, default="Proxy_Feature"
+        The name for the generated proxy feature column.
+
+        - `proxy_name` is the name that will be assigned to the new proxy 
+          feature. The default is "Proxy_Feature".
+
+    infer_data : bool, default=False
+        If True, the proxy feature is added to the original dataframe. 
+        If False, only the generated proxy feature is returned.
+
+        - `infer_data` controls whether the proxy feature is added to the 
+          original dataset (`True`) or returned as a separate series (`False`).
+
+    random_state : int, default=42
+        Random seed for reproducibility of results.
+
+        - `random_state` ensures that the random processes (like train-test 
+          splitting) are reproducible across runs.
+
+    verbose : bool, default=False
+        If True, additional output is printed for model performance and 
+        feature importance.
+
+        - `verbose` controls whether the Mean Squared Error (MSE) on the 
+          test set and feature importances are printed for model evaluation.
+
+    Returns:
+    -------
+    pd.Series or pd.DataFrame
+        - If `infer_data=True`, returns the original dataframe with the new 
+          proxy feature added.
+        - If `infer_data=False`, returns only the generated proxy feature 
+          as a pd.Series.
+
+    Notes
+    ------
+    The proxy feature is generated using the trained model's predictions, 
+    which are made based on the input features. This proxy feature can serve 
+    as a useful representation or summarization of the underlying data, 
+    especially when trying to approximate or predict the target variable based 
+    on existing features. The model is trained on a subset of data (numeric and 
+    categorical features) and then applied to the entire dataset to create the 
+    proxy feature.
+
+    Example:
+    --------
+    >>> from gofast.tools.mlutils import generate_proxy_feature
+    >>> import pandas as pd
+
+    # Create a sample dataframe
+    >>> data = pd.DataFrame({
+    >>>     'col1': [1, 2, 3], 'col2': [4, 5, 6], 'target': [0, 1, 0]
+    >>> })
+    
+    # Generate the proxy feature
+    >>> result = generate_proxy_feature(
+    >>>     data, target='target', proxy_name="Generated_Proxy", infer_data=True
+    >>> )
+    
+    >>> print(result)
+       col1  col2  target  Generated_Proxy
+    0     1     4       0         0.123456
+    1     2     5       1         0.789012
+    2     3     6       0         0.456789
+
+    See Also
+    ---------
+    `sklearn.ensemble.RandomForestRegressor` : Default machine learning 
+         model used for regression tasks.
+    `pandas.DataFrame.join` : Method to combine the original data with the 
+        generated proxy feature.
+    `gofast.tools.mlutils.generate_dirichlet_features`: Generate 
+        synthetic features using the Dirichlet distribution.
+    
+    References
+    -----------
+    .. [1] Breiman, L. (2001). Random Forests. Machine Learning, 45(1), 5-32.
+    """
+
+    from sklearn.metrics import mean_squared_error
+
+    proxy_name = proxy_name or "Proxy_Feature"
+    # Handle model parameter (defaults to RandomForestRegressor if None)
+    if model is None:
+        from sklearn.ensemble import RandomForestRegressor
+        model = RandomForestRegressor(random_state=random_state)
+
+    # Handle data and target through the helper function
+    data, target_column = _manage_target(data, target)
+
+    # Handle columns parameter (defaults to all columns except target_column)
+    if columns is None:
+        columns = data.drop(columns=[target_column]).columns.tolist()
+
+    # For consistency, make sure that columns exist in the dataframe
+    exist_features(data, features=columns)
+
+    # Separate target column from features
+    X = data[columns]
+    y = data[target_column]
+
+    # Split the dataset into training and testing sets
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=random_state
+    )
+
+    # Define preprocessor for both numeric and categorical features
+    numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
+    categorical_features = X.select_dtypes(include=['object']).columns
+
+    # Create a column transformer with imputation, scaling for numeric,
+    # and encoding for categorical features
+    # Handle missing values & Encode categorical features
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', Pipeline([
+                ('imputer', SimpleImputer(strategy='mean')),  # Handle missing values
+                ('scaler', StandardScaler())  # Standardize the numeric features
+            ]), numeric_features),
+            
+            ('cat', Pipeline([
+                ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
+                ('encoder', OneHotEncoder(handle_unknown='ignore'))  
+            ]), categorical_features)
+        ]
+    )
+
+    # Create the model pipeline
+    pipeline = Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('regressor', model)
+    ])
+
+    # Train the model
+    pipeline.fit(X_train, y_train)
+
+    # Make predictions on the test set
+    y_pred = pipeline.predict(X_test)
+
+    # Optionally print the model performance (e.g., Mean Squared Error)
+    mse = mean_squared_error(y_test, y_pred)
+    if verbose: 
+        print(f"Mean Squared Error on test set: {mse:.4f}")
+        if hasattr (model, 'feature_importances_'): 
+            print("Feature importances:\n", model.feature_importances_)
+        if hasattr (model, 'feature_names_in_'): 
+            print("Feature names:\n", model.feature_names_in_)
+
+    # Apply the trained model to the entire dataset to generate the proxy feature
+    proxy_feature = pipeline.predict(X)
+
+    # Convert the proxy feature to a DataFrame or Series
+    proxy_series = pd.Series(proxy_feature, index=data.index, name=proxy_name)
+
+    # If infer_data is True, add the proxy feature to the original dataframe
+    if infer_data:
+        data[proxy_name] = proxy_series
+        return data
+    else:
+        return proxy_series
+
+def _manage_target(data, target):
+    """
+    Helper function to manage the target argument, ensuring that it's in a
+    consistent format (either as a column name or as an array-like object).
+    
+    Parameters:
+    ----------
+    data : pd.DataFrame
+        The input dataset containing features.
+
+    target : str, pd.Series, np.ndarray, or pd.DataFrame
+        The target column name, a pandas Series, or a numpy array containing
+        the target values. If a DataFrame with a single column is passed, 
+        it will be treated as a Series.
+
+    Returns:
+    -------
+    tuple
+        The processed dataframe and the target column name.
+    """
+    
+    # If target is a DataFrame with a single column, squeeze it into a Series
+    if isinstance(target, pd.DataFrame):
+        if target.shape[1] == 1:  # Ensure it's a single column DataFrame
+            target = target.squeeze()
+            target_column = target.name if target.name else 'target_column'
+        else:
+            raise ValueError("DataFrame target must have exactly one column.")
+
+    # If target is a string (assumed to be the name of a column)
+    elif isinstance(target, str):
+        # Ensure the column exists in the dataframe
+        exist_features(data, features=target, error='raise')
+        target_column = target
+
+    # If target is array-like (Series or ndarray)
+    elif isinstance(target, (np.ndarray, pd.Series)):
+        if isinstance(target, pd.Series):
+            target_column = target.name or 'target_column'
+        elif isinstance(target, np.ndarray):
+            target_column = 'target_column'
+
+        # Ensure the target is one-dimensional (flatten if necessary)
+        if target.ndim > 1:
+            target = target.ravel()
+
+        # Check that the target and data have the same length
+        check_consistent_length(data, target)
+        # Ensure that the target is aligned with the dataframe
+        data[target_column] = target
+
+    else:
+        raise ValueError(
+            "Target must be a column name (str), a Series, or an ndarray.")
+
+    return data, target_column
         
 
+@Dataify(auto_columns=True, prefix='feature_')
+@is_data_readable 
+@validate_params ({ 
+    "data": ['array-like'], 
+    "num_categories": [Interval(Real, 1, None, closed="left")], 
+    "concentration_params": [list, None], 
+    "proxy_name": [str, None], 
+    "infer_data": [bool], 
+    "random_state": ['random_state', None], 
+    })
+def generate_dirichlet_features(
+    data, 
+    num_categories=3, 
+    concentration_params=None, 
+    proxy_name=None, 
+    infer_data=False, 
+    random_state=None
+    ):
+    """
+    Generate synthetic features using the Dirichlet distribution and 
+    add them to the given dataset.
+
+    The function generates synthetic features using the Dirichlet 
+    distribution. The Dirichlet distribution is often used to model 
+    categorical data or proportions, and the function produces synthetic 
+    features representing the proportions of `num_categories` categories. 
+    The concentration parameters control how the probability mass is 
+    allocated across the categories, with larger values leading to more 
+    concentrated or skewed distributions, and smaller values leading to 
+    more uniform distributions.
+
+    Parameters
+    ------------
+    data : pd.DataFrame
+        The input dataset to which the synthetic feature will be added.
+        
+        - `data` is a pandas DataFrame containing the existing dataset 
+          to which synthetic features will be appended.
+        - The index of `data` will be retained in the generated features.
+
+    num_categories : int, default=3
+        The number of categories (or features) to generate for the Dirichlet 
+        distribution.
+        
+        - `num_categories` specifies how many synthetic features (categories) 
+          should be generated using the Dirichlet distribution. The default 
+          value is 3.
+
+    concentration_params : list of float, default=None
+        A list of positive values that determine the concentration of the 
+        Dirichlet distribution. If None, defaults to an equal concentration 
+        for each category (uniform distribution).
+        
+        - `concentration_params` specifies the concentration parameters for 
+          each category. Larger values make the distribution more concentrated, 
+          while smaller values yield more uniform distributions. 
+        - If set to None, the function will use a uniform concentration where 
+          each category has an equal weight.
+        
+    proxy_name : str, default="Feature"
+        The name of the generated synthetic features.
+        
+        - `proxy_name` is a string prefix used to name the generated features. 
+          By default, the synthetic features will be named `Feature_1`, 
+          `Feature_2`, ..., up to `Feature_n`. You can change this prefix 
+          with the `proxy_name` parameter.
+
+    infer_data : bool, default=False
+        If True, the synthetic features are added to the original dataframe. 
+        If False, only the generated features are returned.
+        
+        - When `infer_data` is set to `True`, the original `data` DataFrame 
+          will be updated to include the synthetic features. Otherwise, 
+          only the generated synthetic features are returned.
+
+    random_state : int, default=42
+        The random seed for reproducibility.
+        
+        - `random_state` controls the random seed used for generating random 
+          numbers. This ensures reproducibility when running the function 
+          multiple times with the same input data.
+
+    Returns
+    ---------
+    pd.DataFrame or pd.Series
+        - If `infer_data=True`, the original dataframe with the new features 
+          added. 
+        - If `infer_data=False`, only the synthetic features are returned 
+          as a new DataFrame.
+
+    Notes
+    ------
+    The Dirichlet distribution is a multivariate distribution often used to 
+    model categorical data where the sum of the random variables equals 1. 
+    The synthetic features are generated using the Dirichlet distribution:
+
+    .. math::
+        \mathbf{x} = \text{Dirichlet}(\boldsymbol{\alpha})
+
+    Where:
+    - \( \mathbf{x} \) represents the generated synthetic feature vector.
+    - \( \boldsymbol{\alpha} \) is the vector of concentration parameters, 
+      specifying how the probability mass is distributed across categories.
+    - The resulting feature vector is normalized such that the sum of the 
+      elements is 1.
+
+
+    The Dirichlet distribution is used in a variety of fields to generate 
+    probabilities or proportions that sum to 1, such as modeling topic 
+    distributions in text or proportions of resources in economics. In this 
+    function, it is used to generate synthetic features that can be treated as 
+    proportions across different categories. The concentration parameters 
+    control how strongly the probability mass is concentrated on particular 
+    categories. For instance, if the concentration parameters are large, 
+    the synthetic features will tend to have values close to a single 
+    category, while if they are small, the values will be more uniformly 
+    distributed across categories.
+
+    Example:
+    --------
+    >>> from gofast.tools.mlutils import generate_dirichlet_features
+    >>> import pandas as pd
+    
+    # Create a sample dataframe
+    >>> data = pd.DataFrame({'col1': [1, 2, 3], 'col2': [4, 5, 6]})
+    
+    # Generate synthetic Dirichlet features and add them to the dataframe
+    >>> result = generate_dirichlet_features(
+    >>>     data, num_categories=3, concentration_params=[1, 2, 3], 
+    >>>     proxy_name="Synthetic", infer_data=True
+    >>> )
+    
+    >>> print(result)
+       col1  col2  Synthetic_1  Synthetic_2  Synthetic_3
+    0     1     4     0.259634     0.379842     0.360524
+    1     2     5     0.123573     0.289129     0.587298
+    2     3     6     0.355040     0.279367     0.365593
+
+    See Also:
+    ---------
+    `numpy.random.dirichlet` : The function used to generate Dirichlet-
+          distributed random variables.
+    `pandas.DataFrame.join` : The method used to join the generated features 
+          with the original data.
+    `gofast.tools.mlutils.generate_proxy_feature`: Generate a proxy feature 
+         based on the available features. 
+         
+    References
+    -----------
+    [1]_ Kingma, D.P., & Welling, M. (2013). Auto-Encoding Variational 
+    Bayes. ICLR.
+    """
+    from scipy.stats import dirichlet
+
+    # Set random seed for reproducibility
+    np.random.seed(random_state)
+    proxy_name = proxy_name or "Feature" 
+    # If no concentration parameters are provided, default to uniform concentration
+    if concentration_params is None:
+        concentration_params = [1.0] * num_categories  # Equal concentration for each category
+    
+    concentration_params = [
+        validate_numeric(v, allow_negative=False, ) 
+        for v in concentration_params
+    ]
+    # Ensure the concentration parameters are positive values
+    if any(param <= 0 for param in concentration_params):
+        raise ValueError("Concentration parameters must be positive.")
+    
+    # Generate synthetic features using the Dirichlet distribution
+    synthetic_features = dirichlet.rvs(concentration_params, size=len(data))
+    
+    # Create a DataFrame from the generated Dirichlet samples
+    synthetic_features_df = pd.DataFrame(
+        synthetic_features, 
+        columns=[f"{proxy_name}_{i+1}" for i in range(num_categories)], 
+        index=data.index
+    )
+    
+    # If infer_data is True, add the generated features to the original dataframe
+    if infer_data:
+        data = data.join(synthetic_features_df)
+        return data
+    else:
+        return synthetic_features_df

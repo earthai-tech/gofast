@@ -21,7 +21,8 @@ from .._gofastlog import gofastlog
 from ..api.types import Dict, Any, Callable, List, Type 
 from ..api.types import  Optional, Tuple , Union  
 from ..api.types import Series, DataFrame, ArrayLike, Array1D, LambdaType
-from .coreutils import to_numeric_dtypes, is_iterable
+from ..core.array_manager import to_numeric_dtypes 
+from ..core.checks import  is_iterable
 
 # Configure  logging
 _logger=gofastlog.get_gofast_logger(__name__)

@@ -1,10 +1,10 @@
 """
 The Tools sub-package offers a variety of utilities for data handling, 
 parameter computation, model estimation, and evaluation. It extends
-mathematical concepts through the module :mod:`~gofast.tools.mathex`. 
+mathematical concepts through the module :mod:`~gofast.tools.mathext`. 
 Additionally, machine learning utilities and supplementary functionalities 
 are facilitated by :mod:`~gofast.tools.mlutils` and 
-:mod:`~gofast.tools.coreutils`, respectively.
+:mod:`~gofast.tools.datautils`, respectively.
  
 """
 
@@ -30,7 +30,6 @@ MODULE_MAPPING = {
          'remove_outliers',
          'remove_target_from_array',
          'rename_labels_in',
-         'save_or_load',
          'scale_y',
          'select_features',
          'select_features',
@@ -39,19 +38,25 @@ MODULE_MAPPING = {
          'soft_bin_stat',
          'speed_rowwise_process'
     ],
-    'coreutils': [
-        'features_in', 
-        'find_features_in',
-        'split_train_test',
-        'split_train_test_by_id',
-    ],
     'datautils': [ 
-        'cleaner', 
+        'cleaner',
+        'data_extractor', 
+        'nan_to_na',
         'pair_data',
-        'random_sampling', 
+        'process_and_extract_data',
+        'random_sampling',
         'random_selector',
-        'replace_data', 
+        'read_excel_sheets',
+        'read_worksheets',
         'resample_data', 
+        'replace_data', 
+        'long_to_wide', 
+        'wide_to_long', 
+        'repeat_feature_accross', 
+        'merge_datasets', 
+        'swap_ic', 
+        'dual_merge', 
+        'to_categories', 
         
     ], 
     'ioutils':[ 
@@ -101,10 +106,12 @@ MODULE_MAPPING = {
         'optimized_spearmanr', 
         'quadratic_regression', 
         'rank_data', 
+        'rescale_data', 
         'sinusoidal_regression',
         'standard_scaler', 
         'step_regression',
         'weighted_spearman_rank', 
+        'rescale_data', 
     ],
     'mlutils': [
         'bi_selector', 
@@ -115,6 +122,8 @@ MODULE_MAPPING = {
         'evaluate_model',
         'fetch_model', 
         'get_batch_size', 
+        'generate_dirichlet_features', 
+        'generate_proxy_feature', 
         'get_correlated_features',
         'get_feature_contributions',
         'get_global_score',
@@ -139,10 +148,19 @@ MODULE_MAPPING = {
         'stratify_categories'
     ], 
     'sysutils': [
-        'WorkflowManager', 
         'WorkflowOptimizer',
         'parallelize_jobs', 
         'safe_optimize', 
+        ], 
+    'contextual': [ 
+        'WorkflowManager', 
+        ], 
+    'spatialutils': [ 
+        'spatial_sampling', 
+        'extract_coordinates', 
+        'batch_spatial_sampling', 
+        'make_mxs_labels',
+        'extract_coordinates', 
         ]
 }
 

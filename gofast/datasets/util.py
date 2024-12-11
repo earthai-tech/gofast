@@ -21,14 +21,9 @@ import pandas as pd
 from ..api.formatter import DescriptionFormatter
 from ..api.structures import Boxspace
 from ..compat.sklearn import train_test_split
-from ..tools.coreutils import (
-    add_noises_to,
-    generate_id,
-    is_in_if,
-    is_iterable,
-    smart_format,
-    validate_ratio
-)
+from ..core.checks import is_in_if, is_iterable, validate_ratio
+from ..core.handlers import add_noises_to, generate_id 
+from ..core.utils import smart_format
 from .metadata import SimulationMetadata
 
 __all__ = [
@@ -2159,7 +2154,6 @@ def get_item_from ( spec , /,  default_items, default_number = 7 ):
     
     return spec 
 
-
 def generate_synthetic_values(
         samples, range_min, range_max, noise=None, seed=None):
     """
@@ -2183,10 +2177,10 @@ def generate_regression_output(X, coef, bias, noise, regression_type):
     """
     Generates the regression output based on the specified regression type.
     """
-    from ..tools.mathex import linear_regression, quadratic_regression
-    from ..tools.mathex import exponential_regression,logarithmic_regression
-    from ..tools.mathex import sinusoidal_regression, cubic_regression
-    from ..tools.mathex import step_regression
+    from ..tools.mathext import linear_regression, quadratic_regression
+    from ..tools.mathext import exponential_regression,logarithmic_regression
+    from ..tools.mathext import sinusoidal_regression, cubic_regression
+    from ..tools.mathext import step_regression
     
     available_reg_types = [ 'linear', 'quadratic', 'cubic','exponential', 
                            'logarithmic', 'sinusoidal', 'step' ]
@@ -2205,7 +2199,7 @@ def apply_scaling(X, y, method):
     """
     Applies the specified scaling method to the data.
     """
-    from ..tools.mathex import standard_scaler, minmax_scaler, normalize
+    from ..tools.mathext import standard_scaler, minmax_scaler, normalize
     
     scale_dict = {'standard':standard_scaler ,
     'minmax':minmax_scaler , 'normalize':normalize }
@@ -2949,7 +2943,8 @@ def build_dataset_description(
 
     return dataset_description, features_description
 
-def _format_feature_descriptions(feature_descriptions, title, error_handling):
+def _format_feature_descriptions(
+        feature_descriptions, title, error_handling='raise', **kws):
     """
     Validates and formats feature descriptions.
     """
@@ -2963,7 +2958,7 @@ def _format_feature_descriptions(feature_descriptions, title, error_handling):
         elif error_handling == 'ignore':
             return None
     return DescriptionFormatter(
-        title=title, content=feature_descriptions) if feature_descriptions else None
+        title=title, content=feature_descriptions, **kws) if feature_descriptions else None
 
 def _format_dataset_overview(overview, title):
     """

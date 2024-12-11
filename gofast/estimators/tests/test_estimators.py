@@ -16,13 +16,13 @@ from sklearn.datasets import make_classification, make_regression
 from gofast.exceptions import NotFittedError
 from gofast.estimators.adaline import AdalineClassifier, AdalineMixte 
 from gofast.estimators.adaline import AdalineRegressor 
-from gofast.estimators.adaline import AdalineStochasticRegressor 
-from gofast.estimators.adaline import AdalineStochasticClassifier 
-from gofast.estimators.base import DecisionStumpRegressor 
+from gofast.estimators.adaline import SGDAdalineRegressor 
+from gofast.estimators.adaline import SGDAdalineClassifier 
+from gofast.estimators.base import StumpRegressor 
 from gofast.estimators.benchmark import BenchmarkRegressor
 from gofast.estimators.benchmark import BenchmarkClassifier
-from gofast.estimators.boosting import HybridBoostingClassifier 
-from gofast.estimators.boosting import HybridBoostingRegressor 
+from gofast.estimators.boosting import HybridBoostClassifier 
+from gofast.estimators.boosting import HybridBoostRegressor 
 from gofast.estimators.cluster_based import KMFClassifier 
 from gofast.estimators.cluster_based import KMFRegressor
 from gofast.estimators.ensemble import MajorityVoteClassifier
@@ -38,8 +38,7 @@ from gofast.estimators.perceptron import LightGDRegressor
 from gofast.estimators.tree import DTBClassifier 
 from gofast.estimators.tree import DTBRegressor
 
-
-
+#%%
 @pytest.fixture
 def classification_data():
     X, y = make_classification(n_samples=100, n_features=4, n_informative=2, n_redundant=0, n_classes=2)
@@ -175,7 +174,7 @@ def test_majority_vote_invalid_input(majority_vote_classifier):
 # AdalineStochasticRegressor tests
 @pytest.fixture
 def adaline_stochastic_regressor():
-    return AdalineStochasticRegressor(eta0=0.0001, max_iter=100)
+    return SGDAdalineRegressor(eta0=0.0001, max_iter=100)
 
 def test_adaline_stochastic_regressor_fit_predict(adaline_stochastic_regressor):
     X_train, X_test, y_train, y_test = create_dataset('regression')
@@ -187,7 +186,7 @@ def test_adaline_stochastic_regressor_fit_predict(adaline_stochastic_regressor):
 # AdalineStochasticClassifier tests
 @pytest.fixture
 def adaline_stochastic_classifier():
-    return AdalineStochasticClassifier(eta0=0.01, max_iter=50)
+    return SGDAdalineClassifier(eta0=0.01, max_iter=50)
 
 def test_adaline_stochastic_classifier_fit_predict(adaline_stochastic_classifier):
     X_train, X_test, y_train, y_test = create_dataset('classification')
@@ -250,7 +249,7 @@ def test_kmf_regressor_invalid_input(kmf_regressor):
 # Test cases for DecisionStumpRegressor
 @pytest.fixture
 def decision_stump():
-    return DecisionStumpRegressor()
+    return StumpRegressor()
 
 def test_decision_stump_fit_predict(decision_stump):
     X_train, _, y_train, _ = create_dataset('regression')
@@ -398,7 +397,7 @@ def test_hybrid_boosted_tree_classifier():
         X, y, test_size=0.3, random_state=0)
 
     # Create and fit the HybridBoostedTreeClassifier
-    ensemble = HybridBoostingClassifier(
+    ensemble = HybridBoostClassifier(
         n_estimators=50, eta0=0.01, max_depth=3)
     ensemble.fit(X_train, y_train)
 
@@ -418,7 +417,7 @@ def test_hybrid_boosted_tree_regressor():
         X, y, test_size=0.3, random_state=0)
 
     # Create and fit the HybridBoostedTreeRegressor
-    ensemble = HybridBoostingRegressor(n_estimators=50, )
+    ensemble = HybridBoostRegressor(n_estimators=50, )
     ensemble.fit(X_train, y_train)
 
     # Make predictions and calculate mean squared error

@@ -26,7 +26,8 @@ from ..api.types import  _Callback, _Model, _Sequential
 from ..api.types import List, Union, Dict, Tuple, DataFrame, Series 
 from ..api.types import ArrayLike , Callable, Any
 from ..api.property import BaseClass
-from ..tools.coreutils import is_iterable, type_of_target 
+from ..core.checks import is_iterable 
+from ..core.utils import type_of_target 
 from ..decorators import smartFitRun
 from ..tools.depsutils import ensure_pkg, import_optional_dependency
 from ..tools.validator import check_consistent_length

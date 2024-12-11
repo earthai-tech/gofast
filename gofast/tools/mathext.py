@@ -8,7 +8,7 @@ This module provides a range of tools and utilities for processing and
 computing mathematical parameters, particularly useful in algebraic 
 calculations and data science workflows.
 """
-
+import re 
 import copy
 import warnings
 import itertools
@@ -22,22 +22,18 @@ from scipy.signal import argrelextrema
 
 from sklearn.metrics import confusion_matrix, roc_curve, roc_auc_score
 from sklearn.utils.multiclass import unique_labels
-from sklearn.preprocessing import label_binarize, LabelEncoder
+from sklearn.preprocessing import label_binarize, LabelEncoder, MinMaxScaler
 
 from .._gofastlog import gofastlog
 from ..api.types import ( 
     ArrayLike, DataFrame, Dict, List, Optional, Tuple, Union, NDArray, 
 )
 from ..api.summary import ResultSummary
-
-from .coreutils import (
-    _validate_name_in,
-    concat_array_from_list,
-    normalize_string,
-    to_numeric_dtypes,
-    smart_format,
-    type_of_target,
-)
+from ..core.array_manager import to_numeric_dtypes, concat_array_from_list
+from ..core.checks  import  _assert_all_types, validate_name_in
+from ..core.handlers import columns_manager
+from ..core.io import is_data_readable 
+from ..core.utils import normalize_string, type_of_target, smart_format 
 
 from .validator import (
     _is_numeric_dtype,
@@ -100,11 +96,194 @@ __all__=[
      'optimized_spearmanr',
      'quadratic_regression',
      'rank_data',
+     'rescale_data', 
      'sinusoidal_regression',
      'standard_scaler',
      'step_regression',
      'weighted_spearman_rank'
    ]
+
+@is_data_readable 
+def rescale_data(
+    data, 
+    range=(0, 1), 
+    columns=None, 
+    clip=False, 
+    return_range=False, 
+    error='warn'  
+):
+    """
+    Rescale the input data (array, series, or dataframe) to the specified 
+    range `[new_min, new_max]` using MinMax scaling.
+
+    Parameters
+    ----------
+    data : array-like, Series, or DataFrame
+        The input data to be rescaled. The data can be one of the following:
+        - Numpy array (1D or 2D)
+        - Pandas Series
+        - Pandas DataFrame
+        
+    range : tuple, default= (0, 1) 
+        The minimum and maximum values of the desired range after rescaling.
+        
+    columns : list of str, optional, default=None
+        The columns in the dataframe to rescale. If None, all numeric columns 
+        in the dataframe are rescaled. This is ignored if the input is a 
+        Series or array.
+
+    clip : bool, default=False
+        Whether to clip the values outside the original range to the new range. 
+        If False, the values will be rescaled based on the original data's 
+        range.
+
+    return_range : bool, default=False
+        Whether to return the original min and max values along with the 
+        rescaled data.
+        
+    error : {'warn', 'raise', 'ignore'}, default='warn'
+        Defines the error handling behavior when non-numeric data is found:
+        - 'warn': Warns the user and proceeds with the rescaling (default).
+        - 'raise': Raises an error if non-numeric data is encountered.
+        - 'ignore': Ignores non-numeric data and returns it without rescaling.
+
+    Returns
+    -------
+    rescaled_data : array-like, Series, or DataFrame
+        The rescaled data, of the same type as the input data.
+
+    original_min_max : tuple of (min, max), optional
+        A tuple containing the original minimum and maximum values of the 
+        data. Only returned if `return_range=True`.
+    
+    Notes
+    -----
+    - Non-numeric columns are not rescaled. A warning is issued for these 
+      columns if `error='warn'` or `raise` is used.
+    - For arrays, the dtype must be numeric. Non-numeric arrays will 
+      trigger a warning or error, based on the `error` parameter.
+    - Categorical columns in DataFrames are ignored by default unless 
+      specified in the `columns` parameter.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from gofast.tools.mathext import rescale_data 
+    >>> data = pd.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]})
+    >>> rescale_data(data, range = (0,1))
+    
+    >>> series = pd.Series([10, 20, 30])
+    >>> rescale_data(series, range=(-1, 1))
+
+    >>> arr = np.array([1, 2, 3, 4])
+    >>> rescale_data(arr, range=(-10, 10))
+    """
+    def handle_empty_columns(data, msg): 
+        if error =='warn': 
+            warnings.warn(msg)
+        elif error =='raise': 
+            raise ValueError(msg)
+        return data 
+    
+    new_min, new_max = validate_length_range(
+        range, param_name= "MinMax value of desired range" 
+    ) 
+    columns = columns_manager(columns)
+    # Check for DataFrame input
+    if isinstance(data, pd.DataFrame):
+        # Handle DataFrame input
+        if columns is None:
+            # Rescale all numeric columns in the DataFrame
+            numeric_columns = data.select_dtypes(include=np.number).columns
+            if numeric_columns.empty:
+                return handle_empty_columns (
+                    data, 'No numeric columns found in the DataFrame.')
+
+            if error == 'warn':
+                non_numeric_columns = data.select_dtypes(exclude=np.number).columns
+                if not non_numeric_columns.empty:
+                    warnings.warn(
+                        f"Non-numeric columns {list(non_numeric_columns)} found. "
+                        "These will not be rescaled."
+                    )
+        else:
+            # Rescale only the specified columns
+            numeric_columns = data[columns].select_dtypes(include=np.number).columns
+            if numeric_columns.empty:
+                return handle_empty_columns (
+                    data, 'No numeric columns found in the specified list.')
+            
+            non_numeric_columns = set(columns) - set(numeric_columns)
+            if error == 'warn' and non_numeric_columns:
+                warnings.warn(
+                    f"Non-numeric columns {list(non_numeric_columns)} found in "
+                    "the specified list. These will not be rescaled."
+                )
+
+        # Initialize the scaler
+        scaler = MinMaxScaler(feature_range=(new_min, new_max), clip=clip)
+        rescaled_data = data.copy()
+
+        # Apply scaling to numeric columns only
+        rescaled_data[numeric_columns] = scaler.fit_transform(
+            rescaled_data[numeric_columns])
+
+        if return_range:
+            # Return rescaled data along with the original min and max
+            return rescaled_data, (scaler.data_min_, scaler.data_max_)
+
+        return rescaled_data
+
+    # Check for Series input
+    elif isinstance(data, pd.Series):
+        # Handle Series input
+        if not np.issubdtype(data.dtype, np.number):
+            if error == 'warn':
+                warnings.warn(
+                    "Series contains non-numeric data. Rescaling will not be applied.")
+            elif error == 'raise':
+                raise ValueError(
+                    "Series contains non-numeric data, rescaling cannot be applied.")
+            elif error == 'ignore':
+                return data
+        
+        # Initialize scaler for Series
+        scaler = MinMaxScaler(feature_range=(new_min, new_max), clip=clip)
+        rescaled_data = scaler.fit_transform(data.values.reshape(-1, 1)).flatten()
+
+        if return_range:
+            return rescaled_data, (scaler.data_min_, scaler.data_max_)
+
+        return pd.Series(rescaled_data, index=data.index)
+
+    # Check for Array input
+    try: 
+        data = np.asarray (data)
+    except  Exception as e : 
+        raise TypeError(
+            "Input data must be either a pandas"
+            " DataFrame, Series, or numpy array.") from e 
+        
+    # Handle Array input
+    if not np.issubdtype(data.dtype, np.number):
+        if error == 'warn':
+            warnings.warn(
+                "Array contains non-numeric data. Rescaling will not be applied.")
+        elif error == 'raise':
+            raise ValueError(
+                "Array contains non-numeric data, rescaling cannot be applied.")
+        elif error == 'ignore':
+            return data
+    
+    # Initialize scaler for Array
+    scaler = MinMaxScaler(feature_range=(new_min, new_max), clip=clip)
+    rescaled_data = scaler.fit_transform(data.reshape(-1, 1)).flatten()
+
+    if return_range:
+        return rescaled_data, (scaler.data_min_, scaler.data_max_)
+
+    return rescaled_data
 
 def get_time_steps(
     start_date: Optional[Union[str, pd.Timestamp]] = None, 
@@ -112,7 +291,7 @@ def get_time_steps(
     n_samples: Optional[int] = None, 
     interval_units: str = 'days', 
     sequence_length: int = 365, 
-    data: Optional[pd.DataFrame] = None, 
+    data: Optional[DataFrame] = None, 
     date_column: str = 'date', 
     interval: Optional[int] = None
 ) -> int:
@@ -276,7 +455,7 @@ def get_time_steps(
     return time_steps_per_sequence
 
 def compute_p_values(
-    data, depvar,
+    df, depvar,
     method: str='pearson', 
     significance_threshold: float=0.05, 
     ignore: Optional [Union [str, list]]=None
@@ -287,7 +466,7 @@ def compute_p_values(
 
     Parameters
     ----------
-    data : pandas DataFrame
+    df : pandas DataFrame
         The DataFrame containing the dataset.
     depvar : str or pandas Series
         The name of the dependent variable as a string or a pandas Series.
@@ -359,17 +538,17 @@ def compute_p_values(
 
     [ 2 entries ]
     """
-    if isinstance (data, pd.Series): 
-        data = data.to_frame() 
+    if isinstance (df, pd.Series): 
+        df = df.to_frame() 
         
-    if not isinstance (data, pd.DataFrame): 
-        raise TypeError(f"'data' should be a frame, not {type(data).__name__!r}")
+    if not isinstance (df, pd.DataFrame): 
+        raise TypeError(f"'data' should be a frame, not {type(df).__name__!r}")
         
     if isinstance (depvar, str):
-        if depvar not in data.columns:
+        if depvar not in df.columns:
             raise ValueError(f"'{depvar}' not found in DataFrame columns.")
-        depvar = data[depvar]
-        data = data.drop(columns=depvar.name)
+        depvar = df[depvar]
+        df = df.drop(columns=depvar.name)
         
     elif hasattr (depvar, '__array__'): 
         depvar = depvar.squeeze () 
@@ -383,10 +562,10 @@ def compute_p_values(
         if isinstance ( ignore, str): 
             ignore =[ignore]
         # check whether column is in data 
-        column2ignore = [ col for col in ignore if col in data.columns]
-        data = data.drop (columns= column2ignore)
+        column2ignore = [ col for col in ignore if col in df.columns]
+        df = df.drop (columns= column2ignore)
         
-    check_consistent_length(data, depvar)
+    check_consistent_length(df, depvar)
     
     corr_methods = {
         'pearson': pearsonr,
@@ -395,8 +574,8 @@ def compute_p_values(
     }
      
     # Select only numeric columns
-    data = data.select_dtypes([np.number])
-    if data.empty:
+    df = df.select_dtypes([np.number])
+    if df.empty:
         raise ValueError("P-value calculations expect numeric data, but"
                          " the DataFrame contains no numeric data.")
     
@@ -405,10 +584,10 @@ def compute_p_values(
                          " 'pearson', 'spearman', 'kendall'.")
 
     p_values = {}
-    for column in data.columns:
+    for column in df.columns:
         if column != depvar.name and (ignore is None or column not in ignore):
             corr_func = corr_methods[method]
-            corr, p_value = corr_func(data[column], depvar)
+            corr, p_value = corr_func(df[column], depvar)
             if significance_threshold: 
                 p_values[column] = ( 
                     p_value if p_value <= significance_threshold else "reject"
@@ -2706,7 +2885,6 @@ def compute_effort_yield(
 
     return effort, yield_
 
-
 def label_importance(y, include_nan=False):
     """
     Compute the importance of each label in a target array.
@@ -3314,7 +3492,7 @@ def compute_errors (
      DailyProduction_tonnes      10720.929814
      dtype: float64)
     """
-    error = _validate_name_in(error , defaults =('error', 'se'),
+    error = validate_name_in(error , defaults =('error', 'se'),
                               deep =True, expect_name ='se')
     # keep only the numeric values.
     if hasattr (arr, '__array__') and hasattr(arr, 'columns'): 
@@ -3750,8 +3928,60 @@ def linkage_matrix(
                                      )
     return row_clusters 
      
+def convert_value_in (v, unit ='m'): 
+    """Convert value based on the reference unit.
+    
+    Parameters 
+    ------------
+    v: str, float, int, 
+      value to convert 
+    unit: str, default='m'
+      Reference unit to convert value in. Default is 'meters'. Could be 
+      'kg' or else. 
+      
+    Returns
+    -------
+    v: float, 
+       Value converted. 
+       
+    Examples 
+    ---------
+    >>> from gofast.tools.mathext import convert_value_in 
+    >>> convert_value_in (20) 
+    20.0
+    >>> convert_value_in ('20mm') 
+    0.02
+    >>> convert_value_in ('20kg', unit='g') 
+    20000.0
+    >>> convert_value_in ('20') 
+    20.0
+    >>> convert_value_in ('20m', unit='g')
+    ValueError: Unknwon unit 'm'...
+    """
+    c= { 'k':1e3 , 
+        'h':1e2 , 
+        'dc':1e1 , 
+        '':1e0 , 
+        'd':1e-1, 
+        'c':1e-2 , 
+        'm':1e-3  
+        }
+    c = {k +str(unit).lower(): v for k, v in c.items() }
 
+    v = str(v).lower()  
 
+    regex = re.findall(r'[a-zA-Z]', v) 
+    
+    if len(regex) !=0: 
+        unit = ''.join( regex ) 
+        v = v.replace (unit, '')
+
+    if unit not in c.keys(): 
+        raise ValueError (
+            f"Unknwon unit {unit!r}. Expect {smart_format(c.keys(), 'or' )}."
+            f" Or rename the `unit` parameter maybe to {unit[-1]!r}.")
+    
+    return float ( v) * (c.get(unit) or 1e0)    
     
    
     

@@ -30,7 +30,8 @@ from sklearn.metrics import silhouette_samples
   
 from ..api.types import NDArray, ArrayLike, DataFrame 
 from ..api.types import List, Tuple, Optional
-from ..tools.coreutils import is_iterable, to_numeric_dtypes 
+from ..core.array_manager import to_numeric_dtypes 
+from ..core.checks import is_iterable 
 from ..tools.mathext import linkage_matrix 
 from ..tools.validator import check_X_y, check_array, check_y 
 from ..tools.validator import validate_positive_integer, is_frame
@@ -38,10 +39,10 @@ from .utils import _get_xticks_formatage, make_mpl_properties, savefigure
 
 __all__=[
     'plot_silhouette',
-    'plot_silhouette2',
+    'plot_silhouette_in',
     'plot_dendrogram',
     'plot_dendroheat',
-    'plot_dendrogram2',
+    'plot_dendrogram_in',
     'plot_clusters',
     'plot_elbow',
     'plot_cluster_comparison',
@@ -491,7 +492,7 @@ def plot_clusters(
          savefigure(savefig, savefig )
     plt.close () if savefig is not None else plt.show() 
 
-def plot_dendrogram2(
+def plot_dendrogram_in(
     X: ArrayLike, 
     *ybounds, 
     fig_size=(12, 5), 
@@ -865,7 +866,7 @@ def _plot_silhouette (X, labels, metric ='euclidean', **kwds ):
 
     plt.show() 
 
-def plot_silhouette2(
+def plot_silhouette_in(
     X, labels, 
     metric='euclidean',
     savefig=None, 
@@ -904,7 +905,7 @@ def plot_silhouette2(
     >>> import numpy as np 
     >>> from sklearn.clusters import KMeans 
     >>> from gofast.datasets import load_iris 
-    >>> from gofast.plot.cluster import plot_silhouette2
+    >>> from gofast.plot.cluster import plot_silhouette_in
     >>> d = load_iris()
     >>> X = d.data[:, 0][:, np.newaxis]  # take the first axis 
     >>> km = KMeans(n_clusters=3, init='k-means++', n_init=10, 

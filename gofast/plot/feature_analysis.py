@@ -26,10 +26,12 @@ from sklearn.linear_model import LogisticRegression
 from ..api.types import Optional, Tuple,  List, Union 
 from ..api.types import ArrayLike, DataFrame, Series
 from ..api.summary import ReportFactory 
-from ..transformers import SequentialBackwardSelector 
-from ..tools.coreutils import is_iterable, to_numeric_dtypes, fill_nan_in
+from ..core.array_manager import to_numeric_dtypes 
+from ..core.checks import is_iterable 
+from ..core.utils import fill_nan_in
 from ..tools.validator import get_estimator_name
 from ..tools.validator import check_X_y, check_consistent_length
+from ..transformers import SequentialBackwardSelector 
 from .utils import _set_sns_style, make_mpl_properties 
 
 __all__=[

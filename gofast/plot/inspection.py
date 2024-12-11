@@ -24,11 +24,12 @@ from sklearn.model_selection import learning_curve
 from ..api.types import NDArray, ArrayLike, DataFrame 
 from ..api.types import List, Tuple, Optional, Dict, Union, Any
 from ..api.util import to_snake_case 
+from ..core.array_manager import to_numeric_dtypes 
+from ..core.checks import _assert_all_types, is_iterable  
 from ..decorators import Dataify
 from ..exceptions import PlotError 
-from ..tools.coreutils import is_iterable, to_numeric_dtypes 
-from ..tools.coreutils import _assert_all_types, projection_validator
 from ..tools.depsutils import ensure_pkg 
+from ..tools.spatialutils import projection_validator
 from ..tools.validator import check_X_y, check_array, validate_square_matrix 
 from ..tools.validator import get_estimator_name, _check_consistency_size 
 from ..tools.validator import parameter_validator, validate_sets

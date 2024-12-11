@@ -28,7 +28,8 @@ except :
     pass 
 from ..api.types import Optional, Tuple, Any, List, Union, Callable, NDArray 
 from ..api.types import Dict, ArrayLike, DataFrame, Series, SparseMatrix
-from ..tools.coreutils import is_iterable, make_obj_consistent_if
+from ..core.checks import is_iterable 
+from ..core.utils import make_obj_consistent_if
 from ..tools.depsutils import ensure_pkg 
 from ..tools.validator import _is_cross_validated, validate_yy, validate_keras_model
 from ..tools.validator import assert_xy_in, get_estimator_name, check_is_fitted
@@ -39,7 +40,7 @@ from ._config import PlotConfig
 
 __all__= [ 
     'plot_confusion_matrices',
-    'plot_confusion_matrix2', 
+    'plot_confusion_matrix_', 
     'plot_confusion_matrix', 
     'plot_roc_curves',
     'plot_taylor_diagram',
@@ -1338,7 +1339,7 @@ def plot_shap_summary(
     use_conda=PlotConfig.use_conda 
    )
 
-def plot_confusion_matrix2(
+def plot_confusion_matrix_(
     clf: Any, 
     Xt: Union[np.ndarray, DataFrame], 
     yt: Union[np.ndarray, pd.Series], 
@@ -1415,7 +1416,7 @@ def plot_confusion_matrix2(
     >>> from gofast.datasets import fetch_data
     >>> from sklearn.model_selection import train_test_split 
     >>> from gofast.models import pModels 
-    >>> from gofast.plot.mlviz import plot_confusion_matrix2
+    >>> from gofast.plot.mlviz import plot_confusion_matrix_
     >>> X, Xt, y, yt  = train_test_split(*fetch_data('bagoue analysed'), test_size=0.25)  
     >>> pmo = pModels(model='xgboost') 
     >>> pmo.fit(X, y)

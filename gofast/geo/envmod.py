@@ -12,7 +12,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from ..api.types import Tuple, Optional, List, Dict, Callable
-from ..decorators import EnsureFileExists 
+from ..core.io import EnsureFileExists 
 from ..tools.depsutils import ensure_pkg 
 from ..tools.validator import validate_positive_integer 
 
