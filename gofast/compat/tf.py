@@ -74,6 +74,9 @@ class KerasDependencies:
             'activations': ('tensorflow.keras', 'activations'), 
             'add': ('tensorflow.math', 'add'), 
             'range':('tensorflow', 'range'), 
+            'convert_to_tensor': ('tensorflow', 'convert_to_tensor'), 
+            'Tensor': ('tensorflow', 'Tensor'), 
+            'cast': ('tensforflow', 'cast')
         }
 
         mapping = {

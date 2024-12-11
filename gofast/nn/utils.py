@@ -12,37 +12,357 @@ forecasting.
 
 """
 
-from numbers import Integral 
+from numbers import Integral, Real 
 import warnings
-from typing import List, Tuple, Optional, Union, Dict
+from typing import List, Tuple, Optional, Union, Dict, Callable
+
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import IsolationForest
 
 from ..core.checks import (
     ParamsValidator, 
     are_all_frames_valid, 
-    exist_features
+    exist_features, 
+    check_params 
     )
 from ..core.handlers import TypeEnforcer, columns_manager 
 from ..core.io import is_data_readable 
-from ..compat.sklearn import validate_params, Interval 
+from ..compat.sklearn import ( 
+    StrOptions, 
+    Interval, 
+    HasMethods, 
+    Hidden, 
+   validate_params
+)
 from ..decorators import DynamicMethod
-from ..tools.validator import validate_sequences 
+from ..tools.validator import validate_sequences, check_consistent_length 
 from ..tools.depsutils import ensure_pkg 
-
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 
 if KERAS_BACKEND:
     Callback=KERAS_DEPS.Callback
     
-DEP_MSG = dependency_message('wrappers') 
+DEP_MSG = dependency_message('utils') 
 
 __all__ = [
     "split_static_dynamic", 
     "create_sequences",
     "compute_forecast_horizon", 
-    "prepare_future_data"
+    "prepare_future_data", 
+    "compute_anomaly_scores"
    ]
+
+@check_params(
+    {
+     'domain_func': Optional[Callable]
+     }, 
+    coerce=False
+ )
+@ParamsValidator( 
+    { 
+        'y_true': ['array-like:np:transf'], 
+        'y_pred': ['array-like:np:transf', None], 
+        'method': [StrOptions(
+            {'statistical', 'domain', 'isolation_forest','residual'})
+            ], 
+        'threshold': [Interval(Real, 1, None, closed ='left')], 
+        'contamination': [Interval(Real, 0, None, closed='left')], 
+        'epsilon': [Hidden(Interval(Real, 0, 1 , closed ='neither'))], 
+        'estimator':[HasMethods(['fit', 'predict']), None], 
+        'random_state': ['random_state', None], 
+        'residual_metric': [StrOptions({'mse', 'mae','rmse'})], 
+        'objective': [str]
+    }
+)
+def compute_anomaly_scores(
+    y_true,
+    y_pred=None,
+    method='statistical',
+    threshold=3.0,
+    domain_func=None,
+    contamination=0.05,
+    epsilon=1e-6,
+    estimator=None,
+    random_state=None,
+    residual_metric='mse', 
+    objective='ts',
+    verbose=1
+):
+    r"""
+    Compute anomaly scores for given true targets using various methods.
+    
+    This utility function, ``anomaly_scores``, provides a flexible approach
+    to compute anomaly scores outside the XTFT model [1]_. Anomaly scores
+    serve as indicators of how unusual certain observations are, guiding
+    the model towards more robust and stable forecasts. By detecting and
+    quantifying anomalies, practitioners can adjust forecasting strategies,
+    improve predictive performance, and handle irregular patterns more
+    effectively.
+    
+    Parameters
+    ----------
+    y_true : np.ndarray
+        The ground truth target values with shape ``(B, H, O)``, where:
+        - `B`: batch size
+        - `H`: number of forecast horizons (time steps ahead)
+        - `O`: output dimension (e.g., number of target variables).
+        
+        Typically, `y_true` corresponds to the same array passed as the
+        forecast target to the model. All computations of anomalies
+        are relative to these true values or, if provided, their
+        predicted counterparts `y_pred`.
+    
+    y_pred : np.ndarray, optional
+        The predicted values with shape ``(B, H, O)``. If provided and
+        the `method` is set to `'residual'`, the anomaly scores are derived
+        from the residuals between `y_true` and `y_pred`. In this scenario,
+        anomalies reflect discrepancies indicating unusual conditions
+        or model underperformance.
+    
+    method : str, optional
+        The method used to compute anomaly scores. Supported options:
+        - ``"statistical"`` or ``"stats"``:  
+          Uses mean and standard deviation of `y_true` to measure deviation
+          from the mean. Points far from the mean by a certain factor
+          (controlled by `threshold`) yield higher anomaly scores.
+          
+          Formally, let :math:`\mu` be the mean of `y_true` and 
+          :math:`\sigma` its standard deviation. The anomaly score for 
+          a point :math:`y` is:  
+          .. math::  
+             (\frac{y - \mu}{\sigma + \varepsilon})^2
+          
+          where :math:`\varepsilon` is a small constant for numerical
+          stability.
+        
+        - ``"domain"``:  
+          Uses a domain-specific heuristic (provided by `domain_func`)
+          to compute scores. If no `domain_func` is provided, a default
+          heuristic marks negative values as anomalies.
+    
+        - ``"isolation_forest"`` or ``"if"``:  
+          Employs the IsolationForest algorithm to detect outliers. 
+          The model learns a structure to isolate anomalies more quickly
+          than normal points. Higher contamination rates allow more
+          points to be considered anomalous.
+    
+        - ``"residual"``:  
+          If `y_pred` is provided, anomalies are derived from residuals:
+          the difference `(y_true - y_pred)`. By default, mean squared 
+          error (`mse`) is used. Other metrics include `mae` and `rmse`,
+          offering flexibility in quantifying deviations:
+          .. math::
+             \text{MSE: }(y_{true} - y_{pred})^2
+    
+        Default is ``"statistical"``.
+    
+    threshold : float, optional
+        Threshold factor for the `statistical` method. Defines how far
+        beyond mean ± (threshold * std) is considered anomalous. Though
+        not directly applied as a mask here, it can guide interpretation
+        of scores. Default is ``3.0``.
+    
+    domain_func : callable, optional
+        A user-defined function for `domain` method. It takes `y_true`
+        as input and returns an array of anomaly scores with the same
+        shape. If none is provided, the default heuristic:
+        .. math::
+           \text{anomaly}(y) = \begin{cases}
+           |y| \times 10 & \text{if } y < 0 \\
+           0 & \text{otherwise}
+           \end{cases}
+    
+    contamination : float, optional
+        Used in the `isolation_forest` method. Specifies the proportion
+        of outliers in the dataset. Default is ``0.05``.
+    
+    epsilon : float, optional
+        A small constant :math:`\varepsilon` for numerical stability
+        in calculations, especially during statistical normalization.
+        Default is ``1e-6``.
+    
+    estimator : object, optional
+        A pre-fitted IsolationForest estimator for the `isolation_forest`
+        method. If not provided, a new estimator will be created and fitted
+        to `y_true`.
+    
+    random_state : int, optional
+        Sets a random state for reproducibility in the `isolation_forest`
+        method.
+    
+    residual_metric : str, optional
+        The metric used to compute anomalies from residuals if `method`
+        is set to `'residual'`. Supported metrics:
+        - ``"mse"``: mean squared error per point `(residuals**2)`
+        - ``"mae"``: mean absolute error per point `|residuals|`
+        - ``"rmse"``: root mean squared error `sqrt((residuals**2))`
+        
+        Default is ``"mse"``.
+    
+    objective : str, optional
+        Specifies the type of objective, for future extensibility.
+        Default is ``"ts"`` indicating time series. Could be extended
+        for other tasks in the future.
+    
+    verbose : int, optional
+        Controls verbosity. If `verbose=1`, some messages or warnings
+        may be printed. Higher values might produce more detailed logs.
+    
+    Returns
+    -------
+    anomaly_scores : np.ndarray
+        An array of anomaly scores with the same shape as `y_true`.
+        Higher values indicate more unusual or anomalous points.
+    
+    Notes
+    -----
+    Choosing an appropriate method depends on the data characteristics,
+    domain requirements, and model complexity. Statistical methods
+    are quick and interpretable but may oversimplify anomalies. Domain
+    heuristics leverage expert knowledge, while isolation forest applies
+    a more robust, data-driven approach. Residual-based anomalies help
+    assess model performance and highlight periods where the model 
+    struggles.
+    
+    Examples
+    --------
+    >>> from gofast.nn.losses import compute_anomaly_scores
+    >>> import numpy as np
+    
+    >>> # Statistical method example
+    >>> y_true = np.random.randn(32, 20, 1)  # (B,H,O)
+    >>> scores = compute_anomaly_scores(y_true, method='statistical', threshold=3)
+    >>> scores.shape
+    (32, 20, 1)
+    
+    >>> # Domain-specific example
+    >>> def my_heuristic(y):
+    ...     return np.where(y < -1, np.abs(y)*5, 0.0)
+    >>> scores = compute_anomaly_scores(y_true, method='domain',
+                                        domain_func=my_heuristic)
+    
+    >>> # Isolation Forest example
+    >>> scores = compute_anomaly_scores(y_true, method='isolation_forest',
+                                        contamination=0.1)
+    
+    >>> # Residual-based example
+    >>> y_pred = y_true + np.random.normal(0, 1, y_true.shape)  # Introduce noise
+    >>> scores = compute_anomaly_scores(y_true, y_pred=y_pred, method='residual',
+                                        residual_metric='mae')
+    
+    See Also
+    --------
+    :func:`compute_quantile_loss` : 
+        For computing quantile losses.
+    :func:`compute_multi_objective_loss` :
+        For integrating anomaly scores into a multi-objective loss.
+    
+    References
+    ----------
+    .. [1] Wang, X., et al. "Enhanced Temporal Fusion Transformer for Time
+           Series Forecasting." International Journal of Forecasting, 37(3),
+           2021.
+    """
+    if objective == 'ts': 
+        if y_true.ndim != 3:
+            raise ValueError(
+                "`y_true` must be a 3-dimensional array with the shape (B, H, O):\n"
+                "  - B: Batch size (number of samples per batch).\n"
+                "  - H: Number of horizons (time steps ahead).\n"
+                "  - O: Output dimension (e.g., number of target variables).\n"
+                "Please ensure the input conforms to the specified shape."
+            )
+    elif y_true.ndim not in [1, 2]:
+        raise ValueError(
+            "`y_true` must be a 1D or 2D array for non-time-series objectives.\n"
+            f"Received shape: {y_true.shape}."
+        )
+    
+    if y_pred is not None:
+        check_consistent_length(y_true, y_pred)
+
+    # Normalize method aliases
+    method = method.lower()
+    method_map = {
+        'stats': 'statistical',
+        'statistical': 'statistical',
+        'if': 'isolation_forest',
+        'isolation_forest': 'isolation_forest',
+    }
+    method = method_map.get(method, method)
+
+    if verbose >= 3:
+        print(f"[INFO] Using method: {method}")
+
+    if method == 'statistical':
+        mean = y_true.mean()
+        std = y_true.std()
+        anomaly_scores = ((y_true - mean) / (std + epsilon))**2
+        if verbose >= 5:
+            print(f"[DEBUG] Mean: {mean}, Std: {std}")
+
+    elif method == 'domain':
+        if domain_func is None:
+            # Default heuristic: negative values are anomalies
+            anomaly_scores = np.where(y_true < 0, np.abs(y_true) * 10, 0.0)
+        else:
+            anomaly_scores = domain_func(y_true)
+            if not isinstance(anomaly_scores, np.ndarray):
+                raise ValueError("`domain_func` must return a numpy array.")
+            if anomaly_scores.shape != y_true.shape:
+                raise ValueError(
+                    "`domain_func` output shape must match `y_true` shape.")
+        if verbose >= 5:
+            print("[DEBUG] Domain-based anomaly scores calculated.")
+
+    elif method == 'isolation_forest':
+        flat_data = y_true.reshape(-1, 1)
+        if estimator is None:
+            iso = IsolationForest(
+                contamination=contamination,
+                random_state=random_state
+            )
+            iso.fit(flat_data)
+        else:
+            iso = estimator
+
+        raw_scores = iso.score_samples(flat_data)
+        anomaly_scores = -raw_scores.reshape(y_true.shape)
+        if verbose >= 5:
+            print("[DEBUG] Isolation Forest raw scores computed.")
+
+    elif method == 'residual':
+        if y_pred is None:
+            raise ValueError("`y_pred` must be provided if method='residual'.")
+        if not isinstance(y_pred, np.ndarray):
+            raise ValueError("`y_pred` must be a numpy array.")
+        if y_pred.shape != y_true.shape:
+            raise ValueError(
+                "`y_pred` shape must match `y_true` shape for residual method.")
+
+        residuals = y_true - y_pred
+        residual_metric = residual_metric.lower()
+
+        if residual_metric == 'mse':
+            # Mean Squared Error per point is just squared residual
+            anomaly_scores = residuals**2
+        elif residual_metric == 'mae':
+            # Mean Absolute Error per point is absolute residual
+            anomaly_scores = np.abs(residuals)
+        elif residual_metric == 'rmse':
+            # Root Mean Squared Error per point: sqrt(residual^2)
+            # Essentially absolute value, but we'll respect definition
+            anomaly_scores = np.sqrt((residuals**2) + epsilon)
+        if verbose >= 5:
+            print(f"[DEBUG] Residuals calculated using {residual_metric}.")
+
+    if verbose >= 1:
+        print("[INFO] Anomaly scores computed successfully.")
+    
+    return anomaly_scores
+
+
 
 @TypeEnforcer({"0": 'array-like', "1": 'array-like'})
 @validate_params({ 

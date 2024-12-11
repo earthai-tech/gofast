@@ -535,7 +535,7 @@ class ParamsValidator:
                 try: 
                     import tensorflow as tf 
                     # Convert list to TensorFlow tensor
-                    value = tf.convert_to_tensor(value)
+                    value = tf.convert_to_tensor(value, dtype=tf.float32)
                 except: 
                     # fallback to numpy conversion 
                     spec ='np'
@@ -4567,6 +4567,7 @@ def validate_nested_param(
 
     # Handle Optional types (Union with NoneType)
     if origin is Union and type(None) in args:
+        # origin, arg ---> typing.Union (<class 'int'>, <class 'NoneType'>)
         non_none_args = [arg for arg in args if arg is not type(None)]
         if not non_none_args:
             if value is not None:
@@ -4576,8 +4577,17 @@ def validate_nested_param(
         # set to empty list if None and coerce is True
         if len(non_none_args) == 1:
             sub_type = non_none_args[0]
-            if get_origin(sub_type) is list and value is None:
+            if get_origin(sub_type) in ( list, tuple) and value is None:
                 return None if empty_as_none else [] 
+            # If the expected type is Optional[X],
+            # set None whatever.
+            elif ( 
+                sub_type in (int, float, numbers.Real, numbers.Integral) 
+                and value is None
+                ): 
+                # return None for Optional[X]
+                return None 
+            
         # Recursively validate the non-None type
         return validate_nested_param(value, non_none_args[0], param_name, coerce)
     

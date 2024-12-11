@@ -981,7 +981,7 @@ def to_frame_if(
         'style':Optional[str], 
         'alignment': str, 
         'extra_space': int, 
-        'text_size': Optional[int],
+        'text_size': Union[int, None],
         'break_word': bool
     }
  )
