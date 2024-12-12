@@ -899,6 +899,89 @@ def unpack_list_of_dicts(list_of_dicts):
             unpacked_dict[key].extend(values)
     return dict(unpacked_dict)  # Convert defaultdict back to dict if required
 
+#XXX TODO 
+# # write a decorator 
+# def param_deprecated_message (
+#         params, 
+#         condition=None, # can be a lambda function, boolean condition  etc...
+#         message=None, # message to raise when condition is meet or satisfied or any others. 
+#         defaut_values=None, # default value to let the parameter take etc ... 
+#         warning_categories='FutureWarning' #(default),  
+#         extra=''# message to append to default message when message is None 
+#         ... # other parameters for flexibility and robustness for customizing 
+        
+#         )
+# # FIRST CASE:
+#     # if condition is set, the param should meet this condition before raising warning user 
+#     # if parameter meet this conditioon , then raise message and warning category 
+#     # if the default value is set then erase the value of parameter to take the default value 
+#     # for the function or method or class to proceed. 
+    
+#     # for instance the TemporalTransformerFusion currently support only quantiles to be None, 
+#     # if the other values are set , then user must be warn that quantiles currently support None 
+#     # and erase the value to None and let the class, function or method to proceed. 
+    
+# class TemporalTransformerFusion: 
+#      def __init__(
+#          self,
+#          static_input_dim,
+#          dynamic_input_dim,
+#          num_static_vars,
+#          num_dynamic_vars,
+#          hidden_units,
+#          num_heads=4,  
+#          dropout_rate=0.1,
+#          forecast_horizon=1,
+#          quantiles=None,# should be None because, current version not support the list [float]
+#          activation='elu',
+#          use_batch_norm=False,
+#          num_lstm_layers=1,
+#          lstm_units=None, 
+#          **kwargs
+#      ):
+#     # if quantiles is set and not None, i.e. the condition is met 
+#     # then a message is trigger to the user and reset the value of quantile to None 
+#     # and continue proceeding 
+    
+#     # the decorator can operate on class, function or method 
+    
+#     # also the decorator should handle this case : 
+# # SECOND CASE:
+# class HWClassifier : 
+#     def __init__(
+#             self, 
+#             nonlinear_input_estimator =None, 
+#             nonlinear_output_estimator=None, 
+#             ...
+#             # new parameter added 
+#             input_estimator =None, 
+#             output_estimator=None 
+#             ...
+#         )
+#     # Here in this class for instance 
+#     # the previous version use nonlinear_input_estimator and nonlinear_output_estimator as parameters names.
+#     # now in the future version, we expect to rename these two parameters (nonlinear_input_estimator and nonlinear_output_estimator) 
+#     # to be replaced by  input_estimator and output_estimator  respecitively 
+#     # so if the user passes the value to nonlinear_output_estimator for instance, a warnings message is 
+#     # triggered and delegate the value to output_estimator, similar for the nonlinear_input_estimator
+#     # parameter which delegate value to input_estimator and proceed. The user should now that these 
+#     # parameter will not longer available in future version ( version can be specify as parameter), 
+    
+#     # however if input_estimator and output_estimator are set, no message raise since 
+#     # they are the new parameters that will be permanent to do the tasks of 
+#     # nonlinear_input_estimator and nonlinear_output_estimator respectivey and so on. 
+#     # 
+# # write this sophysticated decorator that can be used in method, class or function 
+# # make the decorator robust and you can check the parameters listed in the decorator function 
+# # and rename them or reorganized them if you think they are not intuitive enough etc 
+# Use parameters vertical alignment which is more professionals 
+# come back to a new line if the code is long using the best vertical alignement as well as the comments.
+# beatifully write the function and break the code using vertical alignment and 
+# parenthesis to come back to new line make it more beautiful 
+
+# # skip the documentation for brievity, focus on the code writing and comments in the code. 
+# # skip any docstring 
+
 
 def fancy_printer(result, report_name='Data Quality Check Report'):
     """ 

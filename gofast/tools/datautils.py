@@ -3221,6 +3221,7 @@ def to_categories(
     include_lowest: bool = True,
     right: bool = False,
     category_name: Optional[str] = None, 
+    drop: bool=False, 
     savefile: Optional[str]=None, 
 ) -> pd.DataFrame:
     """
@@ -3294,6 +3295,10 @@ def to_categories(
         - If `None`, the new column is named as `{column}_category`.
         - Otherwise, it uses the provided `category_name`.
     
+    drop: bool, default=False 
+       Drop the the continous column being categorized. If ``False``, keep 
+       the categorrized `column` in the dataframe `df`. 
+       
     Returns
     -------
     pandas.DataFrame
@@ -3554,6 +3559,8 @@ def to_categories(
             labels=categories,
             duplicates='drop'
         )
-    
+    if drop: 
+        df.drop(columns =column, inplace =True ) 
+        
     return df
 

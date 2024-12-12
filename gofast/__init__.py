@@ -67,7 +67,7 @@ def suppress_warnings(suppress=True):
     """Function to suppress or re-enable future/syntax warnings."""
     for warning, action in _warnings_state.items():
         if suppress:
-            warnings.filterwarnings(action, category=FutureWarning)
+            #warnings.filterwarnings(action, category=FutureWarning)
             warnings.filterwarnings(action, category=SyntaxWarning)
         else:
             warnings.filterwarnings("default", category=FutureWarning)
@@ -91,7 +91,7 @@ def check_public_api():
     if config._set_public:
         from . import _public  # noqa
         from .assistance import assist_me, explore 
-        from .core.io import read_data 
+        from .core.io import read_data #noqa 
         
         __all__.extend(["assist_me", "explore", "read_data"])
         globals().update({"assist_me": assist_me, "explore": explore})

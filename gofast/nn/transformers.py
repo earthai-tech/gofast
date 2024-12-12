@@ -14,6 +14,7 @@ from ..api.docs import _shared_docs, doc
 from ..api.docstring import DocstringComponents, _shared_nn_params 
 from ..api.property import  NNLearner 
 from ..core.checks import is_iterable, validate_nested_param, ParamsValidator 
+from ..core.handlers import param_deprecated_message 
 from ..compat.sklearn import validate_params, Interval, StrOptions 
 from ..decorators import Appender 
 from ..tools.depsutils import ensure_pkg
@@ -1021,7 +1022,19 @@ References
     join='\n',
     indents=0
 )
-    
+@param_deprecated_message(
+    conditions_params_mappings=[
+        {
+            'param': 'quantiles',
+            'condition': lambda v: v is not None,
+            'message': ( 
+                "Current version only supports 'quantiles=None'."
+                " Resetting quantiles to None."
+                ),
+            'default': None
+        }
+    ]
+)
 @register_keras_serializable()
 class TemporalFusionTransformer(Model, NNLearner):
     """
@@ -1135,7 +1148,7 @@ class TemporalFusionTransformer(Model, NNLearner):
         "num_heads": [Interval(Integral, 1, None, closed='left')],
         "dropout_rate": [Interval(Real, 0, 1, closed="both")],
         "forecast_horizon": [Interval(Integral, 1, None, closed='left')],
-        "quantiles": ['array-like', list,  None],
+        "quantiles": ['array-like', None],
         "activation": [StrOptions({"elu", "relu", "tanh", "sigmoid", "linear", "gelu"})],
         "use_batch_norm": [bool],
         "num_lstm_layers": [Interval(Integral, 1, None, closed='left')],
@@ -1376,6 +1389,7 @@ class TemporalFusionTransformer(Model, NNLearner):
             final_output = self.output_layer(outputs)
 
         self.logger.debug("Call method completed.")
+        
         return final_output
 
     def get_config(self):
@@ -1484,7 +1498,6 @@ class MultiModalEmbedding(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
     
-
 @register_keras_serializable()
 class HierarchicalAttention(Layer, NNLearner):
     """
@@ -1659,7 +1672,6 @@ class AnomalyLoss(Layer, NNLearner):
     @classmethod
     def from_config(cls, config):
         return cls(**config)
-
 
 @register_keras_serializable()
 class MultiObjectiveLoss(Layer, NNLearner):
@@ -2231,7 +2243,7 @@ class XTFT(Model, NNLearner):
         ``'last'``, ``'average'``, ``'flatten'``. Default is ``'last'``.
         Determines how the time-windowed representations are reduced
         into a final vector before decoding into forecasts. For example,
-        `last` takes the most recent time step’s feature vector, while
+        `last` takes the most recent time step's feature vector, while
         `average` merges information across the entire window. Choosing
         a suitable aggregation can influence forecast stability and
         sensitivity to recent or aggregate patterns.
@@ -2255,6 +2267,7 @@ class XTFT(Model, NNLearner):
     ...     future_covariate_dim=5,
     ...     forecast_horizons=3,
     ...     quantiles=[0.1, 0.5, 0.9],
+    
     ...     scales='auto',
     ...     final_agg='last'
     ... )
@@ -2295,7 +2308,7 @@ class XTFT(Model, NNLearner):
     @validate_params({
         "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
-        "future_covariate_dim": [Interval(Integral, 1, None, closed='left')], 
+        "future_covariate_dim": [Interval(Integral, 1, None, closed='left'), None], 
         "embed_dim": [Interval(Integral, 1, None, closed='left')],
         "forecast_horizons": [Interval(Integral, 1, None, closed='left')], 
         "quantiles": ['array-like', StrOptions({'auto'}),  None],
@@ -2468,9 +2481,8 @@ class XTFT(Model, NNLearner):
         self.final_dense = Dense(output_dim)
 
     def call(self, inputs, training=False):
-        (static_input,
-         dynamic_input,
-         future_covariate_input) = inputs
+        
+        (static_input, dynamic_input, future_covariate_input) = inputs
     
         # Normalize and process static features
         normalized_static = self.learned_normalization(

@@ -244,7 +244,6 @@ class TypeEnforcer:
                         param_value = kwargs[param_name]
                     except KeyError:
                         # Get from args based on function signature
-                        import inspect
                         sig = inspect.signature(func)
                         bound_args = sig.bind(*args, **kwargs)
                         bound_args.apply_defaults()
@@ -360,6 +359,249 @@ class TypeEnforcer:
         except Exception as e:
             self.logger.debug(f"Failed to convert value to Series: {e}")
             return value
+
+def param_deprecated_message(
+    deprecated_params_mappings=None, 
+    conditions_params_mappings=None,
+    warning_category=FutureWarning, 
+    extra_message=''
+):
+    """
+    Decorator to handle deprecated or conditionally validated parameters 
+    in functions, methods, or class initializers.
+
+    The decorator manages two primary scenarios:
+    
+    1. **Deprecated or Renamed Parameters**:
+       Detects if deprecated parameters are used, issues a warning, and 
+       maps their values to new parameters if specified.
+    
+    2. **Conditionally Validated Parameters**:
+       Checks if parameters meet certain conditions, warns the user, and overrides 
+       their values with defaults if necessary.
+
+    .. math::
+        \text{Warning} = 
+        \begin{cases} 
+            \text{FutureWarning} & \text{if a deprecated parameter is used} \\
+            \text{FutureWarning} & \text{if a parameter condition is met}
+        \end{cases}
+
+    Parameters
+    ----------
+    deprecated_params_mappings : dict or list of dicts, optional
+        Defines mappings for deprecated parameters. Each mapping should include:
+        
+        - ``'old'`` (`str`): The name of the deprecated parameter.
+        - ``'new'`` (`str`, optional): The name of the new parameter to replace
+          the deprecated one.
+        - ``'message'`` (`str`, optional): Custom warning message.
+        - ``'default'`` (optional): Default value to use if the new parameter 
+          is not provided.
+        
+        Example:
+        
+        .. code-block:: python
+
+            deprecated_params_mappings = [
+                {
+                    'old': 'old_param',
+                    'new': 'new_param',
+                    'message': 'old_param is deprecated, use new_param instead.',
+                    'default': 42
+                }
+            ]
+
+    conditions_params_mappings : dict or list of dicts, optional
+        Defines conditions that parameters must satisfy. Each mapping should 
+        include:
+        
+        - ``'param'`` (`str`): The name of the parameter to validate.
+        - ``'condition'`` (`callable`): A function that takes the parameter 
+          value and returns 
+          `True` if the condition is met.
+        - ``'message'`` (`str`, optional): Custom warning message.
+        - ``'default'`` (optional): Default value to override the parameter 
+          if the condition is met.
+        
+        Example:
+        
+        .. code-block:: python
+
+            conditions_params_mappings = [
+                {
+                    'param': 'threshold',
+                    'condition': lambda x: x < 0,
+                    'message': 'threshold must be non-negative.',
+                    'default': 0
+                }
+            ]
+
+    warning_category : Warning, optional
+        The category of warning to raise. Defaults to ``FutureWarning``.
+        
+    extra_message : str, optional
+        Additional message appended to all warning messages. Defaults to an 
+        empty string.
+
+    Returns
+    -------
+    function
+        The decorated function or class initializer with parameter validation.
+
+    Methods
+    -------
+    wrapper(*args, **kwargs)
+        Internal method that wraps the original function or class initializer, 
+        processes parameters, and raises warnings as necessary.
+
+    Examples
+    --------
+    >>> from gofast.core.handlers import param_deprecated_message
+    >>> @param_deprecated_message(
+    ...     deprecated_params_mappings=[
+    ...         {
+    ...             'old': 'old_param',
+    ...             'new': 'new_param',
+    ...             'message': 'old_param is deprecated, use new_param instead.',
+    ...             'default': 10
+    ...         }
+    ...     ],
+    ...     conditions_params_mappings={
+    ...         'param': 'limit',
+    ...         'condition': lambda x: x < 0,
+    ...         'message': 'limit must be non-negative.',
+    ...         'default': 0
+    ...     }
+    ... )
+    ... def my_function(new_param=5, old_param=None, limit=100):
+    ...     return new_param, limit
+    >>> my_function(old_param=20, limit=-10)
+    # Emits warnings and returns (20, 0)
+
+    Notes
+    -----
+    - This decorator is versatile and can be applied to both standalone 
+      functions and class initializers.
+    - When both deprecated and new parameters are provided, the new parameter
+      takes precedence.
+
+    See Also
+    --------
+    warnings.warn : Issue a warning message.
+    functools.wraps : Decorator to preserve the metadata of the original function.
+
+    References
+    ----------
+    .. [1] Python Documentation on [warnings](https://docs.python.org/3/library/warnings.html)
+    .. [2] Python Documentation on [functools.wraps](https://docs.python.org/3/library/functools.html#functools.wraps)
+
+    """
+
+    if deprecated_params_mappings is None:
+        deprecated_params_mappings = []
+    if conditions_params_mappings is None:
+        conditions_params_mappings = []
+    
+    # Ensure these are lists for unified processing
+    if isinstance(deprecated_params_mappings, dict):
+        deprecated_params_mappings = [deprecated_params_mappings]
+    if isinstance(conditions_params_mappings, dict):
+        conditions_params_mappings = [conditions_params_mappings]
+
+    def decorator(func):
+        # Handle both classes (decorate __init__) and functions.
+        # If func is a class, wrap its __init__.
+        if inspect.isclass(func):
+            init_func = func.__init__
+        else:
+            init_func = func
+
+        @wraps(init_func)
+        def wrapper(*args, **kwargs):
+            # Convert positional args to keyword arguments based on signature
+            sig = inspect.signature(init_func)
+            bound_args = sig.bind(*args, **kwargs)
+            bound_args.apply_defaults()
+
+            # Process deprecated params first
+            for mapping in deprecated_params_mappings:
+                old_param = mapping.get('old')
+                new_param = mapping.get('new')
+                custom_message = mapping.get('message')
+                default_val = mapping.get('default', None)
+                
+                if ( 
+                        old_param in bound_args.arguments 
+                        and bound_args.arguments[old_param] is not None
+                    ):
+                    # User specified the deprecated param
+                    old_val = bound_args.arguments[old_param]
+                    # If new_param is provided, we move value there only if 
+                    # it's not already set
+                    # If user already set new_param as well, we might choose 
+                    # to let the new_param override or raise an error. 
+                    # For simplicity, if new_param is set by user, we trust the user.
+                    if new_param:
+                        if (new_param not in bound_args.arguments) or (
+                                bound_args.arguments[new_param] is None):
+                            bound_args.arguments[new_param] = old_val
+                        # else: new_param already set, just ignore old_val (or could warn)
+                    else:
+                        # If no new_param, we might just drop or use default if provided
+                        if default_val is not None:
+                            bound_args.arguments[old_param] = default_val
+
+                    # Build and show warning
+                    msg = custom_message
+                    if not msg:
+                        msg = ( 
+                            f"Parameter '{old_param}' is deprecated and will"
+                            " be removed in a future version."
+                            )
+                        if new_param:
+                            msg += f" Please use '{new_param}' instead."
+                        msg += extra_message
+                    warnings.warn(msg, category=warning_category, stacklevel=2)
+
+                    # Remove the old param if it is purely deprecated (and replaced)
+                    # If we strictly want to remove it from arguments:
+                    # This may not be necessary, as we can just let it there. 
+                    # But let's clean it for clarity if new_param is defined.
+                    if new_param:
+                        del bound_args.arguments[old_param]
+
+            # Process conditions
+            for cond_map in conditions_params_mappings:
+                param_name = cond_map.get('param')
+                condition = cond_map.get('condition', lambda v: False)
+                cond_message = cond_map.get('message')
+                cond_default = cond_map.get('default', None)
+                 
+                if param_name in bound_args.arguments:
+                    param_val = bound_args.arguments[param_name]
+                    if condition(param_val):
+                        # Condition met, warn and set default if provided
+                        msg = cond_message
+                        if not msg:
+                            msg = (
+                                f"Parameter '{param_name}' does not support the given "
+                                f"value. Overriding to default. {extra_message}"
+                                )
+                        warnings.warn(msg, category=warning_category, stacklevel=2)
+                        # if cond_default is not None:
+                        bound_args.arguments[param_name] = cond_default
+
+            return init_func(*bound_args.args, **bound_args.kwargs)
+
+        if inspect.isclass(func):
+            # If it's a class, rebuild the class with a new __init__
+            setattr(func, '__init__', wrapper)
+            return func
+        else:
+            return wrapper
+
+    return decorator
 
 def generate_id(
     length=12,
