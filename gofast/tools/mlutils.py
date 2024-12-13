@@ -51,7 +51,7 @@ from ..compat.sklearn import (
     get_feature_names, train_test_split, validate_params, 
     Interval, HasMethods
     ) 
-from ..core.array_manager import to_numeric_dtypes 
+from ..core.array_manager import to_numeric_dtypes, get_X_from
 from ..core.checks import (
     is_in_if, is_iterable, is_classification_task, 
     validate_feature, exist_features,  str2columns 
@@ -5281,8 +5281,8 @@ def generate_proxy_feature(
     )
 
     # Define preprocessor for both numeric and categorical features
-    numeric_features = _get_numeric_features(X, ['int64', 'float64']) 
-    categorical_features= _get_numeric_features(X, ['object']) 
+    numeric_features = get_X_from(X, ['int64', 'float64']).columns  
+    categorical_features= get_X_from(X, ['object']).columns 
     # numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
     # categorical_features = X.select_dtypes(include=['object']).columns
 
@@ -5337,8 +5337,6 @@ def generate_proxy_feature(
     else:
         return proxy_series
         
-def _get_numeric_features(X, dtypes ):
-    return X.select_dtypes(include=['int64', 'float64']).columns
 
 def _manage_target(data, target):
     """
