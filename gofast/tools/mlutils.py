@@ -5281,8 +5281,10 @@ def generate_proxy_feature(
     )
 
     # Define preprocessor for both numeric and categorical features
-    numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
-    categorical_features = X.select_dtypes(include=['object']).columns
+    numeric_features = _get_numeric_features(X, ['int64', 'float64']) 
+    categorical_features= _get_numeric_features(X, ['object']) 
+    # numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
+    # categorical_features = X.select_dtypes(include=['object']).columns
 
     # Create a column transformer with imputation, scaling for numeric,
     # and encoding for categorical features
@@ -5334,6 +5336,9 @@ def generate_proxy_feature(
         return data
     else:
         return proxy_series
+        
+def _get_numeric_features(X, dtypes ):
+    return X.select_dtypes(include=['int64', 'float64']).columns
 
 def _manage_target(data, target):
     """
