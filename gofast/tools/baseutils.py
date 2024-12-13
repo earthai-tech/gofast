@@ -41,8 +41,9 @@ from ..core.array_manager import  to_numeric_dtypes, reshape
 from ..core.checks import( 
     _assert_all_types,  is_iterable, exist_features, validate_feature, 
     )
-from ..core.utils import ellipsis2false, smart_format 
+from ..core.handlers import get_batch_size 
 from ..core.io import is_data_readable 
+from ..core.utils import ellipsis2false, smart_format 
 from ..compat.scipy import check_scipy_interpolate
 from ..decorators import Dataify
 from ..exceptions import FileHandlingError
@@ -215,7 +216,7 @@ def handle_outliers(
     interpolate_method: str = 'linear',  
     inplace: bool = False,
     verbose: bool = False, 
-    batch_size : int ='auto', 
+    batch_size : Union[int, str] ='auto', 
     batch_processor: bool=False, 
 ) -> Union[np.ndarray, pd.Series, pd.DataFrame, None]:
     """
@@ -513,7 +514,8 @@ def _process_dataframe(
 
     if batch_size is not None:
         if batch_size == 'auto':
-            batch_size = 10000  # Adjust as needed
+            batch_size = get_batch_size(df, default_size= 10000 )
+            # batch_size = 10000  
         else:
             batch_size = int(batch_size)
         total_rows = len(df)
@@ -583,7 +585,7 @@ def _process_series(
 
     if batch_size is not None:
         if batch_size == 'auto':
-            batch_size = 10000  # Adjust as needed
+            batch_size = get_batch_size(series, default_size= 10000 )
         else:
             batch_size = int(batch_size)
         total_length = len(series)
@@ -653,7 +655,7 @@ def _process_ndarray(
 
     if batch_size is not None:
         if batch_size == 'auto':
-            batch_size = 10000  # Adjust as needed
+            batch_size = get_batch_size(array, default_size= 10000 )
         else:
             batch_size = int(batch_size)
         if axis == 0 or axis is None:

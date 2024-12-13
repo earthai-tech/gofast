@@ -20,6 +20,7 @@ from collections.abc import Iterable
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional,  Union
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -29,6 +30,7 @@ from .checks import validate_noise, str2columns
 
 __all__ = [ 
     'TypeEnforcer', 
+    'default_params_plot', 
     'add_noises_to',
     'adjust_to_samples',
     'batch_generator',
@@ -39,7 +41,6 @@ __all__ = [
     'generate_id',
     'make_ids',
     ]
-
 
 class TypeEnforcer:
     """
@@ -359,6 +360,283 @@ class TypeEnforcer:
         except Exception as e:
             self.logger.debug(f"Failed to convert value to Series: {e}")
             return value
+
+def default_params_plot(
+    savefig=None, 
+    close=False, 
+    fig_size=(10, 6), 
+    title=None, 
+    dpi=None, 
+    new_ax=False, 
+    **extra_defaults
+):
+    """
+    Decorator to manage default plotting parameters for Matplotlib functions.
+    
+    This decorator automates the handling of common plotting parameters, allowing
+    functions to focus on plotting logic while ensuring consistency and reducing
+    repetition. It provides defaults for saving figures, figure size, titles,
+    resolution, and axis management, among others.
+    
+    Parameters
+    ----------
+    savefig : `str` or `None`, optional
+        **Default:** ``None``
+        
+        Path to save the figure. If a string is provided, the figure will be saved
+        to the specified path using `matplotlib.figure.Figure.savefig`. If set to
+        `None`, the figure will not be saved unless overridden during the function
+        call.
+    
+    close : `bool`, optional
+        **Default:** ``False``
+        
+        Determines whether to automatically close the figure after processing.
+        Setting this to `True` helps manage memory by closing figures that are no
+        longer needed.
+    
+    fig_size : `tuple` of `float`, optional
+        **Default:** ``(10, 6)``
+        
+        Specifies the default size of the figure in inches as `(width, height)`.
+        This can be overridden by passing `fig_size` or `figsize` during the
+        function call.
+    
+    title : `str` or `None`, optional
+        **Default:** ``None``
+        
+        Assigns a default title to the plot. If set to `None`, no title will be
+        added unless specified during the function call.
+    
+    dpi : `int` or `None`, optional
+        **Default:** ``None``
+        
+        Sets the resolution of the figure in dots per inch. If `None`, Matplotlib's
+        default DPI is used.
+    
+    new_ax : `bool`, optional
+        **Default:** ``False``
+        
+        Determines whether to create a new Axes object for the plot. If `True`,
+        a new Axes is created and passed to the decorated function. If `False`,
+        the decorator will attempt to use an existing Axes object provided as an
+        argument.
+    
+    extra_defaults: `dict`, optional
+        Additional keyword arguments to set as default parameters. These are applied
+        only if the decorated function accepts them.
+    
+    Methods
+    -------
+    No public methods. This decorator modifies the behavior of the decorated
+    function by injecting default parameters and managing figure creation, saving,
+    and closing.
+    
+    Formulation
+    -----------
+    The decorator adjusts the parameters of the decorated function based on the
+    following logic:
+    
+    .. math::
+        \text{kwargs}[p] = 
+        \begin{cases} 
+          \text{user\_value} & \text{if user provides } p \\
+          \text{default\_value} & \text{otherwise}
+        \end{cases}
+    
+    Where `p` represents each plotting parameter such as `savefig`, `fig_size`,
+    `title`, etc.
+    
+    This ensures that each parameter is either set to the user-provided value or
+    falls back to the decorator's default.
+    
+    Examples
+    --------
+    >>> from gofast.core.handlers import default_params_plot
+    >>> import matplotlib.pyplot as plt
+    
+    >>> @default_params_plot(
+    ...     savefig='my_plot.png', 
+    ...     close=True, 
+    ...     fig_size=(8, 6), 
+    ...     title='My Plot', 
+    ...     dpi=300, 
+    ...     new_ax=True
+    ... )
+    ... def plot_function(ax, x, y, savefig=None):
+    ...     ax.plot(x, y)
+    ...     ax.set_xlabel('X axis')
+    ...     ax.set_ylabel('Y axis')
+    
+    >>> x = [0, 1, 2, 3]
+    >>> y = [0, 1, 4, 9]
+    
+    >>> # Use decorator's default savefig
+    >>> plot_function(ax=None, x=x, y=y)
+    {'ax': <AxesSubplot:>, 'x': [0, 1, 2, 3], 'y': [0, 1, 4, 9],
+     'savefig': 'my_plot.png'}
+    Figure saved as my_plot.png
+    Figure closed.
+    
+    >>> # Override savefig with a different filename
+    >>> plot_function(ax=None, x=x, y=y, savefig='override_plot.png')
+    {'ax': <AxesSubplot:>, 'x': [0, 1, 2, 3], 'y': [0, 1, 4, 9],
+     'savefig': 'override_plot.png'}
+    Figure saved as override_plot.png
+    Figure closed.
+    
+    >>> # Disable saving by explicitly setting savefig to None
+    >>> plot_function(ax=None, x=x, y=y, savefig=None)
+    {'ax': <AxesSubplot:>, 'x': [0, 1, 2, 3], 'y': [0, 1, 4, 9],
+     'savefig': 'my_plot.png'}
+    Figure saved as my_plot.png
+    Figure closed.
+    
+    Notes
+    -----
+    - The decorator inspects the signature of the decorated function to ensure
+      that only relevant keyword arguments are passed, preventing unexpected
+      keyword argument errors.
+      
+    - If `new_ax` is set to `True`, a new figure and Axes are created regardless of
+      whether an Axes is passed to the function. This is useful for generating
+      standalone plots.
+    
+    - When `close` is `True`, the figure is closed after saving to free up
+      system resources, which is particularly beneficial when generating multiple
+      plots in a loop.
+    
+    - The decorator can handle both `fig_size` and `figsize` parameters, providing
+      flexibility in how figure sizes are specified.
+    
+    See Also
+    --------
+    `matplotlib.pyplot.figure` : Create a new figure.
+    `matplotlib.axes.Axes` : Class representing an Axes in Matplotlib.
+    
+    References
+    ----------
+    .. [1] Hunter, J. D. (2007). *Matplotlib: A 2D Graphics Environment*.
+           Computing in Science & Engineering, 9(3), 90–95.
+    .. [2] P. (n.d.). *Python Decorators*. Retrieved from https://realpython.com/primer-on-python-decorators/
+    """
+
+    def decorator(func):
+        # Inspect the signature of the decorated function
+        sig = inspect.signature(func)
+        func_params = sig.parameters
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Determine which plot-related kwargs the function accepts
+            accepted_kwargs = {
+                key for key in ['fig_size', 'figsize', 'dpi', 'title', 'savefig'] 
+                if key in func_params
+            }
+            # Include any extra defaults that are accepted
+            accepted_kwargs.update(k for k in extra_defaults if k in func_params)
+
+            # Handle fig_size or figsize
+            if 'fig_size' in accepted_kwargs or 'figsize' in accepted_kwargs:
+                fig_size_param = kwargs.get('fig_size', kwargs.get('figsize', fig_size))
+                if 'fig_size' in func_params:
+                    kwargs['fig_size'] = fig_size_param
+                if 'figsize' in func_params:
+                    kwargs['figsize'] = fig_size_param
+            else:
+                fig_size_param = fig_size  # Default value if not accepted
+
+            # Handle dpi
+            if 'dpi' in accepted_kwargs:
+                kwargs['dpi'] = kwargs.get('dpi', dpi)
+            else:
+                dpi_ = kwargs.get('dpi', dpi)
+
+            # Handle title
+            if 'title' in accepted_kwargs:
+                kwargs['title'] = kwargs.get('title', title)
+
+            # Handle savefig with special logic
+            if 'savefig' in accepted_kwargs:
+                if 'savefig' in kwargs and kwargs['savefig'] is not None:
+                    savefig_param = kwargs['savefig']
+                else:
+                    savefig_param = savefig
+                kwargs['savefig'] = savefig_param
+            else:
+                savefig_param = None  # Ensure it's defined
+
+            # Handle any extra default parameters
+            for key, value in extra_defaults.items():
+                if key in accepted_kwargs:
+                    kwargs[key] = kwargs.get(key, value)
+
+            fig = None
+            ax = None
+
+            # Create new axes if requested
+            if new_ax:
+                fig, ax = plt.subplots(
+                    figsize=fig_size_param, 
+                    dpi=kwargs.get('dpi', dpi_)
+                )
+                if 'ax' in func_params:
+                    kwargs['ax'] = ax
+            else:
+                # Attempt to retrieve ax from args or kwargs
+                if args:
+                    potential_ax = args[0]
+                    if isinstance(potential_ax, plt.Axes):
+                        ax = potential_ax
+                if not ax and 'ax' in kwargs:
+                    ax = kwargs['ax']
+                if ax is None and 'ax' in func_params:
+                    fig, ax = plt.subplots(
+                        figsize=fig_size_param, 
+                        dpi=kwargs.get('dpi', dpi)
+                    )
+                    kwargs['ax'] = ax
+
+            # Call the decorated function
+            result = func(*args, **kwargs)
+
+            # If title is to be set and accepted by the function
+            if title and 'title' in accepted_kwargs and kwargs.get('title'):
+                if isinstance(result, plt.Axes):
+                    result.set_title(kwargs['title'])
+                elif isinstance(result, plt.Figure):
+                    result.suptitle(kwargs['title'])
+                    fig = result
+                else:
+                    # Attempt to get the current Axes and set the title
+                    ax = plt.gca()
+                    ax.set_title(kwargs['title'])
+                    fig = ax.get_figure()
+            
+            # Save figure if savefig is specified and accepted
+            if savefig_param and 'savefig' in accepted_kwargs:
+                if isinstance(result, plt.Figure):
+                    fig = result
+                elif isinstance(result, plt.Axes):
+                    fig = result.get_figure()
+                if fig is None:
+                    fig = plt.gcf()
+                fig.savefig(
+                    savefig_param, 
+                    dpi=kwargs.get('dpi', dpi)
+                )
+                print(f"Figure saved as {savefig_param}")  # Confirmation
+            
+            # Close figure if close is True
+            if close and fig is not None:
+                plt.close(fig)
+                print("Figure closed.")  # Confirmation
+
+            return result
+
+        return wrapper
+    
+    return decorator
 
 def param_deprecated_message(
     deprecated_params_mappings=None, 

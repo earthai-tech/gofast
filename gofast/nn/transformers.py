@@ -2118,7 +2118,7 @@ class XTFT(Model, NNLearner):
     forecast_horizons : int, optional
         Number of future time steps to predict. Default is ``1``. This
         parameter specifies how many steps ahead the model provides
-        forecasts. For instance, `forecast_horizons=3` means the model
+        forecasts. For instance, `forecast_horizon=3` means the model
         predicts values for three future periods simultaneously.
         Increasing this allows multi-step forecasting, but may
         complicate learning if too large.
@@ -2266,7 +2266,7 @@ class XTFT(Model, NNLearner):
     ...     dynamic_input_dim=45,
     ...     future_covariate_dim=5,
     ...     forecast_horizons=3,
-    ...     quantiles=[0.1, 0.5, 0.9],
+    ...     quantiles=None# [0.1, 0.5, 0.9],
     
     ...     scales='auto',
     ...     final_agg='last'

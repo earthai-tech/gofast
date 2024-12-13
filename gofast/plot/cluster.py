@@ -32,6 +32,7 @@ from ..api.types import NDArray, ArrayLike, DataFrame
 from ..api.types import List, Tuple, Optional
 from ..core.array_manager import to_numeric_dtypes 
 from ..core.checks import is_iterable 
+from ..core.handlers import default_params_plot  
 from ..tools.mathext import linkage_matrix 
 from ..tools.validator import check_X_y, check_array, check_y 
 from ..tools.validator import validate_positive_integer, is_frame
@@ -49,6 +50,7 @@ __all__=[
     'plot_voronoi',
 ]
 
+@default_params_plot(savefig='my_dendroheat_plot.png')
 def plot_dendroheat(
     df: DataFrame | NDArray, 
     columns: List[str] = None, 
@@ -59,6 +61,7 @@ def plot_dendroheat(
     cmap: str = 'hot_r', 
     fig_size: Tuple[int] = (8, 8), 
     facecolor: str = 'white', 
+    savefig=None, 
     **kwd
 ):
     """
@@ -161,8 +164,7 @@ def plot_dendroheat(
     .. [1] Murtagh, F. (1985). Multidimensional Clustering Algorithms. 
        Compstat Lectures 4, Wuerzburg: Physica-Verlag.
     """
-    from ..tools.spatialutils import linkage_matrix 
-    
+
     df=check_array (
         df, 
         input_name="Data 'df' ", 
@@ -234,7 +236,8 @@ def plot_dendroheat(
         [''] + list (df_rowclust_index)))
     
     plt.show () 
-
+    
+@default_params_plot(savefig='my_elbow_plot.png')
 def plot_elbow(
     X, n_clusters: int = 8, n_init: int = 10, max_iter: int = 300, 
     random_state: int = 42, fig_size: Tuple[int, int] = (10, 4), 
@@ -318,6 +321,7 @@ def plot_elbow(
     .. [1] Jain, A. K. (2010). Data clustering: 50 years beyond K-means. 
        Pattern recognition letters, 31(8), 651-666.
     """
+
     distorsions =[] 
     n_clusters = validate_positive_integer(n_clusters, "n_clusters")
     for i in range (1, n_clusters ): 
@@ -379,6 +383,7 @@ def _plot_elbow (distorsions: list  , n_clusters:int ,fig_size = (10 , 4 ),
     
     return ax 
 
+@default_params_plot(savefig='my_cluster_plot.png')
 def plot_clusters(
     n_clusters, 
     X, 
@@ -492,6 +497,7 @@ def plot_clusters(
          savefigure(savefig, savefig )
     plt.close () if savefig is not None else plt.show() 
 
+@default_params_plot(savefig='my_dendrogram_in_plot.png')
 def plot_dendrogram_in(
     X: ArrayLike, 
     *ybounds, 
@@ -620,6 +626,7 @@ def plot_dendrogram_in(
         
     plt.close () if savefig is not None else plt.show() 
 
+@default_params_plot(savefig='my_silhouette_plot.png')
 def plot_silhouette (
     X:NDArray |DataFrame, 
     labels:ArrayLike=None, 
@@ -629,7 +636,8 @@ def plot_silhouette (
     max_iter:int=300 , 
     random_state:int=None , 
     tol:float=1e4 , 
-    metric:str='euclidean', 
+    metric:str='euclidean',
+    savefig=None, 
     **kwd 
  ): 
     r"""
@@ -866,6 +874,7 @@ def _plot_silhouette (X, labels, metric ='euclidean', **kwds ):
 
     plt.show() 
 
+@default_params_plot(savefig='my_silhouette_plot.png', dpi=300)
 def plot_silhouette_in(
     X, labels, 
     metric='euclidean',
@@ -981,6 +990,8 @@ def plot_silhouette_in(
         
     plt.close () if savefig is not None else plt.show() 
 
+
+@default_params_plot(savefig='my_dendrogram_plot.png', dpi=300)
 def plot_dendrogram(
     df: DataFrame, 
     columns: List[str] = None, 
@@ -1143,13 +1154,15 @@ def plot_dendrogram(
     
     return r if return_r else None 
 
+@default_params_plot(savefig='my_cluster_comparison_plot.png', dpi=300)
 def plot_cluster_comparison(
     data,  
     cluster_col, 
     class_col, 
     figsize=(10, 6), 
     palette="RdYlGn", 
-    title="Clusters versus Prior Classes"
+    title="Clusters versus Prior Classes", 
+    savefig=None, 
 ):
     """
     Plots a comparison of clusters versus prior class distributions 
@@ -1249,6 +1262,11 @@ def plot_cluster_comparison(
 
     return ax
 
+@default_params_plot(
+    savefig='my_cluster_comparison_plot.png',
+    title='My Veronoi Plot', 
+    dpi=300
+ )
 def plot_voronoi(
     X: ArrayLike, 
     y: ArrayLike, *, 
@@ -1259,7 +1277,7 @@ def plot_voronoi(
     line_width: float = 1.,
     line_alpha: float = 1.,   
     fig_size: Tuple[int, int] = (7, 7), 
-    fig_title: str = ''
+    title: Optional[str]= None
 ) -> Axes:
     """
     Plots the Voronoi diagram of k-means clusters overlaid with the data points,
@@ -1357,7 +1375,7 @@ def plot_voronoi(
                     line_alpha=line_alpha,  
                     )
     #ax.legend() 
-    ax.set_title (fig_title , fontsize=20)
+    ax.set_title (title , fontsize=20)
     #fig.suptitle(fig_title, fontsize=20) 
     return ax 
  
