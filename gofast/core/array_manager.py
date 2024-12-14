@@ -46,6 +46,8 @@ __all__ = [
     'reduce_dimensions', 
     ]
 
+def get_X_from(X, dtypes ):
+    return X.select_dtypes(include=dtypes)
 
 def reduce_dimensions(
     arr: np.ndarray,
