@@ -15,7 +15,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 import numpy as np
 
 from ..api.docs import _shared_docs, doc
-from ..backends.selector import select_backend_n 
+from ..backends.selector import select_backend_n, safe_cast  
 from ..compat.numpy import safe_erf 
 from ..compat.sklearn import validate_params, Interval, StrOptions
 from ..core.utils import smart_format
@@ -335,7 +335,6 @@ class ReLUTransformer(BaseEstimator, TransformerMixin):
         join="\n"
     )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend_ = select_backend_n(
             self.backend, return_both=True
         )
@@ -557,7 +556,6 @@ class SigmoidTransformer(BaseEstimator, TransformerMixin):
         join="\n"
     )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend_ = select_backend_n(
             self.backend, return_both=True
         )
@@ -800,7 +798,6 @@ class TanhTransformer(BaseEstimator, TransformerMixin):
         join="\n"
     )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend_ = select_backend_n(
             self.backend, return_both=True
         )
@@ -1093,7 +1090,6 @@ class ELUTransformer(BaseEstimator, TransformerMixin):
         join="\n"
     )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend_ = select_backend_n(
             self.backend, return_both=True
         )
@@ -1378,7 +1374,6 @@ class LeakyReLUTransformer(BaseEstimator, TransformerMixin):
         join="\n"
     )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend_ = select_backend_n(
             self.backend, return_both=True
         )
@@ -1665,7 +1660,6 @@ class SoftmaxTransformer(BaseEstimator, TransformerMixin):
         join="\n", 
     )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend_ = select_backend_n(
             self.backend, return_both=True
         )
@@ -1944,7 +1938,6 @@ class SwishTransformer(BaseEstimator, TransformerMixin):
         join="\n", 
     )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend_ = select_backend_n(
             self.backend, return_both=True
         )
@@ -2224,7 +2217,6 @@ class HardSigmoidTransformer(BaseEstimator, TransformerMixin):
         join="\n", 
     )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend_ = select_backend_n(
             self.backend, return_both=True
         )
@@ -2478,7 +2470,6 @@ class HardSwishTransformer(BaseEstimator, TransformerMixin):
         join="\n", 
     )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend_ = select_backend_n(
             self.backend, return_both=True
         )
@@ -2704,7 +2695,6 @@ class SoftplusTransformer(BaseEstimator, TransformerMixin):
         join="\n", 
     )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend_ = select_backend_n(
             self.backend, return_both=True
         )
@@ -2926,7 +2916,6 @@ class GELUTransformer(BaseEstimator, TransformerMixin):
         join="\n", 
     )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend_ = select_backend_n(
             self.backend, return_both=True
         )
@@ -3188,7 +3177,6 @@ class SELUTransformer(BaseEstimator, TransformerMixin):
         join= "\n", 
         )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend_ = select_backend_n(
             self.backend, return_both=True
         )
@@ -3520,7 +3508,6 @@ class MishTransformer(BaseEstimator, TransformerMixin):
         join= "\n", 
         )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend = select_backend_n(
             self.backend, return_both=True)
         
@@ -3810,7 +3797,6 @@ class ELISHTransformer(BaseEstimator, TransformerMixin):
         join= "\n", 
         )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend = select_backend_n(
             self.backend, return_both=True)
         
@@ -4069,7 +4055,6 @@ class LogSigmoidTransformer(BaseEstimator, TransformerMixin):
         join= "\n", 
         )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend = select_backend_n(
             self.backend, return_both=True)
         
@@ -4323,7 +4308,6 @@ class TanhshrinkTransformer(BaseEstimator, TransformerMixin):
         join= "\n", 
         )
     def fit(self, X, y=None):
-        """Fit the transformer."""
         self.backend_name_, self.backend = select_backend_n(
             self.backend, return_both=True)
         
@@ -4379,7 +4363,6 @@ class TanhshrinkTransformer(BaseEstimator, TransformerMixin):
             print("TanhshrinkTransformer: Transformation completed.")
 
         return X_transformed
-
 
 class Swish1Transformer(BaseEstimator, TransformerMixin):
     """
@@ -4565,7 +4548,7 @@ class Swish1Transformer(BaseEstimator, TransformerMixin):
         shift=0.0,
         precision=1e-6,
         batch_size=None,
-        backend=None,  # None defaults to NumPy
+        backend=None, 
         verbose=0
     ):
         self.scale = scale
@@ -4577,12 +4560,45 @@ class Swish1Transformer(BaseEstimator, TransformerMixin):
 
     @Appender(
         _activation_doc['fit'].format(fmt='Swish1Transformer'), 
-        join= "\n", 
-        )
+        join="\n",
+    )
     def fit(self, X, y=None):
-        """Fit the transformer."""
-        self.backend_name_, self.backend = select_backend_n(
-            self.backend, return_both=True)
+        self.backend_name_, self.backend_ = select_backend_n(
+            self.backend, 
+            return_both=True
+        )
+        
+        # Debugging: Print selected backend
+        if self.verbose >= 3:
+            print(f"Selected backend name: {self.backend_name_}")
+        
+        # Cast scale, shift, precision, and batch_size using safe_cast
+        self.scale = safe_cast(
+            backend=self.backend_,
+            value=self.scale,
+            dtype=self.backend_.float32,
+            backend_name=self.backend_name_
+        )
+        self.shift = safe_cast(
+            backend=self.backend_,
+            value=self.shift,
+            dtype=self.backend_.float32,
+            backend_name=self.backend_name_
+        )
+        self.precision = safe_cast(
+            backend=self.backend_,
+            value=self.precision,
+            dtype=self.backend_.float32,
+            backend_name=self.backend_name_
+        )
+        
+        if self.batch_size is not None: 
+            self.batch_size = safe_cast(
+                backend=self.backend_,
+                value=self.batch_size,
+                dtype=self.backend_.int32,
+                backend_name=self.backend_name_
+            )
         
         return self
     
@@ -4591,27 +4607,57 @@ class Swish1Transformer(BaseEstimator, TransformerMixin):
     def transform(self, X):
         if self.verbose >= 1:
             print("Swish1Transformer: Starting transformation.")
-
+    
         def swish1(x):
+            # Determine the dtype of x
+            dtype = x.dtype
+            
+            # Cast constants to match the dtype of x
+            one = safe_cast(
+                backend=self.backend_,
+                value=1,
+                dtype=dtype,
+                backend_name=self.backend_name_
+            )
+            
             # Swish-1(x) = x * sigmoid(x) = x * (1 / (1 + exp(-x)))
-            sigmoid = self.backend.divide(
-                1,
-                self.backend.add(
-                    1,
-                    self.backend.exp(-x)
+            sigmoid = self.backend_.divide(
+                one,
+                self.backend_.add(
+                    one,
+                    self.backend_.exp(-x)
                 )
             )
-            return self.backend.multiply(x, sigmoid)
-
+            return self.backend_.multiply(x, sigmoid)
+    
         def apply_scale_shift(x):
-            return self.backend.add(
-                self.backend.multiply(self.scale, x),
-                self.shift
-            )
-
+            if self.backend_name_ =='tensorflow':
+                # Ensure scale and shift are cast to the same dtype as x
+                scale = safe_cast(
+                    backend=self.backend_,
+                    value=self.scale,
+                    dtype=x.dtype,
+                    backend_name=self.backend_name_
+                )
+                shift = safe_cast(
+                    backend=self.backend_,
+                    value=self.shift,
+                    dtype=x.dtype,
+                    backend_name=self.backend_name_
+                )
+                return self.backend_.add(
+                    self.backend_.multiply(scale, x),
+                    shift
+                )
+            else:
+                return self.backend_.add(
+                    self.backend_.multiply(self.scale, x),
+                    self.shift
+                )
+    
         def process_batch(batch):
             return apply_scale_shift(swish1(batch))
-
+    
         if self.batch_size is None:
             if self.verbose >= 2:
                 print("Swish1Transformer: Processing all data at once.")
@@ -4623,23 +4669,24 @@ class Swish1Transformer(BaseEstimator, TransformerMixin):
                     f"{self.batch_size}."
                 )
             X_transformed = []
-            num_samples = self.backend.shape(X)[0]
+            num_samples = self.backend_.shape(X)[0]
             for start in range(0, num_samples, self.batch_size):
                 end = start + self.batch_size
-                batch = self.backend.slice(X, start, end)
+                batch = self.backend_.slice(X, start, end)
                 if self.verbose >= 3:
                     print(
                         f"Swish1Transformer: Processing batch {start} to {end}."
                     )
                 transformed_batch = process_batch(batch)
                 X_transformed.append(transformed_batch)
-            X_transformed = self.backend.concatenate(
-                X_transformed, axis=0
+            X_transformed = self.backend_.concatenate(
+                X_transformed, 
+                axis=0
             )
-
+    
         if self.verbose >= 1:
             print("Swish1Transformer: Transformation completed.")
-
+    
         return X_transformed
 
 @check_params ({'activation': str }, coerce=True)
@@ -4851,5 +4898,4 @@ def get_activation_transformer(activation, **params):
     transformer_func = transformers[activation_name]
     valid_params = filter_valid_kwargs(transformer_func, params)
     return transformer_func (**valid_params)
-
 
