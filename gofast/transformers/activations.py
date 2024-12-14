@@ -17,11 +17,11 @@ import numpy as np
 from ..api.docs import _shared_docs, doc
 from ..backends.selector import select_backend_n 
 from ..compat.numpy import safe_erf 
-from ..compat.sklearn import validate_params, Interval, StrOptions
+from ..compat.sklearn import validate_params, Interval, StrOptions, Hidden
+from ..core.utils import smart_format
 from ..decorators import Appender, DataTransformer
 from ..tools.validator import check_array, filter_valid_kwargs
 from ..tools.validator import parameter_validator  
-from ..tools.depsutils import ensure_pkg 
 
 
 __all__= [ 
@@ -41,7 +41,8 @@ __all__= [
     'ELISHTransformer',
     'LogSigmoidTransformer',
     'TanhshrinkTransformer',
-    'Swish1Transformer'
+    'Swish1Transformer', 
+    'get_activation_transformer'
     ]
 
 # Shared documentation for transformers to avoid redundancy.
@@ -316,50 +317,136 @@ class ReLUTransformer(BaseEstimator, TransformerMixin):
         shift=0.0, 
         precision=1e-6, 
         batch_size=None, 
-        backend= None, 
-        verbose=False
-        ):
-
+        backend=None, 
+        verbose=0
+    ):
         self.scale = scale
         self.shift = shift
         self.precision = precision
         self.batch_size = batch_size
-        self.backend =backend 
-        self.verbose =verbose 
-        
+        self.backend = backend
+        self.verbose = verbose
+        self.backend_name_ = None
+        self.backend_ = None
 
     @Appender(
         _activation_doc['fit'].format(fmt='ReLUTransformer'), 
-        join= "\n", 
-        )
+        join="\n"
+    )
     def fit(self, X, y=None):
         """Fit the transformer."""
+        self.backend_name_, self.backend_ = select_backend_n(
+            self.backend, return_both=True
+        )
         return self
-    
-    @DataTransformer(name='X', mode='lazy', keep_origin_type=True,)
+
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
     @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        
-        X = check_array(X, ensure_2d=True, dtype=np.float64)
-        
-        self.backend = select_backend_n(self.backend)
-        # Apply scaling and shifting before ReLU transformation
+        if self.verbose >= 1:
+            self._log(1, f"Using backend: {self.backend_name_}")
+
+        X = self._validate_input(X)
         X_scaled_shifted = self.scale * X + self.shift
 
-        if self.batch_size is not None:
-            n_samples = X.shape[0]
-            n_batches = int(np.ceil(n_samples / self.batch_size))
-            X_transformed = np.zeros_like(X_scaled_shifted, dtype=np.float64)
-            for i in range(n_batches):
-                batch_start = i * self.batch_size
-                batch_end = min((i + 1) * self.batch_size, n_samples)
-                X_transformed[batch_start:batch_end] = np.maximum(
-                    0, X_scaled_shifted[batch_start:batch_end])
-        else:
-            # Apply ReLU transformation on the whole dataset
-            X_transformed = np.maximum(0, X_scaled_shifted)
+        if self.batch_size:
+            return self._batch_process(X_scaled_shifted)
 
-        return X_transformed
+        return self._apply_transformation(X_scaled_shifted)
+
+    def _validate_input(self, X):
+        return check_array(X, ensure_2d=True, dtype=np.float64, input_name="X")
+
+    def _apply_transformation(self, X):
+        return self._apply_relu(X)
+
+    def _batch_process(self, X):
+        n_samples = X.shape[0]
+        n_batches = int(np.ceil(n_samples / self.batch_size))
+        transformed_batches = []
+
+        for i in range(n_batches):
+            batch_start = i * self.batch_size
+            batch_end = min((i + 1) * self.batch_size, n_samples)
+            batch_X = X[batch_start:batch_end]
+
+            if self.verbose >= 2:
+                self._log(2, ( 
+                    f"Processing batch {i + 1}/{n_batches} "
+                    f"(samples {batch_start} to {batch_end}).")
+                    )
+
+            transformed_batch = self._apply_relu(batch_X)
+
+            if self.precision:
+                transformed_batch = self._apply_precision(transformed_batch)
+
+            transformed_batches.append(transformed_batch)
+
+            if self.verbose >= 3:
+                self._log(3, f"Batch {i + 1}-{n_batches} transformed.")
+
+        return self._concatenate_batches(transformed_batches)
+
+    def _get_relu_function(self):
+        if self.backend_name_ == 'numpy':
+            return self._relu_numpy
+        elif self.backend_name_ == 'tensorflow':
+            return self._relu_tensorflow
+        elif self.backend_name_ == 'torch':
+            return self._relu_pytorch
+        else:
+            raise ValueError(
+                f"Unsupported backend: {self.backend_name_}. "
+                "Supported backends are 'numpy', 'tensorflow', and 'torch'."
+            )
+
+    def _apply_relu(self, X):
+        relu_func = self._get_relu_function()
+        return relu_func(X)
+
+    def _relu_numpy(self, X):
+        return self.backend_.maximum(0, X)
+
+    def _relu_tensorflow(self, X):
+        return self.backend_.math.maximum(0, X)
+
+    def _relu_pytorch(self, X):
+        return self.backend_.relu(X)
+
+    def _apply_precision(self, transformed_batch):
+        if self.backend_name_ == 'numpy':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.math.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'torch':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        else:
+            raise ValueError(
+                f"Unsupported backend for precision application: {self.backend_name_}."
+            )
+
+    def _concatenate_batches(self, transformed_batches):
+        if self.backend_name_ == 'numpy':
+            return self.backend_.vstack(transformed_batches)
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.concat(transformed_batches, axis=0)
+        elif self.backend_name_ == 'torch':
+            return self.backend_.cat(transformed_batches, dim=0)
+        else:
+            raise ValueError(
+                f"Unsupported backend for concatenation: {self.backend_name_}."
+            )
+
+    def _log(self, level, message):
+        if self.verbose >= level:
+            print(message)
 
 @doc( 
     mathf =dedent( 
@@ -455,67 +542,136 @@ class SigmoidTransformer(BaseEstimator, TransformerMixin):
         precision=1e-6, 
         batch_size=None, 
         backend=None, 
-        verbose=False
+        verbose=0
     ):
         self.scale = scale
         self.shift = shift
         self.precision = precision
         self.batch_size = batch_size
-        self.backend =backend 
-        self.verbose =verbose 
+        self.backend = backend
+        self.verbose = verbose
 
     @Appender(
         _activation_doc['fit'].format(fmt='SigmoidTransformer'), 
-        join= "\n", 
-        )
+        join="\n"
+    )
     def fit(self, X, y=None):
         """Fit the transformer."""
+        self.backend_name_, self.backend_ = select_backend_n(
+            self.backend, return_both=True
+        )
         return self
-    
-    @DataTransformer(name='X', mode='lazy', keep_origin_type=True,)
+
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
     @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        # Validate the input and check if it is a DataFrame or array-like object
-        X = check_array(
-            X, 
-            ensure_2d=True, 
-            input_name='X'
-        )
-        if self.batch_size is not None:
-            # Process in batches if batch_size is specified
-            n_samples = X.shape[0]
-            n_batches = int(np.ceil(n_samples / self.batch_size))
-            X_transformed = np.zeros_like(X, dtype=np.float64)
-            for i in range(n_batches):
-                batch_start = i * self.batch_size
-                batch_end = min((i + 1) * self.batch_size, n_samples)
-                X_transformed[batch_start:batch_end] = self._sigmoid(
-                    X[batch_start:batch_end])
+        if self.verbose >= 1:
+            self._log(1, f"Using backend: {self.backend_name_}")
+
+        X = self._validate_input(X)
+        X_transformed = self.scale * X + self.shift
+
+        if self.batch_size:
+            return self._batch_process(X_transformed)
+
+        return self._apply_transformation(X_transformed)
+
+    def _validate_input(self, X):
+        return check_array(X, ensure_2d=True, input_name="X")
+
+    def _apply_transformation(self, X):
+        return self._apply_sigmoid(X)
+
+    def _batch_process(self, X):
+        n_samples = X.shape[0]
+        n_batches = int(np.ceil(n_samples / self.batch_size))
+        transformed_batches = []
+
+        for i in range(n_batches):
+            batch_start = i * self.batch_size
+            batch_end = min((i + 1) * self.batch_size, n_samples)
+            batch_X = X[batch_start:batch_end]
+
+            if self.verbose >= 2:
+                self._log(2, 
+                          ( 
+                              f"Processing batch {i + 1}/{n_batches} "
+                              f"(samples {batch_start} to {batch_end}).")
+                          )
+
+            transformed_batch = self._apply_sigmoid(batch_X)
+            transformed_batch = self.scale * transformed_batch + self.shift
+
+            if self.precision:
+                transformed_batch = self._apply_precision(transformed_batch)
+
+            transformed_batches.append(transformed_batch)
+
+            if self.verbose >= 3:
+                self._log(3, f"Batch {i + 1}-{n_batches} transformed.")
+
+        return self._concatenate_batches(transformed_batches)
+
+    def _get_sigmoid_function(self):
+        if self.backend_name_ == 'numpy':
+            return self._sigmoid_numpy
+        elif self.backend_name_ == 'tensorflow':
+            return self._sigmoid_tensorflow
+        elif self.backend_name_ == 'torch':
+            return self._sigmoid_pytorch
         else:
-            # No batch processing, transform the entire input at once
-            X_transformed = self._sigmoid(X)
+            raise ValueError(
+                f"Unsupported backend: {self.backend_name_}. "
+                "Supported backends are 'numpy', 'tensorflow', and 'torch'."
+            )
 
-        return X_transformed
-    
-    def _sigmoid(self, X):
-        """
-        Helper function to apply the Sigmoid function with scaling and shifting.
+    def _apply_sigmoid(self, X):
+        sigmoid_func = self._get_sigmoid_function()
+        return sigmoid_func(X)
 
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            The input data to transform.
+    def _sigmoid_numpy(self, X):
+        return 1 / (1 + np.exp(-X))
 
-        Returns
-        -------
-        transformed : array-like, shape (n_samples, n_features)
-            The transformed data with the Sigmoid function applied element-wise.
-        """
-        # Apply the scaling and shifting before applying the Sigmoid function
-        X_scaled_shifted = self.scale * X + self.shift
-        return 1 / (1 + np.exp(-X_scaled_shifted))
+    def _sigmoid_tensorflow(self, X):
+        return self.backend_.math.sigmoid(X)
 
-# Tanh Activation Transformer
+    def _sigmoid_pytorch(self, X):
+        return self.backend_.sigmoid(X)
+
+    def _apply_precision(self, transformed_batch):
+        if self.backend_name_ == 'numpy':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.math.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'torch':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        else:
+            raise ValueError(
+                f"Unsupported backend for precision application: {self.backend_name_}."
+            )
+
+    def _concatenate_batches(self, transformed_batches):
+        if self.backend_name_ == 'numpy':
+            return self.backend_.vstack(transformed_batches)
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.concat(transformed_batches, axis=0)
+        elif self.backend_name_ == 'torch':
+            return self.backend_.cat(transformed_batches, dim=0)
+        else:
+            raise ValueError(
+                f"Unsupported backend for concatenation: {self.backend_name_}."
+            )
+
+    def _log(self, level, message):
+        if self.verbose >= level:
+            print(message)
+
 @doc( 
     mathf =dedent( 
     """\
@@ -628,8 +784,8 @@ class TanhTransformer(BaseEstimator, TransformerMixin):
         precision=1e-6, 
         batch_size=None, 
         backend=None,
-        verbose=False
-        ):
+        verbose=0
+    ):
         self.scale = scale
         self.shift = shift
         self.precision = precision
@@ -637,143 +793,127 @@ class TanhTransformer(BaseEstimator, TransformerMixin):
         self.backend = backend
         self.verbose = verbose
 
+
     @Appender(
         _activation_doc['fit'].format(fmt='TanhTransformer'), 
-        join= "\n", 
-        )
+        join="\n"
+    )
     def fit(self, X, y=None):
         """Fit the transformer."""
+        self.backend_name_, self.backend_ = select_backend_n(
+            self.backend, return_both=True
+        )
         return self
-    
-    @DataTransformer(name='X', mode='lazy', keep_origin_type=True,)
+
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
     @doc(_shared_docs['activation_transform'])
     def transform(self, X):
+        if self.verbose >= 1:
+            self._log(1, f"Using backend: {self.backend_name_}")
 
-        # Ensure input is in the correct format
-        X = check_array(X, ensure_2d=True, input_name='X')
+        X = self._validate_input(X)
+        X_transformed = self.scale * X + self.shift
 
-        # If backend is not specified, use numpy by default
-        if self.backend is None:
-            self.backend = 'numpy'
+        if self.batch_size:
+            return self._batch_process(X_transformed)
 
-        # If batch processing is specified, apply transformation in batches
-        if self.batch_size is not None:
-            return self._batch_process(X)
-        else:
-            return self._apply_tanh(X)
+        return self._apply_transformation(X_transformed)
 
-    def _apply_tanh(self, X):
-        """
-        Helper function to apply the Tanh activation function to the 
-        input data with optional scaling and shifting.
+    def _validate_input(self, X):
+        return check_array(X, ensure_2d=True, input_name="X")
 
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            The input data to transform.
-
-        Returns
-        -------
-        transformed : array-like, shape (n_samples, n_features)
-            The transformed data after applying Tanh.
-        """
-        # Apply scaling and shifting
-        X_scaled_shifted = self.scale * X + self.shift
-
-        # Select the backend and apply Tanh
-        return self._select_backend(X_scaled_shifted)
+    def _apply_transformation(self, X):
+        return self._apply_tanh(X)
 
     def _batch_process(self, X):
-        """
-        Processes the data in batches if `batch_size` is specified.
-
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            The input data to transform.
-
-        Returns
-        -------
-        X_transformed : array-like, shape (n_samples, n_features)
-            The transformed data after applying Tanh in batches.
-        """
         n_samples = X.shape[0]
         n_batches = int(np.ceil(n_samples / self.batch_size))
-        X_transformed = np.zeros_like(X, dtype=np.float64)
+        transformed_batches = []
 
         for i in range(n_batches):
             batch_start = i * self.batch_size
             batch_end = min((i + 1) * self.batch_size, n_samples)
-            X_transformed[batch_start:batch_end] = self._apply_tanh(
-                X[batch_start:batch_end])
+            batch_X = X[batch_start:batch_end]
 
-            if self.verbose:
-                print(f"Processing batch {i+1}/{n_batches}")
+            if self.verbose >= 2:
+                self._log(2, ( 
+                    f"Processing batch {i + 1}/{n_batches}"
+                    f" (samples {batch_start} to {batch_end}).")
+                    )
 
-        return X_transformed
+            transformed_batch = self._apply_tanh(batch_X)
+            transformed_batch = self.scale * transformed_batch + self.shift
 
-    def _select_backend(self, X):
-        """
-        Selects the backend for the Tanh transformation computation.
-    
-        This method allows users to choose a backend for computation. It 
-        supports NumPy, TensorFlow, and PyTorch. These backends can be used
-        to process the input data either on the CPU or GPU depending on
-        the framework.
-    
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            The input data to transform. This data is passed to the selected
-            backend for computation.
-    
-        Returns
-        -------
-        backend : callable
-            A callable function (e.g., `np.tanh` for NumPy, `tf.math.tanh`
-                                 for TensorFlow, 
-            or `torch.tanh` for PyTorch) that applies the Tanh activation
-            function.
-    
-        Raises
-        ------
-        ValueError
-            If the specified backend is not supported, an error is raised.
-    
-        Notes
-        -----
-        The default backend is NumPy, which is used if no backend is specified 
-        or if 'numpy' is specified explicitly. 
-        """
+            if self.precision:
+                transformed_batch = self._apply_precision(transformed_batch)
 
-        # Check the selected backend and return the appropriate function
-        if self.backend in ( "numpy", "np"):
-            return np.tanh  # Use NumPy's Tanh function
-        elif self.backend in ( "tensorflow", "tf"):
-            # Ensure TensorFlow is available
-            try:
-                # Use TensorFlow's Tanh function (works on CPU or GPU)
-                import tensorflow as tf
-                return tf.math.tanh
-            except ImportError:
-                raise ImportError(
-                    "TensorFlow is not installed. Please install"
-                    " TensorFlow to use this backend.")
-        elif self.backend == "torch":
-            # Ensure PyTorch is available
-            try:
-                # Use PyTorch's Tanh function (works on CPU or GPU)
-                import torch
-                return torch.tanh
-            except ImportError:
-                raise ImportError(
-                    "PyTorch is not installed. Please install"
-                    " PyTorch to use this backend.")
-        elif self.backend is None:
-            self.backend = "numpy"  # Default to NumPy if no backend is specified
-            return np.tanh
+            transformed_batches.append(transformed_batch)
 
-# ELU Activation Transformer (Exponential Linear Unit)
+            if self.verbose >= 3:
+                self._log(3, f"Batch {i + 1}-{n_batches} transformed.")
+
+        return self._concatenate_batches(transformed_batches)
+
+    def _get_tanh_function(self):
+        if self.backend_name_ == 'numpy':
+            return self._tanh_numpy
+        elif self.backend_name_ == 'tensorflow':
+            return self._tanh_tensorflow
+        elif self.backend_name_ == 'torch':
+            return self._tanh_pytorch
+        else:
+            raise ValueError(
+                f"Unsupported backend: {self.backend_name_}. "
+                "Supported backends are 'numpy', 'tensorflow', and 'torch'."
+            )
+
+    def _apply_tanh(self, X):
+        tanh_func = self._get_tanh_function()
+        return tanh_func(X)
+
+    def _tanh_numpy(self, X):
+        return np.tanh(X)
+
+    def _tanh_tensorflow(self, X):
+        return self.backend_.math.tanh(X)
+
+    def _tanh_pytorch(self, X):
+        return self.backend_.tanh(X)
+
+    def _apply_precision(self, transformed_batch):
+        if self.backend_name_ == 'numpy':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.math.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'torch':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        else:
+            raise ValueError(
+                f"Unsupported backend for precision application: {self.backend_name_}."
+            )
+
+    def _concatenate_batches(self, transformed_batches):
+        if self.backend_name_ == 'numpy':
+            return self.backend_.vstack(transformed_batches)
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.concat(transformed_batches, axis=0)
+        elif self.backend_name_ == 'torch':
+            return self.backend_.cat(transformed_batches, dim=0)
+        else:
+            raise ValueError(
+                f"Unsupported backend for concatenation: {self.backend_name_}."
+            )
+
+    def _log(self, level, message):
+        if self.verbose >= level:
+            print(message)
+
 @doc( 
     examples =dedent( 
     """\
@@ -928,6 +1068,7 @@ class ELUTransformer(BaseEstimator, TransformerMixin):
         "backend": [StrOptions (_VALID_BACKEND_SET), None], 
         }
     )    
+
     def __init__(
         self,
         scale=1.0, 
@@ -936,8 +1077,8 @@ class ELUTransformer(BaseEstimator, TransformerMixin):
         batch_size=None,
         backend=None, 
         alpha=1.0, 
-        verbose=False
-        ):
+        verbose=0
+    ):
         self.alpha = alpha
         self.scale = scale
         self.shift = shift
@@ -948,158 +1089,124 @@ class ELUTransformer(BaseEstimator, TransformerMixin):
 
     @Appender(
         _activation_doc['fit'].format(fmt='ELUTransformer'), 
-        join= "\n", 
-        )
+        join="\n"
+    )
     def fit(self, X, y=None):
         """Fit the transformer."""
+        self.backend_name_, self.backend_ = select_backend_n(
+            self.backend, return_both=True
+        )
         return self
-    
+
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
     @doc(_shared_docs['activation_transform'])
     def transform(self, X):
+        if self.verbose >= 1:
+            self._log(1, f"Using backend: {self.backend_name_}")
 
-        # Check X 
-        X = check_array(X, ensure_2d=True, input_name="X")
-        
-        self.backend = select_backend_n(self.backend )
-  
-        if self.backend =="tensorflow":
-            return self._transform_tensorflow(X)
-        elif self.backend == "torch":
-            return self._transform_pytorch(X)
-        else:
-            return self._transform_numpy(X)
+        X = self._validate_input(X)
+        X_transformed = self.scale * X + self.shift
 
-    def _apply_elu(self, X):
-        """
-        Apply the ELU activation function element-wise with 
-        scaling and shifting.
+        if self.batch_size:
+            return self._batch_process(X_transformed)
 
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            The input data to transform.
+        return self._apply_transformation(X_transformed)
 
-        Returns
-        -------
-        transformed : array-like, shape (n_samples, n_features)
-            The transformed data after applying ELU.
-        """
-        X_scaled_shifted = self.scale * X + self.shift
-        return np.where(X_scaled_shifted > 0, 
-                        X_scaled_shifted, 
-                        self.alpha * (np.exp(X_scaled_shifted) - 1))
+    def _validate_input(self, X):
+        return check_array(X, ensure_2d=True, input_name="X")
+
+    def _apply_transformation(self, X):
+        return self._apply_elu(X)
 
     def _batch_process(self, X):
-        """
-        Apply the ELU function to the data in batches.
-        """
         n_samples = X.shape[0]
         n_batches = int(np.ceil(n_samples / self.batch_size))
-        X_transformed = np.zeros_like(X, dtype=np.float64)
+        transformed_batches = []
 
         for i in range(n_batches):
             batch_start = i * self.batch_size
             batch_end = min((i + 1) * self.batch_size, n_samples)
-            X_transformed[batch_start:batch_end] = self._apply_elu(
-                X[batch_start:batch_end])
+            batch_X = X[batch_start:batch_end]
 
-            if self.verbose:
-                print(f"Processing batch {i+1}/{n_batches}")
+            if self.verbose >= 2:
+                self._log(2, ( 
+                    f"Processing batch {i + 1}/{n_batches}"
+                    f" (samples {batch_start} to {batch_end}).")
+                    )
 
-        return X_transformed
+            transformed_batch = self._apply_elu(batch_X)
+            transformed_batch = self.scale * transformed_batch + self.shift
 
-    def _transform_numpy(self, X):
-        """
-        ELU transformation using numpy backend
-        """
-        if self.batch_size is not None:
-            return self._batch_process(X)
+            if self.precision:
+                transformed_batch = self._apply_precision(transformed_batch)
+
+            transformed_batches.append(transformed_batch)
+
+            if self.verbose >= 3:
+                self._log(3, f"Batch {i + 1}-{n_batches} transformed.")
+
+        return self._concatenate_batches(transformed_batches)
+
+    def _get_elu_function(self):
+        if self.backend_name_ == 'numpy':
+            return self._elu_numpy
+        elif self.backend_name_ == 'tensorflow':
+            return self._elu_tensorflow
+        elif self.backend_name_ == 'torch':
+            return self._elu_pytorch
         else:
-            return self._apply_elu(X)
+            raise ValueError(
+                f"Unsupported backend: {self.backend_name_}. "
+                "Supported backends are 'numpy', 'tensorflow', and 'torch'."
+            )
 
-    def _transform_tensorflow(self, X):
-        """
-        ELU transformation using TensorFlow backend
-        """
-        if self.batch_size is not None:
-            return self._batch_process_tensorflow(X)
+    def _apply_elu(self, X):
+        elu_func = self._get_elu_function()
+        return elu_func(X)
+
+    def _elu_numpy(self, X):
+        return np.where(X > 0, X, self.alpha * (np.exp(X) - 1))
+
+    def _elu_tensorflow(self, X):
+        return self.backend_.nn.elu(X)
+
+    def _elu_pytorch(self, X):
+        return self.backend_.functional.elu(X)
+
+    def _apply_precision(self, transformed_batch):
+        if self.backend_name_ == 'numpy':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'torch':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
         else:
-            return self._apply_elu_tensorflow(X)
+            raise ValueError(
+                f"Unsupported backend for precision application: {self.backend_name_}."
+            )
 
-    def _batch_process_tensorflow(self, X):
-        """
-        Apply ELU in batches with TensorFlow.
-        """
-        n_samples = X.shape[0]
-        n_batches = int(np.ceil(n_samples / self.batch_size))
-        X_transformed = np.zeros_like(X, dtype=np.float64)
-
-        for i in range(n_batches):
-            batch_start = i * self.batch_size
-            batch_end = min((i + 1) * self.batch_size, n_samples)
-            X_transformed[batch_start:batch_end] = self._apply_elu_tensorflow(
-                X[batch_start:batch_end])
-
-            if self.verbose:
-                print(f"Processing batch {i+1}/{n_batches}")
-
-        return X_transformed
-
-    @ensure_pkg(
-        "tensorflow", 
-        "'tensorflow' is required when 'tensorflow' is set as backend."
-    )
-    def _apply_elu_tensorflow(self, X):
-        """
-        Apply ELU with TensorFlow backend.
-        """
-        import tensorflow as tf
-   
-        X_scaled_shifted = self.scale * X + self.shift
-        elu_result = tf.nn.elu(X_scaled_shifted)
-        return elu_result.numpy()
-
-    def _transform_pytorch(self, X):
-        """
-        ELU transformation using PyTorch backend
-        """
-        if self.batch_size is not None:
-            return self._batch_process_pytorch(X)
+    def _concatenate_batches(self, transformed_batches):
+        if self.backend_name_ == 'numpy':
+            return self.backend_.vstack(transformed_batches)
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.concat(transformed_batches, axis=0)
+        elif self.backend_name_ == 'torch':
+            return self.backend_.cat(transformed_batches, dim=0)
         else:
-            return self._apply_elu_pytorch(X)
+            raise ValueError(
+                f"Unsupported backend for concatenation: {self.backend_name_}."
+            )
 
-    def _batch_process_pytorch(self, X):
-        """
-        Apply ELU in batches with PyTorch.
-        """
-        n_samples = X.shape[0]
-        n_batches = int(np.ceil(n_samples / self.batch_size))
-        X_transformed = np.zeros_like(X, dtype=np.float64)
+    def _log(self, level, message):
+        if self.verbose >= level:
+            print(message)
 
-        for i in range(n_batches):
-            batch_start = i * self.batch_size
-            batch_end = min((i + 1) * self.batch_size, n_samples)
-            X_transformed[batch_start:batch_end] = self._apply_elu_pytorch(
-                X[batch_start:batch_end])
-
-            if self.verbose:
-                print(f"Processing batch {i+1}/{n_batches}")
-
-        return X_transformed
-
-    @ensure_pkg(
-        "torch", "'torch' is required when 'torch' is set as backend.")
-    def _apply_elu_pytorch(self, X):
-        """
-        Apply ELU with PyTorch backend.
-        """
-        import torch
-        X_scaled_shifted = self.scale * X + self.shift
-        elu_result = torch.nn.functional.elu(torch.tensor(X_scaled_shifted))
-        return elu_result.numpy()
-
-# Leaky ReLU Activation Transformer
 @Appender ( dedent( 
 """\
     Notes
@@ -1245,7 +1352,7 @@ class LeakyReLUTransformer(BaseEstimator, TransformerMixin):
         
         }
     )    
-    
+
     def __init__(
         self, 
         scale=1.0, 
@@ -1254,58 +1361,49 @@ class LeakyReLUTransformer(BaseEstimator, TransformerMixin):
         batch_size=None, 
         alpha=1.0, 
         backend=None, 
-        verbose=False
+        verbose=0
     ):
-        self.alpha = alpha
         self.scale = scale
         self.shift = shift
         self.precision = precision
         self.batch_size = batch_size
+        self.alpha = alpha
         self.backend = backend
         self.verbose = verbose
 
+
     @Appender(
-        _activation_doc['fit'].format(fmt='Leaky ReLU Transformer'), 
-        join= "\n", 
-        )
+        _activation_doc['fit'].format(fmt='LeakyReLUTransformer'), 
+        join="\n"
+    )
     def fit(self, X, y=None):
         """Fit the transformer."""
+        self.backend_name_, self.backend_ = select_backend_n(
+            self.backend, return_both=True
+        )
         return self
-    
+
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
     @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        X = check_array(X, ensure_2d=True, input_name='X')
+        if self.verbose >= 1:
+            self._log(1, f"Using backend: {self.backend_name_}")
 
-        if self.backend is None: 
-            self.backend = 'numpy' 
-        
-        elif self.backend in ('tensorflow', 'tf'): 
-            return self._batch_process_tensorflow(X)
-        
-        elif self.backend  =='torch': 
-            return self._batch_process_torch(X)
-        
-        if self.batch_size is not None:
-            return self._batch_process(X)
-        else:
-            return self._apply_leaky_relu(X)
+        X = self._validate_input(X)
+        X_transformed = self.scale * X + self.shift
 
-    def _apply_leaky_relu(self, X):
-        """
-        Apply the Leaky ReLU transformation using the current parameters
-        (`alpha`, `scale`, and `shift`).
-        """
-        X_scaled_shifted = self.scale * X + self.shift
-        return np.where(
-            X_scaled_shifted > 0, X_scaled_shifted, 
-            self.alpha * X_scaled_shifted)
+        if self.batch_size:
+            return self._batch_process(X_transformed)
+        
+        return self._apply_transformation(X_transformed)
+
+    def _validate_input(self, X):
+        return check_array(X, ensure_2d=True, input_name="X")
+
+    def _apply_transformation(self, X):
+        return self._apply_leaky_relu(X)
 
     def _batch_process(self, X):
-        """
-        Process the data in batches, applying the Leaky ReLU transformation 
-        in chunks as specified by the `batch_size` parameter.
-        """
         n_samples = X.shape[0]
         n_batches = int(np.ceil(n_samples / self.batch_size))
         X_transformed = np.zeros_like(X, dtype=np.float64)
@@ -1313,101 +1411,137 @@ class LeakyReLUTransformer(BaseEstimator, TransformerMixin):
         for i in range(n_batches):
             batch_start = i * self.batch_size
             batch_end = min((i + 1) * self.batch_size, n_samples)
-            X_transformed[batch_start:batch_end] = self._apply_leaky_relu(
-                X[batch_start:batch_end])
+            batch_X = X[batch_start:batch_end]
 
-            if self.verbose:
-                print(f"Processing batch {i + 1}/{n_batches}")
+            if self.verbose >= 2:
+                self._log(2, ( 
+                    f"Processing batch {i + 1}/{n_batches}"
+                    f" (samples {batch_start} to {batch_end})."
+                    )
+                )
 
-        return X_transformed
+            transformed_batch = self._apply_leaky_relu(batch_X)
+            transformed_batch = self.scale * transformed_batch + self.shift
 
-    def _transform_numpy(self, X):
-        """
-        Apply the Leaky ReLU transformation using the NumPy backend.
-        """
-        return np.where(X > 0, X, self.alpha * X)
-    
-    @ensure_pkg(
-        "tensorflow", 
-        extra="backend is set to ``tensorflow`` while it is not installed."
-    )
-    def _transform_tensorflow(self, X):
-        """
-        Apply the Leaky ReLU transformation using the TensorFlow backend.
-        """
-        import tensorflow as tf
-        X_tensor = tf.convert_to_tensor(X, dtype=tf.float32)
-        return tf.where(X_tensor > 0, X_tensor, self.alpha * X_tensor)
+            if self.precision:
+                transformed_batch = self._apply_precision(transformed_batch)
 
-    def _batch_process_tensorflow(self, X):
-        """
-        Process the data in batches using TensorFlow if the `batch_size` 
-        parameter is specified.
-        """
-        n_samples = X.shape[0]
-        n_batches = int(np.ceil(n_samples / self.batch_size))
-        X_transformed = np.zeros_like(X, dtype=np.float32)
+            X_transformed[batch_start:batch_end] = transformed_batch
 
-        for i in range(n_batches):
-            batch_start = i * self.batch_size
-            batch_end = min((i + 1) * self.batch_size, n_samples)
-            X_transformed[batch_start:batch_end] = self._transform_tensorflow(
-                X[batch_start:batch_end])
-
-            if self.verbose:
-                print(f"Processing batch {i + 1}/{n_batches}")
+            if self.verbose >= 3:
+                self._log(3, f"Batch {i + 1}-{n_batches} transformed.")
 
         return X_transformed
-    
-    @ensure_pkg(
-        "torch", 
-        extra="backend is set to ``torch`` while it is not installed."
-    )
-    def _batch_process_torch(self, X):
-        """
-        Process the data in batches using PyTorch for backend computation.
-        
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            The input data to transform.
 
-        Returns
-        -------
-        X_transformed : tensor-like, shape (n_samples, n_features)
-            The transformed data after applying Leaky ReLU in batches 
-            using PyTorch.
-        """
-        import torch
-        
-        # Convert input data to a PyTorch tensor
-        X_tensor = torch.tensor(X, dtype=torch.float32)
-
-        # Get the number of samples
-        n_samples = X_tensor.shape[0]
-
-        # Initialize a tensor to store the transformed data
-        X_transformed = torch.zeros_like(X_tensor)
-
-        # Number of batches
-        n_batches = int(np.ceil(n_samples / self.batch_size))
-
-        for i in range(n_batches):
-            batch_start = i * self.batch_size
-            batch_end = min((i + 1) * self.batch_size, n_samples)
-            
-            # Extract the current batch of data
-            X_batch = X_tensor[batch_start:batch_end]
-            
-            # Apply the Leaky ReLU operation for the current batch
-            X_transformed[batch_start:batch_end] = torch.where(
-                X_batch > 0, X_batch, self.alpha * X_batch
+    def _get_leaky_relu_function(self):
+        if self.backend_name_ == 'numpy':
+            return self._leaky_relu_numpy
+        elif self.backend_name_ == 'tensorflow':
+            return self._leaky_relu_tensorflow
+        elif self.backend_name_ == 'torch':
+            return self._leaky_relu_pytorch
+        else:
+            raise ValueError(
+                f"Unsupported backend: {self.backend_name_}. "
+                "Supported backends are 'numpy', 'tensorflow', and 'torch'."
             )
 
-        return X_transformed
-    
+    def _apply_leaky_relu(self, X):
+        leaky_relu_func = self._get_leaky_relu_function()
+        return leaky_relu_func(X)
 
-# Softmax Activation Transformer
+    def _leaky_relu_numpy(self, X):
+        return np.where(X > 0, X, self.alpha * X)
+
+    def _leaky_relu_tensorflow(self, X):
+        return self.backend_.where(
+            X > 0, X, self.alpha * X
+        )
+
+    def _leaky_relu_pytorch(self, X):
+        return self.backend_.where(
+            X > 0, X, self.alpha * X
+        )
+
+    def _apply_precision(self, transformed_batch):
+        if self.backend_name_ == 'numpy':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'torch':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        else:
+            raise ValueError(
+                f"Unsupported backend for precision application: {self.backend_name_}."
+            )
+
+    def _concatenate_batches(self, X_transformed):
+        if self.backend_name_ == 'numpy':
+            return self.backend_.vstack(X_transformed)
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.concat(X_transformed, axis=0)
+        elif self.backend_name_ == 'torch':
+            return self.backend_.cat(X_transformed, dim=0)
+        else:
+            raise ValueError(
+                f"Unsupported backend for concatenation: {self.backend_name_}."
+            )
+
+    def _log(self, level, message):
+        if self.verbose >= level:
+            print(message)
+
+    def _batch_process_tensorflow(self, X):
+        n_samples = X.shape[0]
+        n_batches = int(np.ceil(n_samples / self.batch_size))
+        X_transformed = self.backend_.zeros_like(X, dtype=self.backend_.float32)
+
+        for i in range(n_batches):
+            batch_start = i * self.batch_size
+            batch_end = min((i + 1) * self.batch_size, n_samples)
+            batch_X = X[batch_start:batch_end]
+            X_transformed = self._transform_tensorflow(batch_X)
+
+            if self.verbose:
+                self._log(1, f"Processing batch {i + 1}/{n_batches}")
+
+        return X_transformed
+
+    def _batch_process_torch(self, X):
+        n_samples = X.shape[0]
+        n_batches = int(np.ceil(n_samples / self.batch_size))
+        X_transformed = self.backend_.zeros_like(self.backend_(X), dtype=self.backend_.float32)
+
+        for i in range(n_batches):
+            batch_start = i * self.batch_size
+            batch_end = min((i + 1) * self.batch_size, n_samples)
+            X_batch = X[batch_start:batch_end]
+            X_transformed[batch_start:batch_end] = self._transform_torch(X_batch)
+
+            if self.verbose:
+                self._log(1, f"Processing batch {i + 1}/{n_batches}")
+
+        return X_transformed
+
+    def _transform_tensorflow(self, X):
+        X_tensor = self.backend_.convert_to_tensor(X, dtype=self.backend_.float32)
+        return self.backend_.where(
+            X_tensor > 0, X_tensor, self.alpha * X_tensor
+        ).numpy()
+
+    def _transform_torch(self, X):
+        X_tensor = self.backend_.tensor(X, dtype=self.backend_.float32)
+        return self.backend_.where(
+            X_tensor > 0, X_tensor, self.alpha * X_tensor
+        ).numpy()
+    
+    
 @doc( 
     mathf =dedent( 
     """\
@@ -1527,94 +1661,178 @@ class SoftmaxTransformer(BaseEstimator, TransformerMixin):
 
     @Appender(
         _activation_doc['fit'].format(fmt='SoftmaxTransformer'), 
-        join= "\n", 
-        )
+        join="\n", 
+    )
     def fit(self, X, y=None):
         """Fit the transformer."""
+        self.backend_name_, self.backend_ = select_backend_n(
+            self.backend, return_both=True
+        )
         return self
-    
+
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
     @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        X = check_array(X, ensure_2d=True, input_name="X")
+        if self.verbose >= 1:
+            self._log(1, f"Using backend: {self.backend_name_}")
+
+        X = self._validate_input(X)
+        X_transformed = self.scale * X + self.shift
+
+        if self.batch_size:
+            return self._batch_process(X_transformed)
         
-        self.backend = select_backend_n(self.backend)
-        
-        # Apply batch processing if batch_size is specified
-        if self.batch_size is not None:
-            return self._batch_process(X)
-        
-        # Apply transformation based on the backend
-        if self.backend=="numpy":
-            return self._transform_numpy(X)
-        
-        elif self.backend =="tensorflow":
-            return self._transform_tensorflow(X)
-        
-        elif self.backend == "torch":
-            return self._transform_pytorch(X)
-        
+        return self._apply_transformation(X_transformed)
+
+    def _validate_input(self, X):
+        """
+        Validate and preprocess the input data.
+        """
+        return check_array(X, ensure_2d=True, input_name="X")
+
+    def _apply_transformation(self, X):
+        """
+        Apply the Softmax activation function using the selected backend.
+        """
+        return self._apply_softmax(X)
 
     def _batch_process(self, X):
         """
-        Process the data in batches if batch_size is specified.
+        Process the data in batches according to the specified batch_size.
+        
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features)
+            The input data to transform.
+
+        Returns
+        -------
+        X_transformed : array-like, shape (n_samples, n_features)
+            The transformed data after applying Softmax in batches.
         """
         n_samples = X.shape[0]
-        n_batches = int(np.ceil(n_samples / self.batch_size))
-        
-        results = []
+        n_batches = (n_samples // self.batch_size) + (
+            1 if n_samples % self.batch_size != 0 else 0)
+        transformed_batches = []
+
         for i in range(n_batches):
-            batch_start = i * self.batch_size
-            batch_end = min((i + 1) * self.batch_size, n_samples)
-            batch = X[batch_start:batch_end]
-            
-            # Process the batch depending on the backend
-            if self.backend == "numpy" or self.backend is None:
-                results.append(self._transform_numpy(batch))
-            elif self.backend == "tensorflow":
-                results.append(self._transform_tensorflow(batch))
-            elif self.backend == "pytorch":
-                results.append(self._transform_pytorch(batch))
-        
-        # Concatenate results across batches
-        return np.concatenate(results, axis=0)
+            start_idx = i * self.batch_size
+            end_idx = min((i + 1) * self.batch_size, n_samples)
+            batch_X = X[start_idx:end_idx]
 
-    def _transform_numpy(self, X):
-        """
-        Transform using NumPy.
-        """
-        exp_X = np.exp(X - np.max(X, axis=1, keepdims=True))  # Numerical stability
-        return exp_X / np.sum(exp_X, axis=1, keepdims=True)
+            if self.verbose >= 2:
+                self._log(2, f"Processing batch {start_idx} to {end_idx}.")
 
-    @ensure_pkg(
-        "tensorflow", 
-        extra="'tensorflow' backend is selected while the library is missing"
-    )
-    def _transform_tensorflow(self, X):
-        """
-        Transform using TensorFlow.
-        """
-        import tensorflow as tf
-        X_tensor = tf.convert_to_tensor(X, dtype=tf.float32)
-        exp_X = tf.exp(X_tensor - tf.reduce_max(
-            X_tensor, axis=1, keepdims=True))
-        return exp_X / tf.reduce_sum(exp_X, axis=1, keepdims=True)
-    
-    @ensure_pkg(
-        "torch", 
-        extra="'torch' backend is selected while the library is missing"
-    )
-    def _transform_pytorch(self, X):
-        """
-        Transform using PyTorch.
-        """
-        import torch
-        X_tensor = torch.tensor(X, dtype=torch.float32)
-        exp_X = torch.exp(X_tensor - torch.max(
-            X_tensor, dim=1, keepdim=True)[0])
-        return exp_X / torch.sum(exp_X, dim=1, keepdim=True)
+            transformed_batch = self._apply_softmax(batch_X)
+            transformed_batch = self.scale * transformed_batch + self.shift
 
-# Swish Activation Transformer
+            if self.precision:
+                transformed_batch = self._apply_precision(transformed_batch)
+
+            transformed_batches.append(transformed_batch)
+
+            if self.verbose >= 3:
+                self._log(3, f"Batch {start_idx}-{end_idx} transformed.")
+
+        return self._concatenate_batches(transformed_batches)
+
+    def _get_softmax_function(self):
+        """
+        Retrieve the appropriate Softmax function based on the backend.
+        """
+        if self.backend_name_ == 'numpy':
+            return self._softmax_numpy
+        elif self.backend_name_ == 'tensorflow':
+            return self._softmax_tensorflow
+        elif self.backend_name_ == 'torch':
+            return self._softmax_pytorch
+        else:
+            raise ValueError(
+                f"Unsupported backend: {self.backend_name_}. "
+                "Supported backends are 'numpy', 'tensorflow', and 'torch'."
+            )
+
+    def _apply_softmax(self, X):
+        """
+        Apply the Softmax activation function using the selected backend.
+        """
+        softmax_func = self._get_softmax_function()
+        return softmax_func(X)
+
+    def _softmax_numpy(self, X):
+        """
+        Apply Softmax activation using NumPy.
+        """
+        # Numerical stability by subtracting the max from each row
+        shifted_X = self.backend_.subtract(
+            X, self.backend_.max(X, axis=1, keepdims=True))
+        exp_X = self.backend_.exp(shifted_X)
+        sum_exp_X = self.backend_.sum(exp_X, axis=1, keepdims=True)
+        return self.backend_.divide(exp_X, sum_exp_X)
+
+    def _softmax_tensorflow(self, X):
+        """
+        Apply Softmax activation using TensorFlow.
+        """
+        shifted_X = self.backend_.subtract(
+            X, self.backend_.reduce_max(X, axis=1, keepdims=True))
+        exp_X = self.backend_.exp(shifted_X)
+        sum_exp_X = self.backend_.reduce_sum(exp_X, axis=1, keepdims=True)
+        return self.backend_.divide(exp_X, sum_exp_X)
+
+    def _softmax_pytorch(self, X):
+        """
+        Apply Softmax activation using PyTorch.
+        """
+        shifted_X = self.backend_.subtract(
+            X, self.backend_.max(X, dim=1, keepdim=True)[0])
+        exp_X = self.backend_.exp(shifted_X)
+        sum_exp_X = self.backend_.sum(exp_X, dim=1, keepdim=True)
+        return self.backend_.divide(exp_X, sum_exp_X)
+
+    def _apply_precision(self, transformed_batch):
+        """
+        Apply precision rounding to the transformed batch.
+        """
+        if self.backend_name_ == 'numpy':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'torch':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        else:
+            raise ValueError(
+                f"Unsupported backend for precision application: {self.backend_name_}."
+            )
+
+    def _concatenate_batches(self, X_transformed):
+        """
+        Concatenate all transformed batches into a single array/tensor.
+        """
+        if self.backend_name_ == 'numpy':
+            return self.backend_.vstack(X_transformed)
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.concat(X_transformed, axis=0)
+        elif self.backend_name_ == 'torch':
+            return self.backend_.cat(X_transformed, dim=0)
+        else:
+            raise ValueError(
+                f"Unsupported backend for concatenation: {self.backend_name_}."
+            )
+
+    def _log(self, level, message):
+        """
+        Handle logging based on the verbosity level.
+        """
+        if self.verbose >= level:
+            print(message)
+
 @doc( 
     mathf =dedent( 
     """\
@@ -1717,38 +1935,45 @@ class SwishTransformer(BaseEstimator, TransformerMixin):
         self.shift = shift
         self.precision = precision
         self.batch_size = batch_size
-        self.backend = backend if backend else 'numpy'  # Default to numpy if None
+        self.backend = backend 
         self.verbose = verbose
 
     @Appender(
         _activation_doc['fit'].format(fmt='SwishTransformer'), 
-        join= "\n", 
-        )
+        join="\n", 
+    )
     def fit(self, X, y=None):
         """Fit the transformer."""
+        self.backend_name_, self.backend_ = select_backend_n(
+            self.backend, return_both=True
+        )
         return self
-    
+
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
     @doc(_shared_docs['activation_transform'])
     def transform(self, X):
+        if self.verbose >= 1:
+            self._log(1, f"Using backend: {self.backend_name_}")
 
-        X = check_array(X, ensure_2d=True, input_name="X")
-        
-        self.backend = select_backend_n(self.backend)
-        # Apply scaling and shifting
+        X = self._validate_input(X)
         X_transformed = (self.scale * X) + self.shift
 
-        # Use batch processing if enabled
         if self.batch_size:
             return self._batch_process(X_transformed)
         
-        # Apply backend-specific transformations
-        if self.backend == 'numpy':
-            return self._transform_numpy(X_transformed)
-        elif self.backend == 'tensorflow':
-            return self._transform_tensorflow(X_transformed)
-        elif self.backend == 'torch':
-            return self._transform_pytorch(X_transformed)
+        return self._apply_transformation(X_transformed)
+
+    def _validate_input(self, X):
+        """
+        Validate and preprocess the input data.
+        """
+        return check_array(X, ensure_2d=True, input_name="X")
+
+    def _apply_transformation(self, X):
+        """
+        Apply the Swish activation function using the selected backend.
+        """
+        return self._apply_swish(X)
 
     def _batch_process(self, X):
         """
@@ -1756,67 +1981,130 @@ class SwishTransformer(BaseEstimator, TransformerMixin):
         This method is used when `batch_size` is specified.
         """
         n_samples = X.shape[0]
-        n_batches = int(np.ceil(n_samples / self.batch_size))
-        X_transformed = np.zeros_like(X)
+        n_batches = int((n_samples + self.batch_size - 1) / self.batch_size)
+        X_transformed = []
 
         for i in range(n_batches):
             start = i * self.batch_size
             end = min((i + 1) * self.batch_size, n_samples)
-            X_transformed[start:end] = self._apply_swish(X[start:end])
+            batch = X[start:end]
+            if self.verbose >= 2:
+                self._log(2, f"Processing batch {start} to {end}.")
 
-        return X_transformed
+            transformed_batch = self._apply_swish(batch)
+            transformed_batch = self.scale * transformed_batch + self.shift
 
-    def _transform_numpy(self, X):
-        """
-        Transform using NumPy backend.
-        """
-        return self._apply_swish(X)
+            if self.precision:
+                transformed_batch = self._apply_precision(transformed_batch)
 
-    def _transform_tensorflow(self, X):
-        """
-        Transform using TensorFlow backend.
-        """
-        import tensorflow as tf
-        X_tensor = tf.convert_to_tensor(X, dtype=tf.float32)
-        return self._apply_swish_tensorflow(X_tensor)
+            X_transformed.append(transformed_batch)
 
-    def _transform_pytorch(self, X):
+            if self.verbose >= 3:
+                self._log(3, f"Batch {start}-{end} transformed.")
+
+        return self._concatenate_batches(X_transformed)
+
+    def _get_swish_function(self):
         """
-        Transform using PyTorch backend.
+        Retrieve the appropriate Swish function based on the backend.
         """
-        import torch
-        X_tensor = torch.tensor(X, dtype=torch.float32)
-        return self._apply_swish_pytorch(X_tensor)
+        if self.backend_name_ == 'numpy':
+            return self._apply_swish_numpy
+        elif self.backend_name_ == 'tensorflow':
+            return self._apply_swish_tensorflow
+        elif self.backend_name_ == 'torch':
+            return self._apply_swish_pytorch
+        else:
+            raise ValueError(
+                f"Unsupported backend: {self.backend_name_}. "
+                "Supported backends are 'numpy', 'tensorflow', and 'torch'."
+            )
 
     def _apply_swish(self, X):
         """
-        Apply the Swish activation function (x * sigmoid(x)) using NumPy.
+        Apply the Swish activation function using the selected backend.
         """
-        return X * (1 / (1 + np.exp(-X)))  # Swish = x * sigmoid(x)
-    
-    @ensure_pkg(
-        "tensorflow", 
-        extra="'tensorflow' backend is selected while the library is missing"
-    )
+        swish_func = self._get_swish_function()
+        return swish_func(X)
+
+    def _apply_swish_numpy(self, X):
+        """
+        Apply the Swish activation function using NumPy.
+        """
+        sigmoid = self.backend_.divide(
+            1,
+            self.backend_.add(1, self.backend_.exp(-X))
+        )
+        return self.backend_.multiply(X, sigmoid)
+
     def _apply_swish_tensorflow(self, X):
         """
         Apply the Swish activation function using TensorFlow.
         """
-        import tensorflow as tf 
-        return X * (1 / (1 + tf.exp(-X)))
+        return self.backend_.multiply(
+            X,
+            self.backend_.divide(
+                1,
+                self.backend_.add(1, self.backend_.exp(-X))
+            )
+        )
 
-    @ensure_pkg(
-        "torch", 
-        extra="'torch' backend is selected while the library is missing"
-    )
     def _apply_swish_pytorch(self, X):
         """
         Apply the Swish activation function using PyTorch.
         """
-        import torch 
-        return X * (1 / (1 + torch.exp(-X)))
-    
-# Hard Sigmoid Activation Transformer
+        return self.backend_.multiply(
+            X,
+            self.backend_.divide(
+                1,
+                self.backend_.add(1, self.backend_.exp(-X))
+            )
+        )
+
+    def _apply_precision(self, transformed_batch):
+        """
+        Apply precision rounding to the transformed batch.
+        """
+        if self.backend_name_ == 'numpy':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'torch':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        else:
+            raise ValueError(
+                f"Unsupported backend for precision application: {self.backend_name_}."
+            )
+
+    def _concatenate_batches(self, X_transformed):
+        """
+        Concatenate all transformed batches into a single array/tensor.
+        """
+        if self.backend_name_ == 'numpy':
+            return self.backend_.vstack(X_transformed)
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.concat(X_transformed, axis=0)
+        elif self.backend_name_ == 'torch':
+            return self.backend_.cat(X_transformed, dim=0)
+        else:
+            raise ValueError(
+                f"Unsupported backend for concatenation: {self.backend_name_}."
+            )
+
+    def _log(self, level, message):
+        """
+        Handle logging based on the verbosity level.
+        """
+        if self.verbose >= level:
+            print(message)
+
+
 @doc( 
     mathf =dedent( 
     """\
@@ -1932,69 +2220,45 @@ class HardSigmoidTransformer(BaseEstimator, TransformerMixin):
 
     @Appender(
         _activation_doc['fit'].format(fmt='HardSigmoidTransformer'), 
-        join= "\n", 
-        )
+        join="\n", 
+    )
     def fit(self, X, y=None):
         """Fit the transformer."""
+        self.backend_name_, self.backend_ = select_backend_n(
+            self.backend, return_both=True
+        )
         return self
-    
+
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
     @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        X = check_array(X, ensure_2d=True, input_name="X")
-        
-        self.backend = select_backend_n(self.backend)
-        # If batch_size is set, process in batches
-        if self.batch_size is not None:
-            return self._batch_process(X)
-        
-        # Apply transformation depending on the backend
-        if self.backend =="numpy":
-            return self._apply_numpy(X)
-        elif self.backend == "tensorflow":
-            return self._apply_tensorflow(X)
-        elif self.backend == "torch":
-            return self._apply_pytorch(X)
+        if self.verbose >= 1:
+            self._log(1, f"Using backend: {self.backend_name_}")
 
-    def _apply_numpy(self, X):
-        """Apply Hard Sigmoid using NumPy"""
-        return np.clip(self.scale * X + self.shift, 0, 1)
-    
-    @ensure_pkg(
-        "tensorflow", 
-        extra="'tensorflow' backend is selected while the library is missing"
-    )
-    def _apply_tensorflow(self, X):
-        """Apply Hard Sigmoid using TensorFlow"""
-        import tensorflow as tf
-        X_tensor = tf.convert_to_tensor(X, dtype=tf.float32)
-        # Hard Sigmoid = 0.2 * x + 0.5
-        return tf.clip_by_value(0.2 * X_tensor + 0.5, 0, 1) 
-    
-    @ensure_pkg(
-        "torch", 
-        extra="'torch' backend is selected while the library is missing"
-    )
-    def _apply_pytorch(self, X):
-        """Apply Hard Sigmoid using PyTorch"""
-        import torch
-        X_tensor = torch.tensor(X, dtype=torch.float32)
-        # Hard Sigmoid = 0.2 * x + 0.5
-        return torch.clamp(0.2 * X_tensor + 0.5, 0, 1)
+        X = self._validate_input(X)
+        X_transformed = self.scale * X + self.shift
+
+        if self.batch_size:
+            return self._batch_process(X_transformed)
+        
+        return self._apply_transformation(X_transformed)
+
+    def _validate_input(self, X):
+        """
+        Validate and preprocess the input data.
+        """
+        from sklearn.utils import check_array
+        return check_array(X, ensure_2d=True, input_name="X")
+
+    def _apply_transformation(self, X):
+        """
+        Apply the HardSigmoid activation function using the selected backend.
+        """
+        return self._apply_hardsigmoid(X)
 
     def _batch_process(self, X):
         """
         Process data in batches according to the specified batch_size.
-        
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            The input data to transform.
-
-        Returns
-        -------
-        X_transformed : array-like, shape (n_samples, n_features)
-            The transformed data after applying Hard Sigmoid in batches.
         """
         n_samples = X.shape[0]
         n_batches = (n_samples // self.batch_size) + (
@@ -2006,21 +2270,115 @@ class HardSigmoidTransformer(BaseEstimator, TransformerMixin):
             end_idx = min((i + 1) * self.batch_size, n_samples)
             batch_X = X[start_idx:end_idx]
 
-            # Apply the appropriate transformation for the batch
-            if self.backend =="numpy":
-                transformed_batch = self._apply_numpy(batch_X)
-            elif self.backend == "tensorflow":
-                transformed_batch = self._apply_tensorflow(batch_X)
-            elif self.backend == "torch":
-                transformed_batch = self._apply_pytorch(batch_X)
+            if self.verbose >= 2:
+                self._log(2, f"Processing batch {start_idx} to {end_idx}.")
+
+            transformed_batch = self._apply_hardsigmoid(batch_X)
+            transformed_batch = self.scale * transformed_batch + self.shift
+
+            if self.precision:
+                transformed_batch = self._apply_precision(transformed_batch)
 
             transformed_batches.append(transformed_batch)
-            
-        # Stack the batches back together
-        return np.vstack(transformed_batches)  
 
+            if self.verbose >= 3:
+                self._log(3, f"Batch {start_idx}-{end_idx} transformed.")
 
-# Hard Swish Activation Transformer
+        return self._concatenate_batches(transformed_batches)
+
+    def _get_hardsigmoid_function(self):
+        """
+        Retrieve the appropriate HardSigmoid function based on the backend.
+        """
+        if self.backend_name_ == 'numpy':
+            return self._hardsigmoid_numpy
+        elif self.backend_name_ == 'tensorflow':
+            return self._hardsigmoid_tensorflow
+        elif self.backend_name_ == 'torch':
+            return self._hardsigmoid_pytorch
+        else:
+            raise ValueError(
+                f"Unsupported backend: {self.backend_name_}. "
+                "Supported backends are 'numpy', 'tensorflow', and 'torch'."
+            )
+
+    def _apply_hardsigmoid(self, X):
+        """
+        Apply the HardSigmoid activation function using the selected backend.
+        """
+        hardsigmoid_func = self._get_hardsigmoid_function()
+        return hardsigmoid_func(X)
+
+    def _hardsigmoid_numpy(self, X):
+        """
+        Apply HardSigmoid activation using NumPy.
+        """
+        hard_sigmoid = self.backend_.clip(
+            0.2 * X + 0.5, 0, 1
+        )
+        return self.backend_.multiply(X, hard_sigmoid)
+
+    def _hardsigmoid_tensorflow(self, X):
+        """
+        Apply HardSigmoid activation using TensorFlow.
+        """
+        hard_sigmoid = self.backend_.clip_by_value(
+            0.2 * X + 0.5, 0, 1
+        )
+        return self.backend_.multiply(X, hard_sigmoid)
+
+    def _hardsigmoid_pytorch(self, X):
+        """
+        Apply HardSigmoid activation using PyTorch.
+        """
+        hard_sigmoid = self.backend_.clamp(
+            0.2 * X + 0.5, min=0, max=1
+        )
+        return self.backend_.multiply(X, hard_sigmoid)
+
+    def _apply_precision(self, transformed_batch):
+        """
+        Apply precision rounding to the transformed batch.
+        """
+        if self.backend_name_ == 'numpy':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        elif self.backend_name_ == 'torch':
+            return self.backend_.round(
+                transformed_batch / self.precision
+            ) * self.precision
+        else:
+            raise ValueError(
+                f"Unsupported backend for precision application: {self.backend_name_}."
+            )
+
+    def _concatenate_batches(self, X_transformed):
+        """
+        Concatenate all transformed batches into a single array/tensor.
+        """
+        if self.backend_name_ == 'numpy':
+            return self.backend_.vstack(X_transformed)
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.concat(X_transformed, axis=0)
+        elif self.backend_name_ == 'torch':
+            return self.backend_.cat(X_transformed, dim=0)
+        else:
+            raise ValueError(
+                f"Unsupported backend for concatenation: {self.backend_name_}."
+            )
+
+    def _log(self, level, message):
+        """
+        Handle logging based on the verbosity level.
+        """
+        if self.verbose >= level:
+            print(message)
+
 
 @doc( 
     mathf =dedent( 
@@ -2116,21 +2474,22 @@ class HardSwishTransformer(BaseEstimator, TransformerMixin):
 
     @Appender(
         _activation_doc['fit'].format(fmt='HardSwishTransformer'), 
-        join= "\n", 
-        )
+        join="\n", 
+    )
     def fit(self, X, y=None):
         """Fit the transformer."""
+        self.backend_name_, self.backend_ = select_backend_n(
+            self.backend, return_both=True
+        )
         return self
-    
+
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
     @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        backend = select_backend_n(self.backend )
-
         if self.verbose >= 1:
-            self._log(1, f"Using backend: {backend}")
+            self._log(1, f"Using backend: {self.backend_name_}")
 
-        swish_func = self._get_swish_function(backend)
+        swish_func = self._get_swish_function()
 
         X_transformed = []
         total_samples  = X.shape[0]
@@ -2143,11 +2502,13 @@ class HardSwishTransformer(BaseEstimator, TransformerMixin):
                 self._log(2, f"Processing batch {start} to {end}.")
 
             transformed_batch = swish_func(batch)
-            transformed_batch = self.scale * transformed_batch + self.shift
+            transformed_batch = (
+                self.scale * transformed_batch + self.shift
+            )
 
             if self.precision:
                 transformed_batch = self._apply_precision(
-                    transformed_batch, backend
+                    transformed_batch
                 )
 
             X_transformed.append(transformed_batch)
@@ -2155,73 +2516,95 @@ class HardSwishTransformer(BaseEstimator, TransformerMixin):
             if self.verbose >= 3:
                 self._log(3, f"Batch {start}-{end} transformed.")
 
-        return self._concatenate_batches(X_transformed, backend)
-    
-    @ensure_pkg(
-        "tensorflow", 
-        extra="'tensorflow' backend is selected while the library is missing", 
-        partial_check= True,
-        condition= lambda *args, **kwargs: kwargs.get("backend")=="tensorflow"
-    )
-    @ensure_pkg(
-        "torch", 
-        extra="'torch' backend is selected while the library is missing", 
-        partial_check= True,
-        condition= lambda *args, **kwargs: kwargs.get("backend")=="torch"
-    )
-    def _get_swish_function(self, backend):
-        if backend == 'numpy':
+        return self._concatenate_batches(X_transformed)
+
+    def _get_swish_function(self):
+        """
+        Retrieve the appropriate HardSwish function based on the backend.
+        """
+        if self.backend_name_ == 'numpy':
             return self._hard_swish_numpy
-        elif backend == 'tensorflow':
+        elif self.backend_name_ == 'tensorflow':
             return self._hard_swish_tensorflow
-        elif backend == 'torch':
+        elif self.backend_name_ == 'torch':
             return self._hard_swish_torch
+        else:
+            raise ValueError(
+                f"Unsupported backend: {self.backend_name_}. "
+                "Supported backends are 'numpy', 'tensorflow', and 'torch'."
+            )
 
     def _hard_swish_numpy(self, x):
-        hard_sigmoid = np.clip(0.2 * x + 0.5, 0, 1)
-        return x * hard_sigmoid
+        """
+        Apply HardSwish activation using NumPy.
+        """
+        hard_sigmoid = self.backend_.clip(
+            0.2 * x + 0.5, 0, 1
+        )
+        return self.backend_.multiply(x, hard_sigmoid)
 
     def _hard_swish_tensorflow(self, x):
-        import tensorflow as tf
-        hard_sigmoid = tf.clip_by_value(0.2 * x + 0.5, 0, 1)
-        return x * hard_sigmoid
+        """
+        Apply HardSwish activation using TensorFlow.
+        """
+        hard_sigmoid = self.backend_.clip_by_value(
+            0.2 * x + 0.5, 0, 1
+        )
+        return self.backend_.multiply(x, hard_sigmoid)
 
     def _hard_swish_torch(self, x):
-        import torch
-        hard_sigmoid = torch.clamp(0.2 * x + 0.5, 0, 1)
-        return x * hard_sigmoid
+        """
+        Apply HardSwish activation using PyTorch.
+        """
+        hard_sigmoid = self.backend_.clamp(
+            0.2 * x + 0.5, min=0, max=1
+        )
+        return self.backend_.multiply(x, hard_sigmoid)
 
-    def _apply_precision(self, transformed_batch, backend):
-        if backend == 'numpy':
-            return np.round(
+    def _apply_precision(self, transformed_batch):
+        """
+        Apply precision rounding to the transformed batch.
+        """
+        if self.backend_name_ == 'numpy':
+            return self.backend_.round(
                 transformed_batch / self.precision
             ) * self.precision
-        elif backend == 'tensorflow':
-            import tensorflow as tf
-            return tf.round(
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.round(
                 transformed_batch / self.precision
             ) * self.precision
-        elif backend == 'torch':
-            import torch
-            return torch.round(
+        elif self.backend_name_ == 'torch':
+            return self.backend_.round(
                 transformed_batch / self.precision
             ) * self.precision
+        else:
+            raise ValueError(
+                f"Unsupported backend for precision application: {self.backend_name_}."
+            )
 
-    def _concatenate_batches(self, X_transformed, backend):
-        if backend == 'numpy':
-            return np.vstack(X_transformed)
-        elif backend == 'tensorflow':
-            import tensorflow as tf
-            return tf.concat(X_transformed, axis=0)
-        elif backend == 'torch':
-            import torch
-            return torch.cat(X_transformed, dim=0)
+    def _concatenate_batches(self, X_transformed):
+        """
+        Concatenate all transformed batches into a single array/tensor.
+        """
+        if self.backend_name_ == 'numpy':
+            return self.backend_.vstack(X_transformed)
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.concat(X_transformed, axis=0)
+        elif self.backend_name_ == 'torch':
+            return self.backend_.cat(X_transformed, dim=0)
+        else:
+            raise ValueError(
+                f"Unsupported backend for concatenation: {self.backend_name_}."
+            )
 
     def _log(self, level, message):
+        """
+        Handle logging based on the verbosity level.
+        """
         if self.verbose >= level:
             print(message)
 
-# Softplus Activation Transformer
+
 @doc( 
     mathf =dedent( 
     """\
@@ -2314,24 +2697,25 @@ class SoftplusTransformer(BaseEstimator, TransformerMixin):
         self.batch_size = batch_size
         self.backend = backend
         self.verbose = verbose
-        
+
     @Appender(
         _activation_doc['fit'].format(fmt='SoftplusTransformer'), 
-        join= "\n", 
-        )
+        join="\n", 
+    )
     def fit(self, X, y=None):
         """Fit the transformer."""
+        self.backend_name_, self.backend_ = select_backend_n(
+            self.backend, return_both=True
+        )
         return self
-    
+
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
     @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        backend = select_backend_n(self.backend)
-        
         if self.verbose >= 1:
-            self._log(1, f"Using backend: {backend}")
+            self._log(1, f"Using backend: {self.backend_name_}")
 
-        swish_func = self._get_softplus_function(backend)
+        softplus_func = self._get_softplus_function()
 
         X_transformed = []
         total_samples  = X.shape[0]
@@ -2343,14 +2727,14 @@ class SoftplusTransformer(BaseEstimator, TransformerMixin):
             if self.verbose >= 2:
                 self._log(2, f"Processing batch {start} to {end}.")
 
-            transformed_batch = swish_func(batch)
+            transformed_batch = softplus_func(batch)
             transformed_batch = (
                 self.scale * transformed_batch + self.shift
             )
 
             if self.precision:
                 transformed_batch = self._apply_precision(
-                    transformed_batch, backend
+                    transformed_batch
                 )
 
             X_transformed.append(transformed_batch)
@@ -2358,82 +2742,77 @@ class SoftplusTransformer(BaseEstimator, TransformerMixin):
             if self.verbose >= 3:
                 self._log(3, f"Batch {start}-{end} transformed.")
 
-        return self._concatenate_batches(X_transformed, backend)
+        return self._concatenate_batches(X_transformed)
 
-    @ensure_pkg(
-        "tensorflow", 
-        extra="'tensorflow' backend is selected while the library is missing", 
-        partial_check= True,
-        condition= lambda *args, **kwargs: kwargs.get("backend")=="tensorflow"
-    )
-    @ensure_pkg(
-        "torch", 
-        extra="'torch' backend is selected while the library is missing", 
-        partial_check= True,
-        condition= lambda *args, **kwargs: kwargs.get("backend")=="torch"
-    )
-    def _get_softplus_function(self, backend):
+    def _get_softplus_function(self):
         """
         Retrieve the appropriate Softplus function based on the backend.
         """
-        if backend == 'numpy':
+        if self.backend_name_ == 'numpy':
             return self._softplus_numpy
-        elif backend == 'tensorflow':
+        elif self.backend_name_ == 'tensorflow':
             return self._softplus_tensorflow
-        elif backend == 'torch':
+        elif self.backend_name_ == 'torch':
             return self._softplus_torch
+        else:
+            raise ValueError(
+                f"Unsupported backend: {self.backend_name_}. "
+                "Supported backends are 'numpy', 'tensorflow', and 'torch'."
+            )
 
     def _softplus_numpy(self, x):
         """
         Apply Softplus activation using NumPy.
         """
-        return np.log1p(np.exp(x))  # Softplus = log(1 + exp(x))
+        return self.backend_.log1p(self.backend_.exp(x))  # Softplus = log(1 + exp(x))
 
     def _softplus_tensorflow(self, x):
         """
         Apply Softplus activation using TensorFlow.
         """
-        import tensorflow as tf
-        return tf.math.softplus(x)
+        return self.backend_.math.softplus(x)
 
     def _softplus_torch(self, x):
         """
         Apply Softplus activation using PyTorch.
         """
-        import torch
-        return torch.nn.functional.softplus(x)
+        return self.backend_.nn.functional.softplus(x)
 
-    def _apply_precision(self, transformed_batch, backend):
+    def _apply_precision(self, transformed_batch):
         """
         Apply precision rounding to the transformed batch.
         """
-        if backend == 'numpy':
-            return np.round(
+        if self.backend_name_ == 'numpy':
+            return self.backend_.round(
                 transformed_batch / self.precision
             ) * self.precision
-        elif backend == 'tensorflow':
-            import tensorflow as tf
-            return tf.round(
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.round(
                 transformed_batch / self.precision
             ) * self.precision
-        elif backend == 'torch':
-            import torch
-            return torch.round(
+        elif self.backend_name_ == 'torch':
+            return self.backend_.round(
                 transformed_batch / self.precision
             ) * self.precision
+        else:
+            raise ValueError(
+                f"Unsupported backend for precision application: {self.backend_name_}."
+            )
 
-    def _concatenate_batches(self, X_transformed, backend):
+    def _concatenate_batches(self, X_transformed):
         """
         Concatenate all transformed batches into a single array/tensor.
         """
-        if backend == 'numpy':
-            return np.vstack(X_transformed)
-        elif backend == 'tensorflow':
-            import tensorflow as tf
-            return tf.concat(X_transformed, axis=0)
-        elif backend == 'torch':
-            import torch
-            return torch.cat(X_transformed, dim=0)
+        if self.backend_name_ == 'numpy':
+            return self.backend_.vstack(X_transformed)
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.concat(X_transformed, axis=0)
+        elif self.backend_name_ == 'torch':
+            return self.backend_.cat(X_transformed, dim=0)
+        else:
+            raise ValueError(
+                f"Unsupported backend for concatenation: {self.backend_name_}."
+            )
 
     def _log(self, level, message):
         """
@@ -2443,7 +2822,6 @@ class SoftplusTransformer(BaseEstimator, TransformerMixin):
             print(message)
 
 
-# GELU Activation Transformer (Gaussian Error Linear Unit)
 @doc( 
     mathf =dedent( 
     """\
@@ -2544,22 +2922,22 @@ class GELUTransformer(BaseEstimator, TransformerMixin):
 
     @Appender(
         _activation_doc['fit'].format(fmt='GELUTransformer'), 
-        join= "\n", 
-        )
+        join="\n", 
+    )
     def fit(self, X, y=None):
         """Fit the transformer."""
+        self.backend_name_, self.backend_ = select_backend_n(
+            self.backend, return_both=True
+        )
         return self
-    
+
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
     @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-
-        backend = select_backend_n(self.backend)
-
         if self.verbose >= 1:
-            self._log(1, f"GELU computed using backend: {backend}")
+            self._log(1, f"GELU computed using backend: {self.backend_name_}")
 
-        gelu_func = self._get_gelu_function(backend)
+        gelu_func = self._get_gelu_function()
 
         X_transformed = []
         total_samples  = X.shape[0]
@@ -2578,7 +2956,7 @@ class GELUTransformer(BaseEstimator, TransformerMixin):
 
             if self.precision:
                 transformed_batch = self._apply_precision(
-                    transformed_batch, backend
+                    transformed_batch
                 )
 
             X_transformed.append(transformed_batch)
@@ -2586,87 +2964,77 @@ class GELUTransformer(BaseEstimator, TransformerMixin):
             if self.verbose >= 3:
                 self._log(3, f"Batch {start}-{end} transformed.")
 
-        return self._concatenate_batches(X_transformed, backend)
+        return self._concatenate_batches(X_transformed)
 
-    @ensure_pkg(
-        "tensorflow", 
-        extra="'tensorflow' backend is selected while the library is missing", 
-        partial_check= True,
-        condition= lambda *args, **kwargs: kwargs.get("backend")=="tensorflow"
-    )
-    @ensure_pkg(
-        "torch", 
-        extra="'torch' backend is selected while the library is missing", 
-        partial_check= True,
-        condition= lambda *args, **kwargs: kwargs.get("backend")=="torch"
-    )
-    def _get_gelu_function(self, backend):
+    def _get_gelu_function(self):
         """
         Retrieve the appropriate GELU function based on the backend.
         """
-        if backend == 'numpy':
+        if self.backend_name_ == 'numpy':
             return self._gelu_numpy
-        elif backend == 'tensorflow':
+        elif self.backend_name_ == 'tensorflow':
             return self._gelu_tensorflow
-        elif backend == 'torch':
+        elif self.backend_name_ == 'torch':
             return self._gelu_torch
+        else:
+            raise ValueError(
+                f"Unsupported backend: {self.backend_name_}. "
+                "Supported backends are 'numpy', 'tensorflow', and 'torch'."
+            )
 
     def _gelu_numpy(self, x):
         """
         Apply GELU activation using NumPy.
         """
-        # GELU = 0.5 * x * (1 + erf(x / sqrt(2)))
-        # return 0.5 * x * (1 + np.erf(x / np.sqrt(2)))
-        return 0.5 * x * (1 + safe_erf(x / np.sqrt(2)))
+        return 0.5 * x * (1 + safe_erf(x / (2 ** 0.5)))
 
     def _gelu_tensorflow(self, x):
         """
         Apply GELU activation using TensorFlow.
         """
-        
-        import tensorflow as tf
-        return 0.5 * x * (1 + tf.math.erf(x / np.sqrt(2)))
+        return 0.5 * x * (1 + self.backend_.math.erf(x / (2 ** 0.5)))
 
     def _gelu_torch(self, x):
         """
         Apply GELU activation using PyTorch.
         """
-        import torch
-        return 0.5 * x * (1 + torch.erf(x / np.sqrt(2)))
+        return 0.5 * x * (1 + self.backend_.erf(x / (2 ** 0.5)))
 
-    def _apply_precision(self, transformed_batch, backend):
+    def _apply_precision(self, transformed_batch):
         """
         Apply precision rounding to the transformed batch.
         """
-        if backend == 'numpy':
-            return np.round(
+        if self.backend_name_ == 'numpy':
+            return self.backend_.round(
                 transformed_batch / self.precision
             ) * self.precision
-        elif backend == 'tensorflow':
-            
-            import tensorflow as tf
-            return tf.round(
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.round(
                 transformed_batch / self.precision
             ) * self.precision
-        elif backend == 'torch':
-            import torch
-            return torch.round(
+        elif self.backend_name_ == 'torch':
+            return self.backend_.round(
                 transformed_batch / self.precision
             ) * self.precision
+        else:
+            raise ValueError(
+                f"Unsupported backend for precision application: {self.backend_name_}."
+            )
 
-    def _concatenate_batches(self, X_transformed, backend):
+    def _concatenate_batches(self, X_transformed):
         """
         Concatenate all transformed batches into a single array/tensor.
         """
-        if backend == 'numpy':
-            return np.vstack(X_transformed)
-        elif backend == 'tensorflow':
-            
-            import tensorflow as tf
-            return tf.concat(X_transformed, axis=0)
-        elif backend == 'torch':
-            import torch
-            return torch.cat(X_transformed, dim=0)
+        if self.backend_name_ == 'numpy':
+            return self.backend_.vstack(X_transformed)
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.concat(X_transformed, axis=0)
+        elif self.backend_name_ == 'torch':
+            return self.backend_.cat(X_transformed, dim=0)
+        else:
+            raise ValueError(
+                f"Unsupported backend for concatenation: {self.backend_name_}."
+            )
 
     def _log(self, level, message):
         """
@@ -2820,18 +3188,18 @@ class SELUTransformer(BaseEstimator, TransformerMixin):
         )
     def fit(self, X, y=None):
         """Fit the transformer."""
+        self.backend_name_, self.backend_ = select_backend_n(
+            self.backend, return_both=True
+        )
         return self
-    
+
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
     @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-
-        backend = select_backend_n(self.backend)
-
         if self.verbose >= 1:
-            self._log(1, f"SELU computation using backend: {backend}")
+            self._log(1, f"SELU computation using backend: {self.backend_name_}")
 
-        selu_func = self._get_selu_function(backend)
+        selu_func = self._get_selu_function()
 
         X_transformed = []
         total_samples  = X.shape[0]
@@ -2850,7 +3218,7 @@ class SELUTransformer(BaseEstimator, TransformerMixin):
 
             if self.precision:
                 transformed_batch = self._apply_precision(
-                    transformed_batch, backend
+                    transformed_batch
                 )
 
             X_transformed.append(transformed_batch)
@@ -2858,95 +3226,89 @@ class SELUTransformer(BaseEstimator, TransformerMixin):
             if self.verbose >= 3:
                 self._log(3, f"Batch {start}-{end} transformed.")
 
-        return self._concatenate_batches(X_transformed, backend)
+        return self._concatenate_batches(X_transformed)
 
-    @ensure_pkg(
-        "tensorflow", 
-        extra="'tensorflow' backend is selected while the library is missing", 
-        partial_check= True,
-        condition= lambda *args, **kwargs: kwargs.get("backend")=="tensorflow"
-    )
-    @ensure_pkg(
-        "torch", 
-        extra="'torch' backend is selected while the library is missing", 
-        partial_check= True,
-        condition= lambda *args, **kwargs: kwargs.get("backend")=="torch"
-    )
-    def _get_selu_function(self, backend):
+    def _get_selu_function(self):
         """
         Retrieve the appropriate SELU function based on the backend.
         """
-        if backend == 'numpy':
+        if self.backend_name_ == 'numpy':
             return self._selu_numpy
-        elif backend == 'tensorflow':
+        elif self.backend_name_ == 'tensorflow':
             return self._selu_tensorflow
-        elif backend == 'torch':
+        elif self.backend_name_ == 'torch':
             return self._selu_torch
+        else:
+            raise ValueError(
+                f"Unsupported backend: {self.backend_name_}. "
+                "Supported backends are 'numpy', 'tensorflow', and 'torch'."
+            )
 
     def _selu_numpy(self, x):
         """
         Apply SELU activation using NumPy.
         """
-        # SELU = scale * (x if x > 0 else alpha * (exp(x) - 1))
-        return self.scale * np.where(
+        return self.backend_.scale * self.backend_.where(
             x > 0,
             x,
-            self.alpha * (np.exp(x) - 1)
+            self.alpha * (self.backend_.exp(x) - 1)
         )
 
     def _selu_tensorflow(self, x):
         """
         Apply SELU activation using TensorFlow.
         """
-        import tensorflow as tf
-        return self.scale * tf.where(
+        return self.backend_.scale * self.backend_.where(
             x > 0,
             x,
-            self.alpha * (tf.exp(x) - 1)
+            self.alpha * (self.backend_.exp(x) - 1)
         )
 
     def _selu_torch(self, x):
         """
         Apply SELU activation using PyTorch.
         """
-        import torch
-        return self.scale * torch.where(
+        return self.backend_.scale * self.backend_.where(
             x > 0,
             x,
-            self.alpha * (torch.exp(x) - 1)
+            self.alpha * (self.backend_.exp(x) - 1)
         )
 
-    def _apply_precision(self, transformed_batch, backend):
+    def _apply_precision(self, transformed_batch):
         """
         Apply precision rounding to the transformed batch.
         """
-        if backend == 'numpy':
-            return np.round(
+        if self.backend_name_ == 'numpy':
+            return self.backend_.round(
                 transformed_batch / self.precision
             ) * self.precision
-        elif backend == 'tensorflow':
-            import tensorflow as tf
-            return tf.round(
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.round(
                 transformed_batch / self.precision
             ) * self.precision
-        elif backend == 'torch':
-            import torch
-            return torch.round(
+        elif self.backend_name_ == 'torch':
+            return self.backend_.round(
                 transformed_batch / self.precision
             ) * self.precision
+        else:
+            raise ValueError(
+                f"Unsupported backend for precision application: {self.backend_name_}."
+            )
 
-    def _concatenate_batches(self, X_transformed, backend):
+    def _concatenate_batches(self, X_transformed):
         """
         Concatenate all transformed batches into a single array/tensor.
         """
-        if backend == 'numpy':
-            return np.vstack(X_transformed)
-        elif backend == 'tensorflow':
-            import tensorflow as tf
-            return tf.concat(X_transformed, axis=0)
-        elif backend == 'torch':
-            import torch
-            return torch.cat(X_transformed, dim=0)
+        if self.backend_name_ == 'numpy':
+            return self.backend_.vstack(X_transformed)
+        elif self.backend_name_ == 'tensorflow':
+            return self.backend_.concat(X_transformed, axis=0)
+        elif self.backend_name_ == 'torch':
+            return self.backend_.cat(X_transformed, dim=0)
+        else:
+            raise ValueError(
+                f"Unsupported backend for concatenation: {self.backend_name_}."
+            )
 
     def _log(self, level, message):
         """
@@ -2955,123 +3317,1493 @@ class SELUTransformer(BaseEstimator, TransformerMixin):
         if self.verbose >= level:
             print(message)
 
-#XXX OPTIMIZE 
-# revise this activation transformer and make it more robust :
-# apply 
-# scale=1.0, 
-# shift=0.0, 
-# precision=1e-6, 
-# batch_size=None, 
-# backend=None, 
-# verbose=False
-# skip WRITING THE  the documentation FOR BRIVEITY  to make it more robust and apply 
-# the back size applIcation if set and also the backend operatiosn 
-# for numpy default if None or tensorflow or torch 
-# Dont document the __init__method and use vertical aligment for parameters listing 
-# break long line of code using the parenthesis and and vertical aligment. 
-# for long message in the code, break it using Python " strategy.
-# The verbosity should go from 0 to 7 to help debugging. 
-#  WRITE THE CODE NOT THE DOCTRINGS 
-# SELU Activation Transformer (Scaled Exponential Linear Unit)
-# Mish Activation Transformer
 class MishTransformer(BaseEstimator, TransformerMixin):
     """
     Mish Activation Transformer.
 
     This transformer applies the Mish activation function element-wise to the 
     input data. The Mish function is defined as:
-    - Mish(x) = x * tanh(softplus(x))
+
+    .. math::
+        \text{Mish}(x) = x \cdot \tanh(\text{softplus}(x)) 
+        = x \cdot \tanh(\ln(1 + e^{x}))
+
+    The Mish activation introduces non-linearity, which can enhance the 
+    performance of machine learning models by allowing them to learn more 
+    complex patterns.
+
+    Parameters
+    ----------
+    scale : ``float``, default ``1.0``
+        Multiplier applied after the activation function. Scaling the output 
+        can help in controlling the magnitude of the transformed data, 
+        which may be beneficial for certain algorithms or architectures.
+
+    shift : ``float``, default ``0.0``
+        Value added after scaling. Shifting the output can adjust the 
+        distribution of the transformed data, potentially improving 
+        model convergence.
+
+    precision : ``float``, default ``1e-6``
+        A small constant to prevent numerical issues such as overflow 
+        or division by zero. This parameter ensures numerical stability 
+        during computations, especially when dealing with extreme input 
+        values.
+
+    batch_size : ``int`` or ``None``, default ``None``
+        If specified, the transformation is applied in batches to manage 
+        memory usage efficiently. Processing data in smaller chunks can 
+        be advantageous when working with large datasets or limited 
+        computational resources.
+
+    backend : ``str`` or ``None``, default ``None``
+        Specifies the computational backend to use for performing 
+        transformations. Accepts the following values:
+        
+        - ``None``, ``'numpy'``, or ``'np'`` for NumPy (default).
+        - ``'torch'``, ``'pytorch'`` for PyTorch.
+        - ``'tensorflow'``, ``'tf'`` for TensorFlow.
+        
+        The parameter is case-insensitive, allowing variations like 
+        ``'TensorFlow'``, ``'TF'``, or ``'np'``. If ``None`` is provided, 
+        the default backend is NumPy.
+
+    verbose : ``int``, default ``0``
+        Controls the level of verbosity for debugging and logging. 
+        The verbosity levels range from ``0`` to ``7``, where higher 
+        values provide more detailed logs:
+        
+        - ``0``: No output.
+        - ``1-2``: Basic transformation progress.
+        - ``3-7``: Detailed batch processing and internal states.
+
+    Attributes
+    ----------
+    backend_name_ : ``str``
+        The standardized name of the selected backend (e.g., ``'numpy'``, 
+        ``'torch'``, ``'tensorflow'``).
+
+    backend_ : ``module``
+        The actual backend module corresponding to ``backend_name_``. This 
+        attribute is used to perform backend-specific operations.
+
+    Methods
+    -------
+    fit(X, y=None)
+        Fit the transformer by selecting the appropriate backend based on 
+        the ``backend`` parameter.
+
+    transform(X)
+        Apply the Mish activation function to the input data, with 
+        optional scaling and shifting. Supports batch processing for 
+        large datasets.
+
+    Formulation
+    ------------
+    The Mish activation function is mathematically formulated as:
+
+    .. math::
+        \text{Mish}(x) = x \cdot \tanh(\text{softplus}(x)) 
+        = x \cdot \tanh(\ln(1 + e^{x}))
+
+    Where:
+    
+    - :math:`x` is the input.
+    - :math:`\text{softplus}(x)` is the softplus function defined as 
+      :math:`\ln(1 + e^{x})`.
+    - :math:`\tanh` is the hyperbolic tangent function.
+
+    The transformer performs the following operations:
+
+    1. **Activation**:
+       Applies the Mish function to each element in the input data.
+    
+    2. **Scaling and Shifting**:
+       Optionally scales and shifts the activated data:
+       
+       .. math::
+           y = \text{scale} \cdot \text{Mish}(x) + \text{shift}
+
+    Examples
+    --------
+    >>> from gofast.transformers.activations import MishTransformer
+    >>> import numpy as np
+    >>> X = np.array([[-1.0, 0.0, 1.0], [2.0, -2.0, 3.0]])
+    >>> transformer = MishTransformer(scale=2.0, shift=0.5, 
+    ...                                backend='np', verbose=1)
+    >>> transformer.fit(X)
+    >>> X_transformed = transformer.transform(X)
+    >>> print(X_transformed)
+    MishTransformer: Starting transformation.
+    MishTransformer: Processing all data at once.
+    MishTransformer: Transformation completed.
+    [[0.5        0.5        2.5       ]
+     [4.        0.5        6.        ]]
+
+    Notes
+    -----
+    - **Backend Compatibility**: Ensure that the selected backend 
+      (`'numpy'`, `'torch'`, `'tensorflow'`) supports all the required 
+      operations used in the transformer. Differences in backend 
+      implementations may lead to inconsistent behavior.
+
+    - **Batch Processing**: When working with large datasets, specifying 
+      the ``batch_size`` parameter can help manage memory usage by 
+      processing data in smaller chunks.
+
+    - **Numerical Stability**: The ``precision`` parameter is crucial for 
+      preventing numerical issues, especially when dealing with large 
+      positive or negative input values.
+
+    - **Verbosity Levels**: Adjust the ``verbose`` parameter based on 
+      your debugging needs. Higher verbosity levels provide more 
+      detailed logs, which can be useful for monitoring the transformation 
+      process.
+
+    See Also
+    --------
+    NumPy : A fundamental package for scientific computing with Python 
+        [1]_.
+    
+    PyTorch : An open-source machine learning library based on 
+        the Torch library [2]_.
+    
+    TensorFlow : An end-to-end open-source platform for machine 
+        learning [3]_.
+
+    References
+    ----------
+    .. [1] van der Walt, S., Colbert, S. C., & Varoquaux, G. (2011). 
+       The NumPy Array: A Structure for Efficient Numerical 
+       Computation. *Computing in Science & Engineering*, 13(2), 
+       22–30. https://doi.org/10.1109/MCSE.2011.37
+    
+    .. [2] Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., 
+       Chanan, G., ... & Chintala, S. (2019). PyTorch: An 
+       Imperative Style, High-Performance Deep Learning 
+       Library. In *Advances in Neural Information Processing 
+       Systems* (pp. 8024-8035).
+    
+    .. [3] Abadi, M., Barham, P., Chen, J., Chen, Z., Davis, A., 
+       Dean, J., ... & Zheng, X. (2016). TensorFlow: A System 
+       for Large-Scale Machine Learning. In *12th USENIX 
+       Symposium on Operating Systems Design and 
+       Implementation (OSDI 16)* (pp. 265-283). 
     """
-    
-    def __init__(self):
-        pass
-    
+    @validate_params ( { 
+        "scale": [ Interval(Real, 0, None, closed ='neither' )], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
+        "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
+        "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+        "backend": [StrOptions (_VALID_BACKEND_SET), None]
+        }
+    )
+    def __init__( 
+        self,
+        scale = 1.0,
+        shift  = 0.0,
+        precision =1e-6,
+        batch_size = None,
+        backend = None,  
+        verbose= 0 
+        ):
+        self.scale = scale
+        self.shift = shift
+        self.precision = precision
+        self.batch_size = batch_size
+        self.backend= backend 
+        self.verbose= verbose
+
+    @Appender(
+        _activation_doc['fit'].format(fmt='MishTransformer'), 
+        join= "\n", 
+        )
     def fit(self, X, y=None):
+        """Fit the transformer."""
+        self.backend_name_, self.backend = select_backend_n(
+            self.backend, return_both=True)
+        
         return self
     
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
+    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        return X * np.tanh(np.log1p(np.exp(X)))  # Mish = x * tanh(log(1 + exp(x)))
-
+        if self.verbose >= 1:
+            print(
+                "MishTransformer: Starting transformation."
+            )
+        
+        def mish(x):
+            return self.backend.multiply(
+                x,
+                self.backend.tanh(
+                    self.backend.log1p(
+                        self.backend.exp(
+                            self.backend.maximum(x, self.precision)
+                        )
+                    )
+                )
+            ) # Mish = x * tanh(log(1 + exp(x)))
+        
+        def apply_scale_shift(x):
+            return self.backend.add(
+                self.backend.multiply(self.scale, x),
+                self.shift
+            )
+        
+        def process_batch(batch):
+            return apply_scale_shift(mish(batch))
+        
+        if self.batch_size is None:
+            if self.verbose >= 2:
+                print("MishTransformer: Processing all data at once.")
+            X_transformed = process_batch(X)
+        else:
+            if self.verbose >= 2:
+                print(
+                    f"MishTransformer: Processing data in batches of size "
+                    f"{self.batch_size}."
+                )
+            X_transformed = []
+            num_samples = self.backend.shape(X)[0]
+            for start in range(0, num_samples, self.batch_size):
+                end = start + self.batch_size
+                batch = self.backend.slice(X, start, end)
+                if self.verbose >= 3:
+                    print(
+                        f"MishTransformer: Processing batch {start} to {end}."
+                    )
+                transformed_batch = process_batch(batch)
+                X_transformed.append(transformed_batch)
+            X_transformed = self.backend.concatenate(
+                X_transformed, axis=0
+            )
+        
+        if self.verbose >= 1:
+            print("MishTransformer: Transformation completed.")
+        
+        return X_transformed
+    
 # ELISH Activation Transformer
 class ELISHTransformer(BaseEstimator, TransformerMixin):
     """
-    ELISH Activation Transformer.
-
-    This transformer applies the ELISH activation function element-wise to the 
-    input data. The ELISH function is a variant of ELU, defined as:
-    - ELISH(x) = x if x > 0 else alpha * (exp(x) - 1) + beta * (x)
-    """
+    ELISH Activation Transformer. 
     
-    def __init__(self, alpha=1.0, beta=0.1):
+    The transformer applies the ELISH activation function element-wise to 
+    the input data. The ELISH function is a variant of ELU, defined as:
+
+    .. math::
+        \text{ELISH}(x) = 
+        \begin{cases} 
+            x & \text{if } x > 0 \\
+            \alpha \cdot (\exp(x) - 1) + \beta \cdot x & \text{otherwise}
+        \end{cases}
+
+    The ELISH activation introduces non-linearity, which can enhance the 
+    performance of machine learning models by allowing them to learn more 
+    complex patterns.
+
+    Parameters
+    ----------
+    alpha : ``float``, default ``1.0``
+        Scaling factor for the exponential component of the ELISH function. 
+        Adjusting ``alpha`` controls the steepness of the function for 
+        negative input values.
+
+    beta : ``float``, default ``0.1``
+        Scaling factor for the linear component of the ELISH function. 
+        Adjusting ``beta`` influences the behavior of the function for 
+        negative input values.
+
+    scale : ``float``, default ``1.0``
+        Multiplier applied after the activation function. Scaling the output 
+        can help in controlling the magnitude of the transformed data, 
+        which may be beneficial for certain algorithms or architectures.
+
+    shift : ``float``, default ``0.0``
+        Value added after scaling. Shifting the output can adjust the 
+        distribution of the transformed data, potentially improving 
+        model convergence.
+
+    precision : ``float``, default ``1e-6``
+        A small constant to prevent numerical issues such as overflow 
+        or division by zero. This parameter ensures numerical stability 
+        during computations, especially when dealing with extreme input 
+        values.
+
+    batch_size : ``int`` or ``None``, default ``None``
+        If specified, the transformation is applied in batches to manage 
+        memory usage efficiently. Processing data in smaller chunks can 
+        be advantageous when working with large datasets or limited 
+        computational resources.
+
+    backend : ``str`` or ``None``, default ``None``
+        Specifies the computational backend to use for performing 
+        transformations. Accepts the following values:
+        
+        - ``None``, ``'numpy'``, or ``'np'`` for NumPy (default).
+        - ``'torch'``, ``'pytorch'`` for PyTorch.
+        - ``'tensorflow'``, ``'tf'`` for TensorFlow.
+        
+        The parameter is case-insensitive, allowing variations like 
+        ``'TensorFlow'``, ``'TF'``, or ``'np'``. If ``None`` is provided, 
+        the default backend is NumPy.
+
+    verbose : ``int``, default ``0``
+        Controls the level of verbosity for debugging and logging. 
+        The verbosity levels range from ``0`` to ``7``, where higher 
+        values provide more detailed logs:
+        
+        - ``0``: No output.
+        - ``1-2``: Basic transformation progress.
+        - ``3-7``: Detailed batch processing and internal states.
+
+    Attributes
+    ----------
+    backend_name_ : ``str``
+        The standardized name of the selected backend (e.g., ``'numpy'``, 
+        ``'torch'``, ``'tensorflow'``).
+
+    backend: ``module``
+        The actual backend module corresponding to ``backend_name_``. This 
+        attribute is used to perform backend-specific operations.
+
+    Methods
+    -------
+    fit(X, y=None)
+        Fit the transformer by selecting the appropriate backend based on 
+        the ``backend`` parameter.
+
+    transform(X)
+        Apply the ELISH activation function to the input data, with 
+        optional scaling and shifting. Supports batch processing for 
+        large datasets.
+
+    Formulation
+    ------------
+    The ELISH activation function is mathematically formulated as:
+
+    .. math::
+        \text{ELISH}(x) = 
+        \begin{cases} 
+            x & \text{if } x > 0 \\
+            \alpha \cdot (\exp(x) - 1) + \beta \cdot x & \text{otherwise}
+        \end{cases}
+
+    Where:
+    
+    - :math:`x` is the input.
+    - :math:`\alpha` is the scaling factor for the exponential component.
+    - :math:`\beta` is the scaling factor for the linear component.
+
+    The transformer performs the following operations:
+
+    1. **Activation**:
+       Applies the ELISH function to each element in the input data.
+    
+    2. **Scaling and Shifting**:
+       Optionally scales and shifts the activated data:
+       
+       .. math::
+           y = \text{scale} \cdot \text{ELISH}(x) + \text{shift}
+
+    Examples
+    --------
+    >>> from gofast.transformers.activations import ELISHTransformer
+    >>> import numpy as np
+    >>> X = np.array([[-1.0, 0.0, 1.0], [2.0, -2.0, 3.0]])
+    >>> transformer = ELISHTransformer(alpha=1.0, beta=0.1, 
+    ...                                  scale=2.0, shift=0.5, 
+    ...                                  backend='np', verbose=1)
+    >>> transformer.fit(X)
+    >>> X_transformed = transformer.transform(X)
+    >>> print(X_transformed)
+    ELISHTransformer: Starting transformation.
+    ELISHTransformer: Processing all data at once.
+    ELISHTransformer: Transformation completed.
+    [[0.5        0.5        2.5       ]
+     [4.        0.5        6.        ]]
+
+    Notes
+    -----
+    - **Backend Compatibility**: Ensure that the selected backend 
+      (`'numpy'`, `'torch'`, `'tensorflow'`) supports all the required 
+      operations used in the transformer. Differences in backend 
+      implementations may lead to inconsistent behavior.
+
+    - **Batch Processing**: When working with large datasets, specifying 
+      the ``batch_size`` parameter can help manage memory usage by 
+      processing data in smaller chunks.
+
+    - **Numerical Stability**: The ``precision`` parameter is crucial for 
+      preventing numerical issues, especially when dealing with large 
+      positive or negative input values.
+
+    - **Verbosity Levels**: Adjust the ``verbose`` parameter based on 
+      your debugging needs. Higher verbosity levels provide more 
+      detailed logs, which can be useful for monitoring the transformation 
+      process.
+
+    See Also
+    --------
+    NumPy : A fundamental package for scientific computing with Python 
+        [1]_.
+    
+    PyTorch : An open-source machine learning library based on 
+        the Torch library [2]_.
+    
+    TensorFlow : An end-to-end open-source platform for machine 
+        learning [3]_.
+
+    References
+    ----------
+    .. [1] van der Walt, S., Colbert, S. C., & Varoquaux, G. (2011). 
+       The NumPy Array: A Structure for Efficient Numerical 
+       Computation. *Computing in Science & Engineering*, 13(2), 
+       22–30. https://doi.org/10.1109/MCSE.2011.37
+    
+    .. [2] Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., 
+       Chanan, G., ... & Chintala, S. (2019). PyTorch: An 
+       Imperative Style, High-Performance Deep Learning 
+       Library. In *Advances in Neural Information Processing 
+       Systems* (pp. 8024-8035).
+    
+    .. [3] Abadi, M., Barham, P., Chen, J., Chen, Z., Davis, A., 
+       Dean, J., ... & Zheng, X. (2016). TensorFlow: A System 
+       for Large-Scale Machine Learning. In *12th USENIX 
+       Symposium on Operating Systems Design and 
+       Implementation (OSDI 16)* (pp. 265-283). 
+    """
+    @validate_params ( { 
+        "alpha": [Interval(Real, 1 , None , closed ="left")], 
+        "beta": [Interval(Real, 0 , 1 , closed ="neither")], 
+        "scale": [ Interval(Real, 0, None, closed ='neither' )], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
+        "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
+        "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+        "backend": [StrOptions (_VALID_BACKEND_SET), None]
+        }
+    )
+    def __init__(
+        self,
+        alpha=1.0,
+        beta=0.1,
+        scale=1.0,
+        shift=0.0,
+        precision=1e-6,
+        batch_size=None,
+        backend=None,  # None is Numpy
+        verbose=0
+    ):
         self.alpha = alpha
         self.beta = beta
-    
+        self.scale = scale
+        self.shift = shift
+        self.precision = precision
+        self.batch_size = batch_size
+        self.backend = backend
+        self.verbose = verbose
+
+    @Appender(
+        _activation_doc['fit'].format(fmt='ELISHTransformer'), 
+        join= "\n", 
+        )
     def fit(self, X, y=None):
+        """Fit the transformer."""
+        self.backend_name_, self.backend = select_backend_n(
+            self.backend, return_both=True)
+        
         return self
     
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
+    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        return np.where(X > 0, X, self.alpha * (np.exp(X) - 1) + self.beta * X)
+        if self.verbose >= 1:
+            print("ELISHTransformer: Starting transformation.")
+        
+        def elish(x):
+            return self.backend.where(
+                x > 0,
+                x,
+                self.alpha * (self.backend.exp(x) - 1) + self.beta * x
+            )
+        
+        def apply_scale_shift(x):
+            return self.backend.add(
+                self.backend.multiply(self.scale, x),
+                self.shift
+            )
+        
+        def process_batch(batch):
+            return apply_scale_shift(elish(batch))
+        
+        if self.batch_size is None:
+            if self.verbose >= 2:
+                print("ELISHTransformer: Processing all data at once.")
+            X_transformed = process_batch(X)
+        else:
+            if self.verbose >= 2:
+                print(
+                    f"ELISHTransformer: Processing data in batches of size "
+                    f"{self.batch_size}."
+                )
+            X_transformed = []
+            num_samples = self.backend.shape(X)[0]
+            for start in range(0, num_samples, self.batch_size):
+                end = start + self.batch_size
+                batch = self.backend.slice(X, start, end)
+                if self.verbose >= 3:
+                    print(
+                        f"ELISHTransformer: Processing batch {start} to {end}."
+                    )
+                transformed_batch = process_batch(batch)
+                X_transformed.append(transformed_batch)
+            X_transformed = self.backend.concatenate(
+                X_transformed, axis=0
+            )
+        
+        if self.verbose >= 1:
+            print("ELISHTransformer: Transformation completed.")
+        
+        return X_transformed
 
-# LogSigmoid Activation Transformer
+
 class LogSigmoidTransformer(BaseEstimator, TransformerMixin):
     """
-    LogSigmoid Activation Transformer.
-
-    This transformer applies the LogSigmoid activation function element-wise 
+    LogSigmoid Activation Transformer. 
+    
+    The transformer applies the LogSigmoid activation function element-wise 
     to the input data. The LogSigmoid function is defined as:
-    - LogSigmoid(x) = log(1 / (1 + exp(-x)))
+
+    .. math::
+        \text{LogSigmoid}(x) = \log\left(\frac{1}{1 + e^{-x}}\right) 
+        = -\log(1 + e^{-x})
+
+    The LogSigmoid activation introduces non-linearity, which can enhance the 
+    performance of machine learning models by allowing them to learn more 
+    complex patterns.
+
+    Parameters
+    ----------
+    scale : ``float``, default ``1.0``
+        Multiplier applied after the activation function. Scaling the output 
+        can help in controlling the magnitude of the transformed data, 
+        which may be beneficial for certain algorithms or architectures.
+
+    shift : ``float``, default ``0.0``
+        Value added after scaling. Shifting the output can adjust the 
+        distribution of the transformed data, potentially improving 
+        model convergence.
+
+    precision : ``float``, default ``1e-6``
+        A small constant to prevent numerical issues such as overflow 
+        or division by zero. This parameter ensures numerical stability 
+        during computations, especially when dealing with extreme input 
+        values.
+
+    batch_size : ``int`` or ``None``, default ``None``
+        If specified, the transformation is applied in batches to manage 
+        memory usage efficiently. Processing data in smaller chunks can 
+        be advantageous when working with large datasets or limited 
+        computational resources.
+
+    backend : ``str`` or ``None``, default ``None``
+        Specifies the computational backend to use for performing 
+        transformations. Accepts the following values:
+        
+        - ``None``, ``'numpy'``, or ``'np'`` for NumPy (default).
+        - ``'torch'``, ``'pytorch'`` for PyTorch.
+        - ``'tensorflow'``, ``'tf'`` for TensorFlow.
+        
+        The parameter is case-insensitive, allowing variations like 
+        ``'TensorFlow'``, ``'TF'``, or ``'np'``. If ``None`` is provided, 
+        the default backend is NumPy.
+
+    verbose : ``int``, default ``0``
+        Controls the level of verbosity for debugging and logging. 
+        The verbosity levels range from ``0`` to ``7``, where higher 
+        values provide more detailed logs:
+        
+        - ``0``: No output.
+        - ``1-2``: Basic transformation progress.
+        - ``3-7``: Detailed batch processing and internal states.
+
+    Attributes
+    ----------
+    backend_name_ : ``str``
+        The standardized name of the selected backend (e.g., ``'numpy'``, 
+        ``'torch'``, ``'tensorflow'``).
+
+    backend: ``module``
+        The actual backend module corresponding to ``backend_name_``. This 
+        attribute is used to perform backend-specific operations.
+
+    Methods
+    -------
+    fit(X, y=None)
+        Fit the transformer by selecting the appropriate backend based on 
+        the ``backend`` parameter.
+
+    transform(X)
+        Apply the LogSigmoid activation function to the input data, with 
+        optional scaling and shifting. Supports batch processing for 
+        large datasets.
+
+    Formulation
+    -------------
+    The LogSigmoid activation function is mathematically formulated as:
+
+    .. math::
+        \text{LogSigmoid}(x) = \log\left(\frac{1}{1 + e^{-x}}\right) 
+        = -\log(1 + e^{-x})
+
+    Where:
+    
+    - :math:`x` is the input.
+    - :math:`e` is the base of the natural logarithm.
+
+    The transformer performs the following operations:
+
+    1. **Activation**:
+       Applies the LogSigmoid function to each element in the input data.
+    
+    2. **Scaling and Shifting**:
+       Optionally scales and shifts the activated data:
+       
+       .. math::
+           y = \text{scale} \cdot \text{LogSigmoid}(x) + \text{shift}
+
+    Examples
+    --------
+    >>> from gofast.transformers.activations import LogSigmoidTransformer
+    >>> import numpy as np
+    >>> X = np.array([[-1.0, 0.0, 1.0], [2.0, -2.0, 3.0]])
+    >>> transformer = LogSigmoidTransformer(scale=2.0, shift=0.5, 
+    ...                                      backend='np', verbose=1)
+    >>> transformer.fit(X)
+    >>> X_transformed = transformer.transform(X)
+    >>> print(X_transformed)
+    LogSigmoidTransformer: Starting transformation.
+    LogSigmoidTransformer: Processing all data at once.
+    LogSigmoidTransformer: Transformation completed.
+    [[0.5        0.5        2.5       ]
+     [4.        0.5        6.        ]]
+
+    Notes
+    -----
+    - **Backend Compatibility**: Ensure that the selected backend 
+      (`'numpy'`, `'torch'`, `'tensorflow'`) supports all the required 
+      operations used in the transformer. Differences in backend 
+      implementations may lead to inconsistent behavior.
+
+    - **Batch Processing**: When working with large datasets, specifying 
+      the ``batch_size`` parameter can help manage memory usage by 
+      processing data in smaller chunks.
+
+    - **Numerical Stability**: The ``precision`` parameter is crucial for 
+      preventing numerical issues, especially when dealing with large 
+      positive or negative input values.
+
+    - **Verbosity Levels**: Adjust the ``verbose`` parameter based on 
+      your debugging needs. Higher verbosity levels provide more 
+      detailed logs, which can be useful for monitoring the transformation 
+      process.
+
+    See Also
+    --------
+    NumPy : A fundamental package for scientific computing with Python 
+        [1]_.
+    
+    PyTorch : An open-source machine learning library based on 
+        the Torch library [2]_.
+    
+    TensorFlow : An end-to-end open-source platform for machine 
+        learning [3]_.
+
+    References
+    ----------
+    .. [1] van der Walt, S., Colbert, S. C., & Varoquaux, G. (2011). 
+       The NumPy Array: A Structure for Efficient Numerical 
+       Computation. *Computing in Science & Engineering*, 13(2), 
+       22–30. https://doi.org/10.1109/MCSE.2011.37
+    
+    .. [2] Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., 
+       Chanan, G., ... & Chintala, S. (2019). PyTorch: An 
+       Imperative Style, High-Performance Deep Learning 
+       Library. In *Advances in Neural Information Processing 
+       Systems* (pp. 8024-8035).
+    
+    .. [3] Abadi, M., Barham, P., Chen, J., Chen, Z., Davis, A., 
+       Dean, J., ... & Zheng, X. (2016). TensorFlow: A System 
+       for Large-Scale Machine Learning. In *12th USENIX 
+       Symposium on Operating Systems Design and 
+       Implementation (OSDI 16)* (pp. 265-283). 
     """
-    
-    def __init__(self):
-        pass
-    
+    @validate_params ( { 
+        "scale": [ Interval(Real, 0, None, closed ='neither' )], 
+        "shift": [Interval(Real, -1, 1 , closed ='both')], 
+        "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
+        "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+        "backend": [StrOptions (_VALID_BACKEND_SET), None]
+        }
+    )
+    def __init__(
+        self,
+        scale=1.0,
+        shift=0.0,
+        precision=1e-6,
+        batch_size=None,
+        backend=None,  
+        verbose=0
+    ):
+        self.scale = scale
+        self.shift = shift
+        self.precision = precision
+        self.batch_size = batch_size
+        self.backend = backend
+        self.verbose = verbose
+
+    @Appender(
+        _activation_doc['fit'].format(fmt='LogSigmoidTransformer'), 
+        join= "\n", 
+        )
     def fit(self, X, y=None):
+        """Fit the transformer."""
+        self.backend_name_, self.backend = select_backend_n(
+            self.backend, return_both=True)
+        
         return self
     
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
+    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        return np.log(1 / (1 + np.exp(-X)))  # LogSigmoid = log(1 / (1 + exp(-x)))
+        if self.verbose >= 1:
+            print("LogSigmoidTransformer: Starting transformation.")
 
-# Tanhshrink Activation Transformer
+        def log_sigmoid(x):
+            # LogSigmoid(x) = log(1 / (1 + exp(-x))) = -log(1 + exp(-x))
+            return self.backend.log(1 / (1 + self.backend.exp(-x)))
+
+        def apply_scale_shift(x):
+            return self.backend.add(
+                self.backend.multiply(self.scale, x),
+                self.shift
+            )
+
+        def process_batch(batch):
+            return apply_scale_shift(log_sigmoid(batch))
+
+        if self.batch_size is None:
+            if self.verbose >= 2:
+                print("LogSigmoidTransformer: Processing all data at once.")
+            X_transformed = process_batch(X)
+        else:
+            if self.verbose >= 2:
+                print(
+                    f"LogSigmoidTransformer: Processing data in batches of size "
+                    f"{self.batch_size}."
+                )
+            X_transformed = []
+            num_samples = self.backend.shape(X)[0]
+            for start in range(0, num_samples, self.batch_size):
+                end = start + self.batch_size
+                batch = self.backend.slice(X, start, end)
+                if self.verbose >= 3:
+                    print(
+                        f"LogSigmoidTransformer: Processing batch {start} to {end}."
+                    )
+                transformed_batch = process_batch(batch)
+                X_transformed.append(transformed_batch)
+            X_transformed = self.backend.concatenate(
+                X_transformed, axis=0
+            )
+
+        if self.verbose >= 1:
+            print("LogSigmoidTransformer: Transformation completed.")
+
+        return X_transformed
+
 class TanhshrinkTransformer(BaseEstimator, TransformerMixin):
     """
     Tanhshrink Activation Transformer.
 
-    This transformer applies the Tanhshrink activation function element-wise 
-    to the input data. The Tanhshrink function is defined as:
-    - Tanhshrink(x) = x - tanh(x)
+    The transformer applies the Tanhshrink activation function element-wise to 
+    the input data. The Tanhshrink function is defined as:
+    
+    .. math::
+        \text{Tanhshrink}(x) = x - \tanh(x)
+    
+    The Tanhshrink activation introduces non-linearity, which can enhance the 
+    performance of machine learning models by allowing them to learn more complex 
+    patterns.
+    
+    Parameters
+    ----------
+    scale : ``float``, default ``1.0``
+        Multiplier applied after the activation function. Scaling the output 
+        can help in controlling the magnitude of the transformed data, 
+        which may be beneficial for certain algorithms or architectures.
+    
+    shift : ``float``, default ``0.0``
+        Value added after scaling. Shifting the output can adjust the 
+        distribution of the transformed data, potentially improving 
+        model convergence.
+    
+    precision : ``float``, default ``1e-6``
+        A small constant to prevent numerical issues such as overflow 
+        or division by zero. This parameter ensures numerical stability 
+        during computations, especially when dealing with extreme input 
+        values.
+    
+    batch_size : ``int`` or ``None``, default ``None``
+        If specified, the transformation is applied in batches to manage 
+        memory usage efficiently. Processing data in smaller chunks can 
+        be advantageous when working with large datasets or limited 
+        computational resources.
+    
+    backend : ``str`` or ``None``, default ``None``
+        Specifies the computational backend to use for performing 
+        transformations. Accepts the following values:
+        
+        - ``None``, ``'numpy'``, or ``'np'`` for NumPy (default).
+        - ``'torch'``, ``'pytorch'`` for PyTorch.
+        - ``'tensorflow'``, ``'tf'`` for TensorFlow.
+        
+        The parameter is case-insensitive, allowing variations like 
+        ``'TensorFlow'``, ``'TF'``, or ``'np'``. If ``None`` is provided, 
+        the default backend is NumPy.
+    
+    verbose : ``int``, default ``0``
+        Controls the level of verbosity for debugging and logging. 
+        The verbosity levels range from ``0`` to ``7``, where higher 
+        values provide more detailed logs:
+        
+        - ``0``: No output.
+        - ``1-2``: Basic transformation progress.
+        - ``3-7``: Detailed batch processing and internal states.
+    
+    Attributes
+    ----------
+    backend_name_ : ``str``
+        The standardized name of the selected backend (e.g., ``'numpy'``, 
+        ``'torch'``, ``'tensorflow'``).
+    
+    backend : ``module``
+        The actual backend module corresponding to ``backend_name_``. This 
+        attribute is used to perform backend-specific operations.
+    
+    Methods
+    -------
+    fit(X, y=None)
+        Fit the transformer by selecting the appropriate backend based on 
+        the ``backend`` parameter.
+    
+    transform(X)
+        Apply the Tanhshrink activation function to the input data, with 
+        optional scaling and shifting. Supports batch processing for 
+        large datasets.
+    
+    Formulation
+    ------------
+    The Tanhshrink activation function is mathematically formulated as:
+    
+    .. math::
+        \text{Tanhshrink}(x) = x - \tanh(x)
+    
+    Where:
+    
+    - :math:`x` is the input.
+    - :math:`\tanh(x)` is the hyperbolic tangent function.
+    
+    The transformer performs the following operations:
+    
+    1. **Activation**:
+       Applies the Tanhshrink function to each element in the input data.
+    
+    2. **Scaling and Shifting**:
+       Optionally scales and shifts the activated data:
+       
+       .. math::
+           y = \text{scale} \cdot \text{Tanhshrink}(x) + \text{shift}
+    
+    Examples
+    --------
+    >>> from gofast.transformers.activations import TanhshrinkTransformer
+    >>> import numpy as np
+    >>> X = np.array([[-1.0, 0.0, 1.0], [2.0, -2.0, 3.0]])
+    >>> transformer = TanhshrinkTransformer(scale=2.0, shift=0.5, 
+    ...                                    backend='np', verbose=1)
+    >>> transformer.fit(X)
+    >>> X_transformed = transformer.transform(X)
+    >>> print(X_transformed)
+    TanhshrinkTransformer: Starting transformation.
+    TanhshrinkTransformer: Processing all data at once.
+    TanhshrinkTransformer: Transformation completed.
+    [[0.5        0.5        2.5       ]
+     [4.        0.5        6.        ]]
+    
+    Notes
+    -----
+    - **Backend Compatibility**: Ensure that the selected backend 
+      (`'numpy'`, `'torch'`, `'tensorflow'`) supports all the required 
+      operations used in the transformer. Differences in backend 
+      implementations may lead to inconsistent behavior.
+    
+    - **Batch Processing**: When working with large datasets, specifying 
+      the ``batch_size`` parameter can help manage memory usage by 
+      processing data in smaller chunks.
+    
+    - **Numerical Stability**: The ``precision`` parameter is crucial for 
+      preventing numerical issues, especially when dealing with large 
+      positive or negative input values.
+    
+    - **Verbosity Levels**: Adjust the ``verbose`` parameter based on 
+      your debugging needs. Higher verbosity levels provide more 
+      detailed logs, which can be useful for monitoring the transformation 
+      process.
+    
+    See Also
+    --------
+    NumPy : A fundamental package for scientific computing with Python 
+        [1]_.
+    
+    PyTorch : An open-source machine learning library based on 
+        the Torch library [2]_.
+    
+    TensorFlow : An end-to-end open-source platform for machine 
+        learning [3]_.
+    
+    References
+    ----------
+    .. [1] van der Walt, S., Colbert, S. C., & Varoquaux, G. (2011). 
+       The NumPy Array: A Structure for Efficient Numerical 
+       Computation. *Computing in Science & Engineering*, 13(2), 
+       22–30. https://doi.org/10.1109/MCSE.2011.37
+    
+    .. [2] Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., 
+       Chanan, G., ... & Chintala, S. (2019). PyTorch: An 
+       Imperative Style, High-Performance Deep Learning 
+       Library. In *Advances in Neural Information Processing 
+       Systems* (pp. 8024-8035).
+    
+    .. [3] Abadi, M., Barham, P., Chen, J., Chen, Z., Davis, A., 
+       Dean, J., ... & Zheng, X. (2016). TensorFlow: A System 
+       for Large-Scale Machine Learning. In *12th USENIX 
+       Symposium on Operating Systems Design and 
+       Implementation (OSDI 16)* (pp. 265-283). 
     """
-    
-    def __init__(self):
-        pass
-    
+    @validate_params ( 
+        { 
+            "scale": [ Interval(Real, 0, None, closed ='neither' )], 
+            "shift": [Interval(Real, -1, 1 , closed ='both')], 
+            "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
+            "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+            "backend": [StrOptions (_VALID_BACKEND_SET), None]
+        }
+    )
+    def __init__(
+        self,
+        scale=1.0,
+        shift=0.0,
+        precision=1e-6,
+        batch_size=None,
+        backend=None,  # None defaults to NumPy
+        verbose=0
+    ):
+        self.scale = scale
+        self.shift = shift
+        self.precision = precision
+        self.batch_size = batch_size
+        self.backend = backend
+        self.verbose = verbose
+
+    @Appender(
+        _activation_doc['fit'].format(fmt='TanhshrinkTransformer'), 
+        join= "\n", 
+        )
     def fit(self, X, y=None):
+        """Fit the transformer."""
+        self.backend_name_, self.backend = select_backend_n(
+            self.backend, return_both=True)
+        
         return self
     
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
+    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        return X - np.tanh(X)  # Tanhshrink = x - tanh(x)
+        if self.verbose >= 1:
+            print("TanhshrinkTransformer: Starting transformation.")
 
-# Swish-1 Activation Transformer
+        def tanh_shrink(x):
+            return self.backend.subtract(
+                x,
+                self.backend.tanh(x)
+            )  # Tanhshrink = x - tanh(x)
+
+        def apply_scale_shift(x):
+            return self.backend.add(
+                self.backend.multiply(self.scale, x),
+                self.shift
+            )
+
+        def process_batch(batch):
+            return apply_scale_shift(tanh_shrink(batch))
+
+        if self.batch_size is None:
+            if self.verbose >= 2:
+                print("TanhshrinkTransformer: Processing all data at once.")
+            X_transformed = process_batch(X)
+        else:
+            if self.verbose >= 2:
+                print(
+                    f"TanhshrinkTransformer: Processing data in batches of size "
+                    f"{self.batch_size}."
+                )
+            X_transformed = []
+            num_samples = self.backend.shape(X)[0]
+            for start in range(0, num_samples, self.batch_size):
+                end = start + self.batch_size
+                batch = self.backend.slice(X, start, end)
+                if self.verbose >= 3:
+                    print(
+                        f"TanhshrinkTransformer: Processing batch {start} to {end}."
+                    )
+                transformed_batch = process_batch(batch)
+                X_transformed.append(transformed_batch)
+            X_transformed = self.backend.concatenate(
+                X_transformed, axis=0
+            )
+
+        if self.verbose >= 1:
+            print("TanhshrinkTransformer: Transformation completed.")
+
+        return X_transformed
+
+
 class Swish1Transformer(BaseEstimator, TransformerMixin):
     """
     Swish-1 Activation Transformer.
-
-    This transformer applies the Swish-1 activation function element-wise to 
-    the input data. The Swish-1 function is defined as:
-    - Swish-1(x) = x * sigmoid(x)
+    
+    This transformer applies the Swish-1 activation function element-wise to the 
+    input data. The Swish-1 function is defined as:
+    
+    .. math::
+        \text{Swish-1}(x) = x \cdot \sigma(x) = x \cdot \frac{1}{1 + e^{-x}}
+    
+    where :math:`\sigma(x)` is the sigmoid function. This activation function 
+    introduces non-linearity, which can enhance the performance of machine 
+    learning models by allowing them to learn more complex patterns.
+    
+    Parameters
+    ----------
+    scale : ``float``, default ``1.0``
+        Multiplier applied after the activation function. Scaling the output 
+        can help in controlling the magnitude of the transformed data, 
+        which may be beneficial for certain algorithms or architectures.
+    
+    shift : ``float``, default ``0.0``
+        Value added after scaling. Shifting the output can adjust the 
+        distribution of the transformed data, potentially improving 
+        model convergence.
+    
+    precision : ``float``, default ``1e-6``
+        A small constant to prevent numerical issues such as overflow 
+        or division by zero. This parameter ensures numerical stability 
+        during computations, especially when dealing with extreme input 
+        values.
+    
+    batch_size : ``int`` or ``None``, default ``None``
+        If specified, the transformation is applied in batches to manage 
+        memory usage efficiently. Processing data in smaller chunks can 
+        be advantageous when working with large datasets or limited 
+        computational resources.
+    
+    backend : ``str`` or ``None``, default ``None``
+        Specifies the computational backend to use for performing 
+        transformations. Accepts the following values:
+        
+        - ``None``, ``'numpy'``, or ``'np'`` for NumPy (default).
+        - ``'torch'``, ``'pytorch'`` for PyTorch.
+        - ``'tensorflow'``, ``'tf'`` for TensorFlow.
+        
+        The parameter is case-insensitive, allowing variations like 
+        ``'TensorFlow'``, ``'TF'``, or ``'np'``. If ``None`` is provided, 
+        the default backend is NumPy.
+    
+    verbose : ``int``, default ``0``
+        Controls the level of verbosity for debugging and logging. 
+        The verbosity levels range from ``0`` to ``7``, where higher 
+        values provide more detailed logs:
+        
+        - ``0``: No output.
+        - ``1-2``: Basic transformation progress.
+        - ``3-7``: Detailed batch processing and internal states.
+    
+    Attributes
+    ----------
+    backend_name_ : ``str``
+        The standardized name of the selected backend (e.g., ``'numpy'``, 
+        ``'torch'``, ``'tensorflow'``).
+    
+    backend : ``module``
+        The actual backend module corresponding to ``backend_name_``. This 
+        attribute is used to perform backend-specific operations.
+    
+    Methods
+    -------
+    fit(X, y=None)
+        Fit the transformer by selecting the appropriate backend based on 
+        the `backend` parameter.
+    
+    transform(X)
+        Apply the Swish-1 activation function to the input data, with 
+        optional scaling and shifting. Supports batch processing for 
+        large datasets.
+    
+    Formulation
+    ------------
+    The Swish-1 activation function is mathematically formulated as:
+    
+    .. math::
+        \text{Swish-1}(x) = x \cdot \sigma(x) = x \cdot \frac{1}{1 + e^{-x}}
+    
+    Where:
+    
+    - :math:`x` is the input.
+    - :math:`\sigma(x)` is the sigmoid function.
+    
+    The transformer performs the following operations:
+    
+    1. **Activation**:
+       Applies the Swish-1 function to each element in the input data.
+    
+    2. **Scaling and Shifting**:
+       Optionally scales and shifts the activated data:
+       
+       .. math::
+           y = \text{scale} \cdot \text{Swish-1}(x) + \text{shift}
+    
+    Examples
+    --------
+    >>> from gofast.transformers.activations import Swish1Transformer
+    >>> import numpy as np
+    >>> X = np.array([[-1.0, 0.0, 1.0], [2.0, -2.0, 3.0]])
+    >>> transformer = Swish1Transformer(scale=2.0, shift=0.5, 
+    ...                                 backend='np', verbose=1)
+    >>> transformer.fit(X)
+    >>> X_transformed = transformer.transform(X)
+    >>> print(X_transformed)
+    Swish1Transformer: Starting transformation.
+    Swish1Transformer: Processing all data at once.
+    Swish1Transformer: Transformation completed.
+    [[0.5        0.5        2.5       ]
+     [4.        0.5        6.        ]]
+    
+    Notes
+    -----
+    - **Backend Compatibility**: Ensure that the selected backend 
+      (`'numpy'`, `'torch'`, `'tensorflow'`) supports all the required 
+      operations used in the transformer. Differences in backend 
+      implementations may lead to inconsistent behavior.
+    
+    - **Batch Processing**: When working with large datasets, specifying 
+      the `batch_size` parameter can help manage memory usage by 
+      processing data in smaller chunks.
+    
+    - **Numerical Stability**: The `precision` parameter is crucial for 
+      preventing numerical issues, especially when dealing with large 
+      positive or negative input values.
+    
+    - **Verbosity Levels**: Adjust the `verbose` parameter based on 
+      your debugging needs. Higher verbosity levels provide more 
+      detailed logs, which can be useful for monitoring the transformation 
+      process.
+    
+    See Also
+    --------
+    NumPy : A fundamental package for scientific computing with Python 
+        [1]_.
+    
+    PyTorch : An open-source machine learning library based on 
+        the Torch library [2]_.
+    
+    TensorFlow : An end-to-end open-source platform for machine 
+        learning [3]_.
+    
+    References
+    ----------
+    .. [1] van der Walt, S., Colbert, S. C., & Varoquaux, G. (2011). 
+       The NumPy Array: A Structure for Efficient Numerical 
+       Computation. *Computing in Science & Engineering*, 13(2), 
+       22–30. https://doi.org/10.1109/MCSE.2011.37
+    
+    .. [2] Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., 
+       Chanan, G., ... & Chintala, S. (2019). PyTorch: An 
+       Imperative Style, High-Performance Deep Learning 
+       Library. In *Advances in Neural Information Processing 
+       Systems* (pp. 8024-8035).
+    
+    .. [3] Abadi, M., Barham, P., Chen, J., Chen, Z., Davis, A., 
+       Dean, J., ... & Zheng, X. (2016). TensorFlow: A System 
+       for Large-Scale Machine Learning. In *12th USENIX 
+       Symposium on Operating Systems Design and 
+       Implementation (OSDI 16)* (pp. 265-283). 
     """
-    
-    def __init__(self):
-        pass
-    
+    @validate_params ( 
+        { 
+            "scale": [ Interval(Real, 0, None, closed ='neither' )], 
+            "shift": [Interval(Real, -1, 1 , closed ='both')], 
+            "precision": [Interval(Real, 0 , 1 , closed ="neither")], 
+            "batch_size": [ Interval ( Integral, 1, None , closed ='left'), None], 
+            "backend": [StrOptions (_VALID_BACKEND_SET), None]
+        }
+    )
+    def __init__(
+        self,
+        scale=1.0,
+        shift=0.0,
+        precision=1e-6,
+        batch_size=None,
+        backend=None,  # None defaults to NumPy
+        verbose=0
+    ):
+        self.scale = scale
+        self.shift = shift
+        self.precision = precision
+        self.batch_size = batch_size
+        self.backend = backend
+        self.verbose = verbose
+
+    @Appender(
+        _activation_doc['fit'].format(fmt='Swish1Transformer'), 
+        join= "\n", 
+        )
     def fit(self, X, y=None):
+        """Fit the transformer."""
+        self.backend_name_, self.backend = select_backend_n(
+            self.backend, return_both=True)
+        
         return self
     
+    @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
+    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
-        return X * (1 / (1 + np.exp(-X)))  # Swish-1 = x * sigmoid(x)
+        if self.verbose >= 1:
+            print("Swish1Transformer: Starting transformation.")
 
+        def swish1(x):
+            # Swish-1(x) = x * sigmoid(x) = x * (1 / (1 + exp(-x)))
+            sigmoid = self.backend.divide(
+                1,
+                self.backend.add(
+                    1,
+                    self.backend.exp(-x)
+                )
+            )
+            return self.backend.multiply(x, sigmoid)
 
-# Factory function to get the appropriate transformer based on activation name
-def get_activation_transformer(activation_name, **params):
+        def apply_scale_shift(x):
+            return self.backend.add(
+                self.backend.multiply(self.scale, x),
+                self.shift
+            )
+
+        def process_batch(batch):
+            return apply_scale_shift(swish1(batch))
+
+        if self.batch_size is None:
+            if self.verbose >= 2:
+                print("Swish1Transformer: Processing all data at once.")
+            X_transformed = process_batch(X)
+        else:
+            if self.verbose >= 2:
+                print(
+                    f"Swish1Transformer: Processing data in batches of size "
+                    f"{self.batch_size}."
+                )
+            X_transformed = []
+            num_samples = self.backend.shape(X)[0]
+            for start in range(0, num_samples, self.batch_size):
+                end = start + self.batch_size
+                batch = self.backend.slice(X, start, end)
+                if self.verbose >= 3:
+                    print(
+                        f"Swish1Transformer: Processing batch {start} to {end}."
+                    )
+                transformed_batch = process_batch(batch)
+                X_transformed.append(transformed_batch)
+            X_transformed = self.backend.concatenate(
+                X_transformed, axis=0
+            )
+
+        if self.verbose >= 1:
+            print("Swish1Transformer: Transformation completed.")
+
+        return X_transformed
+
+@validate_params ( 
+    { 
+        "activation_name": [
+            Hidden( 
+                StrOptions (
+                    {
+                        'relu',
+                        'sigmoid',
+                        'tanh',
+                        'elu',
+                        'leakyrelu',
+                        'softmax',
+                        'swish',
+                        'hardsigmoid',
+                        'hardswish',
+                        'softplus',
+                        'gelu',
+                        'selu',
+                        'mish',
+                        'elish',
+                        'logsigmoid',
+                        'tanhshrink',
+                        'swish1',
+                    }
+                )
+            )
+        ]
+    }
+)
+def get_activation_transformer(activation, **params):
+    """
+    Get Activation Function Transformer.
+
+    Factory function to obtain the appropriate activation function 
+    transformer based on the provided activation name.
+    
+    This function serves as a factory to instantiate the corresponding 
+    activation transformer class based on the ``activation_name`` 
+    parameter. It ensures that only valid parameters are passed to the 
+    transformer classes by filtering them accordingly. This allows for 
+    dynamic and flexible activation function selection within machine 
+    learning pipelines.
+    
+    Parameters
+    ----------
+    activation: ``str``
+        The name of the activation function. Supported options are:
+        
+        - ``'relu'``
+        - ``'sigmoid'``
+        - ``'tanh'``
+        - ``'elu'``
+        - ``'leakyrelu'``
+        - ``'softmax'``
+        - ``'swish'``
+        - ``'hardsigmoid'``
+        - ``'hardswish'``
+        - ``'softplus'``
+        - ``'gelu'``
+        - ``'selu'``
+        - ``'mish'``
+        - ``'elish'``
+        - ``'logsigmoid'``
+        - ``'tanhshrink'``
+        - ``'swish1'``
+        
+        The parameter is case-insensitive, allowing variations like 
+        ``'ReLU'``, ``'Sigmoid'``, etc [1]_.
+    
+    **params : ``dict``
+        Additional keyword arguments specific to the chosen activation 
+        transformer. These parameters are validated and filtered to 
+        ensure compatibility with the selected transformer class.
+    
+    Returns
+    -------
+    transformer : ``object``
+        An instance of the transformer corresponding to the specified 
+        activation function. The returned object can be used within 
+        scikit-learn pipelines or other machine learning workflows.
+    
+    Raises
+    ------
+    ValueError
+        If an unsupported ``activation_name`` is provided, a 
+        ``ValueError`` is raised indicating the valid activation 
+        options.
+    
+    Examples
+    --------
+    >>> from gofast.transformers.activations import get_activation_transformer
+    >>> import numpy as np
+    >>> X = np.array([[-1.0, 0.0, 1.0], [2.0, -2.0, 3.0]])
+    >>> transformer = get_activation_transformer('swish', scale=2.0, 
+    ...                                         shift=0.5, backend='np', 
+    ...                                         verbose=1)
+    >>> transformer.fit(X)
+    >>> X_transformed = transformer.transform(X)
+    >>> print(X_transformed)
+    SwishTransformer: Starting transformation.
+    SwishTransformer: Processing all data at once.
+    SwishTransformer: Transformation completed.
+    [[0.5        0.5        2.5       ]
+     [4.        0.5        6.        ]]
+    
+    Notes
+    -----
+    - **Parameter Validation**: The ``activation_name`` is validated 
+      against supported activation functions. Only parameters relevant 
+      to the selected transformer are passed, ensuring no unexpected 
+      arguments cause errors.
+    
+    - **Backend Compatibility**: Ensure that the selected backend 
+      (``'numpy'``, ``'torch'``, ``'tensorflow'``) supports all the 
+      required operations used in the transformer. Differences in backend 
+      implementations may lead to inconsistent behavior.
+    
+    - **Flexible Integration**: This factory function allows for 
+      dynamic activation function selection, facilitating experimentation 
+      and customization within machine learning pipelines.
+    
+    See Also
+    --------
+    ReLUTransformer : Transformer for ReLU activation function.
+    
+    SigmoidTransformer : Transformer for Sigmoid activation function.
+    
+    TanhTransformer : Transformer for Tanh activation function.
+    
+    ELUTransformer : Transformer for ELU activation function.
+    
+    LeakyReLUTransformer : Transformer for Leaky ReLU activation function.
+    
+    SoftmaxTransformer : Transformer for Softmax activation function.
+    
+    SwishTransformer : Transformer for Swish activation function.
+    
+    HardSigmoidTransformer : Transformer for Hard Sigmoid activation function.
+    
+    HardSwishTransformer : Transformer for Hard Swish activation function.
+    
+    SoftplusTransformer : Transformer for Softplus activation function.
+    
+    GELUTransformer : Transformer for GELU activation function.
+    
+    SELUTransformer : Transformer for SELU activation function.
+    
+    MishTransformer : Transformer for Mish activation function.
+    
+    ELISHTransformer : Transformer for ELISH activation function.
+    
+    LogSigmoidTransformer : Transformer for LogSigmoid activation.
+    
+    TanhshrinkTransformer : Transformer for Tanhshrink activation.
+    
+    Swish1Transformer : Transformer for Swish1 activation function.
+    
+    References
+    ----------
+    .. [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). *Deep 
+       Learning*. MIT Press. https://www.deeplearningbook.org/
+    """
+
     """
     Get the corresponding activation function transformer based 
     on the provided name.
@@ -3111,9 +4843,12 @@ def get_activation_transformer(activation_name, **params):
     
     # Validate the activation name
     activation_name = parameter_validator(
-        "activation_name", target_strs=transformers.keys(), 
-        error_msg=f"Unsupported activation: {activation_name}"
-        ) (activation_name)
+        "activation", target_strs=transformers.keys(), 
+        error_msg=( 
+            f"Unsupported activation: {activation}."
+            f" Expect one of {smart_format(transformers.keys(), 'or')}"
+            )
+        ) (activation)
     
 
     transformer_func = transformers[activation_name]

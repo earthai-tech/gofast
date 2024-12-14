@@ -19,6 +19,7 @@ from scipy._lib._util import float_factorial
 from scipy.linalg import lstsq
 from scipy.ndimage import convolve1d
 from scipy.optimize import curve_fit
+from scipy.spatial import cKDTree
 
 import numpy as np
 import pandas as pd
@@ -38,6 +39,7 @@ from ..api.types import (
     _SP, 
     _T,
 )
+from ..compat.sklearn import validate_params, StrOptions, Interval 
 from ..core.array_manager import reshape 
 from ..core.checks import ( 
     _assert_all_types, 
@@ -45,9 +47,10 @@ from ..core.checks import (
     str2columns, 
     exist_features, 
     assert_ratio, 
+    are_all_frames_valid, 
     )
-from ..compat.sklearn import validate_params, StrOptions, Interval 
-from ..core.io import is_data_readable 
+from ..core.handlers import columns_manager 
+from ..core.io import SaveFile, is_data_readable 
 from ..core.utils import ellipsis2false, smart_format 
 from ..decorators import Deprecated, AppendDocReferences, isdf 
 
@@ -73,6 +76,7 @@ __all__ = [
      'make_ids',
      'moving_average',
      'numstr2dms',
+     'dual_merge', 
      'quality_control2',
      'round_dipole_length',
      'savgol_coeffs',
@@ -89,6 +93,164 @@ __all__ = [
      'extract_coordinates', 
  ]
 
+@SaveFile            
+def dual_merge(
+    df1: pd.DataFrame, 
+    df2: pd.DataFrame,
+    feature_cols: Union[list, tuple] = ('longitude', 'latitude'),
+    find_closest: bool = False, 
+    force_coords: bool = False,  
+    threshold: float = 0.01,  
+    how: str = 'inner', 
+    savefile: Optional[str]=None, 
+) -> pd.DataFrame:
+    """
+    Merge two DataFrames based on specified feature columns. The function 
+    can match the features exactly or find the closest matches within a 
+    specified distance threshold. It also allows for overwriting coordinates 
+    or feature values from one DataFrame to another when a close match is found.
+
+    Parameters
+    ----------
+    df1 : pd.DataFrame
+        The first DataFrame to be merged. It contains the primary data 
+        along with the feature columns (e.g., longitude, latitude) to be 
+        merged on.
+
+    df2 : pd.DataFrame
+        The second DataFrame to be merged. It contains the data to be 
+        matched with `df1` based on the specified feature columns.
+
+    feature_cols : tuple or list, default ``('longitude', 'latitude')``
+        The names of the columns in each DataFrame to merge on. It should 
+        contain two columns representing features, such as coordinates 
+        (longitude, latitude) or other relevant attributes. These columns 
+        will be used to match the rows from `df1` to `df2`.
+
+    find_closest : bool, default ``False``
+        If ``True``, the function will attempt to find the closest points 
+        in ``df2`` for each point in ``df1`` within the specified distance 
+        threshold (`threshold`). If no exact match is found, the closest 
+        point within the threshold will be considered.
+
+    force_coordinates : bool, default ``False``
+        If ``True``, when the closest points are found, the coordinates 
+        of `df1` will overwrite those of `df2` for the matched points.
+
+    threshold : float, default ``0.01``
+        The maximum distance threshold within which points will be considered 
+        as "close" for the closest point matching. The value is in the same 
+        unit as the feature columns (e.g., degrees for latitude/longitude).
+
+    how : str, default ``'inner'``
+        The type of merge to perform. Options include:
+        - ``'inner'``: Only includes points that appear in both DataFrames.
+        - ``'left'``: All points from `df1` are included; unmatched points 
+          from `df2` are excluded.
+        - ``'right'``: All points from `df2` are included; unmatched points 
+          from `df1` are excluded.
+        - ``'outer'``: Includes all points from both DataFrames, with NaN 
+          for unmatched points.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the merged data based on the specified 
+        feature columns and merge type. If ``find_closest=True``, it will 
+        contain the closest matches within the specified threshold, with 
+        coordinates from ``df1`` overwritten if ``force_coordinates=True``.
+
+    Notes
+    -----
+    - This function uses a KDTree for efficient nearest-neighbor searching 
+      when ``find_closest=True``. This is useful when dealing with large 
+      datasets that may not have exact coordinate matches.
+    - When ``force_coordinates=True``, the coordinates from ``df1`` will 
+      overwrite those from ``df2`` for the closest points. However, other 
+      feature values will be kept from ``df2``.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.tools.datautils import dual_merge
+    >>> df1 = pd.DataFrame({
+    >>>     'longitude': [1.1, 1.2, 1.3],
+    >>>     'latitude': [2.1, 2.2, 2.3],
+    >>>     'value1': [10, 20, 30]
+    >>> })
+    >>> df2 = pd.DataFrame({
+    >>>     'longitude': [1.1, 1.4],
+    >>>     'latitude': [2.1, 2.4],
+    >>>     'value2': [100, 200]
+    >>> })
+    >>> result = dual_merge(df1, df2, feature_cols=('longitude', 'latitude'), 
+    >>>                     find_closest=True, threshold=0.05)
+    >>> print(result)
+       longitude  latitude  value1  value2
+    0        1.1       2.1      10     100
+
+    See Also
+    --------
+    scipy.spatial.cKDTree: Used for finding the closest points in `df2` 
+        when ``find_closest=True``. 
+    pandas.merge: pandas.DataFrame.merge
+        The pandas merge function, used to merge DataFrames based on columns.
+
+    References
+    ----------
+    .. [1] Scipy Documentation, cKDTree
+       https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.cKDTree.html
+    """
+
+    # Ensure feature_cols are valid and both contain two elements
+    feature_cols = columns_manager(feature_cols , empty_as_none= False )
+    if len(feature_cols) != 2:
+        raise ValueError(
+            "feature_cols must contain exactly two features (e.g., longitude, latitude)")
+    
+    # check wether df1 and df2  are both dataframes.
+    are_all_frames_valid(df1, df2 )
+    
+    # Extract columns from feature_cols for both DataFrames
+    feature1_1, feature1_2 = feature_cols
+    feature2_1, feature2_2 = feature_cols
+    
+    # Filter for relevant columns in both DataFrames
+    df1_coords = df1[[feature1_1, feature1_2]]
+    df2_coords = df2[[feature2_1, feature2_2]]
+
+    if find_closest:
+        # Use KDTree for fast nearest-neighbor search
+        tree = cKDTree(df2_coords.values)
+        
+        # Query for the closest points in df2 for each point in df1
+        dist, indices = tree.query(
+            df1_coords.values, distance_upper_bound=threshold)
+        
+        # Filter out points that couldn't find a close match
+        valid_idx = dist != np.inf
+        df1_coords_closest = df1_coords.iloc[valid_idx]
+        df2_coords_closest = df2_coords.iloc[indices[valid_idx]]
+
+        if force_coords:
+            # Force coordinates of df1 to overwrite df2
+            df2_coords_closest[feature2_1] = df1_coords_closest[feature1_1].values
+            df2_coords_closest[feature2_2] = df1_coords_closest[feature1_2].values
+        
+        # Update df1 with the closest matches from df2
+        df1 = df1.iloc[valid_idx]
+        df2 = df2.iloc[indices[valid_idx]]
+
+    # Perform the merge based on the feature columns
+    merged_data = pd.merge(
+        df1,
+        df2,
+        how=how,
+        left_on=[feature1_1, feature1_2],
+        right_on=[feature2_1, feature2_2]
+    )
+
+    return merged_data
 
 @isdf 
 def extract_coordinates(

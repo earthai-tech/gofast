@@ -1298,7 +1298,6 @@ def smart_format(iter_obj, choice='and'):
     
     return formatted_str
 
- 
 def make_introspection(Obj: object, subObj: _Sub[object]) -> None:
     """
     Make introspection by using the attributes of an instance to populate 

@@ -63,7 +63,7 @@ from .nn import NNBackend
 
 from ..decorators import EnsureMethod 
 from ..api.property import BaseClass 
-
+from ..tools.depsutils import ensure_pkg 
 
 __all__= ["BackendSelector", "select_backend_n"]
 
@@ -490,20 +490,36 @@ class BackendSelector(BaseClass):
         """
 
         return self.selected_nn_backend
-    
-def select_backend_n(backend):
+ 
+
+@ensure_pkg(
+    "torch", 
+    extra="backend is set to ``torch`` while it is not installed.",
+    partial_check= True,
+    condition= lambda *args, **kwargs: kwargs.get("backend") in ("torch", "pytorch")
+    )
+@ensure_pkg(
+    "tensorflow", 
+    extra="backend is set to ``tensorflow`` while it is not installed.",
+    partial_check= True,
+    condition= lambda *args, **kwargs: kwargs.get("backend") in ("tensorflow", "tf")
+    )
+
+def select_backend_n(
+        backend=None, return_module=False, return_both=False):
     """
     Select the backend for computation based on the input string.
 
     This function maps various input string representations to standardized 
-    backend names. It is used to choose the appropriate backend for 
-    performing computations, such as NumPy, TensorFlow, or PyTorch. This 
-    allows the user to provide different variations of backend names, and 
-    the function will return the corresponding backend in a consistent format.
+    backend names or their corresponding modules. It is used to choose the 
+    appropriate backend for performing computations, such as NumPy, TensorFlow, 
+    or PyTorch. This allows the user to provide different variations of backend 
+    names, and the function will return the corresponding backend in a 
+    consistent format or the actual backend module.
 
     Parameters
     ----------
-    backend : str or None
+    backend : str or None, optional
         The backend to use for computation. Accepts the following values:
         - `None`, `'numpy'`, or `'np'` for NumPy (default).
         - `'torch'`, `'pytorch'` for PyTorch.
@@ -512,13 +528,36 @@ def select_backend_n(backend):
         The parameter is case-insensitive, so variations like `'TensorFlow'`, 
         `'TF'`, or `'np'` are also valid. If `None` is provided, the default 
         backend will be NumPy.
+    
+    return_module : bool, default=False
+        If `True`, the function returns the actual backend module (`numpy`, 
+        `torch`, or `tensorflow`). If `False`, it returns the standardized 
+        backend string (`'numpy'`, `'torch'`, or `'tensorflow'`).
+    
+    return_both : bool, default=False
+        If `True`, the function returns a tuple containing both the standardized 
+        backend string and the corresponding backend module. This is useful 
+        when both the name and the module are needed for further operations.
+
+        - When `return_both` is `True`, the function returns:
+          (`'numpy'`, numpy_module), (`'torch'`, torch_module), or 
+          (`'tensorflow'`, tensorflow_module).
+
+        - If `return_both` is `True`, the `return_module` parameter is ignored.
 
     Returns
     -------
-    str
-        The standardized backend string, one of `'numpy'`, `'torch'`, or 
-        `'tensorflow'`. These are the accepted backend names that will be 
-        used throughout the program.
+    str or module or tuple of (str, module)
+        - If `return_both` is `True`, returns a tuple containing the standardized 
+          backend string and the corresponding backend module.
+        - If `return_module` is `True`, returns the corresponding backend 
+          module:
+          - `numpy` module for `'numpy'`.
+          - `torch` module for `'torch'`.
+          - `tensorflow` module for `'tensorflow'`.
+        - If both `return_module` and `return_both` are `False`, returns the 
+          standardized backend string, one of `'numpy'`, `'torch'`, or 
+          `'tensorflow'`. 
 
     Raises
     ------
@@ -538,26 +577,47 @@ def select_backend_n(backend):
       cases of the backend names (e.g., `'TensorFlow'`, `'TF'` will be 
       correctly mapped to `'tensorflow'`).
     - If an unsupported backend is provided, a `ValueError` will be raised.
+    - When `return_module` or `return_both` is `True`, ensure that the 
+      corresponding backend library is installed in your environment to avoid 
+      `ImportError`.
 
     Examples
     --------
     >>> from gofast.backends.selector import select_backend_n 
     >>> select_backend_n('tf')
     'tensorflow'
-
+    
     >>> select_backend_n('PyTorch')
     'torch'
-
+    
     >>> select_backend_n('np')
     'numpy'
-
+    
     >>> select_backend_n(None)
     'numpy'
-
+    
+    >>> select_backend_n('tf', return_module=True)
+    <module 'tensorflow' from '...'>
+    
+    >>> select_backend_n('torch', return_module=True)
+    <module 'torch' from '...'>
+    
+    >>> select_backend_n('numpy', return_module=True)
+    <module 'numpy' from '...'>
+    
+    >>> select_backend_n('tf', return_both=True)
+    ('tensorflow', <module 'tensorflow' from '...'>)
+    
+    >>> select_backend_n('torch', return_both=True)
+    ('torch', <module 'torch' from '...'>)
+    
+    >>> select_backend_n('numpy', return_both=True)
+    ('numpy', <module 'numpy' from '...'>)
+    
     >>> select_backend_n('invalid_backend')
     Traceback (most recent call last):
         ...
-    ValueError: Unsupported backend: invalid_backend...
+    ValueError: Unsupported backend: invalid_backend. Supported backends ...
 
     See Also
     --------
@@ -575,17 +635,34 @@ def select_backend_n(backend):
         "torch": "torch", "pytorch": "torch",
         "tensorflow": "tensorflow", "tf": "tensorflow"
     }
-    
-    # Normalize the backend input and check if it's in the map
-    backend = backend_map.get(backend.lower() if isinstance(backend, str) else backend)
-    
-    if backend is None:
+
+    normalized_backend = (
+        backend_map.get(backend.lower()) 
+        if isinstance(backend, str) 
+        else backend_map.get(backend)
+    )
+
+    if normalized_backend is None:
         raise ValueError(
             f"Unsupported backend: {backend}. Supported backends are "
             "'numpy', 'tensorflow', and 'torch'."
         )
     
-    return backend
+    module = None
+    if return_module or return_both:
+        if normalized_backend == "numpy":
+            import numpy as np
+            module = np
+        elif normalized_backend == "torch":
+            import torch
+            module = torch
+        elif normalized_backend == "tensorflow":
+            import tensorflow as tf
+            module = tf
 
-
-
+    if return_both:
+        return normalized_backend, module
+    elif return_module:
+        return module
+    else:
+        return normalized_backend
