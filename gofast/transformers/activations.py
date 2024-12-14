@@ -2221,8 +2221,6 @@ class HardSwishTransformer(BaseEstimator, TransformerMixin):
         if self.verbose >= level:
             print(message)
 
-
-
 # Softplus Activation Transformer
 @doc( 
     mathf =dedent( 
