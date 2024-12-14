@@ -54,7 +54,7 @@ from ..compat.sklearn import (
 from ..core.array_manager import to_numeric_dtypes, get_X_from
 from ..core.checks import (
     is_in_if, is_iterable, is_classification_task, 
-    validate_feature, exist_features,  str2columns 
+    validate_feature, exist_features, str2columns 
 )
 from ..core.handlers import get_valid_kwargs 
 from ..core.io import EnsureFileExists, is_data_readable
