@@ -55,7 +55,6 @@ MODULE_MAPPING = {
         'repeat_feature_accross', 
         'merge_datasets', 
         'swap_ic', 
-        'dual_merge', 
         'to_categories', 
         
     ], 
@@ -161,6 +160,7 @@ MODULE_MAPPING = {
         'batch_spatial_sampling', 
         'make_mxs_labels',
         'extract_coordinates', 
+        'dual_merge', 
         ]
 }
 

@@ -51,7 +51,8 @@ from ..compat.sklearn import (
     get_feature_names, train_test_split, validate_params, 
     Interval, HasMethods
     ) 
-from ..core.array_manager import to_numeric_dtypes, get_X_from
+from ..compat.pandas import select_dtypes 
+from ..core.array_manager import to_numeric_dtypes
 from ..core.checks import (
     is_in_if, is_iterable, is_classification_task, 
     validate_feature, exist_features, str2columns 
@@ -5281,10 +5282,8 @@ def generate_proxy_feature(
     )
 
     # Define preprocessor for both numeric and categorical features
-    numeric_features = get_X_from(X, ['int64', 'float64']).columns  
-    categorical_features= get_X_from(X, ['object']).columns 
-    # numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
-    # categorical_features = X.select_dtypes(include=['object']).columns
+    numeric_features = select_dtypes(X, dtypes=['int64', 'float64']).columns  
+    categorical_features= select_dtypes(X, dtypes=['object']).columns 
 
     # Create a column transformer with imputation, scaling for numeric,
     # and encoding for categorical features

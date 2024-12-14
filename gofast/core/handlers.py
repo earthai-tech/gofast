@@ -229,6 +229,7 @@ class TypeEnforcer:
                         if 0 <= key < len(return_values):
                             type_specs[key] = dtype
                     elif isinstance(key, str):
+                        # XXX TODO: 
                         # Named return values can be handled here
                         # Currently, only positional handling is implemented
                         pass  # Extend if named return values are used
@@ -1026,7 +1027,6 @@ def generate_id(
     # Raise error if unique ID generation failed after retries
     raise ValueError("Failed to generate a unique ID after multiple retries.")
 
-
 def get_valid_kwargs(obj_or_func, raise_warning=False, **kwargs):
     """
     Filters keyword arguments (`kwargs`) to retain only those that are valid
@@ -1742,7 +1742,6 @@ def _parse_gaussian_noise(noise):
     
     return noise, gaussian_noise
 
-
 def make_ids(
     arr: Iterable, 
     prefix: Optional[str] = None, 
@@ -1953,7 +1952,8 @@ def columns_manager(
     error: str = 'raise',  
 ) -> list:
     """
-    A flexible function to handle various types of column inputs, convert them 
+    A 
+    function to handle various types of column inputs, convert them 
     into a list, and optionally process them based on additional parameters 
     like converting to uppercase, handling empty values, or ensuring all items 
     are strings.
