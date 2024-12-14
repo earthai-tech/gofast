@@ -17,8 +17,9 @@ import numpy as np
 from ..api.docs import _shared_docs, doc
 from ..backends.selector import select_backend_n 
 from ..compat.numpy import safe_erf 
-from ..compat.sklearn import validate_params, Interval, StrOptions, Hidden
+from ..compat.sklearn import validate_params, Interval, StrOptions
 from ..core.utils import smart_format
+from ..core.checks import check_params 
 from ..decorators import Appender, DataTransformer
 from ..tools.validator import check_array, filter_valid_kwargs
 from ..tools.validator import parameter_validator  
@@ -4641,35 +4642,7 @@ class Swish1Transformer(BaseEstimator, TransformerMixin):
 
         return X_transformed
 
-@validate_params ( 
-    { 
-        "activation_name": [
-            Hidden( 
-                StrOptions (
-                    {
-                        'relu',
-                        'sigmoid',
-                        'tanh',
-                        'elu',
-                        'leakyrelu',
-                        'softmax',
-                        'swish',
-                        'hardsigmoid',
-                        'hardswish',
-                        'softplus',
-                        'gelu',
-                        'selu',
-                        'mish',
-                        'elish',
-                        'logsigmoid',
-                        'tanhshrink',
-                        'swish1',
-                    }
-                )
-            )
-        ]
-    }
-)
+@check_params ({'activation': str }, coerce=True)
 def get_activation_transformer(activation, **params):
     """
     Get Activation Function Transformer.
@@ -4764,63 +4737,87 @@ def get_activation_transformer(activation, **params):
     
     See Also
     --------
-    ReLUTransformer : Transformer for ReLU activation function.
+    ReLUTransformer : Transformer that applies the ReLU (Rectified Linear 
+                      Unit) activation function, which outputs the input 
+                      directly if it is positive; otherwise, it outputs zero.
+
+    SigmoidTransformer : Transformer that applies the Sigmoid activation 
+                         function, squashing input values into the range [0, 
+                         1], often used for binary classification tasks.
+
+    TanhTransformer : Transformer that applies the Tanh (Hyperbolic Tangent) 
+                      activation function, which maps input values to the 
+                      range [-1, 1], with smoother gradients compared to 
+                      Sigmoid.
+
+    ELUTransformer : Transformer that applies the ELU (Exponential Linear 
+                     Unit) activation function, which is similar to ReLU 
+                     but allows for negative values, providing faster 
+                     convergence.
+
+    LeakyReLUTransformer : Transformer that applies the Leaky ReLU activation 
+                            function, a variant of ReLU, where the output 
+                            is a small, non-zero slope for negative input 
+                            values, preventing dead neurons.
+
+    SoftmaxTransformer : Transformer that applies the Softmax activation 
+                         function, converting raw logits into a probability 
+                         distribution, useful for multi-class classification 
+                         tasks.
+
+    SwishTransformer : Transformer that applies the Swish activation function, 
+                       a smooth, self-gated function that outperforms ReLU 
+                       in some deep learning architectures.
+
+    HardSigmoidTransformer : Transformer that applies the Hard Sigmoid 
+                             activation function, a piecewise linear 
+                             approximation of the Sigmoid function that 
+                             performs faster due to its simplicity.
+
+    HardSwishTransformer : Transformer that applies the Hard Swish activation 
+                           function, a lightweight approximation of Swish 
+                           for more efficient computations in mobile devices.
+
+    SoftplusTransformer : Transformer that applies the Softplus activation 
+                          function, a smooth approximation of the ReLU function, 
+                          used for gradient-based optimization.
+
+    GELUTransformer : Transformer that applies the GELU (Gaussian Error Linear 
+                      Unit) activation function, providing smoother gradients 
+                      and better performance in deep learning models.
+
+    SELUTransformer : Transformer that applies the SELU (Scaled Exponential 
+                      Linear Unit) activation function, which self-normalizes 
+                      outputs, ensuring mean and variance stability across 
+                      layers.
+
+    MishTransformer : Transformer that applies the Mish activation function, 
+                      an activation function that smoothly blends between 
+                      sigmoid and tanh, yielding better performance on certain 
+                      deep learning tasks.
+
+    ELISHTransformer : Transformer that applies the ELISH activation function, 
+                       a variant of the ELU function that introduces a scaling 
+                       factor for more efficient training.
+
+    LogSigmoidTransformer : Transformer that applies the LogSigmoid activation 
+                            function, a variant of Sigmoid useful for computing 
+                            log probabilities in some models.
+
+    TanhshrinkTransformer : Transformer that applies the Tanhshrink activation 
+                             function, which shrinks the output values of the 
+                             Tanh function to a range closer to zero.
     
-    SigmoidTransformer : Transformer for Sigmoid activation function.
-    
-    TanhTransformer : Transformer for Tanh activation function.
-    
-    ELUTransformer : Transformer for ELU activation function.
-    
-    LeakyReLUTransformer : Transformer for Leaky ReLU activation function.
-    
-    SoftmaxTransformer : Transformer for Softmax activation function.
-    
-    SwishTransformer : Transformer for Swish activation function.
-    
-    HardSigmoidTransformer : Transformer for Hard Sigmoid activation function.
-    
-    HardSwishTransformer : Transformer for Hard Swish activation function.
-    
-    SoftplusTransformer : Transformer for Softplus activation function.
-    
-    GELUTransformer : Transformer for GELU activation function.
-    
-    SELUTransformer : Transformer for SELU activation function.
-    
-    MishTransformer : Transformer for Mish activation function.
-    
-    ELISHTransformer : Transformer for ELISH activation function.
-    
-    LogSigmoidTransformer : Transformer for LogSigmoid activation.
-    
-    TanhshrinkTransformer : Transformer for Tanhshrink activation.
-    
-    Swish1Transformer : Transformer for Swish1 activation function.
-    
+    Swish1Transformer : Transformer that applies the Swish1 activation function, 
+                        a variant of Swish with a slightly different formulation, 
+                        designed for specific deep learning applications.
+
     References
     ----------
     .. [1] Goodfellow, I., Bengio, Y., & Courville, A. (2016). *Deep 
        Learning*. MIT Press. https://www.deeplearningbook.org/
     """
 
-    """
-    Get the corresponding activation function transformer based 
-    on the provided name.
-    
-    Parameters:
-    activation_name: str
-        The name of the activation function. Options are 'relu', 'sigmoid', 
-        'tanh', 'elu', 'leakyrelu', 'softmax', 'swish', 'hardsigmoid', 
-        'hardswish', and 'softplus'.
-    
-    Returns:
-    transformer: object
-        The transformer corresponding to the provided activation function.
-    
-    Raises:
-    ValueError: If an unsupported activation name is provided.
-    """
     transformers = {
         'relu': ReLUTransformer,
         'sigmoid': SigmoidTransformer,
@@ -4845,8 +4842,8 @@ def get_activation_transformer(activation, **params):
     activation_name = parameter_validator(
         "activation", target_strs=transformers.keys(), 
         error_msg=( 
-            f"Unsupported activation: {activation}."
-            f" Expect one of {smart_format(transformers.keys(), 'or')}"
+            f"Unsupported activation {activation!r}."
+            f" Expect one of {smart_format(transformers.keys(), 'or')}."
             )
         ) (activation)
     
