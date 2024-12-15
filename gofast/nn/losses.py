@@ -26,7 +26,7 @@ from typing import List
 
 from ..tools.depsutils import ensure_pkg
 from ..compat.sklearn import Interval 
-from ..core.checks import ParamsValidator, check_params 
+from ..core.checks import ParamsValidator, check_params
 from ..tools.validator import  validate_quantiles
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 
@@ -36,11 +36,72 @@ if KERAS_BACKEND:
     square=KERAS_DEPS.square 
     reshape=KERAS_DEPS.reshape 
     convert_to_tensor=KERAS_DEPS.convert_to_tensor 
+    expand_dims=KERAS_DEPS.expand_dims
+    maximum=KERAS_DEPS.maximum
+    reduce_mean=KERAS_DEPS.reduce_mean 
+    rank=KERAS_DEPS.rank 
+    
     
 DEP_MSG = dependency_message('loss') 
 
 __all__ = ['quantile_loss', 'quantile_loss_multi', 'anomaly_loss']
 
+@ParamsValidator(
+    {
+     'quantiles': [Real, 'array-like:tf:transf']
+    }
+ )
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+def combined_quantile_loss(quantiles):
+    """
+    Creates a combined quantile loss function for multiple quantiles.
+
+    Parameters:
+    - quantiles (List[float]): List of quantiles to compute.
+
+    Returns:
+    - loss function
+    """
+    def loss(y_true, y_pred):
+        """
+        Computes the combined quantile loss.
+
+        Parameters:
+        - y_true (tf.Tensor): True values of shape
+          (batch_size, forecast_horizons, output_dim)
+        - y_pred (tf.Tensor): Predicted quantiles of shape 
+          (batch_size, forecast_horizons, num_quantiles)
+
+        Returns:
+        - Scalar loss value
+        """
+        # Expand y_true to match y_pred's shape by adding a quantile dimension
+        y_true_expanded = expand_dims(y_true, axis=2)  # (B, H, 1, O)
+
+        # Ensure y_pred has a singleton last dimension if output_dim=1
+        if rank(y_pred) == 3:
+            y_pred = expand_dims(y_pred, axis=-1)  # (B, H, Q, 1)
+
+        # Broadcast y_true_expanded to match y_pred's shape
+        error = y_true_expanded - y_pred  # (B, H, Q, O)
+
+        # Initialize loss
+        loss = 0.0
+
+        # Iterate over quantiles and accumulate loss
+        for i, q in enumerate(quantiles):
+            # Compute quantile loss
+            q_loss = maximum(q * error[:, :, i, :], (q - 1) * error[:, :, i, :])
+            # Aggregate loss (mean over batch, horizons, and output_dim)
+            loss += reduce_mean(q_loss)
+
+        # Average loss over all quantiles
+        return loss / len(quantiles)
+    
+    if isinstance (quantiles, (float, int)): 
+        quantiles =[quantiles]
+        
+    return loss
 
 @check_params({"q": Real})
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)

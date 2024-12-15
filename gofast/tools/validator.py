@@ -532,6 +532,9 @@ def validate_quantiles(quantiles, asarray=False):
     .. [2] Weiss, N. A. (2015). Introductory Statistics. Pearson.
 
     """
+    if isinstance (quantiles, (float, int)): 
+        quantiles=[quantiles]
+        
     # Validate input type: must be list or numpy array
     if not isinstance(quantiles, (list, np.ndarray)):
         raise TypeError(
@@ -540,7 +543,7 @@ def validate_quantiles(quantiles, asarray=False):
         )
     
     # Convert input to numpy array for consistent processing
-    quantiles = np.array(quantiles)
+    quantiles = np.array(quantiles, dtype=np.float32)
     
     # Validate that all elements are numeric
     if not np.issubdtype(quantiles.dtype, np.number):

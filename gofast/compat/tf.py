@@ -59,6 +59,7 @@ class KerasDependencies:
         standalone_mapping = {
             'reduce_mean': ('tensorflow', 'reduce_mean'),
             'reduce_sum': ('tensorflow', 'reduce_sum'),
+            'rank': ('tensorflow', 'rank'), 
             'stack': ('tensorflow', 'stack'), 
             'reshape': ('tensorflow', 'reshape'), 
             'tile': ('tensorflow', 'tile'), 

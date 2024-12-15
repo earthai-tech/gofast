@@ -14,7 +14,7 @@ forecasting.
 
 from numbers import Integral, Real 
 import warnings
-from typing import List, Tuple, Optional, Union, Dict, Callable
+from typing import List, Tuple, Optional, Union, Dict, Callable, Any
 
 import numpy as np
 import pandas as pd
@@ -1811,3 +1811,480 @@ def _convert_to_numpy(
         1
     )
     return future_static_inputs, future_dynamic_inputs
+
+@ensure_pkg('tensorflow', extra ="Need 'tensorflow' for this function to proceed")
+def validate_anomaly_scores(
+    anomaly_config: Optional[Dict[str, Any]], 
+    forecast_horizons: int, 
+) :
+    """
+    Validates and processes the 'anomaly_scores' in the provided anomaly_config dictionary.
+
+    Parameters:
+    - anomaly_config (Optional[Dict[str, Any]]): 
+        Dictionary that may contain:
+            - 'anomaly_scores': Precomputed anomaly scores tensor.
+            - 'anomaly_loss_weight': Weight for anomaly loss.
+    - forecast_horizons (int): 
+        The expected number of forecast horizons (second dimension of 'anomaly_scores').
+
+    Returns:
+    - Optional[tf.Tensor]: 
+        Validated 'anomaly_scores' tensor of shape (batch_size, forecast_horizons), cast to float32.
+        Returns None if 'anomaly_scores' is not provided.
+
+    Raises:
+    - ValueError: 
+        If 'anomaly_scores' is provided but is not a 2D tensor or the second 
+        dimension does not match 'forecast_horizons'.
+    """
+    import tensorflow as tf 
+    
+    if anomaly_config is None:
+        # If anomaly_config is None, no anomaly_scores or anomaly_loss_weight are set
+        return None
+
+    # Ensure 'anomaly_scores' key exists in the dictionary
+    if 'anomaly_scores' not in anomaly_config:
+        anomaly_config['anomaly_scores'] = None
+
+    anomaly_scores = anomaly_config.get('anomaly_scores')
+
+    if anomaly_scores is not None:
+        # Convert to tensor if not already a TensorFlow tensor
+        if not isinstance(anomaly_scores, tf.Tensor):
+            try:
+                anomaly_scores = tf.convert_to_tensor(anomaly_scores, dtype=tf.float32)
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Failed to convert 'anomaly_scores' to a TensorFlow tensor: {e}")
+        else:
+            # Cast to float32 if it's already a tensor
+            anomaly_scores = tf.cast(anomaly_scores, tf.float32)
+
+        # Validate that anomaly_scores is a 2D tensor
+        if anomaly_scores.ndim != 2:
+            raise ValueError(
+                f"'anomaly_scores' must be a 2D tensor with shape (batch_size, forecast_horizons), "
+                f"but got {anomaly_scores.ndim}D tensor."
+            )
+
+        # Validate that the second dimension matches forecast_horizons
+        if anomaly_scores.shape[1] != forecast_horizons:
+            raise ValueError(
+                f"'anomaly_scores' second dimension must be {forecast_horizons}, "
+                f"but got {anomaly_scores.shape[1]}."
+            )
+
+        # Update the anomaly_config with the processed anomaly_scores tensor
+        anomaly_config['anomaly_scores'] = anomaly_scores
+        return anomaly_scores
+
+    else:
+        # If 'anomaly_scores' is not provided, ensure it's set to None
+        anomaly_config['anomaly_scores'] = None
+        
+        return anomaly_scores
+
+
+def set_anomaly_config(anomaly_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Processes the anomaly_config dictionary to ensure it contains
+    'anomaly_scores' and 'anomaly_loss_weight' keys.
+
+    Parameters:
+    - anomaly_config (Optional[Dict[str, Any]]): 
+        A dictionary that may contain:
+            - 'anomaly_scores': Precomputed anomaly scores tensor.
+            - 'anomaly_loss_weight': Weight for anomaly loss.
+
+    Returns:
+    - Dict[str, Any]: 
+        A dictionary with keys 'anomaly_scores' and 'anomaly_loss_weight',
+        setting them to None if they were not provided.
+    """
+    if anomaly_config is None:
+        return {'anomaly_loss_weight': None, 'anomaly_scores': None}
+    
+    # Create a copy to avoid mutating the original dictionary
+    config = anomaly_config.copy()
+
+    # Ensure 'anomaly_scores' key exists
+    if 'anomaly_scores' not in config:
+        config['anomaly_scores'] = None
+
+    # Ensure 'anomaly_loss_weight' key exists
+    if 'anomaly_loss_weight' not in config:
+        config['anomaly_loss_weight'] = None
+
+    return config
+
+
+def validate_xtft_inputs(
+    inputs: Union[List[Any], Tuple[Any, ...]],
+    static_input_dim: int,
+    dynamic_input_dim: int,
+    future_covariate_dim: Optional[int] = None
+):
+    """
+    Validates and processes the inputs for the XTFT model.
+
+    Parameters
+    ----------
+    inputs : list or tuple
+        A list or tuple containing the inputs to the model in the following order:
+        [static_input, dynamic_input, future_covariate_input].
+
+        - `static_input`: TensorFlow tensor or array-like object representing 
+          static features.
+        - `dynamic_input`: TensorFlow tensor or array-like object representing
+          dynamic features.
+        - `future_covariate_input`: (Optional) TensorFlow tensor or array-like
+          object representing future covariates.
+          Can be `None` if not used.
+
+    static_input_dim : int
+        The expected dimensionality of the static input features 
+        (i.e., number of static features).
+
+    dynamic_input_dim : int
+        The expected dimensionality of the dynamic input features
+        (i.e., number of dynamic features).
+
+    future_covariate_dim : int, optional
+        The expected dimensionality of the future covariate features 
+        (i.e., number of future covariate features).
+        If `None`, the function expects `future_covariate_input` to be `None`.
+
+    Returns
+    -------
+    static_input : tf.Tensor
+        Validated static input tensor of shape `(batch_size, static_input_dim)`
+        and dtype `float32`.
+
+    dynamic_input : tf.Tensor
+        Validated dynamic input tensor of shape
+        `(batch_size, time_steps, dynamic_input_dim)` and dtype `float32`.
+
+    future_covariate_input : tf.Tensor or None
+        Validated future covariate input tensor of shape 
+        `(batch_size, time_steps, future_covariate_dim)` and dtype `float32`.
+        Returns `None` if `future_covariate_dim` is `None` or if the input was `None`.
+
+    Raises
+    ------
+    ValueError
+        If `inputs` is not a list or tuple with the required number of elements.
+        If `future_covariate_dim` is specified but `future_covariate_input` is `None`.
+        If the provided inputs do not match the expected dimensionalities.
+        If the inputs contain incompatible batch sizes.
+
+    Examples
+    --------
+    >>> # Example without future covariates
+    >>> static_input = tf.random.normal((32, 10))
+    >>> dynamic_input = tf.random.normal((32, 20, 45))
+    >>> inputs = [static_input, dynamic_input, None]
+    >>> validated_static, validated_dynamic, validated_future = validate_xtft_inputs(
+    ...     inputs,
+    ...     static_input_dim=10,
+    ...     dynamic_input_dim=45,
+    ...     future_covariate_dim=None
+    ... )
+    >>> print(validated_static.shape, validated_dynamic.shape, validated_future)
+    (32, 10) (32, 20, 45) None
+
+    >>> # Example with future covariates
+    >>> future_covariate_input = tf.random.normal((32, 20, 5))
+    >>> inputs = [static_input, dynamic_input, future_covariate_input]
+    >>> validated_static, validated_dynamic, validated_future = validate_xtft_inputs(
+    ...     inputs,
+    ...     static_input_dim=10,
+    ...     dynamic_input_dim=45,
+    ...     future_covariate_dim=5
+    ... )
+    >>> print(validated_static.shape, validated_dynamic.shape, validated_future.shape)
+    (32, 10) (32, 20, 45) (32, 20, 5)
+    """
+    import tensorflow as tf
+    # Step 1: Validate the type and length of inputs
+    if not isinstance(inputs, (list, tuple)):
+        raise ValueError(
+            f"'inputs' must be a list or tuple, but got type {type(inputs).__name__}."
+        )
+    
+    expected_length = 3
+    if len(inputs) != expected_length:
+        raise ValueError(
+            f"'inputs' must contain exactly {expected_length} elements: "
+            f"[static_input, dynamic_input, future_covariate_input]. "
+            f"Received {len(inputs)} elements."
+        )
+    
+    # Unpack inputs
+    static_input, dynamic_input, future_covariate_input = inputs
+
+    # Step 2: Validate static_input
+    if static_input is None:
+        raise ValueError("'static_input' cannot be None.")
+    
+    # Convert to tensor if not already
+    if not isinstance(static_input, tf.Tensor):
+        try:
+            static_input = tf.convert_to_tensor(static_input, dtype=tf.float32)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Failed to convert 'static_input' to a TensorFlow tensor: {e}")
+    else:
+        # Ensure dtype is float32
+        static_input = tf.cast(static_input, tf.float32)
+    
+    # Check static_input dimensions
+    if static_input.ndim != 2:
+        raise ValueError(
+            f"'static_input' must be a 2D tensor with shape (batch_size, static_input_dim), "
+            f"but got {static_input.ndim}D tensor."
+        )
+    
+    # Check static_input_dim
+    if static_input.shape[1] is not None and static_input.shape[1] != static_input_dim:
+        raise ValueError(
+            f"'static_input' has incorrect feature dimension. Expected {static_input_dim}, "
+            f"but got {static_input.shape[1]}."
+        )
+    elif static_input.shape[1] is None:
+        # Dynamic dimension, cannot validate now
+        pass
+
+    # Step 3: Validate dynamic_input
+    if dynamic_input is None:
+        raise ValueError("'dynamic_input' cannot be None.")
+    
+    # Convert to tensor if not already
+    if not isinstance(dynamic_input, tf.Tensor):
+        try:
+            dynamic_input = tf.convert_to_tensor(dynamic_input, dtype=tf.float32)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Failed to convert 'dynamic_input' to a TensorFlow tensor: {e}")
+    else:
+        # Ensure dtype is float32
+        dynamic_input = tf.cast(dynamic_input, tf.float32)
+    
+    # Check dynamic_input dimensions
+    if dynamic_input.ndim != 3:
+        raise ValueError(
+            f"'dynamic_input' must be a 3D tensor with shape (batch_size, time_steps, dynamic_input_dim), "
+            f"but got {dynamic_input.ndim}D tensor."
+        )
+    
+    # Check dynamic_input_dim
+    if dynamic_input.shape[2] is not None and dynamic_input.shape[2] != dynamic_input_dim:
+        raise ValueError(
+            f"'dynamic_input' has incorrect feature dimension. Expected {dynamic_input_dim}, "
+            f"but got {dynamic_input.shape[2]}."
+        )
+    elif dynamic_input.shape[2] is None:
+        # Dynamic dimension, cannot validate now
+        pass
+    
+    # Step 4: Validate future_covariate_input
+    if future_covariate_dim is not None:
+        if future_covariate_input is None:
+            raise ValueError(
+                "'future_covariate_dim' is specified, but 'future_covariate_input' is None."
+            )
+        
+        # Convert to tensor if not already
+        if not isinstance(future_covariate_input, tf.Tensor):
+            try:
+                future_covariate_input = tf.convert_to_tensor(future_covariate_input, dtype=tf.float32)
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Failed to convert 'future_covariate_input' to a TensorFlow tensor: {e}")
+        else:
+            # Ensure dtype is float32
+            future_covariate_input = tf.cast(future_covariate_input, tf.float32)
+        
+        # Check future_covariate_input dimensions
+        if future_covariate_input.ndim != 3:
+            raise ValueError(
+                f"'future_covariate_input' must be a 3D tensor with shape (batch_size, time_steps, future_covariate_dim), "
+                f"but got {future_covariate_input.ndim}D tensor."
+            )
+        
+        # Check future_covariate_dim
+        if future_covariate_input.shape[2] is not None and future_covariate_input.shape[2] != future_covariate_dim:
+            raise ValueError(
+                f"'future_covariate_input' has incorrect feature dimension. Expected {future_covariate_dim}, "
+                f"but got {future_covariate_input.shape[2]}."
+            )
+        elif future_covariate_input.shape[2] is None:
+            # Dynamic dimension, cannot validate now
+            pass
+    else:
+        if future_covariate_input is not None:
+            raise ValueError(
+                "'future_covariate_dim' is None, but 'future_covariate_input' is provided."
+            )
+    
+    # Step 5: Validate batch sizes across inputs
+    static_batch_size = tf.shape(static_input)[0]
+    dynamic_batch_size = tf.shape(dynamic_input)[0]
+    
+    if future_covariate_dim is not None:
+        future_batch_size = tf.shape(future_covariate_input)[0]
+        # Check if all batch sizes are equal
+        batch_size_cond = tf.reduce_all([
+            tf.equal(static_batch_size, dynamic_batch_size),
+            tf.equal(static_batch_size, future_batch_size)
+        ])
+    else:
+        # Check only static and dynamic batch sizes
+        batch_size_cond = tf.equal(static_batch_size, dynamic_batch_size)
+    
+    # Ensure batch sizes match
+    if not batch_size_cond.numpy():
+        raise ValueError(
+            f"Batch sizes do not match across inputs: "
+            f"'static_input' batch_size={static_batch_size.numpy()}, "
+            f"'dynamic_input' batch_size={dynamic_batch_size.numpy()}" +
+            (f", 'future_covariate_input' batch_size={future_batch_size.numpy()}" if future_covariate_dim is not None else "")
+        )
+    
+    return static_input, dynamic_input, future_covariate_input
+
+def set_default_params(
+    quantiles: Union[str, List[float], None] = None,
+    scales: Union[str, List[int], None] = None,
+    multi_scale_agg: Union[str, None] = None
+) -> Tuple[List[float], List[int], bool]:
+    """
+    Sets and validates default values for quantiles, scales, and return_sequences parameters.
+
+    Parameters
+    ----------
+    quantiles : str, list of float, or None, optional
+        Specifies the quantiles to be used for probabilistic forecasting.
+        
+        - If set to `'auto'`, it defaults to `[0.1, 0.5, 0.9]`.
+        - If a list is provided, each element must be a float between 0 and 1 (exclusive).
+        - If `None`, it remains as `None` (can be used for deterministic forecasting).
+
+    scales : str, list of int, or None, optional
+        Specifies the scaling factors to be used in multi-scale processing.
+        
+        - If set to `'auto'` or `None`, it defaults to `[1]`.
+        - If a list is provided, each element must be a positive integer.
+
+    multi_scale_agg : str or None, optional
+        Determines the aggregation method for multi-scale features.
+        
+        - If set to `'auto'` or `None`, `return_sequences` is set to `False`.
+        - Otherwise, `return_sequences` is set to `True`.
+        - Expected aggregation methods could include `'sum'`, `'concat'`, etc., 
+        depending on model requirements.
+
+    Returns
+    -------
+    Tuple[List[float], List[int], bool]
+        A tuple containing:
+        
+        - `quantiles`: A list of validated quantile floats.
+        - `scales`: A list of validated scale integers.
+        - `return_sequences`: A boolean indicating whether to return sequences based on `multi_scale_agg`.
+
+    Raises
+    ------
+    ValueError
+        If `quantiles` is neither `'auto'` nor a list of valid floats.
+        If `scales` is neither `'auto'` nor a list of valid positive integers.
+        If `multi_scale_agg` is provided but not a recognized aggregation method.
+
+    Examples
+    --------
+    >>> # Example 1: Using default 'auto' settings
+    >>> quantiles, scales, return_sequences = set_default_parameters(quantiles='auto', scales='auto', multi_scale_agg='auto')
+    >>> print(quantiles)
+    [0.1, 0.5, 0.9]
+    >>> print(scales)
+    [1]
+    >>> print(return_sequences)
+    False
+
+    >>> # Example 2: Providing custom quantiles and scales
+    >>> quantiles, scales, return_sequences = set_default_parameters(
+    ...     quantiles=[0.05, 0.5, 0.95],
+    ...     scales=[1, 2, 4],
+    ...     multi_scale_agg='concat'
+    ... )
+    >>> print(quantiles)
+    [0.05, 0.5, 0.95]
+    >>> print(scales)
+    [1, 2, 4]
+    >>> print(return_sequences)
+    True
+
+    >>> # Example 3: Invalid quantiles input
+    >>> set_default_parameters(quantiles=[-0.1, 1.2])
+    Traceback (most recent call last):
+    ...
+    ValueError: Each quantile must be a float between 0 and 1 (exclusive). Invalid quantiles: [-0.1, 1.2]
+
+    >>> # Example 4: Invalid scales input
+    >>> set_default_parameters(scales=[0, -2])
+    Traceback (most recent call last):
+    ...
+    ValueError: Each scale must be a positive integer. Invalid scales: [0, -2]
+    """
+
+    # Set default quantiles if 'auto'
+    if quantiles == 'auto':
+        quantiles = [0.1, 0.5, 0.9]
+    elif quantiles is not None:
+        if not isinstance(quantiles, list):
+            raise ValueError(
+                "'quantiles' must be a list of floats or"
+               f" 'auto', but got type {type(quantiles).__name__}.")
+        # Validate each quantile
+        invalid_quantiles = [q for q in quantiles if not isinstance(q, float) or not (0 < q < 1)]
+        if invalid_quantiles:
+            raise ValueError(
+                f"Each quantile must be a float between 0 and 1 (exclusive). "
+                f"Invalid quantiles: {invalid_quantiles}"
+            )
+    else:
+        # quantiles remains None
+        pass
+
+    # Set default scales if 'auto' or None
+    if scales is None or scales == 'auto':
+        scales = [1]
+    elif isinstance(scales, list):
+        # Validate each scale
+        invalid_scales = [s for s in scales if not isinstance(s, int) or s <= 0]
+        if invalid_scales:
+            raise ValueError(
+                f"Each scale must be a positive integer. Invalid scales: {invalid_scales}"
+            )
+    else:
+        raise ValueError(
+            "'scales' must be a list of positive integers,"
+            f" 'auto', or None, but got type {type(scales).__name__}.")
+
+    # Set return_sequences based on multi_scale_agg
+    if multi_scale_agg is None or multi_scale_agg == 'auto':
+        return_sequences = False
+    else:
+        # Optionally, you can validate multi_scale_agg against allowed methods
+        allowed_aggregations = {'sum', 'concat', 'average'}  # Example allowed methods
+        if not isinstance(multi_scale_agg, str):
+            raise ValueError(
+                f"'multi_scale_agg' must be a string indicating"
+                " the aggregation method, 'auto', or None, "
+                f"but got type {type(multi_scale_agg).__name__}."
+            )
+        if multi_scale_agg.lower() not in allowed_aggregations:
+            raise ValueError(
+                f"'multi_scale_agg' must be one of {allowed_aggregations}, "
+                f"'auto', or None, but got '{multi_scale_agg}'."
+            )
+        return_sequences = True
+
+    return quantiles, scales, return_sequences

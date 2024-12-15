@@ -7,7 +7,7 @@ architecture for multi-horizon time-series forecasting.
 """
 from textwrap import dedent 
 from numbers import Real, Integral  
-from typing import List, Optional, Union 
+from typing import List, Optional, Union, Dict, Any  
 
 from .._gofastlog import gofastlog
 from ..api.docs import _shared_docs, doc 
@@ -19,7 +19,10 @@ from ..compat.sklearn import validate_params, Interval, StrOptions
 from ..decorators import Appender 
 from ..tools.depsutils import ensure_pkg
 from ..tools.validator import validate_quantiles, check_consistent_length 
+
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
+from .utils import set_anomaly_config, validate_anomaly_scores, validate_xtft_inputs , set_default_params 
+from .losses import combined_quantile_loss
 
 if KERAS_BACKEND:
     from . import Activation 
@@ -61,6 +64,104 @@ __all__ = ["TemporalFusionTransformer", "XTFT"]
 _param_docs = DocstringComponents.from_nested_components(
     base=DocstringComponents(_shared_nn_params), 
     )
+
+_xtf_doc: dict = {} 
+
+_xtf_doc[ 
+    'xtft_methods'
+]="""
+   
+Methods
+-------
+call(inputs, training=False)
+    Perform the forward pass through the model. Given a tuple
+    ``(static_input, dynamic_input, future_covariate_input)``,
+    it processes all features through embeddings, LSTMs, and
+    attention mechanisms before producing final forecasts.
+    
+    - ``static_input``: 
+      A tensor of shape :math:`(B, D_{static})` representing 
+      the static features. These do not vary with time.
+    - ``dynamic_input``: 
+      A tensor of shape :math:`(B, T, D_{dynamic})` representing
+      dynamic features across :math:`T` time steps. These include
+      historical values and time-dependent covariates.
+    - ``future_covariate_input``: 
+      A tensor of shape :math:`(B, T, D_{future})` representing
+      future-known features, aiding multi-horizon forecasting.
+
+    Depending on the presence of quantiles:
+    - If ``quantiles`` is not `None`: 
+      The output shape is :math:`(B, H, Q, D_{out})`, where 
+      :math:`H` is `forecast_horizons`, :math:`Q` is the number of
+      quantiles, and :math:`D_{out}` is `output_dim`.
+    - If ``quantiles`` is `None`: 
+      The output shape is :math:`(B, H, D_{out})`, providing a 
+      deterministic forecast for each horizon.
+
+    Parameters
+    ----------
+    inputs : tuple of tf.Tensor
+        Input tensors `(static_input, dynamic_input, 
+        future_covariate_input)`.
+    training : bool, optional
+        Whether the model is in training mode (default False).
+        In training mode, layers like dropout and batch norm
+        behave differently.
+
+    Returns
+    -------
+    tf.Tensor
+        The prediction tensor. Its shape and dimensionality depend
+        on the `quantiles` setting. In probabilistic scenarios,
+        multiple quantiles are returned. In deterministic mode, 
+        a single prediction per horizon is provided.
+
+compute_objective_loss(y_true, y_pred, anomaly_scores)
+    Compute the total loss, combining both quantile loss (if 
+    `quantiles` is not `None`) and anomaly loss. Quantile loss
+    measures forecasting accuracy at specified quantiles, while
+    anomaly loss penalizes unusual deviations or anomalies.
+
+    Parameters
+    ----------
+    y_true : tf.Tensor
+        Ground truth targets. Shape: :math:`(B, H, D_{out})`.
+    y_pred : tf.Tensor
+        Model predictions. If quantiles are present:
+        :math:`(B, H, Q, D_{out})`. Otherwise:
+        :math:`(B, H, D_{out})`.
+    anomaly_scores : tf.Tensor
+        Tensor indicating anomaly severity. Its shape typically
+        matches `(B, H, D_{dynamic})` or a related dimension.
+
+    Returns
+    -------
+    tf.Tensor
+        A scalar tensor representing the combined loss. Lower 
+        values indicate better performance, balancing accuracy
+        and anomaly handling.
+
+anomaly_loss(anomaly_scores)
+    Compute the anomaly loss component. This term encourages the
+    model to be robust against abnormal patterns in the data.
+    Higher anomaly scores lead to higher loss, prompting the model
+    to adjust predictions or representations to reduce anomalies.
+
+    Parameters
+    ----------
+    anomaly_scores : tf.Tensor
+        A tensor reflecting the presence and intensity of anomalies.
+        Its shape often corresponds to time steps and dynamic 
+        features, e.g., `(B, H, D_{dynamic})`.
+
+    Returns
+    -------
+    tf.Tensor
+        A scalar tensor representing the anomaly loss. Minimizing
+        this term encourages the model to learn patterns that 
+        mitigate anomalies and produce more stable forecasts.
+"""
 
 class _PositionalEncoding(Layer):
     """
@@ -1690,7 +1791,7 @@ class MultiObjectiveLoss(Layer, NNLearner):
         self.anomaly_loss_fn = anomaly_loss_fn
 
     def call(self, y_true, y_pred, anomaly_scores=None, training=False):
-        # XXX :MARK: anomaly_scores henceform can take None 
+        # XXX :MARK: anomaly_scores henceforth can take None 
         quantile_loss = self.quantile_loss_fn(y_true, y_pred)
         if anomaly_scores is not None:
             anomaly_loss = self.anomaly_loss_fn(anomaly_scores)
@@ -1787,7 +1888,6 @@ class MultiDecoder(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
 
-
 @register_keras_serializable()
 class MultiResolutionAttentionFusion(Layer, NNLearner):
     """
@@ -1843,7 +1943,6 @@ class DynamicTimeWindow(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class QuantileDistributionModeling(Layer, NNLearner):
     """
@@ -1855,6 +1954,7 @@ class QuantileDistributionModeling(Layer, NNLearner):
         - If quantiles is None: (B, H, O) #rather than  otherwise (B, H, 1, O)
         - If quantiles is a list: (B, H, Q, O)
     """
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(self, quantiles: Optional[Union[str, List[float]]], output_dim: int):
         super().__init__()
         if quantiles == 'auto':
@@ -1893,7 +1993,6 @@ class QuantileDistributionModeling(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
 
-@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 @register_keras_serializable()
 class MultiScaleLSTM(Layer, NNLearner):
     """
@@ -1906,7 +2005,7 @@ class MultiScaleLSTM(Layer, NNLearner):
     Input: (B, T, D)
     Output: (B, T, sum_of_lstm_units) if return_sequences=True
     """
-
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
         self,
         lstm_units: int,
@@ -1967,99 +2066,7 @@ class MultiScaleLSTM(Layer, NNLearner):
 @doc (
     key_improvements= dedent(_shared_docs['xtft_key_improvements']), 
     key_functions= dedent(_shared_docs['xtft_key_functions']), 
-    methods= dedent( 
-    """
-    Methods
-    -------
-    call(inputs, training=False)
-        Perform the forward pass through the model. Given a tuple
-        ``(static_input, dynamic_input, future_covariate_input)``,
-        it processes all features through embeddings, LSTMs, and
-        attention mechanisms before producing final forecasts.
-        
-        - ``static_input``: 
-          A tensor of shape :math:`(B, D_{static})` representing 
-          the static features. These do not vary with time.
-        - ``dynamic_input``: 
-          A tensor of shape :math:`(B, T, D_{dynamic})` representing
-          dynamic features across :math:`T` time steps. These include
-          historical values and time-dependent covariates.
-        - ``future_covariate_input``: 
-          A tensor of shape :math:`(B, T, D_{future})` representing
-          future-known features, aiding multi-horizon forecasting.
-
-        Depending on the presence of quantiles:
-        - If ``quantiles`` is not `None`: 
-          The output shape is :math:`(B, H, Q, D_{out})`, where 
-          :math:`H` is `forecast_horizons`, :math:`Q` is the number of
-          quantiles, and :math:`D_{out}` is `output_dim`.
-        - If ``quantiles`` is `None`: 
-          The output shape is :math:`(B, H, D_{out})`, providing a 
-          deterministic forecast for each horizon.
-
-        Parameters
-        ----------
-        inputs : tuple of tf.Tensor
-            Input tensors `(static_input, dynamic_input, 
-            future_covariate_input)`.
-        training : bool, optional
-            Whether the model is in training mode (default False).
-            In training mode, layers like dropout and batch norm
-            behave differently.
-
-        Returns
-        -------
-        tf.Tensor
-            The prediction tensor. Its shape and dimensionality depend
-            on the `quantiles` setting. In probabilistic scenarios,
-            multiple quantiles are returned. In deterministic mode, 
-            a single prediction per horizon is provided.
-
-    compute_objective_loss(y_true, y_pred, anomaly_scores)
-        Compute the total loss, combining both quantile loss (if 
-        `quantiles` is not `None`) and anomaly loss. Quantile loss
-        measures forecasting accuracy at specified quantiles, while
-        anomaly loss penalizes unusual deviations or anomalies.
-
-        Parameters
-        ----------
-        y_true : tf.Tensor
-            Ground truth targets. Shape: :math:`(B, H, D_{out})`.
-        y_pred : tf.Tensor
-            Model predictions. If quantiles are present:
-            :math:`(B, H, Q, D_{out})`. Otherwise:
-            :math:`(B, H, D_{out})`.
-        anomaly_scores : tf.Tensor
-            Tensor indicating anomaly severity. Its shape typically
-            matches `(B, H, D_{dynamic})` or a related dimension.
-
-        Returns
-        -------
-        tf.Tensor
-            A scalar tensor representing the combined loss. Lower 
-            values indicate better performance, balancing accuracy
-            and anomaly handling.
-
-    anomaly_loss(anomaly_scores)
-        Compute the anomaly loss component. This term encourages the
-        model to be robust against abnormal patterns in the data.
-        Higher anomaly scores lead to higher loss, prompting the model
-        to adjust predictions or representations to reduce anomalies.
-
-        Parameters
-        ----------
-        anomaly_scores : tf.Tensor
-            A tensor reflecting the presence and intensity of anomalies.
-            Its shape often corresponds to time steps and dynamic 
-            features, e.g., `(B, H, D_{dynamic})`.
-
-        Returns
-        -------
-        tf.Tensor
-            A scalar tensor representing the anomaly loss. Minimizing
-            this term encourages the model to learn patterns that 
-            mitigate anomalies and produce more stable forecasts.
-    """    
+    methods= dedent( _xtf_doc['xtft_methods']
     )
  )
 class XTFT(Model, NNLearner):
@@ -2067,11 +2074,10 @@ class XTFT(Model, NNLearner):
     Extreme Temporal Fusion Transformer (XTFT) model for complex time
     series forecasting.
 
-    The Extreme Temporal Fusion Transformer (XTFT) is an advanced
-    architecture for time series forecasting, particularly suited to
-    scenarios featuring intricate temporal patterns, multiple forecast
-    horizons, and inherent uncertainties [1]_. By extending the original
-    Temporal Fusion Transformer, XTFT incorporates additional modules
+    XTF is an advanced architecture for time series forecasting, particularly 
+    suited to scenarios featuring intricate temporal patterns, multiple 
+    forecast horizons, and inherent uncertainties [1]_. By extending the 
+    original Temporal Fusion Transformer, XTFT incorporates additional modules
     and strategies that enhance its representational capacity, stability,
     and interpretability.
 
@@ -2168,14 +2174,68 @@ class XTFT(Model, NNLearner):
         For univariate forecasting, `output_dim=1` is typical. For
         multi-variate forecasting, set a larger value to predict
         multiple targets simultaneously.
+    
+    anomaly_config : dict, optional
+            Configuration dictionary for anomaly detection. It may contain 
+            the following keys:
+
+            - ``'anomaly_scores'`` : array-like, optional
+                Precomputed anomaly scores tensor of shape `(batch_size, forecast_horizons)`. 
+                If not provided, anomaly loss will not be applied.
+
+            - ``'anomaly_loss_weight'`` : float, optional
+                Weight for the anomaly loss in the total loss computation. 
+                Balances the contribution of anomaly detection against the 
+                primary forecasting task. A higher value emphasizes identifying 
+                and penalizing anomalies, potentially improving robustness to
+                irregularities in the data, while a lower value prioritizes
+                general forecasting performance.
+                If not provided, anomaly loss will not be applied.
+
+            **Behavior:**
+            If `anomaly_config` is `None`, both `'anomaly_scores'` and 
+            `'anomaly_loss_weight'` default to `None`, and anomaly loss is 
+            disabled. This means the model will perform forecasting without 
+            considering  any anomaly detection mechanisms.
+
+            **Examples:**
+            
+            - **Without Anomaly Detection:**
+                ```python
+                model = XTFT(
+                    static_input_dim=10,
+                    dynamic_input_dim=45,
+                    future_covariate_dim=5,
+                    anomaly_config=None,
+                    ...
+                )
+                ```
+            
+            - **With Anomaly Detection:**
+                ```python
+                import tensorflow as tf
+
+                # Define precomputed anomaly scores
+                precomputed_anomaly_scores = tf.random.normal((batch_size, forecast_horizons))
+
+                # Create anomaly_config dictionary
+                anomaly_config = {
+                    'anomaly_scores': precomputed_anomaly_scores,
+                    'anomaly_loss_weight': 1.0
+                }
+
+                # Initialize the model with anomaly_config
+                model = XTFT(
+                    static_input_dim=10,
+                    dynamic_input_dim=45,
+                    future_covariate_dim=5,
+                    anomaly_config=anomaly_config,
+                    ...
+                )
+                ```
 
     anomaly_loss_weight : float, optional
-        Weight of the anomaly loss term. Default is ``1.0``. Balances
-        the contribution of anomaly detection against the primary
-        forecasting task. A higher value emphasizes identifying and
-        penalizing anomalies, potentially improving robustness to
-        irregularities in the data, while a lower value prioritizes
-        general forecasting performance.
+        Weight of the anomaly loss term. Default is ``1.0``. 
 
     attention_units : int, optional
         Number of units in attention layers. Default is ``32``.
@@ -2282,14 +2342,16 @@ class XTFT(Model, NNLearner):
     TensorShape([32, 3, 3, 1])
 
     >>>  # True targets
-    >>> y_true_forecast = tf.random.normal([batch_size, time_steps, 3, output_dim])
+    >>> y_true_forecast = tf.random.normal([batch_size, 3, output_dim])
     >>> model.compile(optimizer ='adam', loss=['mse'])
     >>> output = model.fit(
         x=[static_input, dynamic_input, future_covariate_input], 
         y=y_true_forecast
         )
-    >>> output.shape
-    TensorShape([32, 3, 3, 1])
+    >>> output
+    1/1 [==============================] - 2s 2s/step - loss: 1.0534
+    Out[8]: <keras.callbacks.History at 0x20474300640>
+
     
     See Also
     --------
@@ -2318,7 +2380,7 @@ class XTFT(Model, NNLearner):
         "dropout_rate": [Interval(Real, 0, 1, closed="both")],
         "output_dim": [Interval(Integral, 1, None, closed='left')],
         "forecast_horizon": [Interval(Integral, 1, None, closed='left')],
-        "anomaly_loss_weight": [Interval(Real, 0, None, closed='left'), None],
+        # "anomaly_loss_weight": [Interval(Real, 0, None, closed='left'), None],
         "attention_units": [
             'array-like', 
             Interval(Integral, 1, None, closed='left')
@@ -2360,7 +2422,8 @@ class XTFT(Model, NNLearner):
         num_heads: int = 4,
         dropout_rate: float = 0.1,
         output_dim: int = 1, 
-        anomaly_loss_weight: float =None, 
+        # anomaly_loss_weight: float =None, 
+        anomaly_config: Optional[Dict[str, Any]] = None,  # New parameter
         attention_units: int = 32,
         hidden_units: int = 64,
         lstm_units: int = 64,
@@ -2387,7 +2450,8 @@ class XTFT(Model, NNLearner):
             f"max_window_size={max_window_size},"
             f" memory_size={memory_size}, num_heads={num_heads}, "
             f"dropout_rate={dropout_rate}, output_dim={output_dim}, "
-            f"anomaly_loss_weight={anomaly_loss_weight}, "
+            # f"anomaly_loss_weight={anomaly_loss_weight}, "
+            f"anomaly_config={None if anomaly_config is None else anomaly_config.keys()}, "
             f"attention_units={attention_units}, "
             f" hidden_units={hidden_units}, "
             f"lstm_units={lstm_units}, "
@@ -2396,18 +2460,10 @@ class XTFT(Model, NNLearner):
             f"use_batch_norm={use_batch_norm}, "
             f"final_agg={final_agg}"
         )
-        # Handle quantiles
-        if quantiles == 'auto':
-            quantiles = [0.1, 0.5, 0.9]
-
-        if scales is None or scales == 'auto':
-            scales = [1]
-
-        if multi_scale_agg is None or multi_scale_agg == 'auto':
-            return_sequences = False
-        else:
-            return_sequences = True
-
+        # Handle default quantiles, scales and multi_scale_agg 
+        quantiles, scales, return_sequences = set_default_params(
+            quantiles, scales, multi_scale_agg ) 
+        
         self.static_input_dim = static_input_dim
         self.dynamic_input_dim = dynamic_input_dim
         self.future_covariate_dim = future_covariate_dim
@@ -2419,11 +2475,13 @@ class XTFT(Model, NNLearner):
         self.num_heads = num_heads
         self.dropout_rate = dropout_rate
         self.output_dim = output_dim
-        self.anomaly_loss_weight = anomaly_loss_weight 
+        # self.anomaly_loss_weight = anomaly_loss_weight 
+        self.anomaly_config=set_anomaly_config(anomaly_config)
         self.attention_units = attention_units
         self.hidden_units = hidden_units
         self.lstm_units = lstm_units
         self.scales = scales
+        
         self.multi_scale_agg = multi_scale_agg
         self.activation = activation
         self.use_residuals = use_residuals
@@ -2468,7 +2526,11 @@ class XTFT(Model, NNLearner):
             quantiles=self.quantiles,
             output_dim=output_dim
         )
-        self.anomaly_loss_layer = AnomalyLoss(weight=self.anomaly_loss_weight)
+        
+        self.anomaly_loss_layer = AnomalyLoss(
+            weight=self.anomaly_config.get('anomaly_loss_weight', 1.)
+            )
+        # self.anomaly_loss_layer = AnomalyLoss(weight=self.anomaly_loss_weight)
         self.multi_objective_loss = MultiObjectiveLoss(
             quantile_loss_fn=AdaptiveQuantileLoss(self.quantiles),
             anomaly_loss_fn=self.anomaly_loss_layer
@@ -2479,10 +2541,15 @@ class XTFT(Model, NNLearner):
             self.static_batch_norm = LayerNormalization()
         self.residual_dense = Dense(2 * embed_dim) if use_residuals else None
         self.final_dense = Dense(output_dim)
+        
 
     def call(self, inputs, training=False):
-        
-        (static_input, dynamic_input, future_covariate_input) = inputs
+        static_input, dynamic_input, future_covariate_input = validate_xtft_inputs (
+            inputs =inputs,
+            static_input_dim=self.static_input_dim, 
+            dynamic_input_dim= self.dynamic_input_dim, 
+            future_covariate_dim= self.future_covariate_dim, 
+        )
     
         # Normalize and process static features
         normalized_static = self.learned_normalization(
@@ -2686,8 +2753,63 @@ class XTFT(Model, NNLearner):
         self.logger.debug(
             f"Predictions Shape: {predictions.shape}"
         )
-    
+        
+        # Compute anomaly scores
+        self.anomaly_scores= validate_anomaly_scores(
+            self.anomaly_config, forecast_horizons= self.forecast_horizons)
+        
+        self.anomaly_loss_weight= self.anomaly_config.get('anomaly_loss_weight')
+        
+        if self.anomaly_scores is not None:
+            # Use anomaly_scores from anomaly_config
+            self.logger.debug(
+                f"Using Anomaly Scores from anomaly_config Shape: {self.anomaly_scores.shape}")
+        
+            if self.anomaly_loss_weight is None: 
+                # Use provided anomaly_scores from anomaly_config
+                self.logger.debug(
+                    "Using Anomaly Scores from anomaly_config is None. Ressetting to 1.")
+                
+                self.anomaly_loss_weight = 1. 
+
+        # compute anomaly scores 
+        # Handle anomaly_scores exclusively via anomaly_config
+        if self.anomaly_loss_weight is not None:
+            # Compute anomaly loss and add it to the total loss
+            anomaly_loss = self.anomaly_loss_layer(self.anomaly_scores)
+            self.add_loss(self.anomaly_loss_weight * anomaly_loss)
+            self.logger.debug(f"Anomaly Loss Computed and Added: {anomaly_loss}")
+            
         return predictions
+    
+    def compile(self, optimizer, loss=None, **kwargs):
+        if self.quantiles is None:
+            # Deterministic scenario
+            super().compile(
+                optimizer=optimizer, loss=loss or 'mse', **kwargs)
+        else:
+            # Probabilistic scenario with combined quantile loss
+            quantile_loss_fn = combined_quantile_loss(self.quantiles)
+    
+            if self.anomaly_scores is not None:
+                # Define a total loss that includes both quantile loss and anomaly loss
+                def total_loss(y_true, y_pred):
+                    # Compute quantile loss
+                    q_loss = quantile_loss_fn(y_true, y_pred)
+    
+                    # Compute anomaly loss
+                    # anomaly_scores = self._get_anomaly_scores()
+                    a_loss = self.anomaly_loss_layer(self.anomaly_scores)
+    
+                    # Combine losses
+                    return q_loss + a_loss
+    
+                super().compile(
+                    optimizer=optimizer, loss=total_loss, **kwargs)
+            else:
+                # Only quantile loss
+                super().compile(
+                    optimizer=optimizer, loss=quantile_loss_fn, **kwargs)
 
     @ParamsValidator(
         { 
@@ -2696,48 +2818,24 @@ class XTFT(Model, NNLearner):
           'anomaly_scores':['array-like:tf:transf']
         }, 
     )
-    def compute_objective_loss(
+    def objective_loss(
         self, 
         y_true: tf.Tensor, 
         y_pred: tf.Tensor, 
         anomaly_scores: tf.Tensor=None
     ) -> tf.Tensor:
         
-        if self.anomaly_loss_weight is not None: 
-            check_consistent_length(y_true, y_pred, anomaly_scores)
+        if self.anomaly_scores is not None: 
+            check_consistent_length(y_true, y_pred, self.anomaly_scores)
             # Expect y_true, 'y_pred, and 'anomaly_scores'
             # Compute the multi-objective loss
-            loss = self.multi_objective_loss(y_true, y_pred, anomaly_scores)
+            loss = self.multi_objective_loss(y_true, y_pred, self.anomaly_scores)
             return loss
         else: 
             # When anomaly_loss_weight is None, y_true is a tensor
             check_consistent_length(y_true, y_pred)
             return self.multi_objective_loss(y_true, y_pred)
 
-    def anomaly_loss(
-        self, anomaly_scores: tf.Tensor
-        ) -> tf.Tensor:
-        return self.anomaly_loss_weight * tf.reduce_mean(
-            tf.square(anomaly_scores))
-
-    def quantile_loss(self, q):
-        def loss(y_true, y_pred):
-            error = y_true - y_pred
-            return K.mean(K.maximum(q * error, (q - 1) * error), axis=-1)
-        return loss
-
-    def compile(self, optimizer, loss=None, **kwargs):
-        if self.quantiles is None:
-            # Deterministic scenario
-            super().compile(
-                optimizer=optimizer, loss=loss or 'mse', **kwargs)
-        else:
-            # Probabilistic scenario with multiple quantile losses
-            loss_functions = {}
-            for q in self.quantiles:
-                loss_functions[f'quantile_loss_{q}'] = self.quantile_loss(q)
-            super().compile(
-                optimizer=optimizer, loss=loss_functions, **kwargs)
 
     def get_config(self):
         config = super().get_config().copy()
@@ -2753,7 +2851,10 @@ class XTFT(Model, NNLearner):
             'num_heads': self.num_heads,
             'dropout_rate': self.dropout_rate,
             'output_dim': self.output_dim,
-            'anomaly_loss_weight': self.anomaly_loss_weight,
+            'anomaly_config': {
+                'anomaly_scores': self.anomaly_scores.numpy() if self.anomaly_scores is not None else None,
+                'anomaly_loss_weight': self.anomaly_loss_weight
+            },
             'attention_units': self.attention_units,
             'hidden_units': self.hidden_units,
             'lstm_units': self.lstm_units,
@@ -2763,6 +2864,7 @@ class XTFT(Model, NNLearner):
             'use_batch_norm': self.use_batch_norm,
             'final_agg': self.final_agg
         })
+        
         self.logger.debug(
             "Configuration for XTFT has been updated in get_config.")
         return config
@@ -2772,4 +2874,8 @@ class XTFT(Model, NNLearner):
         logger = gofastlog().get_gofast_logger(__name__)
         logger.debug("Creating XTFT instance from config.")
         return cls(**config)
+
+
+
+
 
