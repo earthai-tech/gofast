@@ -22,6 +22,7 @@ from ..api.types import Dict, Union, Tuple, ArrayLike, Callable
 from ..api.util import get_table_size , to_snake_case
 from ..core.utils import ellipsis2false, smart_format
 from ..core.checks import assert_ratio, validate_ratio 
+from ..core.io import is_data_readable 
 from ..decorators import isdf, Dataify
 from ..decorators import Extract1dArrayOrSeries 
 from ..utils.base_utils import reshape_to_dataframe
@@ -51,6 +52,7 @@ __all__= [
      'scale_data',
  ]
 
+@is_data_readable
 def audit_data(
     data: DataFrame,/,  
     dropna_threshold: float = 0.5, 
@@ -275,6 +277,7 @@ def audit_data(
     
     return (data, report_obj) if return_report else data
 
+@is_data_readable
 def handle_categorical_features(
     data: DataFrame, /, 
     categorical_threshold: int = 10,
@@ -347,6 +350,7 @@ def handle_categorical_features(
     
     return (data, report_obj) if return_report else data
 
+@is_data_readable
 def convert_date_features(
     data: DataFrame, /, 
     date_features: List[str], 
@@ -450,6 +454,7 @@ def convert_date_features(
     return (data, report_obj) if return_report else data
 
 @isdf 
+@is_data_readable
 def scale_data(
     data: DataFrame, /, 
     method: str = 'norm',
@@ -562,6 +567,7 @@ def scale_data(
     report_obj.add_mixed_types(report, table_width= TW)
     return (data, report_obj) if return_report else data
 
+@is_data_readable
 def handle_outliers_in(
     data: DataFrame, /, 
     method: str = 'clip', 
@@ -585,7 +591,7 @@ def handle_outliers_in(
     data : pd.DataFrame
         The DataFrame with potential outliers.
     method : str, optional
-        Method to handle outliers ('clip', 'remove', 'replace'). 
+        Method to handle outliers ('clip', 'remove', 'replace', 'drop'). 
         Default is 'clip'.
     replace_with : str, optional
         Specifies replacement method ('mean' or 'median') for 'replace'.
@@ -631,7 +637,7 @@ def handle_outliers_in(
         upper = data[numeric_cols].quantile(upper_quantile)
         data[numeric_cols] = data[numeric_cols].clip(lower, upper, axis=1)
         report['method'] = 'clip'
-    elif method == 'remove':
+    elif method in ( 'remove', 'drop'):
         # Removing outliers based on quantiles
         lower = data[numeric_cols].quantile(lower_quantile)
         upper = data[numeric_cols].quantile(upper_quantile)
@@ -647,7 +653,9 @@ def handle_outliers_in(
             replace_func(), axis=0))
         report['method'] = 'replace'
     else:
-        raise ValueError("Invalid method for handling outliers.")
+        raise ValueError(
+            "Invalid method for handling outliers."
+            " Expect one of 'clip', 'remove', or 'replace'.")
     
     report['lower_quantile'] = lower_quantile
     report['upper_quantile'] = upper_quantile
@@ -672,6 +680,7 @@ def handle_outliers_in(
     return (data, report_obj) if return_report else data
 
 @isdf 
+@is_data_readable
 def handle_missing_data(
     data: DataFrame, /, 
     method: Optional[str] = None,  
@@ -829,6 +838,7 @@ def handle_missing_data(
     return (data, report_obj) if return_report else data
 
 @isdf
+@is_data_readable
 def assess_outlier_impact(
     data: ArrayLike, /,
     outlier_threshold: int=3, 
@@ -1068,6 +1078,7 @@ def merge_frames_on_index(
     return merged_df
 
 @isdf 
+@is_data_readable
 def check_missing_data(
     data: DataFrame, /, 
     view: bool = False,
@@ -1198,6 +1209,7 @@ def check_missing_data(
     return missing_stats
 
 @Dataify(auto_columns=True)
+@is_data_readable
 def data_assistant(data: DataFrame, view: bool=False):
     """
     Performs an in-depth analysis of a pandas DataFrame, providing insights,
@@ -1507,6 +1519,7 @@ def data_assistant(data: DataFrame, view: bool=False):
     
     
 @Dataify(auto_columns= True, ignore_mismatch=True)  
+@is_data_readable
 def check_unique_values(
     data: DataFrame, 
     columns: Optional[List[str]] = None, 
@@ -1667,6 +1680,7 @@ def check_unique_values(
     return unique_counts
 
 @Dataify(auto_columns= True, ignore_mismatch=True, prefix="feature_")   
+@is_data_readable
 def check_correlated_features(
     data, /, threshold: float=0.8, 
     method: str | callable ='pearson',
@@ -1800,6 +1814,7 @@ def check_correlated_features(
     return bool(correlated_pairs)
 
 @Dataify(auto_columns= True , ignore_mismatch=True, prefix="var_")
+@is_data_readable
 def analyze_data_corr(
     data: DataFrame, 
     columns: Optional[ List[str]]=None, 
@@ -1961,6 +1976,7 @@ def analyze_data_corr(
         )
     return summary
 
+@is_data_readable
 def correlation_ops(
     data: DataFrame, 
     corr_type:str='all', 
@@ -2169,6 +2185,7 @@ def _make_correlation_pairs(dict_of_dfs):
     return result
 
 @Dataify (auto_columns=True)  
+@is_data_readable
 def drop_correlated_features(
     data: DataFrame, 
     method: str | Callable[[ArrayLike, ArrayLike], float] = 'pearson', 
@@ -2486,6 +2503,7 @@ def _drop_correlated_features(
     return to_drop
 
 @Dataify (auto_columns=True)
+@is_data_readable
 def handle_skew(
     data: DataFrame,
     method: str = 'log', 
@@ -2695,6 +2713,7 @@ def validate_skew_method(data: Series, method: str):
     return f"The {method} transformation is appropriate for this data."
 
 @isdf
+@is_data_readable
 def check_skew_methods_applicability(
     data: DataFrame, return_report: bool = False, 
     return_best_method: bool = False) -> Union[Dict[str, List[str]], str]:
@@ -2778,6 +2797,7 @@ def check_skew_methods_applicability(
     return applicable_methods
 
 @Dataify(auto_columns=True)
+@is_data_readable
 def handle_duplicates(
     data: DataFrame, 
     return_duplicate_rows: bool=False, 
@@ -2913,6 +2933,7 @@ def _visualize_data(original_data: DataFrame, duplicates_mask: Series,
     plt.show()
     
 @Dataify(auto_columns=True)
+@is_data_readable
 def quality_control(
     data, /, 
     missing_threshold=0.05, 
@@ -3195,97 +3216,6 @@ class _QualityControl(ReportFactory):
             )
         return f"<QualityControl: {message}. {extra}>"
                 
-
-if __name__ == "__main__":
-    # Example usage of the function
-
-    data_positive = pd.Series([0.1, 1.5, 3.0, 4.5, 10.0])
-    try:
-        print(validate_skew_method(data_positive, 'log'))
-    except ValueError as e:
-        print(e)
-
-    data_with_negatives = pd.Series([-1, 2, 5, 7, 9])
-    try:
-        print(validate_skew_method(data_with_negatives, 'sqrt'))
-    except ValueError as e:
-        print(e)
-
-    # Create a sample DataFrame with duplicate rows
-    data = pd.DataFrame({
-        'A': [1, 2, 2, 4, 5, 1],
-        'B': [1, 2, 2, 4, 5, 1],
-        'C': [1, 2, 2, 4, 5, 1]
-    })
-
-    # Finding and returning duplicate rows
-    duplicates_df = handle_duplicates(data, return_duplicate_rows=True)
-    print("Duplicate Rows:\n", duplicates_df)
-
-    # Returning the indices of duplicate rows
-    duplicate_indices = handle_duplicates(data, return_indices=True)
-    print("Indices of Duplicate Rows:\n", duplicate_indices)
-
-    # Dropping duplicates and returning the cleaned DataFrame
-    cleaned_data = handle_duplicates(data, operation='drop')
-    print("Data without Duplicates:\n", cleaned_data)
-
-
-    # Create a sample DataFrame with skew
-    data = pd.DataFrame({
-        'A': np.random.normal(0, 2, 100),
-        'B': np.random.chisquare(2, 100),
-        'C': np.random.beta(2, 5, 100) * 60,  # positive and skewed
-        'D': np.random.uniform(-1, 0, 100)  # contains negative values
-    })
-
-    # Apply transformation
-    result_log = handle_skew(data.copy(), method='log')
-    result_sqrt = handle_skew(data.copy(), method='sqrt')
-    result_boxcox = handle_skew(data.copy(), method='box-cox')
-
-    print("Log-transformed:\n", result_log.head())
-    print("Square root-transformed:\n", result_sqrt.head())
-    print("Box-Cox transformed:\n", result_boxcox.head())
-
-
-    # Create a sample DataFrame
-    data = pd.DataFrame({
-        'A': [1, 2, 3, 4, 5],
-        'B': [1, 2, 3, 4, 5],
-        'C': [5, 4, 3, 2, 1],
-        'D': [2, 3, 2, 3, 2]
-    })
-
-    # Call the function to drop correlated features
-    result = drop_correlated_features(data, threshold=0.8)
-    print(result)
-
-
-    # Create a sample DataFrame
-    data = pd.DataFrame({
-        'A': [1, 2, 3, 4, 5],
-        'B': [1, 2, 3, 4, 5],
-        'C': [5, 4, 3, 2, 1],
-        'D': [2, 3, 2, 3, 2]
-    })
-
-    # Call the function
-    result = correlation_ops(data, correlation_type='strong positive')
-    print("Strong Positive Correlations:", result)
-
-    import pandas as pd
-    #from gofast.dataops.quality import data_assistant 
-    # Create a sample DataFrame
-    df = pd.DataFrame({
-        'Age': [25, 30, 35, 40, None],
-        'Salary': [50000, 60000, 70000, 80000, 90000],
-        'City': ['New York', 'Los Angeles', 'San Francisco', 'Houston', 'Seattle']
-    })
-    # Call the assistant function
-    data_assistant(df)
-
-
 
 
 

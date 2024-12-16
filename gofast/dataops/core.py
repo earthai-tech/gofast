@@ -25,7 +25,6 @@ from ..utils.deps_utils import is_module_installed, ensure_pkg
 from ..utils.base_utils import is_readable, select_features
 from ..utils.validator import array_to_frame, check_array
 
-
 __all__ = ["Data", "Missing", "MergeableSeries", "MergeableFrames", "Frames"]
 
 @dataclass

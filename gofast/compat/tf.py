@@ -8,16 +8,28 @@ standalone Keras. It includes functions and classes for dynamically importing
 Keras dependencies and checking the availability of TensorFlow or Keras.
 """
 
+import logging
 import warnings 
 import importlib
+from functools import wraps
+from contextlib import contextmanager 
+from typing import Callable 
 
+# Attempt to import TensorFlow and set a flag based on availability
+try:
+    import tensorflow as tf
+    HAS_TF = True
+except ImportError:
+    HAS_TF = False
+    
 __all__ = [
     'KerasDependencies',
     'check_keras_backend',
     'import_keras_dependencies',
     'import_keras_function',
+    'standalone_keras', 
+    'optional_tf_function', 
 ]
-
 
 class KerasDependencies:
     def __init__(
@@ -308,8 +320,47 @@ def standalone_keras(module_name):
                 f"or standalone Keras is installed and the module exists."
             )
 
+def optional_tf_function(func: Callable) -> Callable:
+    """
+    A decorator that applies @tf.function if TensorFlow is available.
+    Otherwise, it wraps the function to raise an ImportError when called.
 
+    Parameters:
+    - ``func`` (`Callable`): The function to decorate.
 
+    Returns:
+    - `Callable`: The decorated function.
+    """
+    if HAS_TF:
+        return tf.function(func)
+    else:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            raise ImportError(
+                "TensorFlow is required to use this function. "
+                "Please install TensorFlow to proceed."
+            )
+        return wrapper
+
+@contextmanager
+def suppress_tf_warnings():
+    """
+    A context manager to temporarily suppress TensorFlow warnings.
+    
+    Usage:
+        with suppress_tf_warnings():
+            # TensorFlow operations that may generate warnings
+            ...
+    """
+    if HAS_TF: 
+        tf_logger = tf.get_logger()
+        original_level = tf_logger.level
+        tf_logger.setLevel(logging.ERROR)  # Suppress WARNING and INFO messages
+        try:
+            yield
+        finally:
+            tf_logger.setLevel(original_level)  # Restore original logging level
+            
 # ---------------------- class and func documentations ----------------------
 
 KerasDependencies.__doc__="""\ 

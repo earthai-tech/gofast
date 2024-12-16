@@ -3818,13 +3818,13 @@ class NumpyDocstringFormatter:
         This method provides a conceptual approach and requires a Sphinx 
         environment to be properly implemented.
         """
-        from .utils.depsutils import import_optional_dependency
+        from .utils.deps_utils import import_optional_dependency
         
         try: 
             import_optional_dependency ("docutils")
         except: 
-            from .utils.depsutils import is_module_installed 
-            from .utils.depsutils import ensure_module_installed
+            from .utils.deps_utils import is_module_installed 
+            from .utils.deps_utils import ensure_module_installed
             if not is_module_installed("docutils"): 
                 ensure_module_installed('docutils', auto_install=True)
             
