@@ -2083,6 +2083,8 @@ class XTFT(Model, NNLearner):
     original Temporal Fusion Transformer, XTFT incorporates additional modules
     and strategies that enhance its representational capacity, stability,
     and interpretability.
+    
+    See more in :ref:`User Guide <user_guide>`. 
 
     {key_improvements}
 
@@ -2222,10 +2224,10 @@ class XTFT(Model, NNLearner):
                 precomputed_anomaly_scores = tf.random.normal((batch_size, forecast_horizons))
 
                 # Create anomaly_config dictionary
-                anomaly_config = {
+                anomaly_config = {{
                     'anomaly_scores': precomputed_anomaly_scores,
                     'anomaly_loss_weight': 1.0
-                }
+                }}
 
                 # Initialize the model with anomaly_config
                 model = XTFT(
@@ -2383,7 +2385,6 @@ class XTFT(Model, NNLearner):
         "dropout_rate": [Interval(Real, 0, 1, closed="both")],
         "output_dim": [Interval(Integral, 1, None, closed='left')],
         "forecast_horizon": [Interval(Integral, 1, None, closed='left')],
-        # "anomaly_loss_weight": [Interval(Real, 0, None, closed='left'), None],
         "attention_units": [
             'array-like', 
             Interval(Integral, 1, None, closed='left')
@@ -2425,8 +2426,7 @@ class XTFT(Model, NNLearner):
         num_heads: int = 4,
         dropout_rate: float = 0.1,
         output_dim: int = 1, 
-        # anomaly_loss_weight: float =None, 
-        anomaly_config: Optional[Dict[str, Any]] = None,  # New parameter
+        anomaly_config: Optional[Dict[str, Any]] = None,  
         attention_units: int = 32,
         hidden_units: int = 64,
         lstm_units: int = 64,
@@ -2453,7 +2453,6 @@ class XTFT(Model, NNLearner):
             f"max_window_size={max_window_size},"
             f" memory_size={memory_size}, num_heads={num_heads}, "
             f"dropout_rate={dropout_rate}, output_dim={output_dim}, "
-            # f"anomaly_loss_weight={anomaly_loss_weight}, "
             f"anomaly_config={None if anomaly_config is None else anomaly_config.keys()}, "
             f"attention_units={attention_units}, "
             f" hidden_units={hidden_units}, "
