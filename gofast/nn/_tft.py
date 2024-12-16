@@ -19,7 +19,6 @@ from ..utils.validator import validate_quantiles
 from ._nn_docs import _shared_nn_params, _shared_docs  
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
  
-
 if KERAS_BACKEND:
     LSTM = KERAS_DEPS.LSTM
     LayerNormalization = KERAS_DEPS.LayerNormalization 
@@ -54,7 +53,7 @@ __all__ = ["TemporalFusionTransformer"]
 
 _param_docs = DocstringComponents.from_nested_components(
     base=DocstringComponents(_shared_nn_params), 
-    )
+)
 
 # ------------------- TFT components ------------------------------------------
 

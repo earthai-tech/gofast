@@ -12,10 +12,9 @@ from typing import List, Optional, Union, Dict, Any
 
 from .._gofastlog import gofastlog
 from ..api.docs import doc 
-from ..api.property import  NNLearner 
+from ..api.property import NNLearner 
 from ..core.checks import validate_nested_param, ParamsValidator 
 from ..compat.sklearn import validate_params, Interval, StrOptions 
-
 from ..utils.deps_utils import ensure_pkg
 from ..utils.validator import check_consistent_length 
 
@@ -290,7 +289,6 @@ class AdaptiveQuantileLoss(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
 
-
 @register_keras_serializable('Gofast')
 class AnomalyLoss(Layer, NNLearner):
     """
@@ -394,7 +392,6 @@ class ExplainableAttention(Layer, NNLearner):
     @classmethod
     def from_config(cls, config):
         return cls(**config)
-
 
 @register_keras_serializable('Gofast')
 class MultiDecoder(Layer, NNLearner):

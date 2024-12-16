@@ -92,7 +92,7 @@ class KerasDependencies:
             'Tensor': ('tensorflow', 'Tensor'), 
             'cast': ('tensforflow', 'cast'), 
             'float32': ('tensorflow', 'float32'), 
-            'constant': ('tensorflow', 'constant')
+            # 'constant': ('tensorflow', 'constant')
         }
 
         mapping = {
