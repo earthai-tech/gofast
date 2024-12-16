@@ -29,6 +29,7 @@ from ..utils.validator import check_is_fitted
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 from ._tft import TemporalFusionTransformer 
 from ._xtft import XTFT
+from ._wrappers import _scigofast_set_X_compat
 from .utils import extract_callbacks_from 
 
 if KERAS_BACKEND:
@@ -865,7 +866,8 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
         
         if self.verbose >= 5:
             print("Model building completed.")
-
+            
+    @_scigofast_set_X_compat(ops ='concat')
     def fit(self, X, y, **fit_params):
         """
         Fit the TFT model according to the given training data.
@@ -943,7 +945,8 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
             print("Model training completed.")
         
         return self
-
+    
+    @_scigofast_set_X_compat(ops ='concat')
     def predict(self, X):
         """
         Predict using the TFT model.
@@ -1305,6 +1308,7 @@ class XTFTWrapper(BaseEstimator, RegressorMixin):
 
         self.model_ = model
 
+    @_scigofast_set_X_compat('xtft', ops ='concat')
     def fit(self, X, y, **fit_params):
         if self.verbose >= 1:
             print("Starting the fit process...")
@@ -1369,6 +1373,7 @@ class XTFTWrapper(BaseEstimator, RegressorMixin):
             print("Model training completed.")
         return self
 
+    @_scigofast_set_X_compat('xtft', ops ='concat')
     def predict(self, X):
         check_is_fitted(self, attributes=['model_'])
 
