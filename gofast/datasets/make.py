@@ -19,8 +19,8 @@ import pandas as pd
 
 from ..core.checks import _assert_all_types, assert_ratio, is_iterable
 from ..core.utils import smart_format 
-from ..tools.depsutils import ensure_pkg
-from ..tools.validator import (
+from ..utils.deps_utils import ensure_pkg
+from ..utils.validator import (
     parameter_validator,
     validate_and_adjust_ranges,
     validate_dates,
@@ -674,7 +674,7 @@ def make_data(
   
     from sklearn.datasets import make_classification, make_regression
     from sklearn.model_selection import train_test_split
-    from ..tools.baseutils import make_df
+    from ..utils.baseutils import make_df
     
     n_samples = validate_positive_integer(n_samples, "samples")
     valid_tasks = {"classification", "regression"}
@@ -932,7 +932,7 @@ def make_classification(
 
     Returns
     -------
-    obj: gofast.tools.Boxspace 
+    obj: gofast.utils.Boxspace 
         The object that contains data details: frame, data, target etc. if 
         `return_X_y` and `split_X_y` and `as_frame` are ``False``.
     X, y : ndarray of shape (n_samples, n_features) or DataFrame
@@ -1118,7 +1118,7 @@ def make_regression(
 
     Returns
     -------
-    obj: gofast.tools.Boxspace 
+    obj: gofast.utils.Boxspace 
         The object that contains data details: frame, data, target etc, if 
         `return_X_y` and `split_X_y` and `as_frame` are ``False``.
     X : ndarray of shape (n_samples, n_features)
@@ -1152,7 +1152,7 @@ def make_regression(
     various real-world scenarios. The scaling options help in preparing data 
     that mimics different data distributions.
     """
-    from ..tools.baseutils import remove_target_from_array 
+    from ..utils.baseutils import remove_target_from_array 
     
     np.random.seed(seed)  # Ensures reproducibility
     n_samples = validate_positive_integer(n_samples, "samples")
@@ -1274,7 +1274,7 @@ def make_social_media_comments(
             - 'timestamp': The timestamp of the comment.
             - 'likes': The number of likes on the comment.
             
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         A dictionary-like object with the following attributes:
         data : ndarray or DataFrame
             The data matrix. If `as_frame=True`, `data` is a pandas DataFrame.
@@ -1421,7 +1421,7 @@ def make_african_demo(*,
     DataFrame
         Returns a pandas DataFrame containing the demographic dataset if 
         `as_frame=True` and `return_X_y=False`.
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         A dictionary-like object with the following attributes:
         data : ndarray or DataFrame
             The data matrix. If `as_frame=True`, `data` is a pandas DataFrame.
@@ -1598,7 +1598,7 @@ def make_agronomy_feedback(*,
     -------
     pd.DataFrame if ``as_frame=True`` and ``return_X_y=False``
         A DataFrame containing the generated agronomy dataset.
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -1643,7 +1643,7 @@ def make_agronomy_feedback(*,
 
     """
     from ._globals import COMMON_PESTICIDES, COMMON_CROPS 
-    from ..tools.datautils import random_sampling 
+    from ..utils.datautils import random_sampling 
     
     func_name = inspect.currentframe().f_code.co_name
     dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
@@ -1835,7 +1835,7 @@ def make_mining_ops(
     -------
     pd.DataFrame if ``as_frame=True`` and ``return_X_y=False``
         A DataFrame containing the generated mining dataset.
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -2021,7 +2021,7 @@ def make_sounding(
     -------
     pd.DataFrame if ``as_frame=True`` and ``return_X_y=False``
         A DataFrame containing the generated geophysical sounding dataset.
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -2065,7 +2065,7 @@ def make_sounding(
     >>> print(sounding_data.head())
 
     """
-    from ..tools.datautils import random_sampling 
+    from ..utils.datautils import random_sampling 
     
     func_name = inspect.currentframe().f_code.co_name
     dataset_descr, features_descr= fetch_simulation_metadata (func_name) 
@@ -2183,7 +2183,7 @@ def make_medical_diagnosis(
     -------
     pd.DataFrame if ``as_frame=True`` and ``return_X_y=False``
         A DataFrame containing the generated medical dataset.
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -2437,7 +2437,7 @@ def make_well_logging(*,
     -------
     pd.DataFrame if ``as_frame=True`` and ``return_X_y=False``
         A DataFrame containing the generated well logging dataset.
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -2591,7 +2591,7 @@ def make_ert(
     -------
     pd.DataFrame if ``as_frame=True`` and ``return_X_y=False``
         A DataFrame containing the generated ERT dataset.
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -2754,7 +2754,7 @@ def make_tem(
     -------
     pd.DataFrame if ``as_frame=True`` and ``return_X_y=False``
         A DataFrame containing the generated TEM survey dataset with equipment types.
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -2931,7 +2931,7 @@ def make_erp(*,
     -------
     pd.DataFrame if ``as_frame=True`` and ``return_X_y=False``
         A DataFrame containing the generated dataset.
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -3102,7 +3102,7 @@ def make_elogging(
     pd.DataFrame if ``as_frame=True`` and ``return_X_y=False``
         A DataFrame containing the generated logging data with columns 
         'Timestamp', 'LogLevel', and 'Message'.
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -3264,7 +3264,7 @@ def make_gadget_sales(
     pd.DataFrame if ``as_frame=True`` and ``return_X_y=False``
         A DataFrame containing the gadget sales data with columns 
         'SaleDate', 'Gadget', 'Gender', and 'UnitsSold'.
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -3425,7 +3425,7 @@ def make_retail_store(
     -------
     pd.DataFrame if ``as_frame=True`` and ``return_X_y=False``
         A DataFrame containing the generated dataset.
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -3592,7 +3592,7 @@ def make_cc_factors(
 
     Returns
     -------
-    pandas.DataFrame, pandas.Series or gofast.tools.box.Boxspace
+    pandas.DataFrame, pandas.Series or gofast.utils.box.Boxspace
         Depending on the combination of `as_frame`, `return_X_y`, and `split_X_y`
         parameters, this function can return:
         - A single pandas DataFrame (`as_frame=True`, `return_X_y=False`)
@@ -3762,7 +3762,7 @@ def make_water_demand(
     -------
     pandas.DataFrame if ``as_frame=True`` and ``return_X_y=False``
         A DataFrame representing the water demand needs dataset.
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.

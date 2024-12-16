@@ -24,9 +24,9 @@ from ..core.utils import ellipsis2false, smart_format
 from ..core.checks import assert_ratio, validate_ratio 
 from ..decorators import isdf, Dataify
 from ..decorators import Extract1dArrayOrSeries 
-from ..tools.baseutils import reshape_to_dataframe
-from ..tools.validator import is_frame, parameter_validator, validate_numeric  
-from ..tools.validator import _is_numeric_dtype, filter_valid_kwargs
+from ..utils.base_utils import reshape_to_dataframe
+from ..utils.validator import is_frame, parameter_validator, validate_numeric  
+from ..utils.validator import _is_numeric_dtype, filter_valid_kwargs
 
 TW = get_table_size() 
 
@@ -1292,7 +1292,7 @@ def data_assistant(data: DataFrame, view: bool=False):
             ) 
         helper_funcs["1. Missing values "]= ( 
             "Use: pandas.DataFrame.fillna(), sklearn.impute.SimpleImputer"
-            " ~.tools.soft_imputer, ~.tools.one_click_prep, ~.dataops.check_missing_data"
+            " ~.utils.soft_imputer, ~.utils.one_click_prep, ~.dataops.check_missing_data"
             " ~.dataops.handle_missing_data, ~.transformers.MissingValueImputer and more..."
             )
     # Descriptive statistics
@@ -1336,7 +1336,7 @@ def data_assistant(data: DataFrame, view: bool=False):
             " to be used in these models.")
         helper_funcs ["4. Non-numeric data"]=( 
             "Use: pandas.get_dummies(), sklearn.preprocessing.LabelEncoder"
-            " ~.tools.soft_encoder, ~.transformers.CategoricalEncoder2"
+            " ~.utils.soft_encoder, ~.transformers.CategoricalEncoder2"
             " ~.dataops.handle_categorical_features and more ..."
             ) 
         
@@ -1424,7 +1424,7 @@ def data_assistant(data: DataFrame, view: bool=False):
             )
         helper_funcs ["7. Duplicate analysis"]=(
             "Use: pandas.DataFrame.drop_duplicates(),"
-            " ~.tools.handle_duplicates and more ...")
+            " ~.utils.handle_duplicates and more ...")
         
     # Unique value check
     texts["8. Unique value check with threshold=10"]="Passed"

@@ -14,8 +14,8 @@ import pandas as pd
 from .api.types import Optional, DataFrame
 from .api.property import BaseClass
 from .exceptions import NotFittedError 
-from .tools.coreutils import normalize_string
-from .tools.depsutils import import_optional_dependency
+from .core.utils import normalize_string
+from .utils.deps_utils import import_optional_dependency
 
  
 __all__= ['DBAnalysis']

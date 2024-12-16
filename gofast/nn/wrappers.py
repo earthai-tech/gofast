@@ -23,8 +23,8 @@ import numpy as np
 from ..api.docs import _shared_docs, doc
 from ..compat.sklearn import validate_params, Interval, StrOptions
 from ..decorators import Appender
-from ..tools.depsutils import ensure_pkg 
-from ..tools.validator import check_is_fitted 
+from ..utils.deps_utils import ensure_pkg 
+from ..utils.validator import check_is_fitted 
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 from .transformers import TemporalFusionTransformer 

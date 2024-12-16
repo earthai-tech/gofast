@@ -15,7 +15,7 @@ from sklearn.linear_model import  LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder
 
-from gofast.tools.depsutils import is_module_installed
+from gofast.utils.depsutils import is_module_installed
 from gofast.transformers.feature_engineering import ( 
     StratifyFromBaseFeature,
     CategoryBaseStratifier, 
@@ -74,7 +74,7 @@ SKLIM_AVAILABLE =False
 try: 
     from skimage.transform import resize # noqa 
 except: 
-    from gofast.tools.depsutils import ensure_module_installed 
+    from gofast.utils.depsutils import ensure_module_installed 
     if not is_module_installed("skimage", distribution_name='scikit-image'): 
         SKLIM_AVAILABLE =ensure_module_installed(
             'skimage', 

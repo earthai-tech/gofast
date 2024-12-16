@@ -40,14 +40,14 @@ from ..core.array_manager import reshape
 from ..core.checks import  _assert_all_types , is_in, exist_features  
 from ..core.utils import shrunkformat, smart_format 
 from ..exceptions import  PlotError, FeatureError, NotFittedError
-from ..tools._dependency import import_optional_dependency 
-from ..tools.baseutils import ( 
+from ..utils.deps_utils import import_optional_dependency 
+from ..utils.base_utils import ( 
     is_readable, 
     select_features, 
     extract_target,
     generate_placeholders
 )
-from ..tools.validator import check_X_y 
+from ..utils.validator import check_X_y 
 try: 
     import missingno as msno 
 except : pass 
@@ -262,7 +262,7 @@ class QuestPlotter(BasePlot):
         fit_params: dict 
             Additional keywords arguments for reading the data is given as 
             a path-like object passed from 
-            :func:gofast.tools.coreutils._is_readable`
+            :func:gofast.utils.coreutils._is_readable`
            
         Return
         -------

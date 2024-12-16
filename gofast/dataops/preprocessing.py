@@ -26,7 +26,7 @@ from ..core.array_manager import to_numeric_dtypes, reshape, decode_sparse_data
 from ..core.checks import is_iterable, assert_ratio, exist_features 
 from ..core.checks import is_sparse_matrix
 from ..core.utils import format_to_datetime
-from ..tools.depsutils import ensure_pkg
+from ..utils.deps_utils import ensure_pkg
 from ..decorators import ( 
     Dataify, 
     DynamicMethod, 
@@ -34,7 +34,7 @@ from ..decorators import (
     smartFitRun, 
 )
 from ..exceptions import NotFittedError
-from ..tools.validator import ( 
+from ..utils.validator import ( 
     parameter_validator, 
     check_consistent_length, 
     build_data_if, 
@@ -1317,8 +1317,8 @@ class Features(BaseClass):
         if provided, and separates numeric and categorical features. This setup
         facilitates various feature processing tasks that may follow.
         """
-        from ..tools.baseutils import get_target, select_features 
-        from ..tools.mlutils import bi_selector
+        from ..utils.baseutils import get_target, select_features 
+        from ..utils.mlutils import bi_selector
    
         # Ensure input data is a DataFrame
         X = build_data_if(
@@ -2217,7 +2217,7 @@ class Features(BaseClass):
     def update_features (self ): 
         """ Update the numeric and categorical features lists based "
         "on the current DataFrame."""
-        from ..tools.mlutils import bi_selector 
+        from ..utils.mlutils import bi_selector 
         self.features = list (self.data.columns )
         self.numeric_features_, self.categorical_features_ = bi_selector ( 
             self.data )
@@ -2946,7 +2946,7 @@ def _decode_sparse_processed_data(
     -----
     - This function assumes that the `FloatCategoricalToInt` transformer 
       is properly implemented and imported from the 
-      `gofast.tools.transformers.feature_engineering` module.
+      `gofast.utils.transformers.feature_engineering` module.
     - The function attempts to decode the data and transform categorical 
       features. If any step fails, it gracefully handles the exception 
       and returns the original `processed_data`.
@@ -2959,8 +2959,8 @@ def _decode_sparse_processed_data(
     
         ```python
         import pandas as pd
-        from gofast.tools.coreutils import decode_sparse_data, is_sparse_matrix
-        from gofast.tools.transformers.feature_engineering import FloatCategoricalToInt
+        from gofast.utils.coreutils import decode_sparse_data, is_sparse_matrix
+        from gofast.utils.transformers.feature_engineering import FloatCategoricalToInt
         
         # Sample string-encoded sparse data
         processed_data = pd.Series([
@@ -2984,7 +2984,7 @@ def _decode_sparse_processed_data(
     
         ```python
         import scipy.sparse as sp
-        from gofast.tools.transformers.feature_engineering import FloatCategoricalToInt
+        from gofast.utils.transformers.feature_engineering import FloatCategoricalToInt
         
         # Sample scipy sparse matrix
         sparse_matrix = sp.csr_matrix([
@@ -3006,7 +3006,7 @@ def _decode_sparse_processed_data(
     - **pandas Series Documentation**:
       https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Series.html
     - **FloatCategoricalToInt Transformer**:
-      Assumed to be implemented in `gofast.tools.transformers.feature_engineering`.
+      Assumed to be implemented in `gofast.utils.transformers.feature_engineering`.
     """
     
     from ..transformers.feature_engineering import FloatCategoricalToInt

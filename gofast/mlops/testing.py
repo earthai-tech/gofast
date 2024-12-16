@@ -23,8 +23,8 @@ from sklearn.utils._param_validation import HasMethods, StrOptions
 
 from ..compat.sklearn import validate_params, Interval
 from ..decorators import RunReturn, smartFitRun
-from ..tools.depsutils import ensure_pkg
-from ..tools.validator import (
+from ..utils.deps_utils import ensure_pkg
+from ..utils.validator import (
     check_X_y, check_array,  check_is_fitted, check_is_runned
 )
 from ._base import BaseTest

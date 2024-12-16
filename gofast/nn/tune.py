@@ -29,9 +29,9 @@ from ..api.property import BaseClass
 from ..core.checks import is_iterable 
 from ..core.utils import type_of_target 
 from ..decorators import smartFitRun
-from ..tools.depsutils import ensure_pkg, import_optional_dependency
-from ..tools.validator import check_consistent_length
-from ..tools.validator import validate_keras_model,  is_frame
+from ..utils.deps_utils import ensure_pkg, import_optional_dependency
+from ..utils.validator import check_consistent_length
+from ..utils.validator import validate_keras_model,  is_frame
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 

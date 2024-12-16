@@ -19,8 +19,8 @@ from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 from sklearn.utils._param_validation import Interval, StrOptions
 
 from ._boosting import BaseBoostingTree 
-from ..tools.validator import check_X_y, get_estimator_name, check_array 
-from ..tools.validator import check_is_fitted
+from ..utils.validator import check_X_y, get_estimator_name, check_array 
+from ..utils.validator import check_is_fitted
 
 __all__=[
     "BoostedTreeRegressor","BoostedTreeClassifier",

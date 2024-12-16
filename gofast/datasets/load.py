@@ -25,8 +25,8 @@ from ..core.array_manager import to_numeric_dtypes, convert_to_structured_format
 from ..core.array_manager import split_train_test_by_id 
 from ..core.checks import assert_ratio, is_in_if, validate_feature 
 from ..core.utils import smart_format, format_to_datetime, type_of_target
-from ..tools.baseutils import check_file_exists, fancier_downloader 
-from ..tools.ioutils import get_valid_key, key_checker
+from ..utils.base_utils import check_file_exists, fancier_downloader 
+from ..utils.io_utils import get_valid_key, key_checker
 from .io import DMODULE, RemoteDataURL, _to_dataframe, csv_data_loader
 from .io import DESCR, description_loader
 from .util import _format_feature_descriptions 
@@ -562,7 +562,7 @@ drop_observations: bool, default=False
 
 Returns
 -------
-data : :class:`~gofast.tools.Boxspace`
+data : :class:`~gofast.utils.Boxspace`
     Dictionary-like object with attributes:
     - data: {ndarray, DataFrame} 
       Data matrix; pandas DataFrame if `as_frame=True`.
@@ -624,7 +624,7 @@ def load_nansha (
     shuffle =False, 
     **kws
     ): 
-    from ..tools.datautils import random_sampling 
+    from ..utils.datautils import random_sampling 
     
     drop_display_rate = kws.pop("drop_display_rate", True)
     key = key or 'b0' 
@@ -778,7 +778,7 @@ drop_display_rate: bool, default=True
 
 Returns
 -------
-data : :class:`~gofast.tools.box.Boxspace`
+data : :class:`~gofast.utils.box.Boxspace`
     Dictionary-like object with attributes:
     - data: {ndarray, DataFrame} 
       Data matrix; pandas DataFrame if `as_frame=True`.
@@ -890,7 +890,7 @@ Parameters
 ----------
 return_X_y : bool, default=False
     If True, returns ``(data, target)`` instead of a 
-    :class:`~gofast.tools.box.Boxspace` object. See below for more information 
+    :class:`~gofast.utils.box.Boxspace` object. See below for more information 
     about the `data` and `target` object.
 as_frame : bool, default=False
     If True, the data is a pandas DataFrame including columns with
@@ -911,7 +911,7 @@ tag, data_names: None
 
 Returns
 -------
-data: :class:`~gofast.tools.box.Boxspace`
+data: :class:`~gofast.utils.box.Boxspace`
     Dictionary-like object, with the following attributes.
     data : {ndarray, dataframe} of shape (150, 4)
         The data matrix. If `as_frame=True`, `data` will be a pandas DataFrame.
@@ -1023,7 +1023,7 @@ as_frame : bool, default=False
     latter already holds `tag` and `data_names` as parameters. 
 Returns
 -------
-data : :class:`~gofast.tools.Boxspace`
+data : :class:`~gofast.utils.Boxspace`
     Dictionary-like object, with the following attributes.
     data : {ndarray, dataframe} of shape (150, 4)
         The data matrix. If `as_frame=True`, `data` will be a pandas
@@ -1161,7 +1161,7 @@ def load_mxs (
         
     Returns
     ---------
-    data : :class:`~gofast.tools.Boxspace`
+    data : :class:`~gofast.utils.Boxspace`
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -1209,7 +1209,7 @@ def load_mxs (
     >>> X_train, X_test, y_train, y_test = load_mxs_dataset(split_X_y=True, 
                                                             return_X_y=True)
     """
-    from ..tools.datautils import resample_data 
+    from ..utils.datautils import resample_data 
     
     target_map = {0: '1', 1: '11*', 2: '2', 3: '2*', 4: '3', 5: '33*'}
     
@@ -1331,7 +1331,7 @@ def _prepare_common_dataset(
         drop_nan_columns):
     # Process the common dataset: handling dropping columns, sampling,
     # and converting to DataFrame
-    from ..tools.datautils import random_sampling 
+    from ..utils.datautils import random_sampling 
     
     if drop_observations:
         data = data.drop(columns="remark")

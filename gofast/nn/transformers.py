@@ -17,11 +17,14 @@ from ..core.checks import is_iterable, validate_nested_param, ParamsValidator
 from ..core.handlers import param_deprecated_message 
 from ..compat.sklearn import validate_params, Interval, StrOptions 
 from ..decorators import Appender 
-from ..tools.depsutils import ensure_pkg
-from ..tools.validator import validate_quantiles, check_consistent_length 
+from ..utils.deps_utils import ensure_pkg
+from ..utils.validator import validate_quantiles, check_consistent_length 
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
-from .utils import set_anomaly_config, validate_anomaly_scores, validate_xtft_inputs , set_default_params 
+from .utils import ( 
+    set_anomaly_config, validate_anomaly_scores, validate_xtft_inputs ,
+    set_default_params 
+)
 from .losses import combined_quantile_loss
 
 if KERAS_BACKEND:

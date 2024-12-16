@@ -34,7 +34,7 @@ from .core.checks import exist_features, is_iterable
 from .core.utils import normalize_string
 from .compat.sklearn import validate_params, StrOptions, HasMethods, Interval 
 from .decorators import Substitution, Appender
-from .tools.validator import (
+from .utils.validator import (
     _ensure_y_is_valid, _is_numeric_dtype, check_epsilon, check_is_fitted, 
     validate_multioutput, validate_nan_policy, check_array, build_data_if
 )

@@ -31,8 +31,8 @@ from ..api.types import Tuple,_F, ArrayLike, NDArray, Dict, Union, Any
 from ..api.types import  List, Optional, Type, DataFrame, Series 
 from ..api.summary import ModelSummary 
 from ..core.utils import smart_format
-from ..tools.validator import get_estimator_name, check_X_y 
-from ..tools.depsutils import import_optional_dependency 
+from ..utils.validator import get_estimator_name, check_X_y 
+from ..utils.deps_utils import import_optional_dependency 
 
 from .._gofastlog import gofastlog
 

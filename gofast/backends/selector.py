@@ -63,7 +63,7 @@ from .nn import NNBackend
 
 from ..decorators import EnsureMethod 
 from ..api.property import BaseClass 
-from ..tools.depsutils import ensure_pkg 
+from ..utils.deps_utils import ensure_pkg 
 
 __all__= ["BackendSelector", "select_backend_n", "safe_cast"]
 

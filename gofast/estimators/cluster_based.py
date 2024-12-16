@@ -9,7 +9,7 @@ leveraging clustering techniques to enhance predictive performance.
 from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.metrics import r2_score
 
-from ..tools.validator import check_is_fitted
+from ..utils.validator import check_is_fitted
 from ._cluster_based import BaseKMF
 
 __all__=["KMFClassifier", "KMFRegressor"]

@@ -161,7 +161,7 @@ def convert_position_str2float(position_str):
                           
     Example
     -------------
-    >>> import gofast.tools.gis_tools as gis_tools
+    >>> import gofast.utils.gis_tools as gis_tools
     >>> gis_tools.convert_position_str2float('-118:34:56.3')
     """
     
@@ -263,7 +263,7 @@ def convert_position_float2str(position):
                           
     Example
     -------------
-    >>> import gofast.tools.gis_tools as gis_tools
+    >>> import gofast.utils.gis_tools as gis_tools
     >>> gis_tools.convert_position_float2str(-118.34563)
         
     """

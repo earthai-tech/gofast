@@ -13,8 +13,8 @@ from ..api.types import List, DataFrame, Optional, Dict
 from ..api.types import Union,TypeGuard, Tuple, Any
 from ..core.array_manager import to_numeric_dtypes
 from ..decorators import isdf
-from ..tools.validator import  build_data_if,  parameter_validator  
-from ..tools.validator import validate_dtype_selector
+from ..utils.validator import  build_data_if,  parameter_validator  
+from ..utils.validator import validate_dtype_selector
 
 
 __all__= [

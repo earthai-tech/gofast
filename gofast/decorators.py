@@ -2196,7 +2196,7 @@ class ExportData:
             # Optionally move files to a designated output directory
             # Assuming move_cfile function exists and is imported correctly
             for fname in fnames:
-                from .tools.ioutils import move_cfile 
+                from .utils.ioutils import move_cfile 
                 move_cfile(fname, savepath, dpath='_out')
                 
             # Optionally return the filenames of the exported files
@@ -3164,7 +3164,7 @@ def available_if(check):
 
     Examples
     --------
-    >>> from sklearn.tools.metaestimators import available_if
+    >>> from sklearn.utils.metaestimators import available_if
     >>> class HelloIfEven:
     ...    def __init__(self, x):
     ...        self.x = x
@@ -3493,8 +3493,8 @@ class IsPerformanceData:
         >>> validated_data = validator.actual_validate_performance_data(data)
 
         """
-        from .tools.validator import convert_to_numeric
-        from .tools.validator import is_valid_policies
+        from .utils.validator import convert_to_numeric
+        from .utils.validator import is_valid_policies
 
         # Convert to DataFrame if input is a dictionary
         if isinstance(data, dict):
@@ -3818,13 +3818,13 @@ class NumpyDocstringFormatter:
         This method provides a conceptual approach and requires a Sphinx 
         environment to be properly implemented.
         """
-        from .tools.depsutils import import_optional_dependency
+        from .utils.depsutils import import_optional_dependency
         
         try: 
             import_optional_dependency ("docutils")
         except: 
-            from .tools.depsutils import is_module_installed 
-            from .tools.depsutils import ensure_module_installed
+            from .utils.depsutils import is_module_installed 
+            from .utils.depsutils import ensure_module_installed
             if not is_module_installed("docutils"): 
                 ensure_module_installed('docutils', auto_install=True)
             

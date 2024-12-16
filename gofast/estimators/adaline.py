@@ -24,8 +24,8 @@ from sklearn.utils._param_validation import StrOptions
 
 try:from sklearn.utils import type_of_target
 except: from ..core.utils import type_of_target 
-from ..tools.validator import check_X_y, check_array 
-from ..tools.validator import check_is_fitted
+from ..utils.validator import check_X_y, check_array 
+from ..utils.validator import check_is_fitted
 from ._adaline import BaseAdalineStochastic 
 from .util import activator 
   

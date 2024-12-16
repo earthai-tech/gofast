@@ -37,7 +37,7 @@ from .._gofastlog import gofastlog
 from ..api.property import BaseClass
 from ..compat.sklearn import validate_params 
 from ..decorators import EnsureMethod
-from .depsutils import is_installing, is_module_installed, ensure_pkg
+from .deps_utils import is_installing, is_module_installed, ensure_pkg
 
 
 __all__= [
@@ -107,7 +107,7 @@ class RemoteDataLoader(BaseClass):
 
     Examples
     --------
-    >>> from gofast.tools.netutils import RemoteDataLoader
+    >>> from gofast.utils.netutils import RemoteDataLoader
     >>> loader = RemoteDataLoader(
     ...     source_url='https://example.com/data.zip',
     ...     destination_path='data/data.zip',
@@ -350,7 +350,7 @@ class ArchiveExtractor(BaseClass):
 
     Examples
     --------
-    >>> from gofast.tools.netutils import ArchiveExtractor
+    >>> from gofast.utils.netutils import ArchiveExtractor
     >>> extractor = ArchiveExtractor('sample.zip', extract_to='output_dir',
     ...                              overwrite=True)
     >>> extractor.extract()
@@ -542,7 +542,7 @@ def url_checker (url: str , install:bool = False,
         
     Example
     ----------
-    >>> from gofast.tools.netutils import url_checker 
+    >>> from gofast.utils.netutils import url_checker 
     >>> url_checker ("http://www.example.com")
     ...  0 # not reacheable 
     >>> url_checker ("https://gofast.readthedocs.io/en/latest/api/gofast.html")

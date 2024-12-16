@@ -19,9 +19,9 @@ from ..api.util import get_table_size
 from ..core.checks import is_iterable, exist_features
 from ..core.array_manager import to_numeric_dtypes 
 from ..decorators import isdf
-from ..tools.validator import  build_data_if, is_frame
-from ..tools.validator import check_consistent_length 
-from ..tools.validator import is_valid_policies
+from ..utils.validator import  build_data_if, is_frame
+from ..utils.validator import check_consistent_length 
+from ..utils.validator import is_valid_policies
 
 TW = get_table_size() 
 

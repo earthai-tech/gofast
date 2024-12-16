@@ -15,7 +15,7 @@ from ..api.property import BaseLearner
 from ..compat.sklearn import ( 
      validate_params, Interval, HasMethods, StrOptions 
     )
-from ..tools.validator import check_is_fitted, check_is_runned
+from ..utils.validator import check_is_fitted, check_is_runned
 
 logger = gofastlog.get_gofast_logger(__name__)
 

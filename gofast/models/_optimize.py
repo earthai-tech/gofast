@@ -19,7 +19,7 @@ from ..api.property import BaseClass
 from ..api.types import Any, Dict, List,Union, Tuple, Optional, ArrayLike
 from ..core.handlers import get_params 
 from ..core.utils import smart_format 
-from ..tools.validator import filter_valid_kwargs, get_estimator_name
+from ..utils.validator import filter_valid_kwargs, get_estimator_name
 from .utils import get_strategy_method, align_estimators_with_params
 
 

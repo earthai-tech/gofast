@@ -21,8 +21,8 @@ from ..compat.sklearn import validate_params, Interval, StrOptions
 from ..core.utils import smart_format
 from ..core.checks import check_params 
 from ..decorators import Appender, DataTransformer
-from ..tools.validator import check_array, filter_valid_kwargs
-from ..tools.validator import parameter_validator  
+from ..utils.validator import check_array, filter_valid_kwargs
+from ..utils.validator import parameter_validator  
 
 
 __all__= [ 

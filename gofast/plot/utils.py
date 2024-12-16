@@ -36,7 +36,7 @@ from ..core.checks import (
 from ..core.handlers import columns_manager 
 from ..compat.sklearn import validate_params, StrOptions, Interval 
 from ..decorators import isdf
-from ..tools.validator import  assert_xy_in, build_data_if
+from ..utils.validator import  assert_xy_in, build_data_if
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
 __all__=["boxplot", "plot_r_squared", "plot_text", "plot_spatial_features", 
@@ -1328,7 +1328,7 @@ def make_plot_colors(
     Examples 
     --------
     >>> import numpy as np 
-    >>> from gofast.tools.utils import make_plot_colors
+    >>> from gofast.utils.utils import make_plot_colors
     >>> ar = np.random.randn (7, 2) 
     >>> make_plot_colors (ar )
     ['g', 'gray', 'y', 'blue', 'orange', 'purple', 'lime']
@@ -1577,7 +1577,7 @@ def make_mpl_properties(n: int, prop: str = 'color') -> list:
 
     Examples
     --------
-    >>> from gofast.tools.utils import make_mpl_properties
+    >>> from gofast.utils.utils import make_mpl_properties
     >>> make_mpl_properties(10)
     ['g', 'gray', 'y', 'blue', 'orange', 'purple', 'lime', 'k', 'cyan', (0.6, 0.6, 0.6)]
     >>> make_mpl_properties(100, prop='marker')
@@ -1899,7 +1899,7 @@ def get_color_palette (RGB_color_palette):
      
     :Example: 
         
-        >>> from gofast.tools.utils import get_color_palette 
+        >>> from gofast.utils.utils import get_color_palette 
         >>> get_color_palette (RGB_color_palette ='R128B128')
     """  
     
@@ -2104,7 +2104,7 @@ def _skip_log10_columns ( X, column2skip, pattern =None , inplace =True):
         
     :example: 
        >>> from gofast.datasets import load_hlogs 
-       >>> from gofast.tools.utils import _skip_log10_columns 
+       >>> from gofast.utils.utils import _skip_log10_columns 
        >>> X0, _= load_hlogs (as_frame =True ) 
        >>> # let visualize the  first3 values of `sp` and `resistivity` keys 
        >>> X0['sp'][:3] , X0['resistivity'][:3]  
@@ -2727,7 +2727,7 @@ def plot_distributions(
 
     Examples
     --------
-    >>> from gofast.tools.mlutils import plot_distributions
+    >>> from gofast.utils.mlutils import plot_distributions
     >>> from gofast.datasets import load_hlogs
     >>> data = load_hlogs().frame  # get the frame
     >>> plot_distributions(data, features=['longitude', 'latitude', 'subsidence'],

@@ -1498,7 +1498,7 @@ def map_specific_columns (
     Examples 
     ---------
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.tools.plotutils import map_specific_columns 
+    >>> from gofast.utils.plotutils import map_specific_columns 
     >>> X0, _= load_hlogs (as_frame =True ) 
     >>> # let visualize the  first3 values of `sp` and `resistivity` keys 
     >>> X0['sp'][:3] , X0['resistivity'][:3]  

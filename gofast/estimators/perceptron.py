@@ -18,9 +18,9 @@ from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.preprocessing import LabelBinarizer 
 from sklearn.metrics import accuracy_score, r2_score
 
-from ..tools.depsutils import ensure_pkg 
-from ..tools.validator import check_X_y, check_array 
-from ..tools.validator import check_is_fitted
+from ..utils.depsutils import ensure_pkg 
+from ..utils.validator import check_X_y, check_array 
+from ..utils.validator import check_is_fitted
 from ._neural import BaseFuzzyNeuralNet, BaseNeuroFuzzy, BaseGD 
 from .util import detect_problem_type 
 

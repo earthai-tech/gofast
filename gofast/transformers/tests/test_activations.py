@@ -9,7 +9,7 @@ try:
    import torch
 except :  pass 
 
-from gofast.tools.validator import filter_valid_kwargs 
+from gofast.utils.validator import filter_valid_kwargs 
 
 from gofast.transformers.activations import (
     ReLUTransformer,

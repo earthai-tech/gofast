@@ -37,10 +37,10 @@ from ..core.checks import is_iterable, exist_features
 from ..core.handlers import parse_attrs, get_batch_size
 from ..core.utils import ellipsis2false, type_of_target 
 from ..exceptions import EstimatorError, NotFittedError 
-from ..tools.baseutils import detect_categorical_columns 
-from ..tools.validator import  get_estimator_name, check_X_y, is_frame
-from ..tools.validator import _is_arraylike_1d, build_data_if, check_array 
-from ..tools.validator import check_is_fitted, check_consistent_length 
+from ..utils.base_utils import detect_categorical_columns 
+from ..utils.validator import  get_estimator_name, check_X_y, is_frame
+from ..utils.validator import _is_arraylike_1d, build_data_if, check_array 
+from ..utils.validator import check_is_fitted, check_consistent_length 
 
 __all__= [
     'FeatureImportanceSelector', 
@@ -2343,7 +2343,7 @@ class StratifyFromBaseFeature(BaseEstimator, TransformerMixin):
     def _categorize_feature(self, X):
         """Categorizes the numerical feature."""
  
-        from ..tools.mlutils import discretize_categories
+        from ..utils.mlutils import discretize_categories
         X = discretize_categories(X, in_cat=self.base_feature, 
             new_cat="class_label", divby =self.threshold_operator,
             higherclass = self.max_category
@@ -2497,7 +2497,7 @@ class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
         tuple of DataFrames
             The stratified training and testing sets.
         """
-        from ..tools.mlutils import stratify_categories 
+        from ..utils.mlutils import stratify_categories 
         # stratification logic here (e.g., using pd.cut)
         strat_train_set, strat_test_set = stratify_categories(
             X, self.base_column, test_size = self.test_size, 
@@ -2631,12 +2631,12 @@ class CategorizeFeatures(BaseEstimator, TransformerMixin ):
             The transformed array with the additional combined attribute.
         
         """
-        from ..tools.mlutils import soft_encoder 
+        from ..utils.mlutils import soft_encoder 
         # -------------------------------------------
         if _is_arraylike_1d(X): 
             raise ValueError ("One-dimensional or Series is not allowed."
                               " Use sklearn.preprocessing.LabelEncoder or "
-                              " gofast.tools.smart_label_classier to encode"
+                              " gofast.utils.smart_label_classier to encode"
                               " variables.")
         X = build_data_if(X, to_frame =True, force =True,
                           raise_warning="silence", input_name='col')
@@ -4432,7 +4432,7 @@ class CategoricalEncoder(BaseEstimator, TransformerMixin):
     --------
     - sklearn.preprocessing.OneHotEncoder : Provides the underlying one-hot 
       encoding mechanism.
-    - gofast.tools.baseutils.detect_categorical_columns : 
+    - gofast.utils.baseutils.detect_categorical_columns : 
       Automatically detects categorical columns in a DataFrame.
     
     References

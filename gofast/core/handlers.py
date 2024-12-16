@@ -1303,7 +1303,7 @@ def batch_generator(
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.tools.sysutils import batch_generator
+    >>> from gofast.utils.sysutils import batch_generator
     >>> X = np.arange(10)
     >>> y = np.arange(10) * 2
     >>> batch_size = 3

@@ -36,8 +36,8 @@ from ..compat.sklearn import (
    validate_params
 )
 from ..decorators import DynamicMethod
-from ..tools.validator import validate_sequences, check_consistent_length 
-from ..tools.depsutils import ensure_pkg 
+from ..utils.deps_utils import ensure_pkg 
+from ..utils.validator import validate_sequences, check_consistent_length 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 
 if KERAS_BACKEND:

@@ -51,9 +51,9 @@ from ..core.checks import str2columns, is_iterable
 from ..core.handlers import make_ids 
 from ..core.utils import type_of_target 
 from ..exceptions import NotFittedError
-from ..tools.baseutils import categorize_target, extract_target
-from ..tools.depsutils import ensure_pkg
-from ..tools.validator import (
+from ..utils.base_utils import categorize_target, extract_target
+from ..utils.deps_utils import ensure_pkg
+from ..utils.validator import (
     _check_consistency_size, build_data_if, _is_numeric_dtype,
     check_consistent_length, assert_xy_in
 )

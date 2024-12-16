@@ -26,9 +26,9 @@ from sklearn.preprocessing import RobustScaler, MinMaxScaler, StandardScaler
 try:from sklearn.utils import type_of_target
 except: from ..core.utils import type_of_target 
 from ..api.types import DataFrame, Series, Tuple, Union, Dict, Optional 
-from ..tools.validator import check_array, check_X_y
-from ..tools.validator import validate_fit_weights, get_estimator_name
-from ..tools.validator import validate_positive_integer 
+from ..utils.validator import check_array, check_X_y
+from ..utils.validator import validate_fit_weights, get_estimator_name
+from ..utils.validator import validate_positive_integer 
 
 __all__=[
      'activator','apply_scaling','build_named_estimators', 'detect_problem_type',

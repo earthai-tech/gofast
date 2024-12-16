@@ -274,7 +274,7 @@ def explore(package_path, /,  exclude_names=None):
     --------------------------------------------------------------------------------
     gofast.stats.descriptive          : See More in :ref:`User Guide`.
     gofast.stats.inferential          : See More in :ref:`User Guide`.
-    gofast.stats.model_comparisons    : See More in :ref:`User Guide`.
+    gofast.stats.comparisons          : See More in :ref:`User Guide`.
     gofast.stats.probs                : These functions offer a range of
                                         probability utilities suitable for large
                                         datasets, leveraging the power of NumPy
@@ -380,8 +380,8 @@ def _get_gofast_package_descriptions(include_private=False):
         "plot": "Plotting and visualization tools.",
         "pyx": "Python extension modules for performance enhancement.",
         "stats": "Statistical functions and analysis tools.",
-        "tools": "Miscellaneous tools and utilities for the package.",
         "transformers": "Transformers and preprocessing modules for data transformation.",
+        "utils": "Miscellaneous tools and utilities for the package.",
         "__init__[m]": "Initialization file for the package.",
         "_dep_config[m]": "Dependency configuration settings.",
         "_distributor_init[m]": "Initialization for distribution setup.",
@@ -391,11 +391,13 @@ def _get_gofast_package_descriptions(include_private=False):
         "config[m]": "Configuration settings and utilities.",
         "decorators[m]": "Decorators for various functionalities within the package.",
         "exceptions[m]": "Custom exceptions and error handling.",
+        "feature_selection[m]": "Tools for feature selections and contribution analyses.", 
         "metrics[m]": "Performance metrics and evaluation tools.",
         "metrics_special[m]":"Specialized metrics for model evaluation.", 
         "model_selection[m]": "Tools for model selection and validation.",
+        "preprocessing[m]": "Tools for quick preprocesssing  data and processor built.",
         "query[m]": "Query utilities for data retrieval and manipulation.",
-        "util[m]": "Base package initialization utility functions."
+        "util[m]": "Base package initialization utility functions.",
     }
     
     if not include_private:

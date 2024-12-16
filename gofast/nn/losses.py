@@ -24,10 +24,10 @@ Dependencies:
 from numbers import Real 
 from typing import List
 
-from ..tools.depsutils import ensure_pkg
 from ..compat.sklearn import Interval 
 from ..core.checks import ParamsValidator, check_params
-from ..tools.validator import  validate_quantiles
+from ..utils.deps_utils import ensure_pkg
+from ..utils.validator import  validate_quantiles
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 
 if KERAS_BACKEND:

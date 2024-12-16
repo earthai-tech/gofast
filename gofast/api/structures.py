@@ -34,7 +34,7 @@ class Bunch:
     
     Examples
     --------
-    >>> from gofast.tools.box import Bunch 
+    >>> from gofast.utils.box import Bunch 
     >>> results = Bunch()
     >>> results.accuracy = 0.95
     >>> results.loss = 0.05

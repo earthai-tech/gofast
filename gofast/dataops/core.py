@@ -21,9 +21,9 @@ from ..core.array_manager import to_numeric_dtypes
 from ..core.checks import exist_features 
 from ..core.utils import sanitize_frame_cols
 from ..decorators import executeWithFallback
-from ..tools.depsutils import is_module_installed, ensure_pkg
-from ..tools.baseutils import is_readable, select_features
-from ..tools.validator import array_to_frame, check_array
+from ..utils.deps_utils import is_module_installed, ensure_pkg
+from ..utils.base_utils import is_readable, select_features
+from ..utils.validator import array_to_frame, check_array
 
 
 __all__ = ["Data", "Missing", "MergeableSeries", "MergeableFrames", "Frames"]

@@ -21,7 +21,7 @@ import pandas as pd
 
 from ..api.structures import Boxspace  
 from ..core.checks import random_state_validator, is_iterable, exist_features
-from ..tools.baseutils import is_readable 
+from ..utils.base_utils import is_readable 
 
 __all__=[
     'csv_data_loader',
@@ -734,7 +734,7 @@ allowed_extensions : list of str, default=None
 
 Returns
 -------
-data : :class:`~gofast.tools.Boxspace`
+data : :class:`~gofast.utils.Boxspace`
     Dictionary-like object, with the following attributes.
     data : list of str
       Only present when `load_content=True`.

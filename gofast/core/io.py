@@ -293,7 +293,7 @@ class SaveFile:
     >>> import pandas as pd
     >>> import numpy as np
     >>> from gofast.core.io import SaveFile
-    >>> from gofast.tools.datautils import to_categories
+    >>> from gofast.utils.datautils import to_categories
     
     >>> # Sample DataFrame
     >>> data = {
@@ -686,7 +686,7 @@ def save_or_load(
     Examples 
     ----------
     >>> import numpy as np 
-    >>> from gofast.tools.baseutils import save_or_load 
+    >>> from gofast.utils.baseutils import save_or_load 
     >>> data = np.random.randn (2, 7)
     >>> # save to txt 
     >>> save_or_load ( "test.txt" , data)

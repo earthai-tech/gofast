@@ -33,9 +33,9 @@ from ..api.types import List, Tuple, Optional
 from ..core.array_manager import to_numeric_dtypes 
 from ..core.checks import is_iterable 
 from ..core.handlers import default_params_plot  
-from ..tools.mathext import linkage_matrix 
-from ..tools.validator import check_X_y, check_array, check_y 
-from ..tools.validator import validate_positive_integer, is_frame
+from ..utils.mathext import linkage_matrix 
+from ..utils.validator import check_X_y, check_array, check_y 
+from ..utils.validator import validate_positive_integer, is_frame
 from .utils import _get_xticks_formatage, make_mpl_properties, savefigure 
 
 __all__=[
@@ -98,7 +98,7 @@ def plot_dendroheat(
         
     method : str, default 'complete'
         The linkage algorithm to use. See the `Linkage Methods` section below
-        for full descriptions in :func:`gofast.tools.exmath.linkage_matrix`.
+        for full descriptions in :func:`gofast.utils.exmath.linkage_matrix`.
         
     kind : {'squareform', 'condense', 'design'}, default 'design'
         Approach to summing up the linkage matrix. A condensed distance matrix
@@ -352,7 +352,7 @@ def _plot_elbow (distorsions: list  , n_clusters:int ,fig_size = (10 , 4 ),
     >>> import numpy as np 
     >>> from sklearn.cluster import KMeans 
     >>> from gofast.datasets import load_iris 
-    >>> from gofast.tools.utils import plot_elbow
+    >>> from gofast.utils.utils import plot_elbow
     >>> d= load_iris ()
     >>> X= d.data [:, 0][:, np.newaxis] # take the first axis 
     >>> # compute distorsiosn for KMeans range 
@@ -817,7 +817,7 @@ def _plot_silhouette (X, labels, metric ='euclidean', **kwds ):
   
     See also 
     ---------
-    gofast.tools.plotutils.plot_silhouette: Plot naive silhouette 
+    gofast.utils.plotutils.plot_silhouette: Plot naive silhouette 
     
     Notes
     ------ 
@@ -1040,7 +1040,7 @@ def plot_dendrogram(
         
     method : str, default='complete'
         The linkage algorithm to use. See the `Linkage Methods` section below 
-        for full descriptions in :func:`gofast.tools.mathext.linkage_matrix`.
+        for full descriptions in :func:`gofast.utils.mathext.linkage_matrix`.
         
     labels : ndarray, optional
         By default, `labels` is None so the index of the original observation 

@@ -23,8 +23,8 @@ from ..api.property import BaseLearner
 from ..compat.sklearn import validate_params, Interval 
 from ..core.io import EnsureFileExists 
 from ..decorators import smartFitRun, RunReturn
-from ..tools.depsutils import ensure_pkg 
-from ..tools.validator import check_is_runned
+from ..utils.deps_utils import ensure_pkg 
+from ..utils.validator import check_is_runned
 
 from .._gofastlog import gofastlog 
 logger=gofastlog.get_gofast_logger(__name__)

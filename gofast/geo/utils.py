@@ -21,9 +21,9 @@ from ..exceptions import  DepthError
 from ..api.property import GeoscienceProperties 
 from ..core.checks import find_closest 
 from ..core.utils import ellipsis2false  
-from ..tools.mathext import convert_value_in 
-from ..tools.validator import  assert_xy_in  
-from .gisutils import utm_to_ll, project_point_utm2ll # HAS_GDAL 
+from ..utils.mathext import convert_value_in 
+from ..utils.validator import  assert_xy_in  
+from .gis_utils import utm_to_ll, project_point_utm2ll # HAS_GDAL 
 
 from .._gofastlog import gofastlog 
 _logger = gofastlog().get_gofast_logger(__name__ )

@@ -14,11 +14,11 @@ import seaborn as sns
 
 from ..api.formatter import format_iterable 
 from ..api.property import BasePlot 
-from ..exceptions import NotFittedError 
-from ..tools.baseutils import smart_rotation  
 from ..core.utils import format_to_datetime
-from ..tools.depsutils import ensure_pkg 
-from ..tools.validator import is_time_series, build_data_if 
+from ..exceptions import NotFittedError 
+from ..utils.base_utils import smart_rotation  
+from ..utils.deps_utils import ensure_pkg 
+from ..utils.validator import is_time_series, build_data_if 
 
 __all__=["TimeSeriesPlotter"]
 

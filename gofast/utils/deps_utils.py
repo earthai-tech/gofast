@@ -80,7 +80,7 @@ def ensure_module_installed(
 
     Examples
     --------
-    >>> from gofast.tools.depsutils import ensure_module_installed
+    >>> from gofast.utils.depsutils import ensure_module_installed
 
     >>> # Ensure that 'numpy' is installed
     >>> ensure_module_installed("numpy")
@@ -210,7 +210,7 @@ def install_package(
     Examples
     --------
     Install a package using pip without version specification:
-        >>> from gofast.tools.depsutils import install_package
+        >>> from gofast.utils.depsutils import install_package
         >>> install_package('requests', verbose=True)
 
     Install a specific version of a package using conda:
@@ -366,7 +366,7 @@ def ensure_pkg(
 
     Examples
     --------
-    >>> from gofast.tools.depsutils import ensure_pkg
+    >>> from gofast.utils.depsutils import ensure_pkg
     >>> @ensure_pkg("numpy", auto_install=True)
     ... def use_numpy():
     ...     import numpy as np
@@ -575,7 +575,7 @@ def ensure_pkgs(
 
     Examples
     --------
-    >>> from gofast.tools.depsutils import ensure_pkgs
+    >>> from gofast.utils.depsutils import ensure_pkgs
     >>> @ensure_pkgs("numpy, pandas", auto_install=True)
     ... def use_numpy_pandas():
     ...     import numpy as np

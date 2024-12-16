@@ -723,7 +723,7 @@ def training_progress_bar(
     
     Examples
     --------
-    >>> from gofast.tools.sysutils import training_progress_bar
+    >>> from gofast.utils.sysutils import training_progress_bar
     >>> metrics = {'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
     >>> with training_progress_bar(epochs=5, steps_per_epoch=20, 
                                    metrics=metrics, obj_name="Model") as progress:

@@ -261,7 +261,7 @@ class NotRunnedError(Exception):
 
     Examples
     --------
-    >>> from gofast.tools.validator import check_is_runned, NotRunnedError
+    >>> from gofast.utils.validator import check_is_runned, NotRunnedError
     >>> class ExampleClass:
     ...     def __init__(self):
     ...         self._is_runned = False

@@ -169,7 +169,7 @@ def rescale_data(
     --------
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from gofast.tools.mathext import rescale_data 
+    >>> from gofast.utils.mathext import rescale_data 
     >>> data = pd.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]})
     >>> rescale_data(data, range = (0,1))
     
@@ -357,7 +357,7 @@ def get_time_steps(
 
     Examples
     --------
-    >>> from gofast.tools.mathext import get_time_steps
+    >>> from gofast.utils.mathext import get_time_steps
     >>> # Example with direct date input
     >>> get_time_steps(
     ...     start_date='2020-01-01', 
@@ -502,7 +502,7 @@ def compute_p_values(
     --------
     >>> import pandas as pd
     >>> import numpy as np
-    >>> from gofast.tools.mathext import compute_p_values
+    >>> from gofast.utils.mathext import compute_p_values
     >>> np.random.seed(0)
     >>> data = pd.DataFrame({
     ...     'x1': np.random.randn(100),
@@ -651,7 +651,7 @@ def compute_balance_accuracy(
 
     Examples
     --------
-    >>> from gofast.tools.mathext import compute_balance_accuracy
+    >>> from gofast.utils.mathext import compute_balance_accuracy
     >>> y_true = [0, 1, 1, 0, 1]
     >>> y_pred = [0, 1, 0, 0, 1]
     >>> compute_balance_accuracy(y_true, y_pred)
@@ -777,7 +777,7 @@ def compute_cost_based_threshold(
 
     Examples
     ---------
-    >>> from gofast.tools.mathext import compute_cost_based_threshold
+    >>> from gofast.utils.mathext import compute_cost_based_threshold
     >>> y_true = [0, 1, 1, 0, 1]
     >>> y_scores = [0.1, 0.8, 0.3, 0.6, 0.9]
     >>> costs = (1, 2)  # Cost of FP = 1, Cost of FN = 2
@@ -866,7 +866,7 @@ def compute_youdens_index(
     
     Examples:
     ---------
-    >>> from gofast.tools.mathext import compute_youdens_index
+    >>> from gofast.utils.mathext import compute_youdens_index
     >>> y_true = [0, 1, 1, 0, 1]
     >>> y_scores = [0.1, 0.8, 0.3, 0.6, 0.9]
     >>> optimal_threshold, optimal_youden = compute_youdens_index(y_true, y_scores)
@@ -951,7 +951,7 @@ def calculate_multiclass_avg_lr(
 
     Examples
     --------
-    >>> from gofast.tools.mathext import calculate_multiclass_avg_lr
+    >>> from gofast.utils.mathext import calculate_multiclass_avg_lr
     >>> y_true = [0, 1, 2, 2, 1, 0]
     >>> y_pred = [0, 2, 1, 2, 1, 0]
     >>> lr, avg_sens, avg_spec = calculate_multiclass_avg_lr(
@@ -1070,13 +1070,13 @@ def calculate_multiclass_lr(
 
     Examples
     --------
-    >>> from gofast.tools.mathext import calculate_multiclass_lr
+    >>> from gofast.utils.mathext import calculate_multiclass_lr
     >>> y_true = [0, 1, 2, 2, 1, 0]
     >>> y_pred = [0, 2, 1, 2, 1, 0]
     >>> calculate_multiclass_lr(y_true, y_pred, consensus='positive', strategy='ovr')
     1.6765
     
-    >>> from gofast.tools.mathext import calculate_multiclass_lr
+    >>> from gofast.utils.mathext import calculate_multiclass_lr
     >>> y_true = [0, 1, 2, 2, 1, 0]
     >>> y_pred = [0, 2, 1, 2, 1, 0]
     >>> calculate_multiclass_lr(y_true, y_pred, consensus='positive', strategy='ovr')
@@ -1223,7 +1223,7 @@ def calculate_adjusted_lr(
 
     Examples
     --------
-    >>> from gofast.tools.mathext import calculate_adjusted_lr
+    >>> from gofast.utils.mathext import calculate_adjusted_lr
     >>> calculate_adjusted_lr(0.95, 0.89)
     8.636363636363637
 
@@ -1320,7 +1320,7 @@ def _compute_sensitivity_specificity(
 
     Examples
     --------
-    >>> from gofast.tools.mathext import calculate_binary_metrics
+    >>> from gofast.utils.mathext import calculate_binary_metrics
     >>> y_true = [1, 0, 1, 1, 0, 1, 0, 0]
     >>> y_pred = [1, 0, 0, 1, 0, 1, 1, 0]
     >>> sensitivity, specificity = calculate_binary_metrics(y_true, y_pred)
@@ -1404,7 +1404,7 @@ def compute_sensitivity_specificity(
 
     Examples
     --------
-    >>> from gofast.tools.mathext import compute_sensitivity_specificity
+    >>> from gofast.utils.mathext import compute_sensitivity_specificity
     >>> y_true = [0, 1, 1, 0]
     >>> y_pred = [0, 1, 0, 1]
     >>> compute_sensitivity_specificity(y_true, y_pred)
@@ -1524,7 +1524,7 @@ def _compute_ovo_sens_spec(y_true, y_pred, labels, return_array=True):
     Examples 
     ---------
     >>> import numpy as np 
-    >>> from gofast.tools.mathext import _compute_ovo_sens_spec
+    >>> from gofast.utils.mathext import _compute_ovo_sens_spec
     >>> labels = np.array([0, 1, 2])
     >>> y_true = np.array([0, 1, 1, 2, 2, 0, 1, 2, 0])
     >>> y_pred = np.array([0, 1, 2, 2, 0, 0, 1, 0, 2])
@@ -1603,7 +1603,7 @@ def calculate_histogram_bins(
 
     Examples
     --------
-    >>> from gofast.tools.mathext import calculate_histogram_bins
+    >>> from gofast.utils.mathext import calculate_histogram_bins
     >>> data = np.random.randn(1000)
     >>> bins = calculate_histogram_bins(data, bins=30)
     >>> print(bins)
@@ -1649,7 +1649,7 @@ def rank_data(data, method='average'):
 
     Examples
     --------
-    >>> from gofast.tools.mathext import rank_data
+    >>> from gofast.utils.mathext import rank_data
     >>> data = [40, 20, 30, 20]
     >>> rank_data(data, method='average')
     array([4. , 1.5, 3. , 1.5])
@@ -1758,7 +1758,7 @@ def optimized_spearmanr(
 
     Examples
     --------
-    >>> from gofast.tools.mathext import optimized_spearmanr
+    >>> from gofast.utils.mathext import optimized_spearmanr
     >>> y_true = [1, 2, 3, 4, 5]
     >>> y_pred = [5, 6, 7, 8, 7]
     >>> optimized_spearmanr(y_true, y_pred)
@@ -2005,7 +2005,7 @@ def adjust_for_control_vars_regression(
 
     Examples
     --------
-    >>> from gofast.tools.mathext import adjust_for_control_vars_regression
+    >>> from gofast.utils.mathext import adjust_for_control_vars_regression
     >>> y_true = np.array([3, 5, 7, 9])
     >>> y_pred = np.array([4, 6, 8, 10])
     >>> control_vars = np.array([1, 2, 3, 4])
@@ -2098,7 +2098,7 @@ def adjust_for_control_vars_classification(
 
     Examples
     --------
-    >>> from gofast.tools.mathext import adjust_for_control_vars_classification
+    >>> from gofast.utils.mathext import adjust_for_control_vars_classification
     >>> y_true = [0, 1, 0, 1]
     >>> y_pred = [0, 0, 1, 1]
     >>> control_vars = pd.DataFrame({'age': [25, 30, 35, 40], 'gender': [0, 1, 0, 1]})
@@ -2216,7 +2216,7 @@ def weighted_spearman_rank(
 
     Examples
     --------
-    >>> from gofast.tools.mathext import weighted_spearman_corr
+    >>> from gofast.utils.mathext import weighted_spearman_corr
     >>> y_true = [1, 2, 3, 4, 5]
     >>> y_pred = [5, 6, 7, 8, 7]
     >>> sample_weight = [1, 1, 1, 1, 2]
@@ -2310,7 +2310,7 @@ def calculate_optimal_bins(y_pred, method='freedman_diaconis', data_range=None):
     Calculate the optimal number of bins for a dataset of random predictions 
     using different methods:
     
-    >>> from gofast.tools.mathext import calculate_optimal_bins
+    >>> from gofast.utils.mathext import calculate_optimal_bins
     >>> y_pred = np.random.rand(100)
     >>> print(calculate_optimal_bins(y_pred, method='freedman_diaconis'))
     9
@@ -2418,7 +2418,7 @@ def calculate_binary_iv(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.tools.mathext import calculate_binary_iv
+    >>> from gofast.utils.mathext import calculate_binary_iv
     >>> y_true = np.array([0, 1, 0, 1, 1])
     >>> y_pred = np.array([0.1, 0.8, 0.2, 0.7, 0.9])
     >>> print(calculate_binary_iv(y_true, y_pred, method='base'))
@@ -2597,7 +2597,7 @@ def calculate_residuals(
     Example
     -------
     >>> import numpy as np 
-    >>> from gofast.tools.mathext import calculate_residuals
+    >>> from gofast.utils.mathext import calculate_residuals
     >>> # For regression
     >>> actual = np.array([3, -0.5, 2, 7])
     >>> predicted = np.array([2.5, 0.0, 2, 8])
@@ -2669,7 +2669,7 @@ def infer_sankey_columns(data: DataFrame,
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.tools.mathext import infer_sankey_columns
+    >>> from gofast.utils.mathext import infer_sankey_columns
     >>> df = pd.DataFrame({
     ...     'from': ['A', 'A', 'B', 'B'],
     ...     'to': ['X', 'Y', 'X', 'Y'],
@@ -2844,7 +2844,7 @@ def compute_effort_yield(
     Example
     -------
     >>> import numpy as np 
-    >>> from gofast.tools.mathext import compute_effort_yield
+    >>> from gofast.utils.mathext import compute_effort_yield
     >>> importances = np.array([0.1, 0.4, 0.3, 0.2])
     >>> effort, yield_ = compute_effort_yield(importances)
     >>> print(effort)
@@ -3345,7 +3345,7 @@ def count_local_minima(arr,  method='robust', order=1):
     
     Examples
     --------
-    >>> from gofast.tools.mathext import count_local_minima
+    >>> from gofast.utils.mathext import count_local_minima
     >>> arr = [1, 3, 2, 4, 1, 0, 2, 1]
     >>> count_local_minima(arr, method='base')
     2
@@ -3456,7 +3456,7 @@ def compute_errors (
        
     Examples
     ---------
-    >>> from gofast.tools.mathext  import compute_errors
+    >>> from gofast.utils.mathext  import compute_errors
     >>> from gofast.datasets import make_mining_ops 
     >>> mdata = make_mining_ops ( samples =20, as_frame=True, noises="20%", return_X_y=False)
     >>> compute_errors (mdata)
@@ -3550,7 +3550,7 @@ def gradient_descent(
     Examples 
     -----------
     >>> import numpy as np 
-    >>> from gofast.tools.mathext  import gradient_descent
+    >>> from gofast.utils.mathext  import gradient_descent
     >>> z= np.array([0, 6, 13, 20, 29 ,39, 49, 59, 69, 89, 109, 129, 
                      149, 179])
     >>> res= np.array( [1.59268,1.59268,2.64917,3.30592,3.76168,
@@ -3946,7 +3946,7 @@ def convert_value_in (v, unit ='m'):
        
     Examples 
     ---------
-    >>> from gofast.tools.mathext import convert_value_in 
+    >>> from gofast.utils.mathext import convert_value_in 
     >>> convert_value_in (20) 
     20.0
     >>> convert_value_in ('20mm') 

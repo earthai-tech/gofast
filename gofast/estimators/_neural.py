@@ -11,7 +11,7 @@ from sklearn.neural_network import MLPRegressor, MLPClassifier
 from sklearn.utils import shuffle as skl_shuffle
 
 from ..api.property import LearnerMeta 
-from ..tools.validator import check_X_y, check_array, check_is_fitted
+from ..utils.validator import check_X_y, check_array, check_is_fitted
 from .util import activator
 try: 
     from skfuzzy.control import Antecedent

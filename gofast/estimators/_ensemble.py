@@ -10,8 +10,8 @@ from sklearn.ensemble import BaggingClassifier, GradientBoostingClassifier
 from sklearn.ensemble import BaggingRegressor, GradientBoostingRegressor
 
 from ..api.property import LearnerMeta 
-from ..tools.validator import check_array
-from ..tools.validator import check_is_fitted, get_estimator_name
+from ..utils.validator import check_array
+from ..utils.validator import check_is_fitted, get_estimator_name
 
 
 class BaseEnsemble(BaseEstimator, metaclass=LearnerMeta):

@@ -20,12 +20,12 @@ from ..core.plot_manager import (
 )
 from ..core.utils import ellipsis2false 
 from ..decorators import DynamicMethod
-from ..tools.funcutils import make_data_dynamic
-from ..tools.funcutils import ( 
+from ..utils.func_utils import make_data_dynamic
+from ..utils.func_utils import ( 
     flatten_data_if, update_series_index,update_index, 
     convert_and_format_data, series_naming 
 )
-from ..tools.validator import check_consistent_length 
+from ..utils.validator import check_consistent_length 
 from .utils import validate_stats_plot_type, prepare_stats_plot
 
 __all__= [ 

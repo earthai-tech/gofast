@@ -172,7 +172,7 @@ def dual_merge(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.tools.datautils import dual_merge
+    >>> from gofast.utils.datautils import dual_merge
     >>> df1 = pd.DataFrame({
     >>>     'longitude': [1.1, 1.2, 1.3],
     >>>     'latitude': [2.1, 2.2, 2.3],
@@ -315,7 +315,7 @@ def extract_coordinates(
     Examples
     --------
     >>> import gofast as gf
-    >>> from gofast.tools.datautils import extract_coordinates
+    >>> from gofast.utils.datautils import extract_coordinates
     >>> testdata = gf.datasets.make_erp(n_stations=7, seed=42).frame
 
     # Extract midpoint coordinates
@@ -441,7 +441,7 @@ def get_xy_coordinates(
     Examples 
     ----------
     >>> import gofast as gf 
-    >>> from gofast.tools.datautils import get_xy_coordinates 
+    >>> from gofast.utils.datautils import get_xy_coordinates 
     >>> testdata = gf.make_erp ( n_stations =7, seed =42 ).frame 
     >>> xy, d, xynames = get_xy_coordinates ( testdata,  )
     >>> xy , xynames 
@@ -658,7 +658,7 @@ def batch_spatial_sampling(
 
     Examples
     --------
-    >>> from gofast.tools.spatialutils import batch_spatial_sampling
+    >>> from gofast.utils.spatialutils import batch_spatial_sampling
     >>> sampled_batches = batch_spatial_sampling(
     ...     data=df,
     ...     sample_size=0.05,
@@ -917,7 +917,7 @@ def spatial_sampling(
 
     Examples
     --------
-    >>> from gofast.tools.spatialutils import spatial_sampling
+    >>> from gofast.utils.spatialutils import spatial_sampling
     >>> import pandas as pd
     >>> # Assume 'df' is a pandas DataFrame with columns
     >>> # 'longitude', 'latitude', 'year', and other data.
@@ -1478,7 +1478,7 @@ def savgol_filter(x, window_length, polyorder, deriv=0, delta=1.0,
 
     Examples
     --------
-    >>> from gofast.tools.mathex  import savgol_filter
+    >>> from gofast.utils.mathex  import savgol_filter
     >>> np.set_printoptions(precision=2)  # For compact display.
     >>> x = np.array([2, 2, 5, 2, 1, 0, 1, 4, 9])
 
@@ -1578,7 +1578,7 @@ def moving_average (
     Examples
     --------- 
     >>> import numpy as np ; import matplotlib.pyplot as plt 
-    >>> from gofast.tools.tools   import moving_average 
+    >>> from gofast.utils.tools   import moving_average 
     >>> data = np.random.randn (37) 
     >>> # add gaussion noise to the data 
     >>> data = 2 * np.sin( data)  + np.random.normal (0, 1 , len(data))
@@ -1820,7 +1820,7 @@ def detect_station_position (
     :Example: 
         
         >>> import numpy as np 
-        >>> from gofast.tools.mathex  import detect_station_position 
+        >>> from gofast.utils.mathex  import detect_station_position 
         >>> pos = np.arange(0 , 50 , 10 )
         >>> detect_station_position (s ='S30', p = pos)
         ... (3, 30.0)
@@ -1947,7 +1947,7 @@ def extract_coordinates2(X, Xt=None, columns=None):
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.tools.spatialutils import extract_coordinates
+    >>> from gofast.utils.spatialutils import extract_coordinates
     >>> X = np.array([[1, 2], [3, 4]])
     >>> Xt = np.array([[5, 6], [7, 8]])
     >>> extract_coordinates(X, Xt )
@@ -2190,7 +2190,7 @@ def torres_verdin_filter(
     Example
     --------
     >>> import matplotlib.pyplot as plt 
-    >>> from gofast.tools.mathex  import torres_verdin_filter 
+    >>> from gofast.utils.mathex  import torres_verdin_filter 
     >>> data = np.random.randn(100)  
     >>> ama = torres_verdin_filter(data)
     >>> plt.plot (range (len(data)), data, 'k', range(len(data)), ama, '-or')
@@ -2284,7 +2284,7 @@ def get_distance(
     Examples 
     --------- 
     >>> import numpy as np 
-    >>> from gofast.tools.mathex  import get_distance 
+    >>> from gofast.utils.mathex  import get_distance 
     >>> x = np.random.rand (7) *10 
     >>> y = np.abs ( np.random.randn (7) * 12 ) 
     >>> get_distance (x, y) 
@@ -2357,12 +2357,12 @@ def scale_positions (
        
     See Also 
     ---------
-    gofast.tools.mathex .get_bearing: 
+    gofast.utils.mathex .get_bearing: 
         Compute the  direction of one point relative to another point. 
       
     Examples
     ---------
-    >>> from gofast.tools.mathex  import scale_positions 
+    >>> from gofast.utils.mathex  import scale_positions 
     >>> east = [336698.731, 336714.574, 336730.305] 
     >>> north = [3143970.128, 3143957.934, 3143945.76]
     >>> east_c , north_c= scale_positions (east, north, step =20, view =True  ) 
@@ -2521,7 +2521,7 @@ def adaptive_moving_average(data,  window_size_factor=0.1):
     Example 
     ---------
     >>> import matplotlib.pyplot as plt
-    >>> from gofast.tools.mathex  import adaptive_moving_average 
+    >>> from gofast.utils.mathex  import adaptive_moving_average 
     >>> # Sample magnetotelluric data (replace this with your own data)
     >>> # Example data: a sine wave with noise
     >>> time = np.linspace(0, 10, 1000)  # Replace with your actual time values
@@ -2628,7 +2628,7 @@ def get_azimuth (
     Examples 
     ----------
     >>> import gofast as gf 
-    >>> from gofast.tools.mathex  import get_azimuth 
+    >>> from gofast.utils.mathex  import get_azimuth 
     >>> # generate a data from ERP 
     >>> data = gf.make_erp (n_stations =7 ).frame 
     >>> get_azimuth ( data.longitude, data.latitude)
@@ -2875,7 +2875,7 @@ def fit_ll(ediObjs, by ='index', method ='strict', distance='cartesian' ):
     :Example: 
         >>> import numpy as np 
         >>> from gofast.methods.em import EM
-        >>> from gofast.tools.coreutils import fit_ll
+        >>> from gofast.utils.coreutils import fit_ll
         >>> edipath ='data/edi_ss' 
         >>> cediObjs = EM().fit (edipath) 
         >>> ediObjs = np.random.permutation(cediObjs.ediObjs) # shuffle the  
@@ -2906,7 +2906,7 @@ def fit_ll(ediObjs, by ='index', method ='strict', distance='cartesian' ):
 def _fit_ll(ediObjs, distance='cartes', by = 'index'): 
     """ Fit ediObjs using the `strict method`. 
     
-    An isolated part of :func:`gofast.tools.coreutils.fit_by_ll`. 
+    An isolated part of :func:`gofast.utils.coreutils.fit_by_ll`. 
     """
     # get one obj randomnly and compute distance 
     obj_init = ediObjs[0]
@@ -2963,7 +2963,7 @@ def _fit_ll(ediObjs, distance='cartes', by = 'index'):
 
 def _compute_haversine_d(lat1, lon1, lat2, lon2): 
     """ Sort coordinates using Haversine distance calculus. 
-    An isolated part of :func:`gofast.tools.coreutils._fit_by_ll"""
+    An isolated part of :func:`gofast.utils.coreutils._fit_by_ll"""
     # get reference_lat and reference lon 
     # get one obj randomnly and compute distance 
     # obj_init = np.random.choice (ediObjs) 
@@ -3012,7 +3012,7 @@ def make_ids(arr, prefix =None, how ='py', skip=False):
     
     :Example: 
         >>> import numpy as np 
-        >>> from gofast.tools.func_utils import make_ids 
+        >>> from gofast.utils.func_utils import make_ids 
         >>> values = ['edi1', 'edi2', 'edi3'] 
         >>> make_ids (values, 'ix')
         ... ['ix0', 'ix1', 'ix2']
@@ -3079,7 +3079,7 @@ def station_id (id_, is_index= 'index', how=None, **kws):
     
     :Example:
         
-    >>> from gofast.tools.coreutils import station_id 
+    >>> from gofast.utils.coreutils import station_id 
     >>> dat1 = ['S13', 's02', 's85', 'pk20', 'posix1256']
     >>> station_id (dat1)
     ... (13, 2, 85, 20, 1256)
@@ -3176,7 +3176,7 @@ def display_infos(infos, **kws):
     :param header: Change the `header` to other names. 
     
     :Example: 
-    >>> from gofast.tools.coreutils import display_infos
+    >>> from gofast.utils.coreutils import display_infos
     >>> ipts= ['river water', 'fracture zone', 'granite', 'gravel',
          'sedimentary rocks', 'massive sulphide', 'igneous rocks', 
          'gravel', 'sedimentary rocks']

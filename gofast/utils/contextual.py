@@ -17,8 +17,8 @@ try:
     import psutil
 except : pass 
 
-from .sysutils import _clean_up_memory
-from .depsutils import ensure_pkg 
+from .sys_utils import _clean_up_memory
+from .deps_utils import ensure_pkg 
         
 __all__=["ProgressBar", "SuppressOutput", "EpochBar", "WorkflowManager"]
 

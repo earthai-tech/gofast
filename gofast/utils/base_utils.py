@@ -122,7 +122,7 @@ def detect_categorical_columns(
     categorical inputs, such as decision trees or classification models.
     
     This method uses the helper function `build_data_if` from 
-    `gofast.tools.validator` to ensure that the input `data` is a DataFrame. 
+    `gofast.utils.validator` to ensure that the input `data` is a DataFrame. 
     If the input is not a DataFrame, it creates one, giving column names that 
     start with `input_name`.
     
@@ -135,7 +135,7 @@ def detect_categorical_columns(
 
     Examples
     --------
-    >>> from gofast.tools.baseutils import detect_categorical_columns
+    >>> from gofast.utils.baseutils import detect_categorical_columns
     >>> data = pd.DataFrame({
             'A': [1, 2, 3],
             'B': [1.0, 2.0, 3.0],
@@ -393,7 +393,7 @@ def handle_outliers(
 
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from gofast.tools.baseutils import handle_outliers
+    >>> from gofast.utils.baseutils import handle_outliers
     >>> data = pd.Series([1, 2, 2, 3, 4, 100])
     >>> clean_data = handle_outliers(data, method='iqr', threshold=1.5)
     >>> print(clean_data)
@@ -841,7 +841,7 @@ def remove_outliers(
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.tools.baseutils import remove_outliers 
+    >>> from gofast.utils.baseutils import remove_outliers 
     >>> np.random.seed(42)
     >>> data = np.random.randn(7, 3)
     >>> data_r = remove_outliers(data)
@@ -967,7 +967,7 @@ def interpolate_grid(
     Examples
     ---------
     >>> import numpy as np
-    >>> from gofast.tools.baseutils import interpolate_grid 
+    >>> from gofast.utils.baseutils import interpolate_grid 
     >>> x = [28, np.nan, 50, 60] ; y = [np.nan, 1000, 2000, 3000]
     >>> xy = np.vstack ((x, y))._T
     >>> xyi = interpolate_grid (xy, view=True ) 
@@ -1148,7 +1148,7 @@ def fillNaN(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.tools.baseutils import fillNaN 
+    >>> from gofast.utils.baseutils import fillNaN 
     >>> arr2d = np.random.randn(7, 3)
     >>> arr2d[[0, 2, 3, 3], [0, 2, 1, 2]] = np.nan
     >>> print(arr2d)
@@ -1275,7 +1275,7 @@ def convert_array_dimensions(
         
     Examples
     --------
-    >>> from gofast.tools.baseutils import convert_array_dimensions
+    >>> from gofast.utils.baseutils import convert_array_dimensions
     >>> import numpy as np
 
     # Example 1: Convert a 1D array to a 2D array with a specific shape
@@ -1399,7 +1399,7 @@ def filter_nan_entries(
 
     Examples
     --------
-    >>> from gofast.tools.baseutils import filter_nan_entries
+    >>> from gofast.utils.baseutils import filter_nan_entries
     >>> list1 = [1, 2, np.nan, 4]
     >>> list2 = [np.nan, 2, 3, 4]
     >>> weights = [0.5, 1.0, 1.5, 2.0]
@@ -1558,7 +1558,7 @@ def filter_nan_values(
 
     Examples
     --------
-    >>> from gofast.tools.baseutils import filter_nan_values
+    >>> from gofast.utils.baseutils import filter_nan_values
     >>> list1 = [{2, 3}, {1, 2, np.nan}]
     >>> list2 = [{1, 2, 3}, {1, 2, 3, np.nan}]
     >>> weights = [0.5, 1.0, 1.5, 2.0]
@@ -1663,7 +1663,7 @@ def adjust_weights(
 
     Examples
     --------
-    >>> from gofast.tools.baseutils import adjust_weights
+    >>> from gofast.utils.baseutils import adjust_weights
     >>> weights = [1, 2, 3, 4, 5]
     >>> data_lengths = [3, 4]
     >>> adjust_weights(data_lengths, weights, match_mode='trim')
@@ -1863,7 +1863,7 @@ def filter_nan_from( *listof, sample_weights=None):
 
     Examples
     --------
-    >>> from gofast.tools.baseutils import filter_nan_from
+    >>> from gofast.utils.baseutils import filter_nan_from
     >>> list1 = [[1, 2, np.nan], [4, np.nan, 6]]
     >>> list2 = [[np.nan, 8, 9], [10, 11, np.nan]]
     >>> weights = [0.5, 1.0]
@@ -1949,7 +1949,7 @@ def standardize_input(*arrays):
     Examples
     --------
     >>> from numpy import array
-    >>> from gofast.tools.baseutils import standardize_input
+    >>> from gofast.utils.baseutils import standardize_input
     >>> y_true = [[1, 2], [3]]
     >>> y_pred = array([[2, 1], [3]])
     >>> standardized_inputs = standardize_input(y_true, y_pred)
@@ -2022,7 +2022,7 @@ def smart_rotation(ax):
     >>> import pandas as pd
     >>> import matplotlib.pyplot as plt
     >>> from matplotlib.dates import DateFormatter
-    >>> from gofast.tools.baseutils import smart_rotation
+    >>> from gofast.utils.baseutils import smart_rotation
 
     # Generate a date range and some random data
     >>> dates = pd.date_range(start="2020-01-01", periods=100, freq='D')
@@ -2124,7 +2124,7 @@ def select_features(
 
     Examples
     --------
-    >>> from gofast.tools.baseutils import select_features
+    >>> from gofast.utils.baseutils import select_features
     >>> data = {"Color": ['Blue', 'Red', 'Green'],
                 "Name": ['Mary', "Daniel", "Augustine"],
                 "Price ($)": ['200', "300", "100"]}
@@ -2268,7 +2268,7 @@ def run_shell_command(command, progress_bar_duration=30, pkg=None):
     
     Example 
     -------
-    >>> from gofast.tools.baseutils import run_shell_command 
+    >>> from gofast.utils.baseutils import run_shell_command 
     >>> run_shell_command(["pip", "install", "gofast"])
     """
     def run_command(command):
@@ -2313,7 +2313,7 @@ def download_file(url, local_filename , dstpath =None ):
        
     Example 
     ---------
-    >>> from gofast.tools.baseutils import download_file
+    >>> from gofast.utils.baseutils import download_file
     >>> url = 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/gofast/datasets/data/h.h5'
     >>> local_filename = 'h.h5'
     >>> download_file(url, local_filename, test_directory)    
@@ -2357,7 +2357,7 @@ def fancier_downloader(url, local_filename, dstpath =None ):
        None if the `dstpath` is supplied and `local_filename` otherwise. 
     Example
     --------
-    >>> from gofast.tools.baseutils import fancier_downloader
+    >>> from gofast.utils.baseutils import fancier_downloader
     >>> url = 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/gofast/datasets/data/h.h5'
     >>> local_filename = 'h.h5'
     >>> download_file(url, local_filename)
@@ -2406,7 +2406,7 @@ def move_file(file_path, directory):
     
     Example 
     ---------
-    >>> from gofast.tools.baseutils import move_file
+    >>> from gofast.utils.baseutils import move_file
     >>> file_path = 'path/to/your/file.txt'  # Replace with your file's path
     >>> directory = 'path/to/your/directory'  # Replace with your directory's path
     >>> move_file(file_path, directory)
@@ -2428,7 +2428,7 @@ def check_file_exists(package, resource):
     :return: Boolean indicating if the resource exists.
     
     :example: 
-        >>> from gofast.tools.baseutils import check_file_exists
+        >>> from gofast.utils.baseutils import check_file_exists
         >>> package_name = 'gofast.datasets.data'  # Replace with your package name
         >>> file_name = 'h.h5'    # Replace with your file name
 
@@ -2555,7 +2555,7 @@ def array2hdf5 (
     Examples 
     ----------
     >>> import numpy as np 
-    >>> from gofast.tools.baseutils import array2hdf5
+    >>> from gofast.utils.baseutils import array2hdf5
     >>> data = np.random.randn (100, 27 ) 
     >>> array2hdf5 ('test.h5', data   )
     >>> load_data = array2hdf5 ( 'test.h5', data, task ='load')
@@ -2876,7 +2876,7 @@ def categorize_target(
     Examples 
     --------
 
-    >>> from gofast.tools.baseutils import categorize_target 
+    >>> from gofast.utils.baseutils import categorize_target 
     >>> def binfunc(v): 
             if v < 3 : return 0 
             else : return 1 
@@ -2989,7 +2989,7 @@ def rename_labels_in (
 
     
 def _cattarget (ar , labels , order=None): 
-    """ A shadow function of :func:`gofast.tools.baseutils.cattarget`. 
+    """ A shadow function of :func:`gofast.utils.baseutils.cattarget`. 
     
     :param ar: array-like of numerical values 
     :param labels: int or list of int, 
@@ -3112,7 +3112,7 @@ def labels_validator(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.tools.baseutils import labels_validator
+    >>> from gofast.utils.baseutils import labels_validator
     >>> target = np.array([1, 2, 3, 4, 5])
     >>> labels_validator(target, [1, 2, 3])
     [1, 2, 3]
@@ -3154,7 +3154,7 @@ def generate_placeholders(
         the format "{n}", where n is the index of the placeholder.
         
     :Example:
-        >>> from gofast.tools.baseutils import generate_placeholders
+        >>> from gofast.utils.baseutils import generate_placeholders
         >>> generate_placeholders_for_iterable({'ohmS', 'lwi', 'power', 'id', 
         ...                                     'sfi', 'magnitude'})
         ['{0}', '{1}', '{2}', '{3}', '{4}', '{5}']
@@ -3247,7 +3247,7 @@ def find_intersection(
 
     Example
     -------
-    >>> from gofast.tools.baseutils import find_intersection_between_generics
+    >>> from gofast.utils.baseutils import find_intersection_between_generics
     >>> compute_intersection(
     ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
     ...     {'ohmS', 'lwi', 'power'}
@@ -3404,7 +3404,7 @@ def control_existing_estimator(
 
     Example
     -------
-    >>> from gofast.tools.baseutils import control_existing_estimator
+    >>> from gofast.utils.baseutils import control_existing_estimator
     >>> test_est = control_existing_estimator('svm')
     >>> print(test_est)
     ('svc', 'SupportVectorClassifier')
@@ -3574,7 +3574,7 @@ def binning_statistic(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.tools.baseutils import binning_statistic
+    >>> from gofast.utils.baseutils import binning_statistic
     >>> df = pd.DataFrame({
     ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C'],
     ...     'Value': [1, 2, 3, 4, 5, 6, 7]
@@ -3651,7 +3651,7 @@ def category_count(data,  *categorical_columns, error='raise'):
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.tools.baseutils import category_count
+    >>> from gofast.utils.baseutils import category_count
     >>> df = pd.DataFrame({
     ...     'Fruit': ['Apple', 'Banana', 'Apple', 'Cherry', 'Banana', 'Apple'],
     ...     'Color': ['Red', 'Yellow', 'Green', 'Red', 'Yellow', 'Green']
@@ -3731,7 +3731,7 @@ def soft_bin_stat(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.tools.baseutils import soft_bin_stat
+    >>> from gofast.utils.baseutils import soft_bin_stat
     >>> df = pd.DataFrame({
     ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C'],
     ...     'Target': [1, 0, 1, 0, 1, 0, 1]
@@ -3805,7 +3805,7 @@ def reshape_to_dataframe(flattened_array, columns, error ='raise'):
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.tools.baseutils import reshape_to_dataframe
+    >>> from gofast.utils.baseutils import reshape_to_dataframe
     >>> data = np.array([1, 2, 3, 4, 5, 6])
     >>> print(reshape_to_dataframe(data, ['A', 'B', 'C']))  # DataFrame with 2 rows and 3 columns
     >>> print(reshape_to_dataframe(data, 'A'))  # Series with 6 elements
@@ -3867,7 +3867,7 @@ def save_figure(fig, filename=None, dpi=300, close=True, ax=None,
     --------
     >>> import matplotlib.pyplot as plt
     >>> import numpy as np
-    >>> from gofast.tools.baseutils import save_figure
+    >>> from gofast.utils.baseutils import save_figure
     >>> fig, ax = plt.subplots()
     >>> x = np.linspace(0, 10, 100)
     >>> y = np.sin(x)
@@ -4048,7 +4048,7 @@ def nan_to_mode(
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.tools.baseutils import nan_to_mode
+    >>> from gofast.utils.baseutils import nan_to_mode
 
     >>> arr = np.array([1, 2, 2, 3, np.nan, 4, np.nan, 2])
     >>> nan_to_mode(arr)
@@ -4163,7 +4163,7 @@ def normalizer(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.tools.baseutils import normalizer 
+    >>> from gofast.utils.baseutils import normalizer 
     >>> arr = np.array([10, 20, 30, 40, 50])
     >>> normalizer(arr, method='01', scaler='naive')
     array([0. , 0.25, 0.5 , 0.75, 1. ])
@@ -4291,7 +4291,7 @@ def smooth1d(
     Examples 
     ---------
     >>> import numpy as np 
-    >>> from gofast.tools.baseutils  import smooth1d 
+    >>> from gofast.utils.baseutils  import smooth1d 
     >>> # add Guassian Noise 
     >>> np.random.seed (42)
     >>> ar = np.random.randn (20 ) * 20 + np.random.normal ( 20 )
@@ -4425,7 +4425,7 @@ def smoothing (
     Examples 
     ---------
     >>> import numpy as np 
-    >>> from gofast.tools.baseutils  import smoothing
+    >>> from gofast.utils.baseutils  import smoothing
     >>> # add Guassian Noises 
     >>> np.random.seed (42)
     >>> ar = np.random.randn (20, 7 ) * 20 + np.random.normal ( 20, 7 )
@@ -4696,7 +4696,7 @@ def interpolate_data(
     --------
     >>> import numpy as np
     >>> import pandas as pd 
-    >>> from gofast.tools.baseutils import interpolate_data
+    >>> from gofast.utils.baseutils import interpolate_data
     >>> s = pd.Series([1, np.nan, 3, 4, np.nan, 6])
     >>> interpolate_data(s, view=True)
     0    1.0
@@ -4864,7 +4864,7 @@ def denormalizer(
     --------
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from gofast.tools.baseutils import denormalizer 
+    >>> from gofast.utils.baseutils import denormalizer 
     
     >>> normalized_data = np.array([0, 0.5, 1])
     >>> min_value = 10
@@ -5018,7 +5018,7 @@ def pandas_manager(
     --------
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from gofast.tools.baseutils import pandas_manager
+    >>> from gofast.utils.baseutils import pandas_manager
 
     Get action with pandas DataFrame:
     >>> df = pd.DataFrame([[1, 2], [3, 4]], columns=['A', 'B'])
@@ -5123,7 +5123,7 @@ def make_df(
 
     Examples
     --------
-    >>> from gofast.tools.baseutils import make_df
+    >>> from gofast.utils.baseutils import make_df
     >>> X = np.random.rand(90, 5)
     >>> y = np.random.rand(100)
     >>> df = make_df(X, y, coerce=True, error='ignore')
@@ -5275,7 +5275,7 @@ def update_df(
 
     Examples
     --------
-    >>> from gofast.tools.baseutils import update_df
+    >>> from gofast.utils.baseutils import update_df
 
     # Example 1: Return only common columns
     >>> updated_common = update_df(old_df, new_df, return_common_columns=True)

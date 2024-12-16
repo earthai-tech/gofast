@@ -2010,7 +2010,7 @@ def manage_data(
        
     Returns 
     -------
-    data : :class:`~gofast.tools.box.Boxspace` object
+    data : :class:`~gofast.utils.box.Boxspace` object
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -2177,10 +2177,10 @@ def generate_regression_output(X, coef, bias, noise, regression_type):
     """
     Generates the regression output based on the specified regression type.
     """
-    from ..tools.mathext import linear_regression, quadratic_regression
-    from ..tools.mathext import exponential_regression,logarithmic_regression
-    from ..tools.mathext import sinusoidal_regression, cubic_regression
-    from ..tools.mathext import step_regression
+    from ..utils.mathext import linear_regression, quadratic_regression
+    from ..utils.mathext import exponential_regression,logarithmic_regression
+    from ..utils.mathext import sinusoidal_regression, cubic_regression
+    from ..utils.mathext import step_regression
     
     available_reg_types = [ 'linear', 'quadratic', 'cubic','exponential', 
                            'logarithmic', 'sinusoidal', 'step' ]
@@ -2199,7 +2199,7 @@ def apply_scaling(X, y, method):
     """
     Applies the specified scaling method to the data.
     """
-    from ..tools.mathext import standard_scaler, minmax_scaler, normalize
+    from ..utils.mathext import standard_scaler, minmax_scaler, normalize
     
     scale_dict = {'standard':standard_scaler ,
     'minmax':minmax_scaler , 'normalize':normalize }
@@ -2776,7 +2776,7 @@ def validate_loan_parameters(*params, default_dict=None, error='raise'):
     involving loan defaults, where parameters like credit scores, loan amounts, 
     and annual incomes need to be within realistic bounds.
     """
-    from ..tools.validator import validate_length_range
+    from ..utils.validator import validate_length_range
 
     def handle_error(message, error_policy):
         if error_policy == 'raise':

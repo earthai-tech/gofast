@@ -30,9 +30,9 @@ from ..api.types import Optional, Tuple, Any, List, Union, Callable, NDArray
 from ..api.types import Dict, ArrayLike, DataFrame, Series, SparseMatrix
 from ..core.checks import is_iterable 
 from ..core.utils import make_obj_consistent_if
-from ..tools.depsutils import ensure_pkg 
-from ..tools.validator import _is_cross_validated, validate_yy, validate_keras_model
-from ..tools.validator import assert_xy_in, get_estimator_name, check_is_fitted
+from ..utils.deps_utils import ensure_pkg 
+from ..utils.validator import _is_cross_validated, validate_yy, validate_keras_model
+from ..utils.validator import assert_xy_in, get_estimator_name, check_is_fitted
 from .utils import _set_sns_style, _make_axe_multiple
 from .utils import make_plot_colors  
 from ._config import PlotConfig 
@@ -630,7 +630,7 @@ def plot_abc_curve(
  
     See Also
     --------
-    gofast.tools.mathex.compute_effort_yield: 
+    gofast.utils.mathex.compute_effort_yield: 
         Compute effort and yield values from importance data. 
         
     Examples
@@ -905,7 +905,7 @@ def plot_confidence_ellipse(
 
     See Also
     --------
-    gofast.tools.mathex.compute_confidence_ellipse : Function to compute 
+    gofast.utils.mathex.compute_confidence_ellipse : Function to compute 
         confidence ellipses.
 
     Examples
@@ -1708,7 +1708,7 @@ def plot_confusion_matrices (
     >>> from gofast.datasets import fetch_data
     >>> from gofast.exlib.sklearn import train_test_split 
     >>> from gofast.models.premodels import p
-    >>> from gofast.tools.utils import plot_confusion_matrices 
+    >>> from gofast.utils.utils import plot_confusion_matrices 
     >>> # split the  data . Note that fetch_data output X and y 
     >>> X, Xt, y, yt  = train_test_split (* fetch_data ('bagoue analysed'), test_size =.25  )  
     >>> # compose the models 
@@ -1813,7 +1813,7 @@ def plot_confusion_matrix(
     >>> from gofast.datasets import fetch_data
     >>> from gofast.exlib.sklearn import train_test_split 
     >>> from gofast.models import pModels 
-    >>> from gofast.tools.utils import plot_confusion_matrix
+    >>> from gofast.utils.utils import plot_confusion_matrix
     >>> # split the data. Note that fetch_data output X and y 
     >>> X, Xt, y, yt = train_test_split(*fetch_data('bagoue analysed'), test_size=0.25)  
     >>> # train the model with the best estimator 
@@ -2519,7 +2519,7 @@ def plot_residuals_vs_fitted(
 
     See Also 
     ---------
-    gofast.tools.mathex.calculate_residuals: 
+    gofast.utils.mathex.calculate_residuals: 
         Calculate the residuals for regression, binary, or multiclass 
         classification tasks.
         

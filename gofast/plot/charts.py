@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from ..api.types import ArrayLike, DataFrame 
 from ..api.types import List, Tuple, Optional, Union 
 from ..core.checks import is_iterable, exist_features 
-from ..tools.validator import is_frame 
+from ..utils.validator import is_frame 
 
 __all__=[
     "pie_charts", "radar_chart", "radar_chart_in", "donut_chart"

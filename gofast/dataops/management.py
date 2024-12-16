@@ -21,8 +21,8 @@ from ..api.util import get_table_size
 from ..core.io import EnsureFileExists 
 from ..core.utils import ellipsis2false 
 from ..decorators import Deprecated, Dataify
-from ..tools.depsutils import ensure_pkg
-from ..tools.validator import parameter_validator  
+from ..utils.deps_utils import ensure_pkg
+from ..utils.validator import parameter_validator  
 
 
 TW = get_table_size() 
@@ -303,7 +303,7 @@ def request_data(
 
 @EnsureFileExists
 @Deprecated("Deprecated function. Should be removed next release. "
-            "Use `gofast.tools.fetch_remote_data` instead.")
+            "Use `gofast.utils.fetch_remote_data` instead.")
 def get_remote_data(
     remote_file: str, 
     save_path: Optional[str] = None, 
@@ -352,7 +352,7 @@ def get_remote_data(
 
     See Also
     --------
-    gofast.tools.fetch_remote_data : Recommended replacement for this function.
+    gofast.utils.fetch_remote_data : Recommended replacement for this function.
     
     References
     ----------
@@ -368,7 +368,7 @@ def get_remote_data(
         "2. The server is running, but the port is blocked by a firewall.\n"
         "3. A security program on the PC is blocking several ports."
     )
-    from ..tools.netutils import validate_url
+    from ..utils.netutils import validate_url
     
     validate_url(remote_file)
     print(f"---> Fetching {remote_file!r}...")

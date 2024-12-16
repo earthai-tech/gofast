@@ -45,8 +45,8 @@ from ..core.handlers import get_params
 from ..core.utils import listing_items_format 
 from ..decorators import smartFitRun 
 from ..exceptions import EstimatorError, NotFittedError
-from ..tools.ioutils import save_job
-from ..tools.validator import (
+from ..utils.io_utils import save_job
+from ..utils.validator import (
     check_X_y,
     check_array,
     check_consistent_length,

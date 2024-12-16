@@ -29,16 +29,16 @@ from .api.docs import filter_docs
 from .api.formatter import MetricFormatter
 from .decorators import Substitution 
 from .core.utils import normalize_string
-from .tools.baseutils import (
+from .utils.base_utils import (
     convert_array_dimensions, filter_nan_from, standardize_input
 )
 from .compat.sklearn import validate_params, Interval, StrOptions 
-from .tools.mathext import (
+from .utils.mathext import (
     calculate_binary_iv, calculate_multiclass_avg_lr, calculate_multiclass_lr,
     compute_balance_accuracy, compute_sensitivity_specificity, 
     optimized_spearmanr
 )
-from .tools.validator import (
+from .utils.validator import (
     _ensure_y_is_valid,  check_classification_targets,
     check_epsilon, ensure_non_negative, handle_zero_division,
     parameter_validator, validate_multioutput, validate_nan_policy,
@@ -1696,7 +1696,7 @@ def information_value(
     
     See Also 
     ----------
-    gofast.tools.calculate_binary_iv: 
+    gofast.utils.calculate_binary_iv: 
         Calculate the Information Value (IV) for binary classification problems
         using a base or binning approach.
     """
@@ -3449,7 +3449,7 @@ def spearmans_rank_score(
         Spearman rank-order correlation coefficient calculation in SciPy.
     pandas.DataFrame.corr:
         Compute pairwise correlation of columns, excluding NA/null values.
-    gofast.tools.mathext.optimized_spearmanr: 
+    gofast.utils.mathext.optimized_spearmanr: 
         Compute Spearman's rank correlation coefficient with support for 
         sample weights, custom tie handling, and NaN policies.
 

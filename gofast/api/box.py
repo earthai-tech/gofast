@@ -54,7 +54,7 @@ class Bundle:
     
     Examples
     --------
-    >>> from gofast.tools.box import Bundle 
+    >>> from gofast.utils.box import Bundle 
     >>> results = Bundle()
     >>> results.accuracy = 0.95
     >>> results.loss = 0.05
@@ -161,7 +161,7 @@ class Bundle:
         
         Examples
         --------
-        >>> from gofast.tools.box import Bundle
+        >>> from gofast.utils.box import Bundle
         >>> bundle = Bundle()
         >>> bundle.numeric_list = [1, 2, 3, 4, 5]
         >>> print(bundle.summarize(bundle.numeric_list))
@@ -322,7 +322,7 @@ class KeyBox(dict):
     --------
     Creating a `KeyBox` instance and accessing its items:
     
-    >>> from gofast.tools.box import KeyBox
+    >>> from gofast.utils.box import KeyBox
     >>> keybox = KeyBox(pkg='gofast', objective='give water', version='0.1.dev')
     >>> keybox['pkg']
     'gofast'
@@ -478,7 +478,7 @@ class KeyBox(dict):
         --------
         Single attribute KeyBox, returning a Series by default:
             
-        >>> from gofast.tools.box import Bundle, KeyBox
+        >>> from gofast.utils.box import Bundle, KeyBox
         >>> box = KeyBox(color=['red', 'blue', 'green'])
         >>> box.to_frame()
         0      red
@@ -696,7 +696,7 @@ def DataToBox(
     
     Examples
     --------
-    >>> from gofast.tools.box import DataToBox 
+    >>> from gofast.utils.box import DataToBox 
     >>> DataToBox([2, 3, 4], entity_name='borehole')
     >>> DataToBox({"x": [2, 3, 4], "y": [8, 7, 5]}, entity_name='borehole')
     >>> DataToBox([2, 3, 4], entity_name='borehole', columns=['id'])
@@ -767,14 +767,14 @@ def data2Box(
        
     Examples
     --------- 
-    >>> from gofast.tools.box import data2Box 
+    >>> from gofast.utils.box import data2Box 
     >>> o = data2Box ([2, 3, 4], name = 'borehole')
     >>> o.borehole0
     {'0': 2}
     >>> o = data2Box ({"x": [2, 3, 4], "y":[8, 7, 5]}, name = 'borehole')
     >>> o.borehole0.y
     8
-    >>> from gofast.tools.box import data2Box 
+    >>> from gofast.utils.box import data2Box 
     >>> o = data2Box ([2, 3, 4], name = 'borehole', columns ='id') 
     >>> o.borehole0.id
     2
@@ -893,7 +893,7 @@ class BoxCategoricalEncoder:
     --------
     Label encoding example:
     
-    >>> from gofast.tools.box import KeyBox, BoxCategoricalEncoder
+    >>> from gofast.utils.box import KeyBox, BoxCategoricalEncoder
     >>> data = KeyBox(color=['red', 'blue', 'green'], size=['S', 'M', 'L'])
     >>> encoder = BoxCategoricalEncoder(encoding_type='label')
     >>> transformed_data = encoder.fit_transform(data)
@@ -952,7 +952,7 @@ class BoxCategoricalEncoder:
     
         Example
         -------
-        >>> from gofast.tools.box import KeyBox, BoxCategoricalEncoder
+        >>> from gofast.utils.box import KeyBox, BoxCategoricalEncoder
         >>> data = KeyBox(a='red', b='blue', c='green')
         >>> encoder = BoxCategoricalEncoder(encoding_type='label')
         >>> encoder.fit(data)
@@ -1015,7 +1015,7 @@ class BoxCategoricalEncoder:
     
         Example
         -------
-        >>> from gofast.tools.box import KeyBox, BoxCategoricalEncoder
+        >>> from gofast.utils.box import KeyBox, BoxCategoricalEncoder
         >>> data = KeyBox(a='red', b='blue', c='red')
         >>> encoder = BoxCategoricalEncoder(encoding_type='label')
         >>> encoded_data = encoder.fit_transform(data)
@@ -1053,7 +1053,7 @@ class BoxCategoricalEncoder:
     
         Example
         -------
-        >>> from gofast.tools.box import KeyBox, BoxCategoricalEncoder
+        >>> from gofast.utils.box import KeyBox, BoxCategoricalEncoder
         >>> data = KeyBox(a=0, b=1, c=0)
         >>> encoder = BoxCategoricalEncoder(encoding_type='label')
         >>> original_data = encoder.inverse_transform(data)
@@ -1118,7 +1118,7 @@ def normalize_box_data(data, method='z-score'):
     Using a pandas DataFrame:
 
     >>> import pandas as pd
-    >>> from gofast.tools.box import normalize_box_data
+    >>> from gofast.utils.box import normalize_box_data
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
     >>> normalized_df = normalize_box_data(df, method='min-max')
     >>> print(normalized_df)
@@ -1129,7 +1129,7 @@ def normalize_box_data(data, method='z-score'):
 
     Using a KeyBox object:
 
-    >>> from gofast.tools.box import KeyBox, normalize_box_data
+    >>> from gofast.utils.box import KeyBox, normalize_box_data
     >>> box = KeyBox(item1={'A': 1, 'B': 4}, item2={'A': 2, 'B': 5}, item3={'A': 3, 'B': 6})
     >>> normalized_box = normalize_box_data(box, method='z-score')
     >>> print(normalized_box.item1)
@@ -1206,7 +1206,7 @@ def merge_boxes(*boxes):
 
     Example
     -------
-    >>> from gofast.tools.box import merge_boxes, KeyBox
+    >>> from gofast.utils.box import merge_boxes, KeyBox
     >>> box1 = KeyBox(a=1, b=2)
     >>> box2 = KeyBox(c=3, d=4, a=5)  # Note the duplicate key 'a'
     >>> merged_box = merge_boxes(box1, box2)
@@ -1254,7 +1254,7 @@ def deep_merge_keybox(*boxes):
 
     Example
     -------
-    >>> from gofast.tools.box import deep_merge_keybox, KeyBox
+    >>> from gofast.utils.box import deep_merge_keybox, KeyBox
     >>> box1 = KeyBox(a=1, b=KeyBox(x=2, y=3))
     >>> box2 = KeyBox(b=KeyBox(y=4, z=5), c=6)
     >>> merged_box = deep_merge_keybox(box1, box2)
@@ -1311,7 +1311,7 @@ def save_to_box(data, key_column, value_columns=None):
     Example
     -------
     >>> import pandas as pd 
-    >>> from gofast.tools.box import save_to_box
+    >>> from gofast.utils.box import save_to_box
     >>> df = pd.DataFrame({'id': ['item1', 'item2'], 'value1': [10, 20], 'value2': [30, 40]})
     >>> box = save_to_box(df, 'id')
     >>> print(box.item1.value1, box.item2.value2)
@@ -1368,7 +1368,7 @@ def filter_keybox(box, condition):
 
     Example
     -------
-    >>> from gofast.tools.box import filter_keybox, KeyBox 
+    >>> from gofast.utils.box import filter_keybox, KeyBox 
     >>> box = KeyBox(a=1, b=2, c=3)
     >>> filtered_box = filter_keybox(box, lambda k, v: v > 1)
     >>> print(filtered_box)
@@ -1413,7 +1413,7 @@ def apply_to_keybox(box, func):
 
     Example
     -------
-    >>> from gofast.tools.box import apply_to_keybox, KeyBox
+    >>> from gofast.utils.box import apply_to_keybox, KeyBox
     >>> box = KeyBox(a=1, b=2, c=3)
     >>> squared_box = apply_to_keybox(box, lambda x: x**2)
     >>> print(squared_box)
@@ -1465,7 +1465,7 @@ def transform_keybox_attributes(box, func, attributes=None):
 
     Example
     -------
-    >>> from gofast.tools.box import transform_keybox_attributes, KeyBox
+    >>> from gofast.utils.box import transform_keybox_attributes, KeyBox
     >>> box = KeyBox(a=1, b=2, c=3)
     >>> def increment(x): return x + 1
     >>> transform_keybox_attributes(box, increment, attributes=['a', 'c'])
@@ -1509,7 +1509,7 @@ def keybox_to_dataframe(keybox):
     Example
     -------
     >>> import pandas as pd
-    >>> from gofast.tools.box import KeyBox, Bundle
+    >>> from gofast.utils.box import KeyBox, Bundle
     >>> box = KeyBox(item1=Bundle(a=1, b=2), item2=Bundle(a=3, b=4))
     >>> df = keybox_to_dataframe(box)
     >>> print(df)
@@ -1558,7 +1558,7 @@ def dataframe_to_keybox(df, index_as_key='auto'):
     Example
     -------
     >>> import pandas as pd
-    >>> from gofast.tools.box import KeyBox, Bundle, dataframe_to_keybox
+    >>> from gofast.utils.box import KeyBox, Bundle, dataframe_to_keybox
     >>> df = pd.DataFrame({'a': [1, 3], 'b': [2, 4]})
     >>> box = dataframe_to_keybox(df)
     >>> print(box.row_0.a, box.row_1.b)
@@ -1653,7 +1653,7 @@ def flatten_keybox(box, parent_key='', sep='_'):
 
     Example
     -------
-    >>> from gofast.tools.box import KeyBox, flatten_keybox
+    >>> from gofast.utils.box import KeyBox, flatten_keybox
     >>> nested_box = KeyBox(a=KeyBox(b=1, c=2), d=3)
     >>> flat_box = flatten_keybox(nested_box)
     >>> print(flat_box.a_b, flat_box.a_c, flat_box.d)
@@ -1701,7 +1701,7 @@ def update_keybox_if(box, condition, update_func):
 
     Example
     -------
-    >>> from gofast.tools.box import KeyBox, update_keybox_if
+    >>> from gofast.utils.box import KeyBox, update_keybox_if
     >>> box = KeyBox(x=10, y=20, z=5)
     >>> update_keybox_if(box, lambda k, v: v > 10, lambda x: x + 5)
     >>> print(box.x, box.y, box.z)
@@ -1722,7 +1722,7 @@ def update_keybox_if(box, condition, update_func):
         raise ValueError(f"An error occurred while applying the update function: {e}")
 
 if __name__=='__main__':
-    # from gofast.tools.box import Bundle, KeyBox, save_to_box
+    # from gofast.utils.box import Bundle, KeyBox, save_to_box
     # import pandas as pd
     
     # Simulating some data
@@ -1744,7 +1744,7 @@ if __name__=='__main__':
     print(f"Mean age: {summary_stats.mean_age}")
     print(f"Mean score: {summary_stats.mean_score}")
     
-    # from gofast.tools.box import KeyBox, filter_keybox, apply_to_keybox
+    # from gofast.utils.box import KeyBox, filter_keybox, apply_to_keybox
     
     # Example dataset of users and their attributes
     users = KeyBox(

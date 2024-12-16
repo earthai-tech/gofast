@@ -19,7 +19,7 @@ from sklearn.decomposition import PCA
 from ..api.types import NDArray, ArrayLike
 from ..api.types import List, Tuple, Optional
 from ..core.checks import is_iterable 
-from ..tools.validator import check_array, _check_array_in 
+from ..utils.validator import check_array, _check_array_in 
 from .utils import pobj, make_mpl_properties 
 
 __all__=['plot_unified_pca', 'plot_pca_components', 'plot_cumulative_variance']

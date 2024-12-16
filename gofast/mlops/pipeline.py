@@ -29,8 +29,8 @@ from ..decorators import (
 )
 from ..compat.sklearn import validate_params
 from ..core.checks import validate_ratio
-from ..tools.depsutils import ensure_pkg
-from ..tools.validator import check_is_runned
+from ..utils.deps_utils import ensure_pkg
+from ..utils.validator import check_is_runned
 
 from ._base import PipelineOrchestrator
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA

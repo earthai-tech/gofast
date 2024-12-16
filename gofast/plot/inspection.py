@@ -28,11 +28,11 @@ from ..core.array_manager import to_numeric_dtypes
 from ..core.checks import _assert_all_types, is_iterable  
 from ..decorators import Dataify
 from ..exceptions import PlotError 
-from ..tools.depsutils import ensure_pkg 
-from ..tools.spatialutils import projection_validator
-from ..tools.validator import check_X_y, check_array, validate_square_matrix 
-from ..tools.validator import get_estimator_name, _check_consistency_size 
-from ..tools.validator import parameter_validator, validate_sets
+from ..utils.deps_utils import ensure_pkg 
+from ..utils.spatial_utils import projection_validator
+from ..utils.validator import check_X_y, check_array, validate_square_matrix 
+from ..utils.validator import get_estimator_name, _check_consistency_size 
+from ..utils.validator import parameter_validator, validate_sets
 from ._config import PlotConfig 
 from .utils import _manage_plot_kws, pobj, savefigure
 
@@ -155,7 +155,7 @@ def plot_woodland(
 
     See Also
     --------
-    gofast.tools.dataops.analyze_data_corr : 
+    gofast.utils.dataops.analyze_data_corr : 
         Analyze and elegantly display correlation tables. Provides options for 
         interpreting correlation data.
     gofast.stats.utils.correlation : 
@@ -323,7 +323,7 @@ def plot_l_curve(
     
     Examples
     --------
-    >>> from gofast.tools.utils import plot_l_curve
+    >>> from gofast.utils.utils import plot_l_curve
     >>> roughness_data = [0, 50, 100, 150, 200, 250, 300, 350]
     >>> RMS_data = [3.16, 3.12, 3.1, 3.08, 3.06, 3.04, 3.02, 3]
     >>> highlight_data = (50, 3.12)
@@ -981,7 +981,7 @@ def plot_sankey(
 
     See Also 
     --------
-    gofast.tools.mathex.infer_sankey_columns : 
+    gofast.utils.mathex.infer_sankey_columns : 
         Infers source, target, and value columns for a Sankey diagram 
         from a DataFrame.
 
@@ -1104,7 +1104,7 @@ def plot_sunburst(
 
     See Also
     --------
-    gofast.tools.mathex.compute_sunburst_data : 
+    gofast.utils.mathex.compute_sunburst_data : 
         Computes the data structure required for generating a sunburst chart 
         from a DataFrame.
 
@@ -1550,7 +1550,7 @@ def plot_heatmapx(
     Examples
     --------
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.tools.utils import plot_heatmapx
+    >>> from gofast.utils.utils import plot_heatmapx
     >>> h = load_hlogs()
     >>> features = ['gamma_gamma', 'sp', 'natural_gamma', 'resistivity']
     >>> plot_heatmapx(h.frame, columns=features, cmap='PuOr')
@@ -1650,7 +1650,7 @@ def plot_matrix(
     Examples
     --------
     >>> from gofast.datasets import load_hlogs 
-    >>> from gofast.tools.utils import plot_matrix
+    >>> from gofast.utils.utils import plot_matrix
     >>> import pandas as pd 
     >>> import numpy as np 
     >>> h = load_hlogs()

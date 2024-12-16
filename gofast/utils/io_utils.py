@@ -131,7 +131,7 @@ class FileManager(BaseClass):
 
     Examples
     --------
-    >>> from gofast.tools.datautils import DataManager
+    >>> from gofast.utils.datautils import DataManager
     >>> manager = DataManager(
     ...     root_dir='data/raw',
     ...     target_dir='data/processed',
@@ -357,7 +357,7 @@ def zip_extractor(
      
     Examples 
     ----------
-    >>> from gofast.tools.ioutils import zip_extractor 
+    >>> from gofast.utils.ioutils import zip_extractor 
     >>> zip_extractor ('gofast/datasets/data/edis/e.E.zip')
     
     """
@@ -458,7 +458,7 @@ def to_hdf5(data, fn, objname =None, close =True,  **hdf5_kws):
     ------------
     >>> import os 
     >>> from gofast.core.utils import sanitize_frame_cols
-    >>> from gofast.tools.ioutils import  to_hdf5 
+    >>> from gofast.utils.ioutils import  to_hdf5 
     >>> from gofast.core.io import read_data 
     >>> data = read_data('data/boreholes/H502.xlsx') 
     >>> sanitize_frame_cols (data, fill_pattern='_', inplace =True ) 
@@ -599,7 +599,7 @@ def store_or_write_hdf5 (
   
     Examples
     --------
-    >>> from gofast.tools.ioutils import store_or_write_hdf5
+    >>> from gofast.utils.ioutils import store_or_write_hdf5
     >>> from gofast.datasets import load_bagoue 
     >>> data = load_bagoue().frame 
     >>> data.geol[:5]
@@ -746,7 +746,7 @@ def key_checker (
     Examples
     --------
     
-    >>> from gofast.tools.ioutils import key_checker
+    >>> from gofast.utils.ioutils import key_checker
     >>> key_checker('h502', valid_keys= ['h502', 'h253','h2601'])  
     Out[68]: 'h502'
     >>> key_checker('h502+h2601', valid_keys= ['h502', 'h253','h2601'])
@@ -858,7 +858,7 @@ def key_search (
 
     Examples
     ---------
-    >>> from gofast.tools.ioutils import key_search 
+    >>> from gofast.utils.ioutils import key_search 
     >>> key_search('h502-hh2601', default_keys= ['h502', 'h253','HH2601'])
     Out[44]: ['h502']
     >>> key_search('h502-hh2601', default_keys= ['h502', 'h253','HH2601'], 
@@ -1025,7 +1025,7 @@ def sanitize_unicode_string(str_: str) -> str:
 
     Examples
     --------
-    >>> from gofast.tools.ioutils import sanitize_unicode_string 
+    >>> from gofast.utils.ioutils import sanitize_unicode_string 
     >>> sentence ='Nos clients sont extrêmement satisfaits '
         'de la qualité du service fourni. En outre Nos clients '
             'rachètent frequemment nos "services".'
@@ -1315,7 +1315,7 @@ def cpath(savepath: str = None, dpath: str = '_default_path_') -> str:
 
     Examples
     --------
-    >>> from gofast.tools.ioutils import cpath
+    >>> from gofast.utils.ioutils import cpath
     >>> default_path = cpath()
     >>> print(f"Files will be saved to: {default_path}")
 
@@ -1363,7 +1363,7 @@ def spath(name_of_path: str) -> str:
 
     Examples
     --------
-    >>> from gofast.tools.ioutils import spath
+    >>> from gofast.utils.ioutils import spath
     >>> path = spath('data/saved_models')
     >>> print(f"Directory available at: {path}")
 
@@ -1412,7 +1412,7 @@ def load_serialized_data(
 
     Examples
     --------
-    >>> from gofast.tools.ioutils import load_serialized_data
+    >>> from gofast.utils.ioutils import load_serialized_data
     >>> data = load_serialized_data('data/my_data.pkl', verbose=3)
 
     Notes
@@ -1531,7 +1531,7 @@ def save_job(
 
     Examples
     --------
-    >>> from gofast.tools.ioutils import save_job
+    >>> from gofast.utils.ioutils import save_job
     >>> model = {"key": "value"}  # Replace with actual model object
     >>> savefile = save_job(model, "my_model", append_date=True, append_versions=True)
     >>> print(savefile)
@@ -1631,7 +1631,7 @@ def move_cfile(
 
     Examples
     --------
-    >>> from gofast.tools.ioutils import move_cfile
+    >>> from gofast.utils.ioutils import move_cfile
     >>> new_path, msg = move_cfile('myfile.txt', 'new_directory')
     >>> print(new_path, msg)
 
@@ -1672,7 +1672,7 @@ def print_cmsg(
 
     Examples
     --------
-    >>> from gofast.tools.ioutils import print_cmsg
+    >>> from gofast.utils.ioutils import print_cmsg
     >>> msg = print_cmsg('config.yml', 'dump')
     >>> print(msg)
     --> YAML 'config.yml' data was successfully saved.
@@ -1740,7 +1740,7 @@ def parse_csv(
 
     Examples
     --------
-    >>> from gofast.tools.ioutils import parse_csv
+    >>> from gofast.utils.ioutils import parse_csv
     >>> data = [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]
     >>> parse_csv(csv_fn='output.csv', data=data, todo='dictwriter', fieldnames=['name', 'age'])
     >>> loaded_data = parse_csv(csv_fn='output.csv', todo='dictreader', fieldnames=['name', 'age'])
@@ -2160,7 +2160,7 @@ def deserialize_data(filename: str, verbose: int = 0) -> Any:
 
     Examples
     --------
-    >>> from gofast.tools.ioutils import deserialize_data
+    >>> from gofast.utils.ioutils import deserialize_data
     >>> data = deserialize_data('path/to/serialized_data.pkl', verbose=1)
     Data loaded successfully from 'path/to/serialized_data.pkl' using joblib.
 
@@ -2248,7 +2248,7 @@ def serialize_data(
 
     Examples
     --------
-    >>> from gofast.tools.ioutils import serialize_data
+    >>> from gofast.utils.ioutils import serialize_data
     >>> import numpy as np
     >>> data = (np.array([0, 1, 3]), np.array([0.2, 4]))
     >>> filename = serialize_data(data, filename='__XTyT.pkl', to='pickle',
@@ -2332,7 +2332,7 @@ def fetch_tgz_from_url(
 
     Examples
     --------
-    >>> from gofast.tools.ioutils import fetch_tgz_from_url
+    >>> from gofast.utils.ioutils import fetch_tgz_from_url
     >>> data_url = 'https://example.com/data.tar.gz'
     >>> extracted_file = fetch_tgz_from_url(
     ...     data_url, 'data.tar.gz', data_path='data_dir', file_to_retrieve='file.csv')
@@ -2401,7 +2401,7 @@ def fetch_tgz_locally(
 
     Examples
     --------
-    >>> from gofast.tools.ioutils import fetch_tgz_locally
+    >>> from gofast.utils.ioutils import fetch_tgz_locally
     >>> fetched_file = fetch_tgz_locally(
     ...     'path/to/archive.tgz', 'file.csv', savefile='extracted', rename_outfile='renamed.csv')
     >>> print(fetched_file)
@@ -2450,7 +2450,7 @@ def extract_tar_with_progress(
 
     Examples
     --------
-    >>> from gofast.tools.ioutils import extract_tar_with_progress
+    >>> from gofast.utils.ioutils import extract_tar_with_progress
     >>> with tarfile.open('data.tar.gz', 'r:gz') as tar:
     ...     member = tar.getmember('file.csv')
     ...     extract_tar_with_progress(tar, member, Path('output_dir'))
@@ -2544,7 +2544,7 @@ def load_csv(
 
     To load this file into a DataFrame:
 
-    >>> from gofast.tools.ioutils import load_csv
+    >>> from gofast.utils.ioutils import load_csv
     >>> df = load_csv('example.csv')
     >>> print(df)
          name  age         city
@@ -2620,7 +2620,7 @@ def get_valid_key(input_key, default_key, substitute_key_dict=None,
     
     Example
     -------
-    >>> from gofast.tools.ioutils import get_valid_key
+    >>> from gofast.utils.ioutils import get_valid_key
     >>> substitute_key_dict = {'valid_key1': ['vk1', 'key1'], 'valid_key2': ['vk2', 'key2']}
     >>> get_valid_key('vk1', 'default_key', substitute_key_dict)
     'valid_key1'

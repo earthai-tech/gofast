@@ -1,6 +1,6 @@
 """Compatibility fixes for older version of python, numpy and scipy
 If you add content to this file, please give the version of the package
-at which the fix is no longer needed and adapted from :mod:`gofast.tools.fixes`
+at which the fix is no longer needed and adapted from :mod:`gofast.utils.fixes`
 """
 # Authors: Sckit-learn developers 
 # License: BSD 3 clause

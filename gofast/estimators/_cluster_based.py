@@ -10,7 +10,7 @@ from sklearn.utils._param_validation import Hidden, HasMethods
 from sklearn.utils._param_validation  import Interval, StrOptions
 
 from ..api.property import LearnerMeta 
-from ..tools.validator import check_is_fitted
+from ..utils.validator import check_is_fitted
 from .util import fit_with_estimator, select_best_model 
 
 class BaseKMF(BaseEstimator, metaclass=LearnerMeta):

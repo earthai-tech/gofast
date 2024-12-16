@@ -21,7 +21,7 @@ from ..api.types import _F, Array1D, NDArray, Callable
 from ..api.summary import ModelSummary
 from ..core.utils import ellipsis2false 
 from ..decorators import smartFitRun 
-from ..tools.validator import get_estimator_name , check_X_y 
+from ..utils.validator import get_estimator_name , check_X_y 
 from ._optimize import BaseOptimizer, _perform_search, _validate_parameters
 from .utils import get_strategy_method, params_combinations # noqa
 from .utils import prepare_estimators_and_param_grids

@@ -17,8 +17,8 @@ from tqdm import tqdm
 from sklearn.metrics import r2_score , accuracy_score
 from ..api.property import BaseClass 
 from ..compat.sklearn import validate_params, Interval 
-from ..tools.validator import check_X_y, get_estimator_name
-from ..tools.validator import check_is_fitted, validate_fit_weights 
+from ..utils.validator import check_X_y, get_estimator_name
+from ..utils.validator import check_is_fitted, validate_fit_weights 
 
 
 __all__=["StandardEstimator", "StumpRegressor", "StumpClassifier"]

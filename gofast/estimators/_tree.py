@@ -10,7 +10,7 @@ from sklearn.base import BaseEstimator
 from sklearn.utils._param_validation import Interval, StrOptions
 
 from ..api.property import LearnerMeta 
-from ..tools.validator import check_array, check_is_fitted
+from ..utils.validator import check_array, check_is_fitted
 from .util  import validate_fit_weights, validate_positive_integer
 
 class BaseWeightedTree(BaseEstimator, metaclass=LearnerMeta):

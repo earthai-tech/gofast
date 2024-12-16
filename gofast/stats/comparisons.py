@@ -28,8 +28,8 @@ from ..api.formatter import (
 from ..compat.sklearn import validate_params, StrOptions
 from ..core.checks import validate_ratio 
 from ..decorators import isdf, IsPerformanceData, smartFitRun
-from ..tools.depsutils import ensure_pkg 
-from ..tools.validator import ( 
+from ..utils.deps_utils import ensure_pkg 
+from ..utils.validator import ( 
     _is_arraylike_1d, validate_comparison_data, parameter_validator,
     validate_performance_data , check_is_fitted 
 )
@@ -201,7 +201,7 @@ class CPlot(BaseClass):
     --------
     :class:`gofast.api.formatter.DataFrameFormatter`
     :class:`gofast.api.formatter.MultiFrameFormatter`
-    :func:`gofast.tools.validator.validate_performance_data`
+    :func:`gofast.utils.validator.validate_performance_data`
 
     References
     ----------

@@ -1,10 +1,10 @@
 """
 The Tools sub-package offers a variety of utilities for data handling, 
 parameter computation, model estimation, and evaluation. It extends
-mathematical concepts through the module :mod:`~gofast.tools.mathext`. 
+mathematical concepts through the module :mod:`~gofast.utils.mathext`. 
 Additionally, machine learning utilities and supplementary functionalities 
-are facilitated by :mod:`~gofast.tools.mlutils` and 
-:mod:`~gofast.tools.datautils`, respectively.
+are facilitated by :mod:`~gofast.utils.mlutils` and 
+:mod:`~gofast.utils.datautils`, respectively.
  
 """
 
@@ -38,7 +38,7 @@ MODULE_MAPPING = {
          'soft_bin_stat',
          'speed_rowwise_process'
     ],
-    'datautils': [ 
+    'data_utils': [ 
         'cleaner',
         'data_extractor', 
         'nan_to_na',
@@ -58,7 +58,7 @@ MODULE_MAPPING = {
         'to_categories', 
         
     ], 
-    'ioutils':[ 
+    'io_utils':[ 
         'deserialize_data', 
         'extract_tar_with_progress', 
         'fetch_tgz_from_url', 
@@ -112,7 +112,7 @@ MODULE_MAPPING = {
         'weighted_spearman_rank', 
         'rescale_data', 
     ],
-    'mlutils': [
+    'ml': [
         'bi_selector', 
         'bin_counting', 
         'build_data_preprocessor',
@@ -146,7 +146,7 @@ MODULE_MAPPING = {
         'stats_from_prediction',
         'stratify_categories'
     ], 
-    'sysutils': [
+    'sys_utils': [
         'WorkflowOptimizer',
         'parallelize_jobs', 
         'safe_optimize', 
@@ -154,7 +154,7 @@ MODULE_MAPPING = {
     'contextual': [ 
         'WorkflowManager', 
         ], 
-    'spatialutils': [ 
+    'spatial_utils': [ 
         'spatial_sampling', 
         'extract_coordinates', 
         'batch_spatial_sampling', 
@@ -170,15 +170,15 @@ def __getattr__(name):
     for submodule, functions in MODULE_MAPPING.items():
         if name in functions:
             # Import the submodule if the function is found
-            module = importlib.import_module('.' + submodule, 'gofast.tools')
+            module = importlib.import_module('.' + submodule, 'gofast.utils')
             func = getattr(module, name)
             # Cache the imported function back into globals to speed up future imports
             globals()[name] = func
             return func
-    raise AttributeError(f"No function named {name} found in gofast.tools.")
+    raise AttributeError(f"No function named {name} found in gofast.utils.")
 
 # Dynamically populate __all__ to make imports 
-# like 'from gofast.tools import *' work correctly
+# like 'from gofast.utils import *' work correctly
 __all__ = sum(MODULE_MAPPING.values(), [])
 
 # Adjusted __dir__ to assist with autocomplete and dir() calls

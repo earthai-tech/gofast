@@ -13,8 +13,8 @@ from sklearn.ensemble import StackingRegressor, StackingClassifier
 from sklearn.model_selection import cross_val_predict
 from tqdm import tqdm
 
-from ..tools.validator import check_X_y
-from ..tools.validator import check_is_fitted, check_array
+from ..utils.validator import check_X_y
+from ..utils.validator import check_is_fitted, check_array
 from .util import get_default_meta_estimator, build_named_estimators
 
 

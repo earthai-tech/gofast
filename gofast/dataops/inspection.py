@@ -14,7 +14,7 @@ from ..api.types import Dict, Tuple
 from ..api.util import get_table_size 
 from ..core.array_manager import to_numeric_dtypes
 from ..decorators import isdf
-from ..tools.validator import is_frame
+from ..utils.validator import is_frame
 
 TW = get_table_size() 
 

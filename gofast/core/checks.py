@@ -1771,7 +1771,7 @@ def find_features_in(
     Examples
     --------
     >>> from gofast.datasets import fetch_data
-    >>> from gofast.tools.mlutils import find_features_in
+    >>> from gofast.utils.mlutils import find_features_in
     >>> data = fetch_data('bagoue').frame 
     >>> cat, num = find_features_in(data)
     >>> cat, num
@@ -3023,7 +3023,7 @@ def is_valid_dtypes(
     
     Examples
     ---------
-    >>> from gofast.tools.datautils import is_valid_dtypes
+    >>> from gofast.utils.datautils import is_valid_dtypes
     >>> import pandas as pd
     >>> df = pd.DataFrame({
     ...     'age': [25, 30, 45],

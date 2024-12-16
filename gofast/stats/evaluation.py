@@ -31,8 +31,8 @@ from sklearn.model_selection import cross_val_score
 from ..api.property import BaseClass 
 from ..decorators import smartFitRun
 from ..compat.sklearn import validate_params, Interval, StrOptions, HasMethods
-from ..tools.depsutils import ensure_pkg, is_module_installed
-from ..tools.validator import (
+from ..utils.deps_utils import ensure_pkg, is_module_installed
+from ..utils.validator import (
     check_is_fitted, check_is_runned, has_methods, 
     check_X_y, check_array, check_y, validate_distribution,
 )
@@ -640,7 +640,7 @@ Notes
   probabilities.
 - It is recommended to validate that the model is fitted before invoking 
   prediction methods using ``check_is_fitted`` from 
-  ``gofast.tools.validator``.
+  ``gofast.utils.validator``.
 
 See Also
 --------
@@ -763,7 +763,7 @@ Notes
   test is more robust against such deviations.
 - It is recommended to validate that the data meets the assumptions of 
   each test before interpretation using ``check_is_fitted`` from 
-  ``gofast.tools.validator``.
+  ``gofast.utils.validator``.
 
 See Also
 --------
@@ -881,7 +881,7 @@ Notes
   while the Kruskal-Wallis H test extends this to multiple groups.
 - It is recommended to validate that the data meets the assumptions of 
   each test before interpretation using ``check_is_fitted`` from 
-  ``gofast.tools.validator``.
+  ``gofast.utils.validator``.
 
 See Also
 --------
@@ -1005,7 +1005,7 @@ Notes
   of the distribution.
 - It is recommended to validate that the data is properly formatted and 
   contains no missing values before invoking the tests using 
-  ``check_is_fitted`` from ``gofast.tools.validator``.
+  ``check_is_fitted`` from ``gofast.utils.validator``.
     
 See Also
 --------
@@ -1166,7 +1166,7 @@ Notes
   indicate a better model relative to others.
 - It is recommended to validate that the models are properly fitted before 
   invoking evaluation methods using ``check_is_fitted`` from 
-  ``gofast.tools.validator``.
+  ``gofast.utils.validator``.
     
 See Also
 --------
@@ -1295,7 +1295,7 @@ Notes
 - It is recommended to validate that the distributions are properly 
   normalized and contain no zero probabilities before invoking the 
   divergence methods using ``check_is_fitted`` from 
-  ``gofast.tools.validator``.
+  ``gofast.utils.validator``.
     
 See Also
 --------
@@ -1442,7 +1442,7 @@ Notes
   checking for constant variance.
 - It is recommended to validate that the model is properly fitted before 
   invoking diagnostic tests using ``check_is_fitted`` from 
-  ``gofast.tools.validator``.
+  ``gofast.utils.validator``.
 
 See Also
 --------
@@ -1588,7 +1588,7 @@ Notes
   feature's values are randomly shuffled, indicating its importance.
 - It is recommended to validate that the model is properly fitted before 
   invoking importance tests using ``check_is_fitted`` from 
-  ``gofast.tools.validator``.
+  ``gofast.utils.validator``.
 
 See Also
 --------
@@ -1736,7 +1736,7 @@ Notes
   all data points are processed.
 - It is recommended to validate that the data is properly formatted and 
   contains no missing values before running the test using 
-  ``check_is_fitted`` from ``gofast.tools.validator``.
+  ``check_is_fitted`` from ``gofast.utils.validator``.
 
 See Also
 --------
@@ -1906,7 +1906,7 @@ Notes
 - The partial F-test compares the full model against a reduced model to assess 
   whether the additional predictors significantly improve the model.
 - It is recommended to validate that the models are properly fitted before 
-  invoking test methods using ``check_is_fitted`` from ``gofast.tools.validator``.
+  invoking test methods using ``check_is_fitted`` from ``gofast.utils.validator``.
 
 See Also
 --------
@@ -2060,7 +2060,7 @@ Notes
   of a time series.
 - It is recommended to validate that the time series data is properly formatted 
   and contains no missing values before invoking tests using 
-  ``check_is_fitted`` from ``gofast.tools.validator``.
+  ``check_is_fitted`` from ``gofast.utils.validator``.
 
 See Also
 --------
@@ -2205,7 +2205,7 @@ Notes
   based on their forecast errors.
 - It is recommended to validate that the models are properly fitted before 
   invoking error analysis methods using ``check_is_fitted`` from 
-  ``gofast.tools.validator``.
+  ``gofast.utils.validator``.
 
 See Also
 --------
@@ -2430,7 +2430,7 @@ Notes
   that contain a specified probability mass of the posterior distribution.
 - It is recommended to validate that the models are properly specified and that 
   the data is appropriately formatted before invoking Bayesian inference methods 
-  using ``check_is_fitted`` from ``gofast.tools.validator``.
+  using ``check_is_fitted`` from ``gofast.utils.validator``.
 - The decorators ``@smartFitRun`` and ``@ensure_pkg`` ensure that necessary 
   packages are installed and handle the fitting and running of models 
   intelligently.
