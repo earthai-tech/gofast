@@ -3572,7 +3572,6 @@ class MishTransformer(BaseEstimator, TransformerMixin):
         
         return X_transformed
     
-# ELISH Activation Transformer
 class ELISHTransformer(BaseEstimator, TransformerMixin):
     """
     ELISH Activation Transformer. 

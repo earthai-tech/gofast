@@ -16,49 +16,47 @@ from ..compat.sklearn import validate_params, Interval, StrOptions
 from ..decorators import Appender 
 from ..utils.deps_utils import ensure_pkg
 from ..utils.validator import validate_quantiles
-from ._nn_docs import _shared_nn_params 
+from ._nn_docs import _shared_nn_params, _shared_docs  
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
  
 
 if KERAS_BACKEND:
-    from . import Activation 
     LSTM = KERAS_DEPS.LSTM
-    reshape = KERAS_DEPS.reshape
-    Dense = KERAS_DEPS.Dense
-    reduce_sum = KERAS_DEPS.reduce_sum
-    Softmax = KERAS_DEPS.Softmax
-    Flatten = KERAS_DEPS.Flatten
-    Dropout = KERAS_DEPS.Dropout 
-    stack = KERAS_DEPS.stack
-    Layer = KERAS_DEPS.Layer 
-    ELU = KERAS_DEPS.ELU 
     LayerNormalization = KERAS_DEPS.LayerNormalization 
     TimeDistributed = KERAS_DEPS.TimeDistributed
     MultiHeadAttention = KERAS_DEPS.MultiHeadAttention
-    expand_dims = KERAS_DEPS.expand_dims
-    tile = KERAS_DEPS.tile
-    range_=KERAS_DEPS.range 
-    concat = KERAS_DEPS.concat
-    shape = KERAS_DEPS.shape
     Model = KERAS_DEPS.Model 
     BatchNormalization = KERAS_DEPS.BatchNormalization
     Input = KERAS_DEPS.Input
-    add = KERAS_DEPS.add
-    maximum = KERAS_DEPS.maximum
-    reduce_mean = KERAS_DEPS.reduce_mean
-    add_n = KERAS_DEPS.add_n
-    K = KERAS_DEPS.backend
-    register_keras_serializable=KERAS_DEPS.register_keras_serializable
+    Softmax = KERAS_DEPS.Softmax
+    Flatten = KERAS_DEPS.Flatten
+    Dropout = KERAS_DEPS.Dropout 
+    Dense = KERAS_DEPS.Dense
     Embedding =KERAS_DEPS.Embedding 
     Concatenate=KERAS_DEPS.Concatenate 
+    Layer = KERAS_DEPS.Layer 
+    register_keras_serializable=KERAS_DEPS.register_keras_serializable
     
-DEP_MSG = dependency_message('transformers') 
+    tf_reduce_sum = KERAS_DEPS.reduce_sum
+    tf_stack = KERAS_DEPS.stack
+    tf_expand_dims = KERAS_DEPS.expand_dims
+    tf_tile = KERAS_DEPS.tile
+    tf_range=KERAS_DEPS.range 
+    tf_concat = KERAS_DEPS.concat
+    tf_shape = KERAS_DEPS.shape
+    
+    from . import Activation 
+    
+
+DEP_MSG = dependency_message('transformers.tft') 
 
 __all__ = ["TemporalFusionTransformer"]
 
 _param_docs = DocstringComponents.from_nested_components(
     base=DocstringComponents(_shared_nn_params), 
     )
+
+# ------------------- TFT components ------------------------------------------
 
 class _PositionalEncoding(Layer):
     """
@@ -125,12 +123,12 @@ class _PositionalEncoding(Layer):
     
     """
     def call(self, inputs):
-        batch_size, seq_len, feature_dim = shape(
-            inputs)[0], shape(inputs)[1], shape(inputs)[2]
-        position_indices = range_(0, seq_len, dtype='float32')
-        position_indices = expand_dims(position_indices, axis=0)
-        position_indices = expand_dims(position_indices, axis=-1)
-        position_encoding = tile(
+        batch_size, seq_len, feature_dim = tf_shape(
+            inputs)[0], tf_shape(inputs)[1], tf_shape(inputs)[2]
+        position_indices = tf_range(0, seq_len, dtype='float32')
+        position_indices = tf_expand_dims(position_indices, axis=0)
+        position_indices = tf_expand_dims(position_indices, axis=-1)
+        position_encoding = tf_tile(
             position_indices, [batch_size, 1, feature_dim])
         return inputs + position_encoding
     
@@ -389,10 +387,10 @@ class VariableSelectionNetwork(Layer, NNLearner):
             grn_output = self.single_variable_grns[i](var_input, training=training)
             variable_outputs.append(grn_output)
 
-        stacked_outputs = stack(variable_outputs, axis=-2)
+        stacked_outputs = tf_stack(variable_outputs, axis=-2)
         variable_importances = self.variable_importance_dense(stacked_outputs)
         weights = self.softmax(variable_importances)
-        outputs = reduce_sum(stacked_outputs * weights, axis=-2)
+        outputs = tf_reduce_sum(stacked_outputs * weights, axis=-2)
         return outputs
 
     def get_config(self):
@@ -575,10 +573,10 @@ class TemporalAttentionLayer(Layer, NNLearner):
 
     def call(self, inputs, context_vector, training=False):
         context_vector = self.context_grn(context_vector, training=training)
-        context_expanded = expand_dims(context_vector, axis=1)
-        context_expanded = tile(
+        context_expanded = tf_expand_dims(context_vector, axis=1)
+        context_expanded = tf_tile(
             context_expanded,
-            [1, shape(inputs)[1], 1]
+            [1, tf_shape(inputs)[1], 1]
         )
         query = inputs + context_expanded
         attn_output = self.multi_head_attention(
@@ -740,15 +738,15 @@ class StaticEnrichmentLayer(Layer, NNLearner):
     
 
     def call(self, static_context_vector, temporal_features, training=False):
-        static_context_expanded = expand_dims(
+        static_context_expanded = tf_expand_dims(
             static_context_vector,
             axis=1
         )
-        static_context_expanded = tile(
+        static_context_expanded = tf_tile(
             static_context_expanded,
-            [1, shape(temporal_features)[1], 1]
+            [1, tf_shape(temporal_features)[1], 1]
         )
-        combined = concat(
+        combined = tf_concat(
             [static_context_expanded, temporal_features],
             axis=-1
         )
@@ -855,171 +853,9 @@ References
        Society A*, 379(2194), 20200209.
 """.format( params =_param_docs )
 
+# ------------------- TFT implementation --------------------------------------
 
-@Appender(
-    """
-    Notes
-    -----
-    The Temporal Fusion Transformer (TFT) model combines the strengths of
-    sequence-to-sequence models and attention mechanisms to handle complex
-    temporal dynamics. It provides interpretability by allowing examination
-    of variable importance and temporal attention weights.
-
-    **Variable Selection Networks (VSNs):**
-
-    VSNs select relevant variables by applying Gated Residual Networks (GRNs)
-    to each variable and computing variable importance weights via a softmax
-    function. This allows the model to focus on the most informative features.
-
-    **Gated Residual Networks (GRNs):**
-
-    GRNs allow the model to capture complex nonlinear relationships while
-    controlling information flow via gating mechanisms. They consist of a
-    nonlinear layer followed by gating and residual connections.
-
-    **Static Enrichment Layer:**
-
-    Enriches temporal features with static context, enabling the model to
-    adjust temporal dynamics based on static information. This layer combines
-    static embeddings with temporal representations.
-
-    **Temporal Attention Layer:**
-
-    Applies multi-head attention over the temporal dimension to focus on
-    important time steps. This mechanism allows the model to weigh different
-    time steps differently when making predictions.
-
-    **Mathematical Formulation:**
-
-    Let:
-
-    - :math:`\mathbf{x}_{\text{static}} \in \mathbb{R}^{n_s \times d_s}` be the
-      static inputs,
-    - :math:`\mathbf{x}_{\text{dynamic}} \in \mathbb{R}^{T \times n_d \times d_d}`
-      be the dynamic inputs,
-    - :math:`n_s` and :math:`n_d` are the numbers of static and dynamic variables,
-    - :math:`d_s` and :math:`d_d` are their respective input dimensions,
-    - :math:`T` is the number of time steps.
-
-    **Variable Selection Networks (VSNs):**
-
-    For static variables:
-
-    .. math::
-
-        \mathbf{e}_{\text{static}} = \sum_{i=1}^{n_s} \alpha_i \cdot
-        \text{GRN}(\mathbf{x}_{\text{static}, i})
-
-    For dynamic variables:
-
-    .. math::
-
-        \mathbf{E}_{\text{dynamic}} = \sum_{j=1}^{n_d} \beta_j \cdot
-        \text{GRN}(\mathbf{x}_{\text{dynamic}, :, j})
-
-    where :math:`\alpha_i` and :math:`\beta_j` are variable importance weights
-    computed via softmax.
-
-    **LSTM Encoder:**
-
-    Processes dynamic embeddings to capture sequential dependencies:
-
-    .. math::
-
-        \mathbf{H} = \text{LSTM}(\mathbf{E}_{\text{dynamic}})
-
-    **Static Enrichment Layer:**
-
-    Combines static context with temporal features:
-
-    .. math::
-
-        \mathbf{H}_{\text{enriched}} = \text{StaticEnrichment}(
-        \mathbf{e}_{\text{static}}, \mathbf{H})
-
-    **Temporal Attention Layer:**
-
-    Applies attention over time steps:
-
-    .. math::
-
-        \mathbf{Z} = \text{TemporalAttention}(\mathbf{H}_{\text{enriched}})
-
-    **Position-wise Feedforward Layer:**
-
-    Refines the output:
-
-    .. math::
-
-        \mathbf{F} = \text{GRN}(\mathbf{Z})
-
-    **Final Output:**
-
-    For point forecasting:
-
-    .. math::
-
-        \hat{y} = \text{OutputLayer}(\mathbf{F}_{T})
-
-    For quantile forecasting (if quantiles are specified):
-
-    .. math::
-
-        \hat{y}_q = \text{OutputLayer}_q(\mathbf{F}_{T}), \quad q \in \text{quantiles}
-
-    where :math:`\mathbf{F}_{T}` is the feature vector at the last time step.
-
-    Examples
-    --------
-    >>> from gofast.nn.transformers import TemporalFusionTransformer
-    >>> # Define model parameters
-    >>> model = TemporalFusionTransformer(
-    ...     static_input_dim=1,
-    ...     dynamic_input_dim=1,
-    ...     num_static_vars=2,
-    ...     num_dynamic_vars=5,
-    ...     hidden_units=64,
-    ...     num_heads=4,
-    ...     dropout_rate=0.1,
-    ...     forecast_horizon=1,
-    ...     quantiles=[0.1, 0.5, 0.9],
-    ...     activation='relu',
-    ...     use_batch_norm=True,
-    ...     num_lstm_layers=2,
-    ...     lstm_units=[64, 32]
-    ... )
-    >>> model.compile(optimizer='adam', loss='mse')
-    >>> # Assume `static_inputs`, `dynamic_inputs`, and `labels` are prepared
-    >>> model.fit(
-    ...     [static_inputs, dynamic_inputs],
-    ...     labels,
-    ...     epochs=10,
-    ...     batch_size=32
-    ... )
-
-    Notes
-    -----
-    When using quantile regression by specifying the ``quantiles`` parameter,
-    ensure that your loss function is compatible with quantile prediction,
-    such as the quantile loss function. Additionally, the model output will
-    have multiple predictions per time step, corresponding to each quantile.
-
-    See Also
-    --------
-    VariableSelectionNetwork : Selects relevant variables.
-    GatedResidualNetwork : Processes inputs with gating mechanisms.
-    StaticEnrichmentLayer : Enriches temporal features with static context.
-    TemporalAttentionLayer : Applies attention over time steps.
-
-    References
-    ----------
-    .. [1] Lim, B., & Zohren, S. (2021). "Time-series forecasting with deep
-           learning: a survey." *Philosophical Transactions of the Royal
-           Society A*, 379(2194), 20200209.
-    """,
-    join='\n',
-    indents=0
-)
+@Appender(_shared_docs['tft_math_doc'], join='\n', indents=0)
 @param_deprecated_message(
     conditions_params_mappings=[
         {

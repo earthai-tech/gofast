@@ -50,7 +50,7 @@ __all__ = [
     "create_sequences",
     "compute_forecast_horizon", 
     "prepare_future_data", 
-    "compute_anomaly_scores"
+    "compute_anomaly_scores", 
    ]
 
 @check_params(

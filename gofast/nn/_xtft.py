@@ -26,42 +26,42 @@ from .losses import combined_quantile_loss
 from .utils import set_default_params, set_anomaly_config 
 
 if KERAS_BACKEND:
-    from . import Activation 
-    import tensorflow as tf
     LSTM = KERAS_DEPS.LSTM
-    reshape = KERAS_DEPS.reshape
     Dense = KERAS_DEPS.Dense
-    reduce_sum = KERAS_DEPS.reduce_sum
-    Softmax = KERAS_DEPS.Softmax
     Flatten = KERAS_DEPS.Flatten
     Dropout = KERAS_DEPS.Dropout 
-    stack = KERAS_DEPS.stack
     Layer = KERAS_DEPS.Layer 
-    ELU = KERAS_DEPS.ELU 
     LayerNormalization = KERAS_DEPS.LayerNormalization 
-    TimeDistributed = KERAS_DEPS.TimeDistributed
     MultiHeadAttention = KERAS_DEPS.MultiHeadAttention
-    expand_dims = KERAS_DEPS.expand_dims
-    tile = KERAS_DEPS.tile
-    range_=KERAS_DEPS.range 
-    concat = KERAS_DEPS.concat
-    shape = KERAS_DEPS.shape
     Model = KERAS_DEPS.Model 
-    BatchNormalization = KERAS_DEPS.BatchNormalization
     Input = KERAS_DEPS.Input
-    add = KERAS_DEPS.add
-    maximum = KERAS_DEPS.maximum
-    reduce_mean = KERAS_DEPS.reduce_mean
-    add_n = KERAS_DEPS.add_n
-    K = KERAS_DEPS.backend
-    register_keras_serializable=KERAS_DEPS.register_keras_serializable
-    Embedding =KERAS_DEPS.Embedding 
     Concatenate=KERAS_DEPS.Concatenate 
+    Tensor=KERAS_DEPS.Tensor
+    register_keras_serializable=KERAS_DEPS.register_keras_serializable
     
-DEP_MSG = dependency_message('transformers') 
+    tf_reduce_sum = KERAS_DEPS.reduce_sum
+    tf_stack = KERAS_DEPS.stack
+    tf_expand_dims = KERAS_DEPS.expand_dims
+    tf_tile = KERAS_DEPS.tile
+    tf_range_=KERAS_DEPS.range 
+    tf_concat = KERAS_DEPS.concat
+    tf_shape = KERAS_DEPS.shape
+    tf_reshape=KERAS_DEPS.reshape
+    tf_add = KERAS_DEPS.add
+    tf_maximum = KERAS_DEPS.maximum
+    tf_reduce_mean = KERAS_DEPS.reduce_mean
+    tf_add_n = KERAS_DEPS.add_n
+    tf_float32=KERAS_DEPS.float32
+    tf_constant=KERAS_DEPS.constant 
+    tf_square=KERAS_DEPS.square 
+    
+    from . import Activation 
+
+DEP_MSG = dependency_message('transformers.xtft') 
 
 
-# -----------------XTFT implementation ----------------------------------------
+# -------------------- XTFT components ----------------------------------------
+
 @register_keras_serializable('Gofast')
 class LearnedNormalization(Layer, NNLearner):
     """
@@ -124,12 +124,12 @@ class MultiModalEmbedding(Layer, NNLearner):
     def call(self, inputs, training=False):
         embeddings = []
         for idx, modality in enumerate(inputs):
-            if isinstance(modality, tf.Tensor):
+            if isinstance(modality, Tensor):
                 modality_embed = self.dense_layers[idx](modality)
             else:
                 raise ValueError("Unsupported modality type.")
             embeddings.append(modality_embed)
-        return tf.concat(embeddings, axis=-1)
+        return tf_concat(embeddings, axis=-1)
 
     def get_config(self):
         config = super().get_config().copy()
@@ -238,8 +238,8 @@ class MemoryAugmentedAttention(Layer, NNLearner):
         )
 
     def call(self, inputs, training=False):
-        batch_size = tf.shape(inputs)[0]
-        memory_expanded = tf.tile(tf.expand_dims(
+        batch_size = tf_shape(inputs)[0]
+        memory_expanded = tf_tile(tf_expand_dims(
             self.memory, axis=0), [batch_size, 1, 1])
         memory_attended = self.attention(
             query=inputs, value=memory_expanded, key=memory_expanded)
@@ -274,12 +274,12 @@ class AdaptiveQuantileLoss(Layer, NNLearner):
     def call(self, y_true, y_pred, training=False):
         if self.quantiles is None:
             return 0.0
-        y_true_expanded = tf.expand_dims(y_true, axis=2)  # (B, H, 1, O)
+        y_true_expanded = tf_expand_dims(y_true, axis=2)  # (B, H, 1, O)
         error = y_true_expanded - y_pred  # (B, H, Q, O)
-        quantiles = tf.constant(self.quantiles, dtype=tf.float32)
-        quantiles = tf.reshape(quantiles, [1, 1, len(self.quantiles), 1])
-        quantile_loss = tf.maximum(quantiles * error, (quantiles - 1) * error)
-        return tf.reduce_mean(quantile_loss)
+        quantiles = tf_constant(self.quantiles, dtype=tf_float32)
+        quantiles = tf_reshape(quantiles, [1, 1, len(self.quantiles), 1])
+        quantile_loss = tf_maximum(quantiles * error, (quantiles - 1) * error)
+        return tf_reduce_mean(quantile_loss)
 
     def get_config(self):
         config = super().get_config().copy()
@@ -303,8 +303,8 @@ class AnomalyLoss(Layer, NNLearner):
         super().__init__()
         self.weight = weight
 
-    def call(self, anomaly_scores: tf.Tensor):
-        return self.weight * tf.reduce_mean(tf.square(anomaly_scores))
+    def call(self, anomaly_scores: Tensor):
+        return self.weight * tf_reduce_mean(tf_square(anomaly_scores))
 
     def get_config(self):
         config = super().get_config().copy()
@@ -415,7 +415,7 @@ class MultiDecoder(Layer, NNLearner):
 
     def call(self, x, training=False):
         outputs = [decoder(x) for decoder in self.decoders]
-        return tf.stack(outputs, axis=1)
+        return tf_stack(outputs, axis=1)
 
     def get_config(self):
         config = super().get_config().copy()
@@ -520,7 +520,7 @@ class QuantileDistributionModeling(Layer, NNLearner):
         for output_layer in self.output_layers:
             quantile_output = output_layer(inputs)  # (B, H, O)
             outputs.append(quantile_output)
-        return tf.stack(outputs, axis=2)  # (B, H, Q, O)
+        return tf_stack(outputs, axis=2)  # (B, H, Q, O)
 
     def get_config(self):
         config = super().get_config().copy()
@@ -564,7 +564,7 @@ class MultiScaleLSTM(Layer, NNLearner):
         self.return_sequences = return_sequences
 
         self.lstm_layers = [
-            tf.keras.layers.LSTM(
+            LSTM(
                 lstm_units, return_sequences=return_sequences)
             for _ in scales
         ]
@@ -581,7 +581,7 @@ class MultiScaleLSTM(Layer, NNLearner):
         # If return_sequences=True: each output is (B, T', units), 
         # need post-processing outside this layer.
         if not self.return_sequences:
-            return tf.concat(outputs, axis=-1)
+            return tf_concat(outputs, axis=-1)
         else:
             # Return list of full sequences to be processed by XTFT (e.g., pooling)
             # We can stack them along features for uniform shape: 
@@ -603,6 +603,8 @@ class MultiScaleLSTM(Layer, NNLearner):
     def from_config(cls, config):
         return cls(**config)
     
+# -----------------XTFT implementation ----------------------------------------
+
 @register_keras_serializable('Gofast')
 @doc (
     key_improvements= dedent(_shared_docs['xtft_key_improvements']), 
@@ -614,7 +616,7 @@ class XTFT(Model, NNLearner):
     @validate_params({
         "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
-        "future_covariate_dim": [Interval(Integral, 1, None, closed='left'), None], 
+        "future_covariate_dim": [Interval(Integral, 1, None, closed='left')], 
         "embed_dim": [Interval(Integral, 1, None, closed='left')],
         "forecast_horizons": [Interval(Integral, 1, None, closed='left')], 
         "quantiles": ['array-like', StrOptions({'auto'}),  None],
@@ -774,11 +776,25 @@ class XTFT(Model, NNLearner):
         self.anomaly_loss_layer = AnomalyLoss(
             weight=self.anomaly_config.get('anomaly_loss_weight', 1.)
             )
-        # self.anomaly_loss_layer = AnomalyLoss(weight=self.anomaly_loss_weight)
+        # ---------------------------------------------------------------------
+        # The MultiObjectiveLoss encapsulates both quantile and anomaly losses
+        # to allow simultaneous training on multiple objectives. While this 
+        # functionality can currently be bypassed, note that it may be removed 
+        # in a future release. Users who rely on multi-objective training 
+        # strategies should keep an eye on upcoming changes.
+        # 
+        # Here, we instantiate the MultiObjectiveLoss with an adaptive quantile 
+        # loss function, which adjusts quantile estimates dynamically based on 
+        # the provided quantiles, and an anomaly loss function that penalizes 
+        # predictions deviating from expected anomaly patterns.
+        # ---------------------------------------------------------------------
+        
         self.multi_objective_loss = MultiObjectiveLoss(
             quantile_loss_fn=AdaptiveQuantileLoss(self.quantiles),
             anomaly_loss_fn=self.anomaly_loss_layer
         )
+
+        # ---------------------------------------------------------------------
         self.static_dense = Dense(hidden_units, activation=self.activation_name)
         self.static_dropout = Dropout(dropout_rate)
         if self.use_batch_norm:
@@ -856,10 +872,10 @@ class XTFT(Model, NNLearner):
             if self.multi_scale_agg == "average":
                 # Average over time dimension for each scale and then concatenate
                 averaged_outputs = [
-                    tf.reduce_mean(o, axis=1) 
+                    tf_reduce_mean(o, axis=1) 
                     for o in lstm_output
                 ]  # Each is (B, units)
-                lstm_features = tf.concat(
+                lstm_features = tf_concat(
                     averaged_outputs,
                     axis=-1
                 )  # (B, units * len(scales))
@@ -867,15 +883,15 @@ class XTFT(Model, NNLearner):
             elif self.multi_scale_agg == "flatten":
                 # Flatten time and feature dimensions for all scales
                 # Assume equal time lengths for all scales
-                concatenated = tf.concat(
+                concatenated = tf_concat(
                     lstm_output, 
                     axis=-1
                 )  # (B, T', units*len(scales))
-                shape = tf.shape(concatenated)
+                shape = tf_shape(concatenated)
                 (batch_size,
                  time_dim,
                  feat_dim) = shape[0], shape[1], shape[2]
-                lstm_features = tf.reshape(
+                lstm_features = tf_reshape(
                     concatenated,
                     [batch_size, time_dim * feat_dim]
                 )
@@ -886,18 +902,18 @@ class XTFT(Model, NNLearner):
                     o[:, -1, :] 
                     for o in lstm_output
                 ]  # (B, units)
-                lstm_features = tf.concat(
+                lstm_features = tf_concat(
                     last_outputs,
                     axis=-1
                 )  # (B, units * len(scales))
         
         # Since we are concatenating along the time dimension, we need 
         # all tensors to have the same shape along that dimension.
-        time_steps = tf.shape(dynamic_input)[1]
+        time_steps = tf_shape(dynamic_input)[1]
         # Expand lstm_features to (B, 1, features)
-        lstm_features = tf.expand_dims(lstm_features, axis=1)
-        # Tile to match time steps: (B, T, features)
-        lstm_features = tf.tile(lstm_features, [1, time_steps, 1])
+        lstm_features = tf_expand_dims(lstm_features, axis=1)
+        # Tile to match tf_time steps: (B, T, features)
+        lstm_features = tf_tile(lstm_features, [1, time_steps, 1])
 
         self.logger.debug(
             f"LSTM Features Shape: {lstm_features.shape}"
@@ -930,9 +946,9 @@ class XTFT(Model, NNLearner):
         )
     
         # Combine all features
-        time_steps = tf.shape(dynamic_input)[1]
-        static_features_expanded = tf.tile(
-            tf.expand_dims(static_features, axis=1),
+        time_steps = tf_shape(dynamic_input)[1]
+        static_features_expanded = tf_tile(
+            tf_expand_dims(static_features, axis=1),
             [1, time_steps, 1]
         )
         self.logger.debug(
@@ -971,13 +987,13 @@ class XTFT(Model, NNLearner):
         if self.final_agg == "last":
             final_features = time_window_output[:, -1, :]
         elif self.final_agg == "average":
-            final_features = tf.reduce_mean(time_window_output, axis=1)
+            final_features = tf_reduce_mean(time_window_output, axis=1)
         else:  # "flatten"
-            shape = tf.shape(time_window_output)
+            shape = tf_shape(time_window_output)
             (batch_size,
              time_dim,
              feat_dim) = shape[0], shape[1], shape[2]
-            final_features = tf.reshape(
+            final_features = tf_reshape(
                 time_window_output,
                 [batch_size, time_dim * feat_dim]
             )
@@ -1007,12 +1023,14 @@ class XTFT(Model, NNLearner):
         if self.anomaly_scores is not None:
             # Use anomaly_scores from anomaly_config
             self.logger.debug(
-                f"Using Anomaly Scores from anomaly_config Shape: {self.anomaly_scores.shape}")
+                "Using Anomaly Scores from anomaly_config"
+                f" Shape: {self.anomaly_scores.shape}")
         
             if self.anomaly_loss_weight is None: 
                 # Use provided anomaly_scores from anomaly_config
                 self.logger.debug(
-                    "Using Anomaly Scores from anomaly_config is None. Ressetting to 1.")
+                    "Using Anomaly Scores from anomaly_config is None."
+                    " Ressetting to 1.")
                 
                 self.anomaly_loss_weight = 1. 
 
@@ -1067,11 +1085,13 @@ class XTFT(Model, NNLearner):
     )
     def objective_loss(
         self, 
-        y_true: tf.Tensor, 
-        y_pred: tf.Tensor, 
-        anomaly_scores: tf.Tensor=None
-    ) -> tf.Tensor:
-        
+        y_true: Tensor, 
+        y_pred: Tensor, 
+        anomaly_scores: Tensor=None
+    ) -> Tensor:
+        if not hasattr (self, 'anomaly_scores'): 
+            self.anomaly_scores = self.anomaly_config.get('anomaly_scores')
+            
         if self.anomaly_scores is not None: 
             check_consistent_length(y_true, y_pred, self.anomaly_scores)
             # Expect y_true, 'y_pred, and 'anomaly_scores'

@@ -29,6 +29,7 @@ __all__ = [
     'import_keras_function',
     'standalone_keras', 
     'optional_tf_function', 
+    'suppress_tf_warnings'
 ]
 
 class KerasDependencies:
@@ -89,7 +90,9 @@ class KerasDependencies:
             'range':('tensorflow', 'range'), 
             'convert_to_tensor': ('tensorflow', 'convert_to_tensor'), 
             'Tensor': ('tensorflow', 'Tensor'), 
-            'cast': ('tensforflow', 'cast')
+            'cast': ('tensforflow', 'cast'), 
+            'float32': ('tensorflow', 'float32'), 
+            'constant': ('tensorflow', 'constant')
         }
 
         mapping = {

@@ -252,6 +252,169 @@ lstm_units : list of int, optional
     number of units will be inferred from the `hidden_units` parameter.
 """
 
+_shared_docs[ 
+   'tft_math_doc'
+]="""
+Notes
+-----
+The Temporal Fusion Transformer (TFT) model combines the strengths of
+sequence-to-sequence models and attention mechanisms to handle complex
+temporal dynamics. It provides interpretability by allowing examination
+of variable importance and temporal attention weights.
+
+**Variable Selection Networks (VSNs):**
+
+VSNs select relevant variables by applying Gated Residual Networks (GRNs)
+to each variable and computing variable importance weights via a softmax
+function. This allows the model to focus on the most informative features.
+
+**Gated Residual Networks (GRNs):**
+
+GRNs allow the model to capture complex nonlinear relationships while
+controlling information flow via gating mechanisms. They consist of a
+nonlinear layer followed by gating and residual connections.
+
+**Static Enrichment Layer:**
+
+Enriches temporal features with static context, enabling the model to
+adjust temporal dynamics based on static information. This layer combines
+static embeddings with temporal representations.
+
+**Temporal Attention Layer:**
+
+Applies multi-head attention over the temporal dimension to focus on
+important time steps. This mechanism allows the model to weigh different
+time steps differently when making predictions.
+
+**Mathematical Formulation:**
+
+Let:
+
+- :math:`\mathbf{x}_{\text{static}} \in \mathbb{R}^{n_s \times d_s}` be the
+  static inputs,
+- :math:`\mathbf{x}_{\text{dynamic}} \in \mathbb{R}^{T \times n_d \times d_d}`
+  be the dynamic inputs,
+- :math:`n_s` and :math:`n_d` are the numbers of static and dynamic variables,
+- :math:`d_s` and :math:`d_d` are their respective input dimensions,
+- :math:`T` is the number of time steps.
+
+**Variable Selection Networks (VSNs):**
+
+For static variables:
+
+.. math::
+
+    \mathbf{e}_{\text{static}} = \sum_{i=1}^{n_s} \alpha_i \cdot
+    \text{GRN}(\mathbf{x}_{\text{static}, i})
+
+For dynamic variables:
+
+.. math::
+
+    \mathbf{E}_{\text{dynamic}} = \sum_{j=1}^{n_d} \beta_j \cdot
+    \text{GRN}(\mathbf{x}_{\text{dynamic}, :, j})
+
+where :math:`\alpha_i` and :math:`\beta_j` are variable importance weights
+computed via softmax.
+
+**LSTM Encoder:**
+
+Processes dynamic embeddings to capture sequential dependencies:
+
+.. math::
+
+    \mathbf{H} = \text{LSTM}(\mathbf{E}_{\text{dynamic}})
+
+**Static Enrichment Layer:**
+
+Combines static context with temporal features:
+
+.. math::
+
+    \mathbf{H}_{\text{enriched}} = \text{StaticEnrichment}(
+    \mathbf{e}_{\text{static}}, \mathbf{H})
+
+**Temporal Attention Layer:**
+
+Applies attention over time steps:
+
+.. math::
+
+    \mathbf{Z} = \text{TemporalAttention}(\mathbf{H}_{\text{enriched}})
+
+**Position-wise Feedforward Layer:**
+
+Refines the output:
+
+.. math::
+
+    \mathbf{F} = \text{GRN}(\mathbf{Z})
+
+**Final Output:**
+
+For point forecasting:
+
+.. math::
+
+    \hat{y} = \text{OutputLayer}(\mathbf{F}_{T})
+
+For quantile forecasting (if quantiles are specified):
+
+.. math::
+
+    \hat{y}_q = \text{OutputLayer}_q(\mathbf{F}_{T}), \quad q \in \text{quantiles}
+
+where :math:`\mathbf{F}_{T}` is the feature vector at the last time step.
+
+Examples
+--------
+>>> from gofast.nn.transformers import TemporalFusionTransformer
+>>> # Define model parameters
+>>> model = TemporalFusionTransformer(
+...     static_input_dim=1,
+...     dynamic_input_dim=1,
+...     num_static_vars=2,
+...     num_dynamic_vars=5,
+...     hidden_units=64,
+...     num_heads=4,
+...     dropout_rate=0.1,
+...     forecast_horizon=1,
+...     quantiles=[0.1, 0.5, 0.9],
+...     activation='relu',
+...     use_batch_norm=True,
+...     num_lstm_layers=2,
+...     lstm_units=[64, 32]
+... )
+>>> model.compile(optimizer='adam', loss='mse')
+>>> # Assume `static_inputs`, `dynamic_inputs`, and `labels` are prepared
+>>> model.fit(
+...     [static_inputs, dynamic_inputs],
+...     labels,
+...     epochs=10,
+...     batch_size=32
+... )
+
+Notes
+-----
+When using quantile regression by specifying the ``quantiles`` parameter,
+ensure that your loss function is compatible with quantile prediction,
+such as the quantile loss function. Additionally, the model output will
+have multiple predictions per time step, corresponding to each quantile.
+
+See Also
+--------
+VariableSelectionNetwork : Selects relevant variables.
+GatedResidualNetwork : Processes inputs with gating mechanisms.
+StaticEnrichmentLayer : Enriches temporal features with static context.
+TemporalAttentionLayer : Applies attention over time steps.
+
+References
+----------
+.. [1] Lim, B., & Zohren, S. (2021). "Time-series forecasting with deep
+       learning: a survey." *Philosophical Transactions of the Royal
+       Society A*, 379(2194), 20200209.
+"""
+
 _shared_docs[
     'tft_notes_doc'
  ]="""
@@ -280,6 +443,304 @@ References
 - Lim, B., & Zohdy, M. (2020). "Temporal Fusion Transformers for Time 
   Series". 
 """
+
+_shared_docs[ 
+    'xtft_params_doc'
+    ]="""\
+Parameters
+----------
+static_input_dim : int
+    Dimensionality of static input features (no time dimension).  
+    These features remain constant over time steps and provide
+    global context or attributes related to the time series. For
+    example, a store ID or geographic location. Increasing this
+    dimension allows the model to utilize more contextual signals
+    that do not vary with time. A larger `static_input_dim` can
+    help the model specialize predictions for different entities
+    or conditions and improve personalized forecasts.
+
+dynamic_input_dim : int
+    Dimensionality of dynamic input features. These features vary
+    over time steps and typically include historical observations
+    of the target variable, and any time-dependent covariates such
+    as past sales, weather variables, or sensor readings. A higher
+    `dynamic_input_dim` enables the model to incorporate more
+    complex patterns from a richer set of temporal signals. These
+    features help the model understand seasonality, trends, and
+    evolving conditions over time.
+
+future_covariate_dim : int
+    Dimensionality of future known covariates. These are features
+    known ahead of time for future predictions (e.g., holidays,
+    promotions, scheduled events, or future weather forecasts).
+    Increasing `future_covariate_dim` enhances the model’s ability
+    to leverage external information about the future, improving
+    the accuracy and stability of multi-horizon forecasts.
+
+embed_dim : int, optional
+    Dimension of feature embeddings. Default is ``32``. After
+    variable transformations, inputs are projected into embeddings
+    of size `embed_dim`. Larger embeddings can capture more nuanced
+    relationships but may increase model complexity. A balanced
+    choice prevents overfitting while ensuring the representation
+    capacity is sufficient for complex patterns.
+
+forecast_horizons : int, optional
+    Number of future time steps to predict. Default is ``1``. This
+    parameter specifies how many steps ahead the model provides
+    forecasts. For instance, `forecast_horizon=3` means the model
+    predicts values for three future periods simultaneously.
+    Increasing this allows multi-step forecasting, but may
+    complicate learning if too large.
+
+quantiles : list of float or str, optional
+    Quantiles to predict for probabilistic forecasting. For example,
+    ``[0.1, 0.5, 0.9]`` indicates lower, median, and upper bounds.
+    If set to ``'auto'``, defaults to ``[0.1, 0.5, 0.9]``. If
+    `None`, the model makes deterministic predictions. Providing
+    quantiles helps the model estimate prediction intervals and
+    uncertainty, offering more informative and robust forecasts.
+
+max_window_size : int, optional
+    Maximum dynamic time window size. Default is ``10``. Defines
+    the length of the dynamic windowing mechanism that selects
+    relevant recent time steps for modeling. A larger `max_window_size`
+    enables the model to consider more historical data at once,
+    potentially capturing longer-term patterns, but may also
+    increase computational cost.
+
+memory_size : int, optional
+    Size of the memory for memory-augmented attention. Default is
+    ``100``. Introduces a fixed-size memory that the model can
+    attend to, providing a global context or reference to distant
+    past information. Larger `memory_size` can help the model
+    recall patterns from further back in time, improving long-term
+    forecasting stability.
+
+num_heads : int, optional
+    Number of attention heads. Default is ``4``. Multi-head
+    attention allows the model to attend to different representation
+    subspaces of the input sequence. Increasing `num_heads` can
+    improve model performance by capturing various aspects of the
+    data, but also raises the computational complexity and the
+    number of parameters.
+
+dropout_rate : float, optional
+    Dropout rate for regularization. Default is ``0.1``. Controls
+    the fraction of units dropped out randomly during training.
+    Higher values can prevent overfitting but may slow convergence.
+    A small to moderate `dropout_rate` (e.g. 0.1 to 0.3) is often
+    a good starting point.
+
+output_dim : int, optional
+    Dimensionality of the output. Default is ``1``. Determines how
+    many target variables are predicted at each forecast horizon.
+    For univariate forecasting, `output_dim=1` is typical. For
+    multi-variate forecasting, set a larger value to predict
+    multiple targets simultaneously.
+
+anomaly_config : dict, optional
+        Configuration dictionary for anomaly detection. It may contain 
+        the following keys:
+
+        - ``'anomaly_scores'`` : array-like, optional
+            Precomputed anomaly scores tensor of shape `(batch_size, forecast_horizons)`. 
+            If not provided, anomaly loss will not be applied.
+
+        - ``'anomaly_loss_weight'`` : float, optional
+            Weight for the anomaly loss in the total loss computation. 
+            Balances the contribution of anomaly detection against the 
+            primary forecasting task. A higher value emphasizes identifying 
+            and penalizing anomalies, potentially improving robustness to
+            irregularities in the data, while a lower value prioritizes
+            general forecasting performance.
+            If not provided, anomaly loss will not be applied.
+
+        **Behavior:**
+        If `anomaly_config` is `None`, both `'anomaly_scores'` and 
+        `'anomaly_loss_weight'` default to `None`, and anomaly loss is 
+        disabled. This means the model will perform forecasting without 
+        considering  any anomaly detection mechanisms.
+
+        **Examples:**
+        
+        - **Without Anomaly Detection:**
+            ```python
+            model = XTFT(
+                static_input_dim=10,
+                dynamic_input_dim=45,
+                future_covariate_dim=5,
+                anomaly_config=None,
+                ...
+            )
+            ```
+        
+        - **With Anomaly Detection:**
+            ```python
+            import tensorflow as tf
+
+            # Define precomputed anomaly scores
+            precomputed_anomaly_scores = tf.random.normal((batch_size, forecast_horizons))
+
+            # Create anomaly_config dictionary
+            anomaly_config = {{
+                'anomaly_scores': precomputed_anomaly_scores,
+                'anomaly_loss_weight': 1.0
+            }}
+
+            # Initialize the model with anomaly_config
+            model = XTFT(
+                static_input_dim=10,
+                dynamic_input_dim=45,
+                future_covariate_dim=5,
+                anomaly_config=anomaly_config,
+                ...
+            )
+            ```
+
+anomaly_loss_weight : float, optional
+    Weight of the anomaly loss term. Default is ``1.0``. 
+
+attention_units : int, optional
+    Number of units in attention layers. Default is ``32``.
+    Controls the dimensionality of internal representations in
+    attention mechanisms. More `attention_units` can allow the
+    model to represent more complex dependencies, but may also
+    increase risk of overfitting and computation.
+
+hidden_units : int, optional
+    Number of units in hidden layers. Default is ``64``. Influences
+    the capacity of various dense layers within the model, such as
+    those processing static features or for residual connections.
+    More units allow modeling more intricate functions, but can
+    lead to overfitting if not regularized.
+
+lstm_units : int or None, optional
+    Number of units in LSTM layers. Default is ``64``. If `None`,
+    LSTM layers may be disabled or replaced with another mechanism.
+    Increasing `lstm_units` improves the model’s ability to capture
+    temporal dependencies, but also raises computational cost and
+    potential overfitting.
+
+scales : list of int, str or None, optional
+    Scales for multi-scale LSTM. If ``'auto'``, defaults are chosen
+    internally. This parameter configures multiple LSTMs to operate
+    at different temporal resolutions. For example, `[1, 7, 30]`
+    might represent daily, weekly, and monthly scales. Multi-scale
+    modeling can enhance the model’s understanding of hierarchical
+    time structures and seasonalities.
+
+multi_scale_agg : str or None, optional
+    Aggregation method for multi-scale outputs. Options:
+    ``'last'``, ``'average'``, ``'flatten'``, ``'auto'``. If `None`,
+    no special aggregation is applied. This parameter determines
+    how the multiple scales’ outputs are combined. For instance,
+    `average` can produce a more stable representation by averaging
+    across scales, while `flatten` preserves all scale information
+    in a concatenated form.
+
+activation : str or callable, optional
+    Activation function. Default is ``'relu'``. Common choices
+    include ``'tanh'``, ``'elu'``, or a custom callable. The choice
+    of activation affects the model’s nonlinearity and can influence
+    convergence speed and final accuracy. For complex datasets,
+    experimenting with different activations may yield better
+    results.
+
+use_residuals : bool, optional
+    Whether to use residual connections. Default is ``True``.
+    Residuals help in stabilizing and speeding up training by
+    allowing gradients to flow more easily through the model and
+    mitigating vanishing gradients. They also enable deeper model
+    architectures without significant performance degradation.
+
+use_batch_norm : bool, optional
+    Whether to use batch normalization. Default is ``False``.
+    Batch normalization can accelerate training by normalizing
+    layer inputs, reducing internal covariate shift. It often makes
+    model training more stable and can improve convergence,
+    especially in deeper architectures. However, it adds complexity
+    and may not always be beneficial.
+
+final_agg : str, optional
+    Final aggregation of the time window. Options:
+    ``'last'``, ``'average'``, ``'flatten'``. Default is ``'last'``.
+    Determines how the time-windowed representations are reduced
+    into a final vector before decoding into forecasts. For example,
+    `last` takes the most recent time step's feature vector, while
+    `average` merges information across the entire window. Choosing
+    a suitable aggregation can influence forecast stability and
+    sensitivity to recent or aggregate patterns.    
+    
+"""
+
+_shared_docs [
+    'xtft_params_doc_minimal'
+]= """
+    static_input_dim : int
+        The dimensionality of the static input features.
+
+    dynamic_input_dim : int
+        The dimensionality of the dynamic input features.
+
+    future_covariate_dim : int
+        The dimensionality of the future covariate features.
+
+    embed_dim : int, optional, default=32
+        The dimensionality of embeddings used for features.
+
+    forecast_horizons : int, optional, default=1
+        The number of steps ahead for which predictions are generated.
+
+    quantiles : Union[str, List[float], None], optional
+        Quantiles for probabilistic forecasting. If None, the model 
+        may output deterministic forecasts.
+
+    max_window_size : int, optional, default=10
+        The maximum window size for attention computations.
+
+    memory_size : int, optional, default=100
+        The size of the memory component used in the model.
+
+    num_heads : int, optional, default=4
+        The number of attention heads to use in the multi-head attention layer.
+
+    dropout_rate : float, optional, default=0.1
+        The dropout rate applied to reduce overfitting.
+
+    output_dim : int, optional, default=1
+        The dimensionality of the model output (e.g., univariate or multivariate).
+
+    anomaly_config : Optional[Dict[str, Any]], optional
+        Configuration for anomaly detection/loss. If not required, can be None.
+
+    attention_units : int, optional, default=32
+        The number of units in the attention layer.
+
+    hidden_units : int, optional, default=64
+        The number of units in hidden layers.
+
+    lstm_units : int, optional, default=64
+        The number of units in the LSTM layers.
+
+    scales : Union[str, List[int], None], optional
+        Scaling strategy or scale values. If None, no scaling is applied.
+
+    multi_scale_agg : Optional[str], optional
+        Multi-scale aggregation strategy for time series processing.
+
+    activation : str, optional, default='relu'
+        The activation function used in the model.
+
+    use_residuals : bool, optional, default=True
+        Whether to use residual connections in the model.
+
+    use_batch_norm : bool, optional, default=False
+        Whether to use batch normalization in the model.
+
+    final_agg : str, optional, default='last'
+        The final aggregation method used for producing outputs.
+    """
 
 _shared_docs [ 
     'xtft_key_improvements'
