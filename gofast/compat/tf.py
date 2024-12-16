@@ -125,18 +125,9 @@ class KerasDependencies:
             'mnist': ('datasets', 'mnist'),
             'cifar10': ('datasets', 'cifar10'),
             'Loss': ('losses', 'Loss'),
-            'mean_squared_error': (
-                'losses',
-                'mean_squared_error'
-            ),
-            'categorical_crossentropy': (
-                'losses',
-                'categorical_crossentropy'
-            ),
-            'binary_crossentropy': (
-                'losses',
-                'binary_crossentropy'
-            ),
+            'mean_squared_error': ('losses', 'mean_squared_error'),
+            'categorical_crossentropy': ('losses', 'categorical_crossentropy'),
+            'binary_crossentropy': ('losses', 'binary_crossentropy'),
             'K': ('backend', 'K'), 
             'sum': ('backend', 'sum'),
             'ones': ('backend', 'ones'),
@@ -145,21 +136,14 @@ class KerasDependencies:
             'random_normal': ('initializers', 'random_normal'),
             'glorot_uniform': ('initializers', 'glorot_uniform'),
             'EarlyStopping': ('callbacks', 'EarlyStopping'),
-            'ModelCheckpoint': (
-                'callbacks',
-                'ModelCheckpoint'
-            ),
+            'ModelCheckpoint': ('callbacks', 'ModelCheckpoint'),
             'Callback': ('callbacks', 'Callback'), 
             'TensorBoard': ('callbacks', 'TensorBoard'),
-            'LearningRateScheduler': (
-                'callbacks',
-                'LearningRateScheduler'
-            ),
+            'LearningRateScheduler': ('callbacks', 'LearningRateScheduler'),
             'Embedding': ('layers', 'Embedding'), 
             'clone_model': ('models', 'clone_model'),
             'load_model': ('models', 'load_model'),
             'register_keras_serializable': ('utils', 'register_keras_serializable')
-         
         }
 
         if name in mapping:
