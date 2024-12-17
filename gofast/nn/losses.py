@@ -25,7 +25,6 @@ from numbers import Real
 from typing import List
 
 from ..compat.sklearn import Interval
-from ..compat.tf import optional_tf_function  
 from ..core.checks import ParamsValidator, check_params
 from ..utils.deps_utils import ensure_pkg
 from ..utils.validator import  validate_quantiles
@@ -47,13 +46,9 @@ DEP_MSG = dependency_message('loss')
 
 __all__ = ['quantile_loss', 'quantile_loss_multi', 'anomaly_loss']
 
-@ParamsValidator(
-    {
-      'quantiles': [Real, 'array-like']
-    }
-  )
+
+@ParamsValidator({'quantiles': [Real, 'array-like']})
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-@optional_tf_function
 def combined_quantile_loss(quantiles):
     """
     Creates a combined quantile loss function for multiple quantiles.
@@ -100,9 +95,8 @@ def combined_quantile_loss(quantiles):
         # Average loss over all quantiles
         return loss / len(quantiles)
     
-    if isinstance (quantiles, (float, int)): 
-        quantiles =[quantiles]
-        
+    quantiles = validate_quantiles(quantiles )
+
     return loss
 
 @check_params({"q": Real})

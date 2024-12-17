@@ -56,7 +56,7 @@ from .inspection  import (
     plot_woodland, 
     plot_l_curve, 
   )  
-from .mlviz import ( 
+from .ml_viz import ( 
     plot_confusion_matrices, 
     plot_confusion_matrix_, 
     plot_confusion_matrix, 

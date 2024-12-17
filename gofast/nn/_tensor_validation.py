@@ -166,6 +166,8 @@ def validate_xtft_inputs(
     Examples:
     ---------
     >>> # Example without future covariates
+    >>> import tensorflow as tf 
+    >>> from gofast.nn._tensor_validation import validate_xtft_inputs 
     >>> static_input = tf.random.normal((32, 10))
     >>> dynamic_input = tf.random.normal((32, 20, 45))
     >>> inputs = [static_input, dynamic_input, None]
@@ -359,7 +361,6 @@ def validate_xtft_inputs(
 
     return static_input, dynamic_input, future_covariate_input
 
-
 @optional_tf_function
 def validate_batch_sizes(
     static_batch_size: tf.Tensor,
@@ -402,7 +403,6 @@ def validate_batch_sizes(
                 f"``future_covariate_input`` batch_size={future_batch_size.numpy()}."
             )
         )
-
 
 @optional_tf_function
 def check_batch_sizes(

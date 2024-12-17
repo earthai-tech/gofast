@@ -12,7 +12,7 @@ import importlib
 
 
 MODULE_MAPPING = {
-    'baseutils': [
+    'base_utils': [
          'array2hdf5',
          'binning_statistic',
          'categorize_target',

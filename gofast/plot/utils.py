@@ -7,6 +7,7 @@ Additional plot utilities.
 from __future__ import annotations 
 import os
 import re 
+import math
 import copy 
 import datetime 
 import warnings
@@ -33,10 +34,12 @@ from ..core.checks import (
     _assert_all_types, is_iterable, str2columns, is_in_if, 
     exist_features, check_features_types, check_spatial_columns 
 )
-from ..core.handlers import columns_manager 
+from ..core.handlers import columns_manager, default_params_plot 
 from ..compat.sklearn import validate_params, StrOptions, Interval 
 from ..decorators import isdf
-from ..utils.validator import  assert_xy_in, build_data_if
+from ..utils.validator import  ( 
+    assert_xy_in, build_data_if, validate_positive_integer
+)
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
 __all__=["boxplot", "plot_r_squared", "plot_text", "plot_spatial_features", 
@@ -3149,17 +3152,281 @@ def plot_spatial_distribution(
     plt.tight_layout()
     plt.show()
 
+@default_params_plot(savefig='my_distribution_plot.png')
+@validate_params ({ 
+    'data': ['array-like'], 
+    'x_col': [str], 
+    'y_col': [str], 
+    'z_cols': ['array-like', str], 
+    'plot_type': [StrOptions({'scatter', 'hexbin', 'density'})], 
+    'max_cols': [Real]
+    })
+@isdf 
+def plot_dist(
+    df: DataFrame,
+    x_col: str,
+    y_col: str,
+    z_cols: List[str],
+    plot_type: str = 'scatter',
+    axis_off: bool = True,
+    max_cols: int = 3,
+    savefig=None,
+):
+    r"""
+    Plot multiple distribution datasets on a grid of subplots for 
+    comprehensive spatial analysis. This function generates a grid of 
+    subplots illustrating the variation of multiple `z`-axis variables 
+    (``z_cols``) against spatial coordinates defined by `x_col` and 
+    `y_col`. Depending on the chosen `plot_type`, it can create scatter, 
+    hexbin, or density plots. Users can visualize how each `z` variable 
+    behaves over the spatial domain defined by `x` and `y`, allowing 
+    intuitive comparisons and spatial pattern recognition.
+
+    This object aims to project a set of `z` values as a function
+    of `x` and `y`, thereby constructing a distribution surface. 
+    Mathematically, for each variable :math:`z_i` in ``z_cols``, we 
+    consider a mapping:
+
+    .. math::
+       z_i = f(x, y)
+
+    where :math:`f: \mathbb{R}^2 \to \mathbb{R}`. The plotting depends 
+    on the chosen `plot_type`:
     
-  
+    - ``'scatter'``: Directly plots points in the plane colored by their 
+      corresponding `z` values.
+    - ``'hexbin'``: Aggregates data into hexagonal bins and colors each 
+      bin based on the average `z` value.
+    - ``'density'``: Estimates a continuous density surface using kernel 
+      density estimation, with `z` values acting as weights. This 
+      representation assumes non-negative weights [1]_.
+
+    The function arranges these plots in a grid with a maximum of 
+    ``max_cols`` columns. If the number of `z_cols` exceeds this, 
+    additional rows are added. An optional colorbar provides a unified 
+    scale for interpreting the color encoding of `z` values across all 
+    subplots.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input DataFrame containing the data to visualize. Must 
+        include at least `x_col`, `y_col`, and all specified `z_cols`.
+        The DataFrame should contain numeric values for these columns.
+    x_col : str
+        Name of the column representing the x-axis coordinate 
+        (e.g., longitude). This parameter specifies the independent
+        spatial dimension.
+    y_col : str
+        Name of the column representing the y-axis coordinate 
+        (e.g., latitude). Combined with `x_col`, it forms a spatial 
+        plane onto which `z` values are projected.
+    z_cols : list of str
+        A list of column names corresponding to the variables 
+        to be visualized along the `z` dimension. Each `z_col` 
+        represents a different distribution over the `(x, y)` space.
+    plot_type : str, optional
+        The type of plot to generate. Supported types are:
+        
+        - ``'scatter'``: Plots individual data points with colors 
+          indicating `z` values.
+        - ``'hexbin'``: Uses hexagonal binning to visualize data 
+          density and average `z` within each bin.
+        - ``'density'``: Creates a kernel density estimate (KDE) 
+          surface weighted by `z` values. All `z` values must be 
+          non-negative for this method.
+        
+        Defaults to ``'scatter'``.
+    axis_off : bool, optional
+        If True, removes axis lines and labels for a cleaner look. 
+        Default is True.
+    max_cols : int, optional
+        The maximum number of columns in the subplot grid. If the 
+        total number of `z_cols` exceeds `max_cols`, additional 
+        rows are created automatically. Default is 3.
+    savefig : str or None, optional
+        If provided, specifies the filename or path where the 
+        resulting figure should be saved. If None, the figure is 
+        displayed interactively.
+
+    Methods
+    -------
+    This object is a standalone function, therefore it does not 
+    provide class methods. No additional callable methods are 
+    exposed aside from the function itself. Users interact 
+    solely through the function parameters described above.
+
+    Notes
+    -----
+    - For `density` plot types, ensure no negative values are present 
+      in the `z_cols`. Negative weights cause errors in kernel 
+      density estimation.
+    - Large datasets might benefit from `hexbin` or `density` plots 
+      to better visualize overall patterns rather than individual 
+      points.
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_dist
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'longitude': [1,2,3,4],
+    ...     'latitude' : [10,10,10,10],
+    ...     'subsidence_2018': [5,6,7,8],
+    ...     'subsidence_2022': [3,4,2,1]
+    ... })
+    >>> plot_dist(df, x_col='longitude', y_col='latitude',
+    ...           z_cols=['subsidence_2018', 'subsidence_2022'],
+    ...           plot_type='scatter', axis_off=True, max_cols=2)
+
+    See Also
+    --------
+    matplotlib.pyplot.scatter : For basic scatter plot creation.
+    matplotlib.pyplot.hexbin : For hexagonal binning visualization.
+    seaborn.kdeplot : For kernel density estimation plots.
+    gofast.plot.utils.plot_distributions: 
+        For the distribution of numeric columns in the DataFrame.
+
+    References
+    ----------
+    .. [1] Rosenblatt, M. "Remarks on some nonparametric estimates 
+           of a density function." Ann. Math. Statist. 27 (1956), 
+           832-837.
+    """
+
+    # Validate Input Columns
+    exist_features(df, features= [x_col, y_col], name ='Columns `x` and `y`')
+    z_cols = columns_manager(z_cols, empty_as_none= False, )
+    exist_features(df, features=z_cols, name ='Value `z_cols` ')
     
-  
+    extra_msg = (
+        "If a numeric feature is stored as an 'object' type, "
+        "it should be explicitly converted to a numeric type"
+        " (e.g., using `pd.to_numeric`)."
+    )
+    check_features_types(
+        df, features= [x_col, y_col] + z_cols , dtype='numeric',
+        extra=extra_msg
+    )
+
+    # If using 'density', ensure weights are non-negative
+    if plot_type == 'density':
+        for col in z_cols:
+            if (df[col] < 0).any():
+                raise ValueError(
+                    f"Negative values found in '{col}'. Seaborn kdeplot cannot "
+                    "handle negative weights. Please provide non-negative values "
+                    "or choose a different plot_type."
+                )
+    max_cols = validate_positive_integer(max_cols, 'max_cols')
     
-  
-    
-  
-    
-  
-    
+    # Determine Subplot Grid Layout
+    num_z = len(z_cols)
+    n_cols = min(max_cols, num_z)
+    n_rows = math.ceil(num_z / max_cols)
+
+    # Create Subplots
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(5 * n_cols, 4 * n_rows),
+        constrained_layout=True
+    )
+
+    # Ensure axes is a 2D array for consistent indexing
+    if n_rows == 1 and n_cols == 1:
+        axes = [[axes]]
+    elif n_rows == 1:
+        axes = [axes]
+    elif n_cols == 1:
+        axes = [[ax] for ax in axes]
+
+    # Calculate Overall vmin and vmax for Color Normalization
+    overall_min = df[z_cols].min().min()
+    overall_max = df[z_cols].max().max()
+
+
+    # Iterate Over z_cols and Plot
+    for idx, z_col in enumerate(z_cols):
+        row = idx // max_cols
+        col = idx % max_cols
+        ax = axes[row][col]
+
+        if plot_type == 'scatter':
+            # Create a scatter plot
+            ax.scatter(
+                df[x_col],
+                df[y_col],
+                c=df[z_col],
+                cmap='viridis',
+                s=10,
+                alpha=0.7,
+                norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
+            )
+        elif plot_type == 'hexbin':
+            # Create a hexbin plot
+            ax.hexbin(
+                df[x_col],
+                df[y_col],
+                C=df[z_col],
+                gridsize=50,
+                cmap='viridis',
+                reduce_C_function=np.mean,
+                norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
+            )
+        elif plot_type == 'density':
+            # Create a density (kde) plot
+            # seaborn.kdeplot returns a QuadContourSet, not directly used afterward,
+            # but that's fine. We don't need to assign it.
+            sns.kdeplot(
+                x=df[x_col],
+                y=df[y_col],
+                weights=df[z_col],
+                fill=True,
+                cmap='viridis',
+                ax=ax,
+                thresh=0
+            )
+
+        # Set plot title
+        ax.set_title(f'{z_col}', fontsize=12)
+
+        # Optionally turn off axes
+        if axis_off:
+            ax.axis('off')
+
+    # Hide Any Unused Subplots
+    total_plots = n_rows * n_cols
+    if num_z < total_plots:
+        for idx in range(num_z, total_plots):
+            row = idx // max_cols
+            col = idx % max_cols
+            axes[row][col].axis('off')
+
+    # Add a Single Colorbar
+    if plot_type in ['scatter', 'hexbin', 'density']:
+        # Create a ScalarMappable for the colorbar
+        sm = plt.cm.ScalarMappable(
+            cmap='viridis',
+            norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
+        )
+        sm.set_array([])  # Only needed for older Matplotlib versions
+
+        # Flatten the axes array to pass a list of Axes to colorbar
+        all_axes = [ax for row_axes in axes for ax in row_axes]
+
+        # Add colorbar using all axes to properly position it
+        cbar = fig.colorbar(
+            sm,
+            ax=all_axes,
+            orientation='vertical',
+            fraction=0.02,
+            pad=0.04
+        )
+        cbar.set_label('Value', fontsize=12)
+
+
+    plt.show()
+   
   
     
   

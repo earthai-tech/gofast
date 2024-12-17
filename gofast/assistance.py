@@ -311,7 +311,7 @@ def explore(package_path, /,  exclude_names=None):
 
     default_exclusion = [
         'setup', 'seed_control', 'coreutils', 'func_utils', "test_res_api", 
-        'tests', 'thread', 'version', 'validator', 'config']
+        'tests', 'thread', 'version', 'validator', 'config', 'tools']
     
     exclude_names = exclude_names or default_exclusion
     exclude_names = [exclude_names] if isinstance (exclude_names, str) else exclude_names
@@ -397,7 +397,7 @@ def _get_gofast_package_descriptions(include_private=False):
         "model_selection[m]": "Tools for model selection and validation.",
         "preprocessing[m]": "Tools for quick preprocesssing  data and processor built.",
         "query[m]": "Query utilities for data retrieval and manipulation.",
-        "util[m]": "Base package initialization utility functions.",
+        # "util[m]": "Base package initialization utility functions.",
     }
     
     if not include_private:
@@ -440,7 +440,7 @@ def _assist_me(help_task):
         "I provide basic tools. For a deeper dive, use the explorer tools with the "
         "following commands:\n\n"
         "    >>> import gofast as gf\n"
-        "    >>> gf.config.PUBLIC= True  # make sure to set as True\n"
+        "    >>> gf.config.public= True  # make sure to set as True\n"
         "    >>> gf.explore('gofast.package.module_name')\n\n"
         "See the table below for tasks I can quickly perform or help you handle with your data."
     )
