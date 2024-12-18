@@ -21,13 +21,10 @@ from sklearn.utils._param_validation import StrOptions
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 from ..api.property import BaseLearner
 from ..compat.sklearn import validate_params, Interval 
-from ..decorators import ( 
-    smartFitRun, 
-    RunReturn, 
-    EnsureFileExists
-   )
-from ..tools.depsutils import ensure_pkg 
-from ..tools.validator import check_is_runned
+from ..core.io import EnsureFileExists 
+from ..decorators import smartFitRun, RunReturn
+from ..utils.deps_utils import ensure_pkg 
+from ..utils.validator import check_is_runned
 
 from .._gofastlog import gofastlog 
 logger=gofastlog.get_gofast_logger(__name__)

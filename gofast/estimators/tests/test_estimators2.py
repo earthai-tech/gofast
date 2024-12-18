@@ -6,37 +6,37 @@ import numpy as np
 from sklearn.datasets import make_classification, make_regression
 from sklearn.metrics import accuracy_score, mean_squared_error
 
-from gofast.estimators.base import DecisionStumpClassifier
-from gofast.estimators.base import DecisionStumpRegressor 
-from gofast.estimators.boosting import BoostingTreeClassifier
-from gofast.estimators.boosting import BoostingTreeRegressor
+from gofast.estimators.base import StumpClassifier
+from gofast.estimators.base import StumpRegressor 
+from gofast.estimators.boosting import BoostedTreeClassifier
+from gofast.estimators.boosting import BoostedTreeRegressor
 from gofast.estimators.boosting import HybridBoostingClassifier
 from gofast.estimators.boosting import HybridBoostingRegressor
 
 def test_regressor_fit_predict():
     X, y = make_regression(n_samples=100, n_features=1, noise=0.1, random_state=42)
-    stump = DecisionStumpRegressor()
+    stump = StumpRegressor()
     stump.fit(X, y)
     predictions = stump.predict(X)
     assert predictions.shape == (100,), "The shape of the predictions should match the number of samples"
 
 def test_regressor_score():
     X, y = make_regression(n_samples=100, n_features=1, noise=0.1, random_state=42)
-    stump = DecisionStumpRegressor()
+    stump = StumpRegressor()
     stump.fit(X, y)
     score = stump.score(X, y)
     assert 0 <= score <= 1, "Score should be a valid probability"
 
 def test_regressor_no_fit():
     """ Test that predict throws an error if called before fit. """
-    stump = DecisionStumpRegressor()
+    stump = StumpRegressor()
     X = np.random.randn(10, 1)
     with pytest.raises(Exception):
         stump.predict(X)
 
 def test_classifier_fit_predict():
     X, y = make_classification(n_samples=100, n_features=5, n_classes=2, random_state=42)
-    stump = DecisionStumpClassifier()
+    stump = StumpClassifier()
     stump.fit(X, y)
     predictions = stump.predict(X)
     assert len(predictions) == 100, "The number of predictions must be equal to the number of samples"
@@ -44,14 +44,14 @@ def test_classifier_fit_predict():
 
 def test_classifier_score():
     X, y = make_classification(n_samples=100, n_features=5, n_classes=2, random_state=42)
-    stump = DecisionStumpClassifier()
+    stump = StumpClassifier()
     stump.fit(X, y)
     score = stump.score(X, y)
     assert 0 <= score <= 1, "Score should be a valid probability"
 
 def test_classifier_predict_proba():
     X, y = make_classification(n_samples=100, n_features=5, n_classes=2, random_state=42)
-    stump = DecisionStumpClassifier()
+    stump = StumpClassifier()
     stump.fit(X, y)
     proba = stump.predict_proba(X)
     assert proba.shape == (100, 2), "Probability output shape should match (n_samples, n_classes)"
@@ -59,7 +59,7 @@ def test_classifier_predict_proba():
 
 def test_classifier_no_fit():
     """ Test that predict throws an error if called before fit. """
-    stump = DecisionStumpClassifier()
+    stump = StumpClassifier()
     X = np.random.randn(10, 2)
     with pytest.raises(Exception):
         stump.predict(X)
@@ -299,7 +299,7 @@ def test_boosted_tree_regressor_fit_predict():
     
     y = (y- y.min()) / (y.max() -y.min() ) # normalize 
     # Initialize and fit BoostingTreeRegressor
-    reg = BoostingTreeRegressor(n_estimators=100, max_depth=3, eta0=0.1)
+    reg = BoostedTreeRegressor(n_estimators=100, max_depth=3, eta0=0.1)
     reg.fit(X, y)
     
     # Predict using the trained model
@@ -314,14 +314,14 @@ def test_boosted_tree_regressor_fit_predict():
 
 def test_boosted_tree_regressor_incorrect_shape():
     X, y = make_regression(n_samples=100, n_features=4, noise=0.1, random_state=42)
-    reg = BoostingTreeRegressor(n_estimators=100, max_depth=3, eta0=0.1)
+    reg = BoostedTreeRegressor(n_estimators=100, max_depth=3, eta0=0.1)
     
     with pytest.raises(ValueError):
         reg.fit(X, y.reshape(-1, 1, -1))  # Incorrect shape for y
 
 def test_boosted_tree_regressor_predict_before_fit():
     X, _ = make_regression(n_samples=100, n_features=4, noise=0.1, random_state=42)
-    reg = BoostingTreeRegressor(n_estimators=100, max_depth=3, eta0=0.1)
+    reg = BoostedTreeRegressor(n_estimators=100, max_depth=3, eta0=0.1)
     
     with pytest.raises(Exception):
         reg.predict(X)  # Model is not yet fitted
@@ -331,7 +331,7 @@ def test_boosted_tree_classifier_fit_predict():
     X, y = make_classification(n_samples=100, n_features=4, n_classes=2, random_state=42)
     
     # Initialize and fit BoostingTreeClassifier
-    clf = BoostingTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
+    clf = BoostedTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
     clf.fit(X, y)
     
     # Predict using the trained model
@@ -346,14 +346,14 @@ def test_boosted_tree_classifier_fit_predict():
 
 def test_boosted_tree_classifier_incorrect_shape():
     X, y = make_classification(n_samples=100, n_features=4, n_classes=2, random_state=42)
-    clf = BoostingTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
+    clf = BoostedTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
     
     with pytest.raises(ValueError):
         clf.fit(X, y.reshape(-1, 1, -1))  # Incorrect shape for y
 
 def test_boosted_tree_classifier_predict_before_fit():
     X, _ = make_classification(n_samples=100, n_features=4, n_classes=2, random_state=42)
-    clf = BoostingTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
+    clf = BoostedTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
     
     with pytest.raises(Exception):
         clf.predict(X)  # Model is not yet fitted
@@ -363,7 +363,7 @@ def test_boosted_tree_classifier_predict_proba():
     X, y = make_classification(n_samples=100, n_features=4, n_classes=2, random_state=42)
     
     # Initialize and fit BoostingTreeClassifier
-    clf = BoostingTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
+    clf = BoostedTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
     clf.fit(X, y)
     
     # Predict probabilities using the trained model
@@ -377,7 +377,7 @@ def test_boosted_tree_classifier_predict_proba():
 
 def test_boosted_tree_classifier_predict_proba_before_fit():
     X, _ = make_classification(n_samples=100, n_features=4, n_classes=2, random_state=42)
-    clf = BoostingTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
+    clf = BoostedTreeClassifier(n_estimators=100, max_depth=3, eta0=0.1)
     
     with pytest.raises(Exception):
         clf.predict_proba(X)  # Model is not yet fitted

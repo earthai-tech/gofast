@@ -24,7 +24,7 @@ from sklearn.utils._param_validation import StrOptions, HasMethods
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 from ..api.property import BaseClass
 from ..compat.sklearn import validate_params, Interval 
-from ..tools.depsutils import ensure_pkg 
+from ..utils.deps_utils import ensure_pkg 
 from .._gofastlog import gofastlog 
 logger=gofastlog.get_gofast_logger(__name__)
 

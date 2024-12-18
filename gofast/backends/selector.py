@@ -63,9 +63,9 @@ from .nn import NNBackend
 
 from ..decorators import EnsureMethod 
 from ..api.property import BaseClass 
+from ..utils.deps_utils import ensure_pkg 
 
-
-__all__= ["BackendSelector"]
+__all__= ["BackendSelector", "select_backend_n", "safe_cast"]
 
 @EnsureMethod("select_backend", error='warn', mode='soft'  )
 class BackendSelector(BaseClass):
@@ -490,6 +490,388 @@ class BackendSelector(BaseClass):
         """
 
         return self.selected_nn_backend
+ 
 
+@ensure_pkg(
+    "torch", 
+    extra="backend is set to ``torch`` while it is not installed.",
+    partial_check= True,
+    condition= lambda *args, **kwargs: kwargs.get("backend") in ("torch", "pytorch")
+    )
+@ensure_pkg(
+    "tensorflow", 
+    extra="backend is set to ``tensorflow`` while it is not installed.",
+    partial_check= True,
+    condition= lambda *args, **kwargs: kwargs.get("backend") in ("tensorflow", "tf")
+    )
 
+def select_backend_n(
+        backend=None, return_module=False, return_both=False):
+    """
+    Select the backend for computation based on the input string.
 
+    This function maps various input string representations to standardized 
+    backend names or their corresponding modules. It is used to choose the 
+    appropriate backend for performing computations, such as NumPy, TensorFlow, 
+    or PyTorch. This allows the user to provide different variations of backend 
+    names, and the function will return the corresponding backend in a 
+    consistent format or the actual backend module.
+
+    Parameters
+    ----------
+    backend : str or None, optional
+        The backend to use for computation. Accepts the following values:
+        - `None`, `'numpy'`, or `'np'` for NumPy (default).
+        - `'torch'`, `'pytorch'` for PyTorch.
+        - `'tensorflow'`, `'tf'` for TensorFlow.
+
+        The parameter is case-insensitive, so variations like `'TensorFlow'`, 
+        `'TF'`, or `'np'` are also valid. If `None` is provided, the default 
+        backend will be NumPy.
+    
+    return_module : bool, default=False
+        If `True`, the function returns the actual backend module (`numpy`, 
+        `torch`, or `tensorflow`). If `False`, it returns the standardized 
+        backend string (`'numpy'`, `'torch'`, or `'tensorflow'`).
+    
+    return_both : bool, default=False
+        If `True`, the function returns a tuple containing both the standardized 
+        backend string and the corresponding backend module. This is useful 
+        when both the name and the module are needed for further operations.
+
+        - When `return_both` is `True`, the function returns:
+          (`'numpy'`, numpy_module), (`'torch'`, torch_module), or 
+          (`'tensorflow'`, tensorflow_module).
+
+        - If `return_both` is `True`, the `return_module` parameter is ignored.
+
+    Returns
+    -------
+    str or module or tuple of (str, module)
+        - If `return_both` is `True`, returns a tuple containing the standardized 
+          backend string and the corresponding backend module.
+        - If `return_module` is `True`, returns the corresponding backend 
+          module:
+          - `numpy` module for `'numpy'`.
+          - `torch` module for `'torch'`.
+          - `tensorflow` module for `'tensorflow'`.
+        - If both `return_module` and `return_both` are `False`, returns the 
+          standardized backend string, one of `'numpy'`, `'torch'`, or 
+          `'tensorflow'`. 
+
+    Raises
+    ------
+    ValueError
+        If the provided `backend` is not recognized, a `ValueError` is raised 
+        with a message indicating the valid options.
+
+    Notes
+    -----
+    - The backend parameter allows flexibility for users to choose between 
+      different backend libraries (e.g., NumPy for standard computation, 
+      TensorFlow for GPU-accelerated computation, or PyTorch for deep learning 
+      tasks).
+    - If `None` is passed, the function defaults to NumPy, which is the 
+      fallback option for most computations.
+    - The backend parameter is case-insensitive, so it will handle different 
+      cases of the backend names (e.g., `'TensorFlow'`, `'TF'` will be 
+      correctly mapped to `'tensorflow'`).
+    - If an unsupported backend is provided, a `ValueError` will be raised.
+    - When `return_module` or `return_both` is `True`, ensure that the 
+      corresponding backend library is installed in your environment to avoid 
+      `ImportError`.
+
+    Examples
+    --------
+    >>> from gofast.backends.selector import select_backend_n 
+    >>> select_backend_n('tf')
+    'tensorflow'
+    
+    >>> select_backend_n('PyTorch')
+    'torch'
+    
+    >>> select_backend_n('np')
+    'numpy'
+    
+    >>> select_backend_n(None)
+    'numpy'
+    
+    >>> select_backend_n('tf', return_module=True)
+    <module 'tensorflow' from '...'>
+    
+    >>> select_backend_n('torch', return_module=True)
+    <module 'torch' from '...'>
+    
+    >>> select_backend_n('numpy', return_module=True)
+    <module 'numpy' from '...'>
+    
+    >>> select_backend_n('tf', return_both=True)
+    ('tensorflow', <module 'tensorflow' from '...'>)
+    
+    >>> select_backend_n('torch', return_both=True)
+    ('torch', <module 'torch' from '...'>)
+    
+    >>> select_backend_n('numpy', return_both=True)
+    ('numpy', <module 'numpy' from '...'>)
+    
+    >>> select_backend_n('invalid_backend')
+    Traceback (most recent call last):
+        ...
+    ValueError: Unsupported backend: invalid_backend. Supported backends ...
+
+    See Also
+    --------
+    TensorFlow : A powerful open-source machine learning library, often used 
+    for large-scale deep learning tasks.
+    
+    PyTorch : A deep learning framework popular for research and production.
+    
+    NumPy : A library for numerical computing in Python, providing support 
+    for large multi-dimensional arrays and matrices.
+    """
+    backend_map = {
+        None: "numpy",  # Default to numpy if backend is None
+        "numpy": "numpy", "np": "numpy",
+        "torch": "torch", "pytorch": "torch",
+        "tensorflow": "tensorflow", "tf": "tensorflow"
+    }
+
+    normalized_backend = (
+        backend_map.get(backend.lower()) 
+        if isinstance(backend, str) 
+        else backend_map.get(backend)
+    )
+
+    if normalized_backend is None:
+        raise ValueError(
+            f"Unsupported backend: {backend}. Supported backends are "
+            "'numpy', 'tensorflow', and 'torch'."
+        )
+    
+    module = None
+    if return_module or return_both:
+        if normalized_backend == "numpy":
+            import numpy as np
+            module = np
+        elif normalized_backend == "torch":
+            import torch
+            module = torch
+        elif normalized_backend == "tensorflow":
+            import tensorflow as tf
+            module = tf
+
+    if return_both:
+        return normalized_backend, module
+    elif return_module:
+        return module
+    else:
+        return normalized_backend
+
+def safe_cast(backend, value, dtype, backend_name=None):
+    """
+    Helper function to cast values to a specified data type across multiple
+    backends.
+    
+    This function facilitates the conversion of data types for various computational
+    backends, including NumPy, TensorFlow, and PyTorch. It allows users to specify
+    the backend either by name or by passing the backend module directly. The
+    function ensures type safety and compatibility by performing the casting
+    operation in a manner specific to the selected backend.
+    
+    Parameters
+    ----------
+    backend : str or module
+        The backend to use for casting. It can be a string (e.g., ``'numpy'``,
+        ``'tf'``, ``'torch'``) or the actual backend module (e.g., ``numpy``,
+        ``tensorflow``, ``torch``).
+    value : scalar, array-like, TensorFlow tensor, or PyTorch tensor
+        The value to be cast. It can be a scalar, NumPy array, TensorFlow tensor,
+        or PyTorch tensor.
+    dtype : data-type
+        The target data type. It should be compatible with the backend's dtype
+        system.
+    backend_name : str, optional
+        Explicitly specify the backend name if ``backend`` is a module. Default
+        is ``None``.
+    
+    Returns
+    -------
+    casted_value : same type as `value`
+        The value cast to the specified ``dtype``, compatible with the active
+        backend.
+    
+    Raises
+    ------
+    ValueError
+        If the backend is unsupported or if the ``dtype`` is incompatible.
+    TypeError
+        If the input types are incorrect.
+    
+    Formulation
+    ------------
+    .. math::
+        y = \text{cast}(x, \text{dtype})
+    
+    Examples
+    --------
+    Using NumPy backend:
+    
+    >>> import numpy as np
+    >>> from gofast.backends.selector import safe_cast
+    >>> value = [1, 2, 3]
+    >>> dtype = np.float32
+    >>> casted_value = safe_cast('numpy', value, dtype)
+    >>> print(casted_value)
+    [1. 2. 3.]
+    
+    Using TensorFlow backend:
+    
+    >>> import tensorflow as tf
+    >>> from gofast.backends.selector import safe_cast
+    >>> value = tf.constant([1, 2, 3], dtype=tf.int32)
+    >>> dtype = tf.float32
+    >>> casted_value = safe_cast('tf', value, dtype)
+    >>> print(casted_value)
+    tf.Tensor([1. 2. 3.], shape=(3,), dtype=float32)
+    
+    Using PyTorch backend:
+    
+    >>> import torch
+    >>> from gofast.backends.selector import safe_cast
+    >>> value = torch.tensor([1, 2, 3], dtype=torch.int32)
+    >>> dtype = torch.float32
+    >>> casted_value = safe_cast('torch', value, dtype)
+    >>> print(casted_value)
+    tensor([1., 2., 3.])
+    
+    Notes
+    -----
+    The ``safe_cast`` function dynamically imports the required backend module based on the
+    specified backend name or module. If the backend is not installed, an ``ImportError``
+    will be raised, prompting the user to install the necessary package.
+    
+    :math:`y = \text{cast}(x, \text{dtype})` represents the casting operation, where
+    :math:`x` is the input value and :math:`y` is the output value after casting.
+    
+    See also
+    --------
+    ``numpy.asarray``, ``tensorflow.cast``, ``torch.Tensor.to``
+    
+    References
+    ----------
+    .. [1] Waskom, M. (2021). *Seaborn: Statistical Data Visualization*. Journal of
+        Open Source Software, 6(60), 3021.
+    """
+
+    import types
+
+    # Mapping of backend aliases to standardized names
+    BACKEND_ALIASES = {
+        'numpy': ['numpy', 'np'],
+        'tensorflow': ['tensorflow', 'tf'],
+        'torch': ['torch', 'pytorch', 'pt']
+    }
+
+    # Mapping of standardized names to import names
+    BACKEND_IMPORT_NAMES = {
+        'numpy': 'numpy',
+        'tensorflow': 'tensorflow',
+        'torch': 'torch'
+    }
+
+    # Helper function to get standardized backend name
+    def get_standard_backend_name(backend_input):
+        if isinstance(backend_input, str):
+            backend_input_lower = backend_input.lower()
+            for std_name, aliases in BACKEND_ALIASES.items():
+                if backend_input_lower in aliases:
+                    return std_name
+            raise ValueError(
+                f"Unsupported backend name: '{backend_input}'. Supported "
+                f"backends are: {list(BACKEND_ALIASES.keys())}."
+            )
+        elif isinstance(backend_input, types.ModuleType):
+            for std_name, import_name in BACKEND_IMPORT_NAMES.items():
+                if backend_input.__name__.startswith(std_name):
+                    return std_name
+            raise ValueError(
+                f"Unsupported backend module: '{backend_input.__name__}'. Supported "
+                f"backends are: {list(BACKEND_ALIASES.keys())}."
+            )
+        else:
+            raise TypeError(
+                f"Backend must be a string or a module, got {type(backend_input)}."
+            )
+
+    # Determine the backend standardized name
+    if backend_name is not None:
+        if not isinstance(backend_name, str):
+            raise TypeError(
+                f"'backend_name' must be a string, got {type(backend_name)}."
+            )
+        backend_std_name = backend_name.lower()
+        # Validate backend_name
+        if backend_std_name not in BACKEND_ALIASES:
+            raise ValueError(
+                f"Unsupported backend name: '{backend_name}'. Supported "
+                f"backends are: {list(BACKEND_ALIASES.keys())}."
+            )
+    else:
+        # Infer backend name from 'backend'
+        backend_std_name = get_standard_backend_name(backend)
+
+    # Import the backend module dynamically
+    try:
+        if backend_std_name == 'numpy':
+            import numpy as np
+            backend_module = np
+        elif backend_std_name == 'tensorflow':
+            import tensorflow as tf
+            backend_module = tf
+        elif backend_std_name == 'torch':
+            import torch
+            backend_module = torch
+        else:
+            # This case should not occur due to earlier validations
+            raise ValueError(
+                f"Unsupported backend: '{backend_std_name}'. Supported "
+                f"backends are: {list(BACKEND_ALIASES.keys())}."
+            )
+    except ImportError:
+        raise ImportError(
+            f"The backend '{backend_std_name}' is not installed. "
+            f"Please install it to use this functionality."
+        )
+
+    # Perform casting based on the backend
+    try:
+        if backend_std_name == 'numpy':
+            # NumPy: Use np.asarray with dtype
+            return backend_module.asarray(value, dtype=dtype)
+
+        elif backend_std_name == 'tensorflow':
+            # TensorFlow: Use tf.cast
+            return backend_module.cast(value, dtype=dtype)
+
+        elif backend_std_name == 'torch':
+            # PyTorch:
+            # If value is already a PyTorch tensor, use .to(dtype)
+            # Otherwise, create a new tensor with the specified dtype
+            if isinstance(value, backend_module.Tensor):
+                return value.to(dtype)
+            else:
+                return backend_module.tensor(
+                    value, 
+                    dtype=dtype
+                )
+
+        else:
+            # This case should not occur due to earlier validations
+            raise ValueError(
+                f"Unsupported backend: '{backend_std_name}'."
+            )
+
+    except Exception as e:
+        raise ValueError(
+            f"Error casting value with backend '{backend_std_name}': {e}"
+        )

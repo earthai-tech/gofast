@@ -14,7 +14,7 @@ from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 from sklearn.utils._param_validation import Interval, StrOptions
 
-from ..tools.validator import check_array, check_is_fitted
+from ..utils.validator import check_array, check_is_fitted
 from ._tree import  BaseDTB, BaseWeightedTree 
 
 __all__=[ "DTBRegressor", "DTBClassifier", 

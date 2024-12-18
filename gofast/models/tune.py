@@ -107,7 +107,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 
 from ..api.summary import ModelSummary
-from ..tools.depsutils import ensure_pkg
+from ..utils.deps_utils import ensure_pkg
 from .optimize import Optimizer
 # Try importing TPOTClassifier, handle the exception if not installed
 try: 

@@ -20,9 +20,9 @@ from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.utils import check_random_state
 
-from ..tools.validator import check_X_y, check_array 
-from ..tools.validator import check_is_fitted, parameter_validator 
-from ..tools.validator import validate_fit_weights
+from ..utils.validator import check_X_y, check_array 
+from ..utils.validator import check_is_fitted, parameter_validator 
+from ..utils.validator import validate_fit_weights
 from ._ensemble import BaseEnsemble
 from .util import fit_with_estimator, determine_weights, apply_scaling 
 from .util import optimize_hyperparams, normalize_sum 
@@ -118,7 +118,7 @@ class MajorityVoteClassifier(BaseEstimator, ClassifierMixin):
     >>> from sklearn.impute import SimpleImputer
     >>> from gofast.datasets import fetch_data 
     >>> from gofast.estimators.ensemble import MajorityVoteClassifier 
-    >>> from gofast.tools.coreutils import select_features 
+    >>> from gofast.utils.coreutils import select_features 
     >>> data = fetch_data('bagoue original').frame
     >>> X0 = data.iloc [:, :-1]; y0 = data ['flow'].values  
     >>> # exclude the categorical value for demonstration 

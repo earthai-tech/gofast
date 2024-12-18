@@ -7,7 +7,7 @@ import importlib
 import textwrap
 import pkgutil
 import warnings
-import gofast.tools 
+import gofast.utils 
 import gofast.dataops
 from gofast.api.summary import ReportFactory, assemble_reports
 from gofast.api.util import remove_extra_spaces, get_table_size 
@@ -155,7 +155,7 @@ TASK_DESCRIPTIONS = {
 def assist_me(*tasks: str, on_error='warn'):
     """
     Provides some tool recommendations for specified tasks using the 
-    :mod:`gofast.tools` or :mod:`gofast.dataops` library.
+    :mod:`gofast.utils` or :mod:`gofast.dataops` library.
 
     Function dynamically fetches some tools related to user-specified tasks and
     organizes them into categories. It returns detailed descriptions and 
@@ -210,9 +210,9 @@ def assist_me(*tasks: str, on_error='warn'):
         tools = TASK_MAPPING.get(task, [])
         module_dict = {}
         for tool in tools: 
-            module = 'tools' if hasattr(gofast.tools, tool) else 'dataops'
-            value = getattr(gofast.tools, tool) if hasattr(
-                gofast.tools, tool) else getattr(gofast.dataops, tool)
+            module = 'utils' if hasattr(gofast.utils, tool) else 'dataops'
+            value = getattr(gofast.utils, tool) if hasattr(
+                gofast.utils, tool) else getattr(gofast.dataops, tool)
             module_dict[f'gofast.{module}.{tool}'] = remove_extra_spaces( 
                 value.__doc__.split(".")[0].strip().replace("\n", '')
                 )
@@ -274,7 +274,7 @@ def explore(package_path, /,  exclude_names=None):
     --------------------------------------------------------------------------------
     gofast.stats.descriptive          : See More in :ref:`User Guide`.
     gofast.stats.inferential          : See More in :ref:`User Guide`.
-    gofast.stats.model_comparisons    : See More in :ref:`User Guide`.
+    gofast.stats.comparisons          : See More in :ref:`User Guide`.
     gofast.stats.probs                : These functions offer a range of
                                         probability utilities suitable for large
                                         datasets, leveraging the power of NumPy
@@ -310,8 +310,8 @@ def explore(package_path, /,  exclude_names=None):
     """
 
     default_exclusion = [
-        'setup', 'seed_control', 'coreutils', 'funcutils', "test_res_api", 
-        'tests', 'thread', 'version', 'validator', 'config']
+        'setup', 'seed_control', 'coreutils', 'func_utils', "test_res_api", 
+        'tests', 'thread', 'version', 'validator', 'config', 'tools']
     
     exclude_names = exclude_names or default_exclusion
     exclude_names = [exclude_names] if isinstance (exclude_names, str) else exclude_names
@@ -380,22 +380,24 @@ def _get_gofast_package_descriptions(include_private=False):
         "plot": "Plotting and visualization tools.",
         "pyx": "Python extension modules for performance enhancement.",
         "stats": "Statistical functions and analysis tools.",
-        "tools": "Miscellaneous tools and utilities for the package.",
         "transformers": "Transformers and preprocessing modules for data transformation.",
+        "utils": "Miscellaneous tools and utilities for the package.",
         "__init__[m]": "Initialization file for the package.",
         "_dep_config[m]": "Dependency configuration settings.",
         "_distributor_init[m]": "Initialization for distribution setup.",
         "_gofastlog[m]": "Logging configurations and settings for gofast.",
         "_public[m]": "Public API definitions and exports.",
         "assistance[m]": "Helper functions and assistance utilities.",
-        "base[m]": "Base classes and core functionalities.",
         "config[m]": "Configuration settings and utilities.",
         "decorators[m]": "Decorators for various functionalities within the package.",
         "exceptions[m]": "Custom exceptions and error handling.",
+        "feature_selection[m]": "Tools for feature selections and contribution analyses.", 
         "metrics[m]": "Performance metrics and evaluation tools.",
+        "metrics_special[m]":"Specialized metrics for model evaluation.", 
         "model_selection[m]": "Tools for model selection and validation.",
+        "preprocessing[m]": "Tools for quick preprocesssing  data and processor built.",
         "query[m]": "Query utilities for data retrieval and manipulation.",
-        "util[m]": "Base package initialization utility functions."
+        # "util[m]": "Base package initialization utility functions.",
     }
     
     if not include_private:
@@ -438,7 +440,7 @@ def _assist_me(help_task):
         "I provide basic tools. For a deeper dive, use the explorer tools with the "
         "following commands:\n\n"
         "    >>> import gofast as gf\n"
-        "    >>> gf.config.PUBLIC= True  # make sure to set as True\n"
+        "    >>> gf.config.public= True  # make sure to set as True\n"
         "    >>> gf.explore('gofast.package.module_name')\n\n"
         "See the table below for tasks I can quickly perform or help you handle with your data."
     )
