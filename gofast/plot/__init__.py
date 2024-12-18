@@ -84,6 +84,11 @@ from .utils import (
     plot_sensitivity, 
     plot_spatial_distribution, 
     plot_distributions, 
+    plot_dist, 
+    plot_quantile_distributions, 
+    plot_uncertainty, 
+    plot_prediction_intervals, 
+    plot_temporal_trends
     )
 
 __all__= [
@@ -165,6 +170,11 @@ __all__= [
     "plot_sensitivity", 
     "plot_spatial_distribution", 
     "plot_distributions", 
+    "plot_dist", 
+    "plot_quantile_distributions" , 
+    'plot_uncertainty', 
+    'plot_prediction_intervals',
+    "plot_temporal_trends"
                
     ]
 

@@ -29,9 +29,12 @@ from ..api.types import (
     ArrayLike, DataFrame, Dict, List, Optional, Tuple, Union, NDArray, 
 )
 from ..api.summary import ResultSummary
-from ..core.array_manager import to_numeric_dtypes, concat_array_from_list
+from ..compat.sklearn import validate_params 
+from ..core.array_manager import ( 
+    to_numeric_dtypes, concat_array_from_list, extract_array_from
+)
 from ..core.checks  import  _assert_all_types, validate_name_in
-from ..core.handlers import columns_manager
+from ..core.handlers import columns_manager, param_deprecated_message
 from ..core.io import is_data_readable 
 from ..core.utils import normalize_string, type_of_target, smart_format 
 
@@ -100,8 +103,232 @@ __all__=[
      'sinusoidal_regression',
      'standard_scaler',
      'step_regression',
-     'weighted_spearman_rank'
+     'weighted_spearman_rank',
+     'compute_coverage', 
    ]
+
+@validate_params ({ 
+    'actual': ['array-like'], 
+    'lower_bound': ['array-like', str, None], 
+    'upper_bound': ['array-like', str, None], 
+    'df': ['array-like', None], 
+    'numeric_only': [bool], 
+    })
+@param_deprecated_message(
+    conditions_params_mappings=[
+        {
+            'param': 'numeric_only',
+            'condition': lambda v: v is False,
+            'message': ( 
+                "Current version only supports 'numeric_only=True'."
+                " Resetting numeric_only to True. Note, this parameter"
+                " should be removed in the future version."
+                ),
+            'default': True
+        }
+    ]
+)
+def compute_coverage(
+    actual,
+    lower_bound,
+    upper_bound,
+    df=None, 
+    numeric_only=True,
+    allow_missing=False,
+    fill_value=np.nan,
+    verbose=0
+):
+    r"""
+    Compute the coverage probability of prediction intervals,
+    given actual observations and corresponding lower and upper
+    prediction bounds. This metric provides insight into how
+    frequently the true values fall within a predicted range,
+    reflecting the quality and reliability of the prediction
+    intervals.
+
+    Parameters
+    ----------
+    actual : array-like, pandas.DataFrame, or pandas.Series
+        The actual observed values. If a DataFrame or Series is 
+        provided and `<numeric_only>` is True, only numeric 
+        columns are considered.
+    lower_bound : array-like, pandas.DataFrame, or pandas.Series
+        The lower bound predictions with the same shape as `actual`. 
+        Numeric-only selection applies if `<numeric_only>` is True.
+    upper_bound : array-like, pandas.DataFrame, or pandas.Series
+        The upper bound predictions, also matching `actual` in shape 
+        and respecting `<numeric_only>` if True.
+    df : pandas.DataFrame or None, optional
+        If provided, `actual`, `lower_bound`, and `upper_bound` can 
+        be column references (strings) or array-like objects. Columns 
+        specified as strings are extracted from `data`. If arrays 
+        are present, they may be passed through according to the 
+        logic defined in the extraction process.
+    numeric_only : bool, optional
+        If True, restricts extraction to numeric columns. Non-numeric 
+        columns in DataFrame or Series inputs are excluded. Default 
+        is True.
+    allow_missing : bool, optional
+        If True, missing values in any of the inputs are allowed. 
+        Missing values are replaced with `<fill_value>`. If False, 
+        missing values cause a ValueError. Default is False.
+    fill_value : scalar, optional
+        The value used to fill missing entries if `<allow_missing>` 
+        is True. Default is `np.nan`.
+    verbose : int, optional
+        Controls verbosity level for logging steps of the process:
+        
+        - 0: No output.
+        - 1: Basic info, such as final coverage.
+        - 2: Additional details (e.g., handling missing values).
+        - 3: More details (shape checks, conversions).
+        - 4: Very detailed (sample of masks, etc.).
+
+        Default is 0.
+
+    Returns
+    -------
+    float
+        The coverage probability, a value between 0 and 1. A value 
+        close to 1.0 indicates that most actual values fall within 
+        the specified intervals, suggesting well-calibrated prediction 
+        intervals.
+
+    Notes
+    -----
+    Formally, given a set of observations
+    :math:`\{a_1, a_2, \ldots, a_N\}`, lower bounds 
+    :math:`\{\ell_1, \ell_2, \ldots, \ell_N\}`, and upper bounds 
+    :math:`\{u_1, u_2, \ldots, u_N\}`, the coverage probability
+    is defined as:
+
+    .. math::
+       \text{coverage} = \frac{1}{N} \sum_{i=1}^{N}
+       \mathbf{1}\{\ell_i \leq a_i \leq u_i\}
+
+    where :math:`\mathbf{1}\{\ell_i \leq a_i \leq u_i\}` is an 
+    indicator function that equals 1 if :math:`a_i` lies within 
+    the interval :math:`[\ell_i, u_i]` and 0 otherwise.
+    
+    If `data` is provided, `actual`, `lower_bound`, and `upper_bound` 
+    may be references to columns in `data` or direct arrays. Columns 
+    not found or arrays incompatible with the scenario may raise errors 
+    or be handled according to the logic in the underlying extraction 
+    process.
+
+    The `<allow_missing>` parameter controls whether missing values 
+    are acceptable. If allowed, missing values are replaced by 
+    `<fill_value>` before computing coverage. If not allowed, any 
+    presence of missing values triggers an error.
+
+    This function aims to be flexible with data formats, enabling use 
+    with DataFrames, Series, or arrays. The `<numeric_only>` parameter 
+    ensures non-numeric data is excluded from computation, maintaining 
+    numerical integrity.
+
+    Examples
+    --------
+    >>> from gofast.utils.mathext import compute_coverage
+    >>> import numpy as np
+    >>> actual = np.array([10, 12, 11, 9])
+    >>> lower = np.array([9, 11, 10, 8])
+    >>> upper = np.array([11, 13, 12, 10])
+    >>> cov = compute_coverage(actual, lower, upper)
+    >>> print(f"Coverage: {cov:.2f}")
+    Coverage: 1.00
+
+    >>> # Using a pandas DataFrame:
+    >>> import pandas as pd
+    >>> df_actual = pd.DataFrame({'A': [10,12,11,9]})
+    >>> df_lower = pd.DataFrame({'A': [9,11,10,8]})
+    >>> df_upper = pd.DataFrame({'A': [11,13,12,10]})
+    >>> cov = compute_coverage(df_actual, df_lower, df_upper)
+    >>> print(cov)
+    1.0
+
+    See Also
+    --------
+    numpy.isnan : Identify missing values in arrays.
+    pandas.DataFrame.select_dtypes : Select columns with numeric data.
+
+    References
+    ----------
+    .. [1] Gneiting, T. & Raftery, A. E. (2007). "Strictly Proper 
+           Scoring Rules, Prediction, and Estimation," 
+           J. Amer. Statist. Assoc., 102(477):359–378.
+    """
+    # Convert inputs to arrays if they are DataFrame/Series and numeric_only=True
+    def to_array(v):
+        if isinstance(v, (pd.DataFrame, pd.Series)):
+            if numeric_only:
+                v = v.select_dtypes(
+                    include=[np.number]) if isinstance(v, pd.DataFrame) else v
+            a = v.values if hasattr(v, 'values') else np.array(v)
+        elif isinstance(v, np.ndarray):
+            a = v
+        else:
+            # Try to convert to array
+            a = np.array(v)
+        return a
+    
+    # if data is passed , then actual , lower_bound, upper_bound can hold string 
+    # or array. 
+    if df is not None: 
+        actual, lower_bound, upper_bound = extract_array_from(
+            df, actual, lower_bound, upper_bound,
+            handle_unknown='passthrough', 
+            error ='ignore'
+        )
+
+    actual_arr = to_array(actual)
+    lower_arr = to_array(lower_bound)
+    upper_arr = to_array(upper_bound)
+
+    # Verbose logging
+    # verbosity levels: 0 (no output), up to 4 (very detailed)
+    if verbose >= 3:
+        print("Converting inputs to arrays...")
+        print("Shapes:", actual_arr.shape, lower_arr.shape, upper_arr.shape)
+    
+    # Ensure same shape
+    if actual_arr.shape != lower_arr.shape or actual_arr.shape != upper_arr.shape:
+        if verbose >= 2:
+            print("Shapes not matching:")
+            print("actual:", actual_arr.shape)
+            print("lower:", lower_arr.shape)
+            print("upper:", upper_arr.shape)
+        raise ValueError(
+            "All inputs (actual, lower_bound, upper_bound) must have the same shape.")
+    
+    # Handle missing values if not allowed
+    if not allow_missing:
+        # If missing values exist, raise an error
+        mask_missing = np.isnan(actual_arr) | np.isnan(lower_arr) | np.isnan(upper_arr)
+        if np.any(mask_missing):
+            if verbose >= 2:
+                print("Missing values detected. allow_missing=False, raising error.")
+            raise ValueError(
+                "Missing values detected, set allow_missing=True or handle them before.")
+    else:
+        # If allow_missing=True, fill missing with fill_value
+        if verbose >= 2:
+            print(f"Filling missing values with {fill_value}.")
+        actual_arr = np.where(np.isnan(actual_arr), fill_value, actual_arr)
+        lower_arr = np.where(np.isnan(lower_arr), fill_value, lower_arr)
+        upper_arr = np.where(np.isnan(upper_arr), fill_value, upper_arr)
+
+    # Compute coverage
+    coverage_mask = (actual_arr >= lower_arr) & (actual_arr <= upper_arr)
+    coverage = np.mean(coverage_mask)
+
+    if verbose >= 4:
+        print("Coverage mask (sample):", 
+              coverage_mask[:10] if coverage_mask.size > 10 else coverage_mask
+             )
+    if verbose >= 1:
+        print(f"Coverage computed: {coverage:.4f}")
+
+    return coverage
 
 @is_data_readable 
 def rescale_data(

@@ -5522,42 +5522,104 @@ def convert_array_to_pandas(X, *, to_frame=False, columns=None, input_name='X'):
             raise ValueError(f"{input_name} cannot be converted to DataFrame with given columns.")
 
     return X, columns
- 
-def is_frame(arr, df_only=False, raise_exception=False, objname=None):
-    """
-    Return a bool indicating whether `arr` is a pandas DataFrame or Series.
-    Isolated part of :func:`~.array_to_frame` dedicated to X and y frame
-    reconversion validation.
-    
-    Parameters:
-    - arr: The object to check (could be a pandas DataFrame, Series, or other objects).
-    - df_only (bool): If True, only checks for DataFrame type, not Series.
-    - raise_exception (bool): If True, raises a TypeError if `arr` is 
-      not a valid DataFrame/Series.
-    - objname (str or None): The name to use in the error message if
-      `raise_exception=True`.
 
-    Returns:
-    - bool: True if `arr` is a pandas DataFrame or Series (based on `df_only` flag).
-    
-    If `df_only=True`, the function checks only for a DataFrame.
-    """
-    # Check if the object has the necessary attributes to be a DataFrame or Series
-    is_frame = (hasattr(arr, '__array__') and 
-                (hasattr(arr, 'name') or hasattr(arr, 'columns'))) if not df_only else (
-                hasattr(arr, '__array__') and hasattr(arr, 'columns')
-                )
+def is_frame(
+    arr,
+    df_only=False,
+    raise_exception=False,
+    objname=None
+):
+    r"""
+    Check if `arr` is a pandas DataFrame or Series.
 
-    # If it's not a valid frame and raise_exception is True, raise an error
-    if not is_frame and raise_exception:
+    If ``df_only=True``, the function checks strictly for a pandas
+    DataFrame. Otherwise, it accepts either a pandas DataFrame or
+    Series. This utility is often used to validate input data before
+    processing, ensuring that the input conforms to expected types.
+
+    Parameters
+    ----------
+    arr : object
+        The object to examine. Typically a pandas DataFrame or Series,
+        but can be any Python object.
+    df_only : bool, optional
+        If True, only verifies that `arr` is a DataFrame. If False,
+        checks for either a DataFrame or a Series. Default is False.
+    raise_exception : bool, optional
+        If True and `arr` is not a valid frame (depending on `df_only`),
+        a TypeError is raised with a detailed message. Default is False.
+    objname : str or None, optional
+        A custom name used in the error message if `raise_exception`
+        is True. If None, a generic name is used.
+
+    Returns
+    -------
+    bool
+        True if `arr` is a DataFrame or Series (or strictly a DataFrame
+        if `df_only=True`), otherwise False.
+
+    Raises
+    ------
+    TypeError
+        If `raise_exception=True` and `arr` is not a valid frame. The
+        error message guides the user to provide the correct type
+        (`DataFrame` or `DataFrame or Series`).
+
+    Notes
+    -----
+    This function does not convert or modify `arr`. It merely checks
+    its compatibility with common DataFrame/Series interfaces by 
+    examining attributes such as `'columns'` or `'name'`. For a
+    DataFrame, `arr.columns` should exist, and for a Series, a `'name'`
+    attribute is often present. Both DataFrame and Series implement
+    `__array__`, making them NumPy array-like.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.utils.validator import is_frame
+
+    >>> df = pd.DataFrame({'A': [1,2,3]})
+    >>> is_frame(df)
+    True
+
+    >>> s = pd.Series([4,5,6], name='S')
+    >>> is_frame(s)
+    True
+
+    >>> is_frame(s, df_only=True)
+    False
+
+    If `raise_exception=True`:
+
+    >>> is_frame(s, df_only=True, raise_exception=True, objname='Input')
+    Traceback (most recent call last):
+        ...
+    TypeError: 'Input' parameter expects a DataFrame. Got 'Series'
+    """
+    # Determine if arr qualifies as a frame based on df_only
+    if df_only:
+        obj_is_frame = (
+            hasattr(arr, '__array__') and
+            hasattr(arr, 'columns')
+        )
+    else:
+        obj_is_frame = (
+            hasattr(arr, '__array__') and
+            (hasattr(arr, 'name') or hasattr(arr, 'columns'))
+        )
+
+    # If not valid and raise_exception is True, raise TypeError
+    if not obj_is_frame and raise_exception:
         objname = objname or 'Expect'
         objname = f"{objname!r} parameter expects"
+        expected = 'a DataFrame' if df_only else 'a DataFrame or Series'
         raise TypeError(
-            f"{objname} a {'DataFrame' if df_only else 'DataFrame or Series'}."
-            f" Got {type(arr).__name__!r}"
+            f"{objname} {expected}. Got {type(arr).__name__!r}"
         )
-    
-    return is_frame
+
+    return obj_is_frame
+
 
 def check_array(
     array,

@@ -24,9 +24,18 @@ from ..api.types import (
     _T,  _F, ArrayLike, List, DataFrame, NDArray
 )
 from .utils import ( 
-    is_iterable, _assert_all_types,sanitize_frame_cols, listing_items_format,  
+    is_iterable,
+    _assert_all_types,
+    sanitize_frame_cols, 
+    listing_items_format, 
+    smart_format
     )
-from .checks import assert_ratio, is_in_if, str2columns, is_numeric_dtype  
+from .checks import ( 
+    assert_ratio, is_in_if, 
+    str2columns, 
+    is_numeric_dtype, 
+    are_all_frames_valid, 
+    )
 
 __all__ = [ 
     'convert_to_structured_format',
@@ -44,7 +53,621 @@ __all__ = [
     'decode_sparse_data',  
     'map_specific_columns', 
     'reduce_dimensions', 
+    'smart_ts_detector', 
+    'extract_array_from',
     ]
+
+def smart_ts_detector(
+    df,
+    date_col,
+    return_types='format',
+    to_datetime=None,
+    error='raise',
+    verbose=0
+):
+    r"""
+    Intelligently determine the temporal resolution or format of a 
+    given date/time column in a DataFrame, and optionally convert 
+    it to a proper datetime representation. The function can detect 
+    if `<date_col>` is already a datetime-like column, infer time 
+    frequency if possible, or guess the temporal granularity from 
+    numeric values (e.g., treating them as years, months, weeks, 
+    minutes, etc.) when no datetime format is found.
+
+    Let the date column be represented by :math:`d = \{d_1, d_2, 
+    \ldots, d_n\}`. The goal is to determine the format type 
+    :math:`f(d)`, such as `year`, `month`, `week`, `day`, `minute`, 
+    or `second`, based on the range and nature of these values. 
+    Formally, if `d` is datetime-like, we attempt to infer frequency 
+    using heuristics. If numeric, we decide the format by the value 
+    ranges (e.g., values ≤ 12 might suggest months, values ≤ 52 
+    might suggest weeks, etc.). If `to_datetime` is provided, the 
+    function attempts to convert the column accordingly.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame containing the `<date_col>`. This column is 
+        expected to either be datetime-like, numeric, or convertible 
+        to a known temporal format.
+    date_col : str
+        The name of the column in `df` representing date or 
+        time-related data. If not found, handling depends on `<error>`.
+    return_types: {'format', 'date_col', 'df'}, optional
+        Determines the return value:
+        
+        - ``'format'``: Returns a string representing the inferred 
+          date/time format (e.g., 'years', 'months', 'weeks', 'datetime').
+        - ``'date_col'``: Returns the transformed or original date column.
+        - ``'df'``: Returns the entire DataFrame with the `<date_col>` 
+          modified if necessary.
+    to_datetime : {None, 'auto', 'Y', 'M', 'W', 'D', 'H', 'min', 's'}, optional
+    
+        Controls how the column is converted if not already datetime:
+        - None: No conversion, only format detection.
+        - 'auto': Automatically infer and convert based on rules.
+        - Explicit codes like 'Y', 'M', 'W', 'min', 's' attempt to 
+          convert according to those units.
+    error : {'raise', 'ignore', 'warn'}, optional
+        Defines behavior if `<date_col>` is not found or cannot be 
+        interpreted:
+        
+        - 'raise': Raise a ValueError.
+        - 'ignore': Return without modification or raise.
+        - 'warn': Issue a warning and proceed (if possible).
+    verbose : int, optional
+        Verbosity level for logging:
+        
+        - 0: No output.
+        - 1: Basic info.
+        - 2: More details on reasoning steps.
+        - 3: Very detailed internal states.
+
+    Returns
+    -------
+    str or pandas.Series or pandas.DataFrame
+        Depending on `<return_types>`:
+        
+        - If `'format'`, returns a string like `'years'`, `'months'`,
+          `'weeks'`, `'datetime'`, etc.
+        - If `'date_col'`, returns the possibly converted date column.
+        - If `'df'`, returns the entire DataFrame with `<date_col>` 
+          modified accordingly.
+
+    Notes
+    -----
+    If `<date_col>` is already a datetime-like column (np.datetime64),
+    this function attempts to infer frequency using `pd.infer_freq` 
+    or heuristics. If `<to_datetime>` is 'auto', it tries to guess 
+    the best format. If numeric, the function deduces format based 
+    on value ranges. If strings or other types are found, it attempts 
+    conversion if `<to_datetime>` is specified or, otherwise, 
+    handles them according to `<error>`.
+
+    Handling missing or non-convertible values depends on `<error>`. 
+    If 'raise', errors are raised when conversion fails or `<date_col>` 
+    is absent. If 'warn', issues a warning. If 'ignore', quietly 
+    returns what is possible.
+
+    Examples
+    --------
+    >>> from gofast.core.array_manager import smart_ts_detector
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({'year': [2020, 2021, 2022]})
+    >>> # Detect format from year-like integers:
+    >>> fmt = smart_ts_detector(df, 'year', return_types='format')
+    >>> print(fmt)
+    'years'
+
+    >>> # Convert to datetime assuming years:
+    >>> df2 = smart_ts_detector(df, 'year', return_types='df',
+    ...                         to_datetime='Y')
+    >>> print(df2['year'])
+
+    See Also
+    --------
+    pandas.to_datetime : For conversion of values to datetime.
+    pandas.infer_freq : For inferring frequency of datetime series.
+
+    References
+    ----------
+    .. [1] McKinney, W. "Data Structures for Statistical Computing
+           in Python." Proceedings of the 9th Python in Science Conf.
+           (2010): 51–56.
+    """
+
+    # Helper function to raise/warn/ignore errors
+    def handle_error(msg, e=error):
+        if e == 'raise':
+            raise ValueError(msg)
+        elif e == 'warn':
+            warnings.warn(msg)
+        # if ignore, do nothing
+        
+    are_all_frames_valid(df)
+    # Check if date_col in df
+    if date_col not in df.columns:
+        handle_error(f"Column {date_col!r} not found in DataFrame.", e='raise')
+        # If ignoring, just return None or df as is
+        if return_types=='df':
+            return df
+        elif return_types=='date_col':
+            return df[date_col] if date_col in df else None
+        else:
+            return None
+
+    series = df[date_col]
+    
+    # validate to_datetime format is passed
+    valid_formats ={'auto', 'Y', 'M', 'W', 'D', 'H', 'min', 's'}
+    
+    if to_datetime is not None and to_datetime not in valid_formats: 
+        raise ValueError(
+            "Invalid `to_datetime` format '{to_datetime}'."
+            f" Expect one of {smart_format(valid_formats,'or')}"
+        )
+    # Check if already datetime
+    if np.issubdtype(series.dtype, np.datetime64):
+        # already datetime
+        # detect resolution
+        # We try to infer what kind of resolution:
+        # We'll check the range and differences
+        # freqs = series.dropna().diff().dropna()
+        # Just a heuristic to guess resolution
+        # If diffs are large (in days), consider daily or yearly, etc.
+        # But let's simplify: if all values have same year and differ
+        #  in month -> months
+        # If all differ at daily scale -> daily,
+        # If differ at weekly scale -> weekly
+        # If differ by year boundaries -> year
+        # This could be complex. Let's just return 'datetime' if no 
+        # to_datetime specified unless we are forced to guess granularity.
+
+        # If to_datetime is not None and is not 'auto', try converting
+        # but we already have datetime, so no need actually
+        if to_datetime is None or to_datetime=='auto':
+            # Just guess a rough format by checking frequency
+            # Let's convert to period and see the smallest freq
+            try:
+                inferred = pd.infer_freq(series.dropna().sort_values())
+                # infer_freq might return 'M','W','A-DEC' for annual, etc.
+                # We'll map this to a format
+                if inferred is None:
+                    # no freq inferred, just call it 'datetime'
+                    dt_format = 'datetime'
+                else:
+                    # map freq code to something nicer
+                    # For simplicity just return inferred
+                    dt_format = inferred
+            except:
+                dt_format = 'datetime'
+        else:
+            # if to_datetime is explicitly something like 'Y','M','W' 
+            # we won't reconvert since already datetime
+            # Just set dt_format to that
+            dt_format = to_datetime
+    else:
+        # Not datetime
+        # Check if numeric
+        if np.issubdtype(series.dtype, np.number):
+            # numeric
+            # Decide format based on values
+            sdrop = series.dropna()
+            if sdrop.empty:
+                # empty? can't infer
+                dt_format = 'unknown'
+            else:
+                min_val = sdrop.min()
+                max_val = sdrop.max()
+
+                # If to_datetime='auto', we guess from range
+                # if to_datetime is None, we just guess format and not convert
+                # If to_datetime given explicitly, just convert to that
+
+                if to_datetime is None or to_datetime=='auto':
+                    # guess
+                    # if max_val <=12 and min_val>=1 -> months
+                    # if max_val<=52 -> weeks
+                    # if looks like a year range: (e.g. between 1900 and 2100)
+                    # if max_val<=60 -> could be minutes or seconds
+                    # guess priority: 
+                    # If all values less or equal 12 and >=1 -> months
+                    if max_val<=12 and min_val>=1:
+                        dt_format='months'
+                    elif max_val<=52 and min_val>=1:
+                        dt_format='weeks'
+                    elif max_val>1900 and max_val<2100:
+                        dt_format='years'
+                    elif max_val<=60:
+                        # could be minutes or seconds, let's say 'minutes'
+                        dt_format='minutes'
+                    else:
+                        dt_format='unknown'
+                else:
+                    # to_datetime given explicitly
+                    dt_format = to_datetime
+        else:
+            # Not numeric, not datetime -> probably string or something
+            # Try convert to datetime if to_datetime is given
+            # else error
+            if to_datetime is None:
+                handle_error(
+                    "date_col is not datetime or numeric and to_datetime is None.")
+                dt_format='unknown'
+            else:
+                dt_format=to_datetime
+
+        # If we have dt_format and to_datetime='auto' or explicit format,
+        # convert if possible
+        if to_datetime is not None and to_datetime!='auto':
+            # Try convert based on dt_format
+            # Let's implement a simple converter:
+            # if dt_format='years' and numeric: convert as year: pd.to_datetime(series, format='%Y')
+            # if dt_format='months' and numeric: assume year=2000 and that months
+            # represent month of that year
+            # if dt_format='weeks' and numeric: treat as week numbers in a given year?
+            # if dt_format='minutes' and numeric: treat as minutes from a base date?
+
+            # For simplicity:
+            # if years: format='%Y'
+            # if months: treat integers as month numbers in year 2000
+            # if weeks: treat as weeks in year 2000
+            # if minutes: treat as minutes from '2000-01-01'
+            # if seconds: likewise
+
+            try:
+                if dt_format=='years':
+                    # year as int: e.g. 2020 -> '2020'
+                    series_dt = pd.to_datetime(
+                        series.astype(int).astype(str), format='%Y', errors='coerce')
+                    if series_dt.isna().any():
+                        handle_error("Cannot convert to years datetime from given values.")
+                    series = series_dt
+                elif dt_format=='months':
+                    # month as int 1-12
+                    # create a dummy date: '2000-{month}-01'
+                    series_dt = pd.to_datetime(
+                        '2000-'+series.astype(int).astype(str)+'-01',
+                        format='%Y-%m-%d', errors='coerce')
+                    if series_dt.isna().any():
+                        handle_error("Cannot convert to months datetime from given values.")
+                    series = series_dt
+                elif dt_format=='weeks':
+                    # weeks as int 1-52
+                    # interpret as week number in year 2000 starting from first Monday of 2000
+                    # This is trickier
+                    # Let's assume '2000' + week number *7 days
+                    base = pd.Timestamp('2000-01-01')
+                    # series as int *7 days
+                    series_dt = [base + pd.Timedelta(weeks=int(w)) for w in series]
+                    series = pd.to_datetime(series_dt)
+                elif dt_format=='minutes':
+                    # interpret as minutes since 2000-01-01
+                    base = pd.Timestamp('2000-01-01')
+                    series_dt = [base + pd.Timedelta(minutes=float(m)) for m in series]
+                    series = pd.to_datetime(series_dt)
+                elif dt_format=='seconds':
+                    # same logic as minutes but seconds
+                    base = pd.Timestamp('2000-01-01')
+                    series_dt = [base + pd.Timedelta(seconds=float(s)) for s in series]
+                    series = pd.to_datetime(series_dt)
+                else:
+                    # unknown format, try to_datetime directly
+                    series_dt = pd.to_datetime(series, errors='coerce')
+                    if series_dt.isna().any():
+                        handle_error("Cannot convert to datetime with given format guess.")
+                    series = series_dt
+            except Exception as e:
+                handle_error(f"Conversion failed: {e}")
+    # if return_types is 'format', return dt_format
+    if return_types=='format':
+        return dt_format
+    elif return_types=='date_col':
+        return series
+    elif return_types=='df':
+        df = df.copy()
+        df[date_col] = series
+        return df
+    else:
+        return dt_format
+
+def extract_array_from(
+    df,
+    *col_names,
+    handle_unknown='passthrough',
+    asarray=False,
+    check_size=False,
+    ravel=None,
+    error='raise'
+):
+    r"""
+    Extract one or multiple arrays from a pandas DataFrame based on 
+    specified column names or arrays. This function provides flexible 
+    handling of column names, nested lists of column names, and direct 
+    array-like objects. By default, it returns the extracted data as 
+    DataFrame, Series, or the original objects unless `asarray` is True, 
+    in which case arrays are returned as NumPy arrays. 
+    
+    The mathematical essence of extraction involves indexing the 
+    DataFrame or passing through objects. Let:
+    
+    .. math::
+       X = \text{DataFrame}
+    
+    and suppose we have a set of column names :math:`C = \{c_1, \ldots, c_k\}` 
+    or nested structures. The extraction aims to produce:
+    
+    .. math::
+       X_{\text{subset}} = X[:, C_{\text{valid}}]
+    
+    for valid column names. For array-like inputs not corresponding to 
+    columns, behavior depends on `<handle_unknown>`.
+    
+    Parameters
+    ----------
+    df: pandas.DataFrame
+        The DataFrame from which columns are extracted. If `names` 
+        includes references to columns not in `df`, handling depends 
+        on `<handle_unknown>` and `<error>`.
+    *col_names : str, list of str, or array-like
+        The column names or arrays to extract. This can be:
+        
+        - A single string `name` representing a single column.
+        - A list of strings `[col1, col2, ...]` representing multiple 
+          columns.
+        - An array-like object (non-string) that is passed through if 
+          `<handle_unknown>` is `'passthrough'`.
+        - A nested combination like `[col1, [col2, col3], col4, ...]`.
+        
+        If `<asarray>` is False, columns are returned as DataFrame or 
+        Series. If `<asarray>` is True, they are converted to NumPy 
+        arrays.
+    handle_unknown : {'passthrough', None}, optional
+        Controls how to handle unknown columns or non-column arrays.
+        
+        - `'passthrough'`: Return the unknown entries as-is (if arrays) 
+          or skip missing columns.
+        - `None`: Ignore unknown columns silently. If `<error>` is 
+          `'raise'`, an error is raised for missing columns.
+    asarray : bool, optional
+        If True, convert extracted results to NumPy arrays. If False, 
+        return them as DataFrame/Series or as provided arrays.
+    check_size : bool, optional
+        If True, checks that all extracted arrays have the same length. 
+        If a mismatch is found, a ValueError is raised.
+    ravel : {None, '1d', '2d', 'all'}, optional
+        Controls reshaping of arrays if `<asarray>` is True:
+        
+        - `None`: No reshaping performed.
+        - `'1d'`: If an array has shape (n,1), it is raveled to (n,).
+        - `'2d'`: If an array has shape (n,), it is reshaped to (n,1).
+        - `'all'` or `'*'`: Applies '1d' logic to (n,1) arrays. 
+          Leaves (n,) as is.
+    error : {'raise', ...}, optional
+        If `'raise'`, a ValueError is raised if expected columns are 
+        missing. If otherwise (not specified), silently skip or 
+        passthrough.
+
+    Returns
+    -------
+    object or list
+        The extracted arrays. If multiple items are extracted, a list 
+        is returned. If a single item is extracted, that item is 
+        returned directly. If no items are extracted, `None` is 
+        returned.
+    
+    Notes
+    -----
+    When `<names>` contain nested lists, each element is resolved. 
+    Numeric columns are extracted directly. Non-numeric or unknown 
+    columns handling depends on `<handle_unknown>`. The `<ravel>` 
+    parameter applies only when `<asarray>` is True, adjusting the 
+    shape of extracted arrays.
+    
+    If `<check_size>` is True and multiple arrays are extracted, all 
+    must share the same first dimension length. Otherwise, a ValueError 
+    is raised.
+    
+    Examples
+    --------
+    >>> from gofast.core.array_manager import extract_array_from
+    >>> import pandas as pd
+    >>> import numpy as np
+
+    >>> df = pd.DataFrame({'A':[1,2,3],'B':[4,5,6],'C':[7,8,9]})
+    >>> # Extract a single column as is:
+    >>> result = extract_array_from(df, 'A')
+    >>> print(result)
+       A
+    0  1
+    1  2
+    2  3
+
+    >>> # Extract multiple columns and convert to array:
+    >>> arr = extract_array_from(df, ['A','B'], asarray=True)
+    >>> arr.shape
+    (3, 2)
+
+    >>> # Handle unknown column with 'passthrough':
+    >>> result = extract_array_from(df, 'Z', handle_unknown='passthrough')
+    >>> print(result)
+    Z
+    
+    >>> # Check size consistency:
+    >>> arrs = extract_array_from(df, 'A', ['B','C'], asarray=True,
+    ...                           check_size=True)
+    >>> # arrs will be a list of arrays all with length 3.
+
+    See Also
+    --------
+    pandas.DataFrame : The input DataFrame structure.
+    numpy.array : Arrays returned if `asarray=True`.
+
+    References
+    ----------
+    .. [1] McKinney, W. "Data Structures for Statistical Computing
+           in Python." Proceedings of the 9th Python in Science Conf.
+           (2010): 51–56.
+    """
+    
+    # handle scenario:
+    # names could be single col names or lists of col names or arrays
+    # if name is a string, must exist in df or handle_unknown scenario
+    # if name is a list of strings, extract them from df (multicol)
+    # if name is array-like (not string), just pass through if allowed by handle_unknown
+    # ravel='1d', '2d', 'all', None means how to reshape arrays if asarray=True
+    # check_size means ensure all extracted have same length
+
+    # check the dataframe 
+    are_all_frames_valid(df)
+    
+    # Helper to check if something is array-like but not a string
+    def is_array_like(x):
+        return hasattr(x, '__iter__') and not isinstance(x, str)
+
+    extracted = []
+    all_lengths = []
+
+    for nm in col_names:
+        if isinstance(nm, str):
+            # single column name
+            if nm in df.columns:
+                res = df[[nm]] if asarray is False else df[[nm]].values
+                # if single col and asarray=True, res shape (n,1)
+                # if asarray=False, res is a dataframe with 1 col
+            else:
+                # column not found
+                if handle_unknown == 'passthrough':
+                    # return as is the name
+                    res = nm
+                elif handle_unknown is None:
+                    # ignore silently?
+                    # The instructions: if None return only valid names?
+                    # Let's interpret: if None then we do not add this invalid col
+                    # and if warn?
+                    # There's no warn param given actually. Let's just skip col
+                    # or if error='raise', raise
+                    if error=='raise':
+                        raise ValueError(f"Column {nm!r} not found in df.")
+                    else:
+                        # skip silently
+                        continue
+                else:
+                    # if handle_unknown='passthrough', done above
+                    # no other logic given, let's default to skipping if unknown scenario
+                    if error=='raise':
+                        raise ValueError(f"Column {nm!r} not found in df.")
+                    else:
+                        continue
+        elif is_array_like(nm):
+            # nm could be list of strings or array
+            # check if list of strings
+            if all(isinstance(x, str) for x in nm):
+                # multiple column extraction
+                valid_cols = [c for c in nm if c in df.columns]
+                missing_cols = [c for c in nm if c not in df.columns]
+                if missing_cols:
+                    if handle_unknown == 'passthrough':
+                        # keep the missing as they are?
+                        # The instructions are not super clear
+                        # Just return array with found and missing as original strings?
+                        # Not consistent, but let's guess: if unknown and passthrough,
+                        # we can just return the subset we found and add the missing as is?
+                        # Or we skip missing?
+                        # Let's skip missing silently or if error='raise', raise
+                        if error=='raise':
+                            raise ValueError(f"Columns {missing_cols} not found in df.")
+                        elif error=='warn': 
+                            warnings.warn(f"Columns {missing_cols} not found in df."
+                                          " Skip them.")
+                        # else skip them
+                    else:
+                        # if None then just skip them
+                        if error=='raise':
+                            raise ValueError(f"Columns {missing_cols} not found in df.")
+                        elif error=='warn': 
+                            warnings.warn(f"Columns {missing_cols} not found in df."
+                                          " Skip them.")
+                        # else skip them
+                if valid_cols:
+                    res = df[valid_cols] if asarray is False else df[valid_cols].values
+                else:
+                    # no valid cols found
+                    # return empty?
+                    res = np.array([]) if asarray else df.iloc[[], :]
+            else:
+                # nm is array-like but not all strings - treat as passthrough if allowed
+                # If handle_unknown='passthrough', just return as array (if asarray=True)
+                # else return nm as is
+                if handle_unknown == 'passthrough':
+                    res = np.array(nm) if asarray else nm
+                else:
+                    # if None or others?
+                    # if error='raise', raise an error that we have unknown data
+                    if error=='raise':
+                        raise ValueError("Found array-like non-string not handled.")
+                    elif error=='warn': 
+                        warnings.warn(
+                            "Found array-like non-string not handled. Skip it."
+                        )
+                    # skip
+                    continue
+        else:
+            # nm is not string, not iterable means unknown
+            # handle_unknown='passthrough'?
+            if handle_unknown == 'passthrough':
+                res = np.array([nm]) if asarray else nm
+            else:
+                if error=='raise':
+                    raise ValueError(f"Unsupported type {type(nm)}.")
+                else:
+                    continue
+
+        # Now handle ravel if asarray=True
+        if asarray and isinstance(res, np.ndarray):
+            if ravel is not None:
+                # ravel logic
+                if ravel == '1d':
+                    # if shape is (n,1), ravel to (n,)
+                    if len(res.shape)==2 and res.shape[1]==1:
+                        res = res.ravel()
+                elif ravel == '2d':
+                    # if shape is (n,), expand to (n,1)
+                    if len(res.shape)==1:
+                        res = res.reshape(-1, 1)
+                elif ravel in ('all','*'):
+                    # if (n,1)->(n,), if (n,)->(n,1)
+                    # this contradict each other though
+                    # Let's assume 'all' means just ravel 1D arrays
+                    if len(res.shape)==2 and res.shape[1]==1:
+                        res = res.ravel()
+                    elif len(res.shape)==1:
+                        # keep as is if 1D
+                        pass
+                # else no action
+
+        extracted.append(res)
+        # store length for check_size
+        if check_size:
+            if asarray and isinstance(res, np.ndarray):
+                all_lengths.append(res.shape[0])
+            else:
+                # if not array, if dataframe or series
+                if hasattr(res, 'shape'):
+                    all_lengths.append(res.shape[0])
+                elif isinstance(res, (list, tuple)):
+                    all_lengths.append(len(res))
+                else:
+                    # single element maybe?
+                    all_lengths.append(1)
+
+    # After extraction, if check_size=True verify lengths
+    if check_size and len(all_lengths)>1:
+        if len(set(all_lengths))>1:
+            # mismatch
+            raise ValueError(f"Mismatched lengths in extracted arrays: {all_lengths}")
+
+    return extracted if len(extracted)>1 else extracted[0] if extracted else None
 
 
 def reduce_dimensions(

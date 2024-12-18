@@ -133,7 +133,7 @@ def dual_merge(
         threshold (`threshold`). If no exact match is found, the closest 
         point within the threshold will be considered.
 
-    force_coordinates : bool, default ``False``
+    force_coords : bool, default ``False``
         If ``True``, when the closest points are found, the coordinates 
         of `df1` will overwrite those of `df2` for the matched points.
 

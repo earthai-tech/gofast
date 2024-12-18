@@ -2,7 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 """
-Additional plot utilities. 
+Miscellanous plot utilities. 
 """
 from __future__ import annotations 
 import os
@@ -30,22 +30,36 @@ from sklearn.utils import resample
 from ..api.types import Optional, Tuple,  Union, List 
 from ..api.types import Dict, ArrayLike, DataFrame
 from ..api.property import BasePlot
+from ..core.array_manager import smart_ts_detector 
 from ..core.checks import ( 
     _assert_all_types, is_iterable, str2columns, is_in_if, 
-    exist_features, check_features_types, check_spatial_columns 
+    exist_features, check_features_types, check_spatial_columns, 
 )
-from ..core.handlers import columns_manager, default_params_plot 
+from ..core.handlers import ( 
+    columns_manager, default_params_plot, param_deprecated_message 
+)
 from ..compat.sklearn import validate_params, StrOptions, Interval 
 from ..decorators import isdf
 from ..utils.validator import  ( 
-    assert_xy_in, build_data_if, validate_positive_integer
+    assert_xy_in, build_data_if, validate_positive_integer, 
+    validate_quantiles, is_frame, check_consistent_length 
 )
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
-__all__=["boxplot", "plot_r_squared", "plot_text", "plot_spatial_features", 
-         "plot_categorical_feature", 'plot_sensitivity', 
-         'plot_spatial_distribution', 
-         ]
+__all__=[
+    "boxplot", 
+    "plot_r_squared", 
+    "plot_text", 
+    "plot_spatial_features", 
+    "plot_categorical_feature", 
+    'plot_sensitivity', 
+    'plot_spatial_distribution', 
+    'plot_dist', 
+    'plot_quantile_distributions', 
+    'plot_uncertainty', 
+    'plot_prediction_intervals',
+    'plot_temporal_trends'
+]
 
 class PlotUtils(BasePlot):
     def __init__(self, **kwargs):
@@ -3154,7 +3168,7 @@ def plot_spatial_distribution(
 
 @default_params_plot(savefig='my_distribution_plot.png')
 @validate_params ({ 
-    'data': ['array-like'], 
+    'df': ['array-like'], 
     'x_col': [str], 
     'y_col': [str], 
     'z_cols': ['array-like', str], 
@@ -3426,15 +3440,1306 @@ def plot_dist(
 
 
     plt.show()
+
+
+@default_params_plot(savefig='my_q.distributions_plot.png')
+@validate_params ({ 
+    'df': ['array-like'], 
+    'x_col': [str], 
+    'y_col': [str], 
+    'date_col': [ str], 
+    'quantiles': ['array-like', None], 
+    'date_values':['array-like', None], 
+    'value_prefix': [str], 
+    'q_cols': [dict, None], 
+    })
+@isdf 
+def plot_quantile_distributions(
+    df,
+    x_col, # ='longitude'
+    y_col, # ='latitude'
+    date_col, # ='year'
+    quantiles=None,
+    date_values=None,
+    value_prefix='', # 'predicted_subsidence'
+    q_cols=None,
+    cmap='viridis',
+    s=10,
+    alpha=0.8,
+    cbar_orientation='vertical',
+    cbar_fraction=0.02,
+    cbar_pad=0.1,
+    figsize=None,
+    savefig=None,
+    dpi=300,
+    axis_off=True, 
+    reverse=False, 
+):
+    r"""
+    Plot quantile distributions across spatial and temporal domains,
+    visualizing multiple `z`-value distributions defined by quantiles
+    over specific date values. This function arranges the resulting 
+    plots in a grid, with quantiles along one dimension and time/date 
+    values along the other dimension, allowing users to investigate 
+    how distributions change over space and time.
+
+    Mathematically, given spatial coordinates :math:`(x,y)` and a set 
+    of quantiles :math:`Q = \{q_1, q_2, ..., q_m\}` and date values 
+    :math:`D = \{d_1, d_2, ..., d_n\}`, we consider a function 
+    :math:`f(x,y,d,q)` that returns a value for each combination. The 
+    columns of the DataFrame must represent these values. The function 
+    arranges subplots in an :math:`m \times n` grid, where each cell 
+    in the grid corresponds to a specific quantile `q` and a date `d`. 
+    Each subplot displays:
+
+    .. math::
+       z_{q,d}(x,y) = f(x,y; q, d)
+
+    where `z_{q,d}` is extracted from columns based on a naming 
+    convention, or directly provided via ``q_cols``.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame containing spatial and value data. It must 
+        include at least the columns corresponding to `<x_col>`, 
+        `<y_col>`, `<date_col>`, and either:
+
+        1) Columns named according to the convention 
+           ``<value_prefix>_<date>_q<quantile>``, or
+        2) Explicit mappings in `q_cols`.
+    x_col : str
+        The column name representing the x-axis coordinate 
+        (e.g., longitude).
+    y_col : str
+        The column name representing the y-axis coordinate 
+        (e.g., latitude).
+    date_col : str
+        The column representing dates. This can be integer (e.g., year),
+        or datetime. If it's datetime, values are filtered by year 
+        extracted from that datetime.
+    quantiles : list of float, optional
+        A list of quantiles (e.g., [0.1, 0.5, 0.9]). If None, the function
+        attempts to detect quantiles from columns if ``q_cols`` is also 
+        None. If detection fails, a ValueError is raised.
+    date_values : list, optional
+        List of date values to plot. If None, the function infers date 
+        values from `df`. If `date_col` is integer, they are considered 
+        as years. If `date_col` is datetime, the year part is extracted.
+    value_prefix : str, optional
+        The prefix used in column naming format:
+        ``<value_prefix>_<date>_q<quantile>``. By default empty, but 
+        often something like 'predicted_subsidence'.
+    q_cols : dict or None, optional
+        If provided, explicitly maps quantiles and dates to columns. 
+        Two forms are supported:
+        
+        - ``{quantile: {date_str: column_name}}``
+        - ``{quantile: [list_of_columns_in_same_order_as_dates]}``
+        
+        If None, the function uses the naming convention or detection.
+    cmap : str, optional
+        Colormap name used for color encoding values. Default is 'viridis'.
+    s : int, optional
+        Marker size for scatter plots.
+    alpha : float, optional
+        Marker transparency.
+    cbar_orientation : str, optional
+        Orientation of the colorbar. Default is 'vertical'.
+    cbar_fraction : float, optional
+        Fraction of original axes size occupied by colorbar.
+    cbar_pad : float, optional
+        Padding between colorbar and the edge of the plot.
+    figsize : tuple, optional
+        Figure size (width, height) in inches. If None, chosen 
+        automatically based on the number of rows and columns.
+    savefig : str or None, optional
+        If provided, a path to save the figure as an image. If None, 
+        displays the figure interactively.
+    dpi : int, optional
+        Dots-per-inch for the saved figure. Default is 300.
+    axis_off : bool, optional
+        If True, removes axis ticks and labels for cleaner visualization.
+    reverse : bool, optional
+        Controls the orientation of the quantile distribution plots.
+        By default (`reverse=False`), quantiles are placed along the 
+        rows and dates along the columns:
+
+        .. math::
+           \text{Rows} \rightarrow \text{Quantiles} \\
+           \text{Columns} \rightarrow \text{Dates}
+
+        This results in a grid where each row corresponds to a 
+        quantile, and each column corresponds to a date value.
+
+        When `reverse=True`, the layout is inverted so that quantiles 
+        are arranged along the columns and dates along the rows:
+
+        .. math::
+           \text{Rows} \rightarrow \text{Dates} \\
+           \text{Columns} \rightarrow \text{Quantiles}
+
+        In this scenario, each column corresponds to a quantile and 
+        each row corresponds to a date value. This can be useful when 
+        you want to compare quantiles side-by-side horizontally rather 
+        than vertically.
+
+    Methods
+    -------
+    This object is a standalone function with no associated methods.
+    Users interact only through its parameters.
+
+    Notes
+    -----
+    - If `quantiles` is None and no suitable columns are found, a 
+      ValueError is raised.
+    - If `q_cols` is provided, it overrides automatic detection or 
+      naming conventions.
+    - The filtering step for datetime `date_col` extracts the year 
+      component. For custom temporal resolutions, users might need 
+      to preprocess the data.
+    - Negative values in the data might be acceptable for scatter 
+      and hexbin plots, but if a density approach is implemented 
+      elsewhere, ensure non-negative weights [1]_.
+
+    Examples
+    --------
+    Consider a DataFrame `df` with columns:
+    'longitude', 'latitude', 'year', and 
+    'predicted_subsidence_2024_q0.1', 
+    'predicted_subsidence_2024_q0.5', 
+    'predicted_subsidence_2024_q0.9', etc.
+    
+    Consider generating a sample DataFrame suitable for testing:
+
+    >>> import pandas as pd
+    >>> import numpy as np
+
+    >>> num_points = 10
+    >>> years = [2024, 2025]
+    >>> quantiles = [0.1, 0.5, 0.9]
+
+    >>> longitudes = np.random.uniform(100.0, 101.0, num_points)
+    >>> latitudes  = np.random.uniform(20.0, 21.0,  num_points)
+
+    >>> data = []
+    >>> for year in years:
+    ...     for i in range(num_points):
+    ...         # Base subsidence value
+    ...         base_val = np.random.uniform(0, 50)
+    ...         row = {
+    ...             'longitude': longitudes[i],
+    ...             'latitude' : latitudes[i],
+    ...             'year'     : year
+    ...         }
+    ...         # Add columns for each quantile
+    ...         for q in quantiles:
+    ...             q_col = f'predicted_subsidence_{year}_q{q}'
+    ...             row[q_col] = base_val * (1 + np.random.uniform(-0.1,0.1))
+    ...         data.append(row)
+
+    >>> df = pd.DataFrame(data)
+    >>> df.head()
+
+    This `df` will have columns like:
+    `'longitude', 'latitude', 'year', 
+    'predicted_subsidence_2024_q0.1', 'predicted_subsidence_2024_q0.5', 
+    'predicted_subsidence_2024_q0.9', 'predicted_subsidence_2025_q0.1', 
+    'predicted_subsidence_2025_q0.5', 'predicted_subsidence_2025_q0.9'`.
+
+
+    >>> from gofast.plot.utils import plot_quantile_distributions
+    >>> # Automatically detect quantiles and dates:
+    >>> plot_quantile_distributions(
+    ...     df,
+    ...     x_col='longitude',
+    ...     y_col='latitude',
+    ...     date_col='year',
+    ...     value_prefix='predicted_subsidence'
+    ... )
+
+    Or specifying quantiles:
+    >>> plot_quantile_distributions(
+    ...     df,
+    ...     x_col='longitude',
+    ...     y_col='latitude',
+    ...     date_col='year',
+    ...     quantiles=[0.1, 0.5, 0.9],
+    ...     value_prefix='predicted_subsidence'
+    ... )
+
+    If `q_cols` is provided:
+    >>> q_map = {
+    ...     0.1: ['sub2024_q0.1','sub2025_q0.1'],
+    ...     0.5: ['sub2024_q0.5','sub2025_q0.5'],
+    ...     0.9: ['sub2024_q0.9','sub2025_q0.9']
+    ... }
+    >>> plot_quantile_distributions(
+    ...     df,
+    ...     x_col='longitude',
+    ...     y_col='latitude',
+    ...     date_col='year',
+    ...     quantiles=[0.1,0.5,0.9],
+    ...     date_values=[2024,2025],
+    ...     q_cols=q_map
+    ... )
+
+    See Also
+    --------
+    matplotlib.pyplot.scatter : Scatter plot generation.
+    matplotlib.pyplot.hexbin : Hexbin plot generation.
+    seaborn.kdeplot : For density visualization.
+
+    References
+    ----------
+    .. [1] Rosenblatt, M. "Remarks on some nonparametric estimates 
+           of a density function." Ann. Math. Statist. 27 (1956), 
+           832-837.
+    """
+
+    # Infer date_values if not provided
+    if date_values is None:
+        if pd.api.types.is_integer_dtype(df[date_col]):
+            date_values = sorted(df[date_col].unique())
+        elif np.issubdtype(df[date_col].dtype, np.datetime64):
+            date_values = pd.to_datetime(df[date_col].unique()).sort_values()
+        else:
+            date_values = sorted(df[date_col].unique())
+
+    date_values_str = _extract_date_values_if_datetime(df, date_col, date_values)
+
+    # If q_cols is None, we rely on quantiles and naming convention
+    # or detect quantiles if quantiles is None.
+    quantiles = columns_manager(quantiles, empty_as_none= True )
+    if q_cols is None:
+        # If quantiles is None, try to detect from columns
+        if quantiles is None:
+            # Attempt detection
+            detected_quantiles = _detect_quantiles_from_columns(
+                df, value_prefix, date_values_str)
+            if detected_quantiles is None:
+                raise ValueError(
+                    "No quantiles detected from columns."
+                    " Please specify quantiles or q_cols."
+                    )
+            quantiles = detected_quantiles
+
+        # Now we have quantiles, build column names
+        all_cols = _build_column_names(df, value_prefix, quantiles, date_values_str)
+        if not all_cols:
+            raise ValueError(
+                "No matching columns found with given prefix, date, quantiles.")
+    else:
+        # q_cols provided. Let's assume q_cols is a dict:
+        # {quantile: {date_str: column_name}}
+        # or {quantile: [cols_in_same_order_as_date_values_str]}
+        # We must extract quantiles from q_cols keys
+        quantiles_from_qcols = sorted(q_cols.keys())
+        if quantiles is None:
+            quantiles = quantiles_from_qcols
+        else:
+            quantiles = validate_quantiles (quantiles )
+            # Ensure that quantiles match q_cols keys
+            if set(quantiles) != set(quantiles_from_qcols):
+                raise ValueError("Quantiles specified do not match q_cols keys.")
+        
+        # Validate all columns exist
+        all_cols = []
+        for q in quantiles:
+            mapping = q_cols[q]
+            if isinstance(mapping, dict):
+                # expect {date_str: col_name}
+                for d_str in date_values_str:
+                    if d_str not in mapping:
+                        continue
+                    c = mapping[d_str]
+                    if c not in df.columns:
+                        raise ValueError(f"Column {c} not found in DataFrame.")
+                    all_cols.append(c)
+            else:
+                # assume list parallel to date_values_str
+                if len(mapping) != len(date_values_str):
+                    raise ValueError("q_cols mapping length does not match date_values.")
+                for c in mapping:
+                    if c not in df.columns:
+                        raise ValueError(f"Column {c} not found in DataFrame.")
+                all_cols.extend(mapping)
+
+    # Compute overall min and max for color normalization
+    if not all_cols:
+        raise ValueError("No columns determined for plotting.")
+
+    overall_min = df[all_cols].min().min()
+    overall_max = df[all_cols].max().max()
+
+    if reverse:
+        _plot_reversed(
+            df, x_col, y_col, date_col, 
+            quantiles, date_values_str, 
+            q_cols, value_prefix,
+            cmap, s, alpha, axis_off,
+            overall_min, overall_max,
+            cbar_orientation, cbar_fraction, 
+            cbar_pad, figsize, dpi, savefig
+        )
+        return 
+     
+    # Determine subplot grid size
+    n_rows = len(quantiles)
+    n_cols = len(date_values)
+
+    if figsize is None:
+        figsize = (5 * n_cols, 4 * n_rows)
+
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=figsize, constrained_layout=True
+        )
+
+    # Ensure axes is 2D array
+    if n_rows == 1 and n_cols == 1:
+        axes = np.array([[axes]])
+    elif n_rows == 1:
+        axes = np.array([axes])
+    elif n_cols == 1:
+        axes = axes.reshape(n_rows, 1)
+
+    for i, q in enumerate(quantiles):
+        # Extract columns per quantile and date
+        for j, d in enumerate(date_values_str):
+            ax = axes[i, j]
+
+            if q_cols is None:
+                col_name = f'{value_prefix}_{d}_q{q}'
+                if col_name not in df.columns:
+                    ax.axis('off')
+                    ax.set_title(f'No data for {d} (q={q})')
+                    continue
+                subset_col = col_name
+            else:
+                mapping = q_cols[q]
+                if isinstance(mapping, dict):
+                    if d not in mapping:
+                        ax.axis('off')
+                        ax.set_title(f'No col mapped for {d} (q={q})')
+                        continue
+                    subset_col = mapping[d]
+                else:
+                    # list scenario
+                    # find index of d in date_values_str
+                    idx_date = date_values_str.index(d)
+                    subset_col = mapping[idx_date]
+
+            subset = df[[x_col, y_col, date_col, subset_col]].dropna()
+
+            # Filter subset based on date_col and d
+            if np.issubdtype(df[date_col].dtype, np.datetime64):
+                # convert d to int year
+                year_int = int(d)
+                subset = subset[subset[date_col].dt.year == year_int]
+            else:
+                # Attempt to convert d to int if possible
+                try:
+                    val = int(d)
+                except ValueError:
+                    val = d
+                subset = subset[subset[date_col] == val]
+
+            if subset.empty:
+                ax.axis('off')
+                ax.set_title(f'No data after filter for {d} (q={q})')
+                continue
+
+            scatter = ax.scatter(
+                subset[x_col],
+                subset[y_col],
+                c=subset[subset_col],
+                cmap=cmap,
+                s=s,
+                alpha=alpha,
+                norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
+            )
+
+            if np.issubdtype(df[date_col].dtype, np.datetime64):
+                title_str = f"Quantile={q}, Year={d}"
+            else:
+                title_str = f"Quantile={q}, {date_col}={d}"
+            ax.set_title(title_str, fontsize=10)
+
+            if axis_off:
+                ax.axis('off')
+
+        # Add colorbar for the last subplot in each row
+        cbar = fig.colorbar(
+            scatter,
+            ax=axes[i, -1],
+            orientation=cbar_orientation,
+            fraction=cbar_fraction,
+            pad=cbar_pad
+        )
+        cbar.set_label('Value', fontsize=10)
+
+    if savefig:
+        fig.savefig(savefig, dpi=dpi)
+
+    plt.show()
+
+def _extract_date_values_if_datetime(df, date_col, date_values):
+    """
+    Extract date values as strings suitable for column naming if date_col 
+    is datetime. If date_col is datetime, convert them to year strings, 
+    otherwise return them as they are.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame containing the date_col.
+    date_col : str
+        The name of the date column in df.
+    date_values : list
+        A list of date values inferred or provided.
+
+    Returns
+    -------
+    list
+        A list of string representations of the date values.
+    """
+    # Convert datetime if needed
+    # For datetime, date_values are datetimes; might want to format them
+    # as years or something else depending on the scenario
+    # Extract date_values as strings if datetime
+    
+    if np.issubdtype(df[date_col].dtype, np.datetime64):
+        # If datetime, convert each date to its year string
+        return [str(pd.to_datetime(d).year) for d in date_values]
+    else:
+        # Otherwise just convert to string
+        return [str(d) for d in date_values]
+
+def _build_column_names(df, value_prefix, quantiles, date_values_str):
+    """
+    Build a list of column names based on a prefix, quantiles, 
+    and date values (as strings), checking which exist in the DataFrame.
+
+    Assumes the naming format: f'{value_prefix}_{date}_q{quantile}'
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame to check for columns.
+    value_prefix : str
+        The prefix used in column naming.
+    quantiles : list
+        A list of quantiles.
+    date_values_str : list
+        A list of date values as strings.
+
+    Returns
+    -------
+    list
+        A list of column names that exist in df.
+    """
+    # Build column names dynamically or handle scenario where we must 
+    # extract the subset for each date
+    # Suppose the columns are of the form value_prefix_date_qquantile
+    # If this is not the case, user must supply data differently or 
+    # we can handle differently. For now, let's assume columns are named:
+    # f"{value_prefix}_{date}_q{quantile}"
+    # If date_col is datetime, we might extract year or something else
+    
+    all_cols = []
+    for q in quantiles:
+        for d_str in date_values_str:
+            col_name = f'{value_prefix}_{d_str}_q{q}'
+            if col_name in df.columns:
+                all_cols.append(col_name)
+    return all_cols
+
+def _detect_quantiles_from_columns(df, value_prefix, date_values_str):
+    """
+    Attempt to detect quantiles by scanning the DataFrame columns that match
+    the pattern f'{value_prefix}_{date}_q...' for each date in date_values_str.
+    Extract the quantiles from these column names.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+    value_prefix : str
+        The value prefix expected in column names.
+    date_values_str : list
+        A list of date strings.
+
+    Returns
+    -------
+    quantiles : list
+        A list of detected quantiles (floats) sorted.
+    """
+    quantile_pattern = re.compile(r'_q([\d\.]+)$')
+    found_quantiles = set()
+
+    # Check columns that start with value_prefix and contain one of the dates
+    # and end with q{quantile}
+    for col in df.columns:
+        # Check if col fits pattern: value_prefix_date_qquantile
+        # First verify value_prefix and date are in it
+        # This is simplistic: we check if any date is in col
+        # and also if it matches the quantile pattern at the end.
+        if col.startswith(value_prefix + "_"):
+            # Extract the part after value_prefix_
+            remainder = col[len(value_prefix)+1:]
+            # remainder should look like date_qquantile
+            # Check if it contains a known date_str
+            for d_str in date_values_str:
+                if remainder.startswith(d_str + "_q"):
+                    # match qquantile
+                    m = quantile_pattern.search(col)
+                    if m:
+                        q_val = float(m.group(1))
+                        found_quantiles.add(q_val)
+                    break
+
+    if not found_quantiles:
+        return None
+    return sorted(found_quantiles)
+
+
+def _plot_reversed(
+    df, x_col, y_col, date_col,
+    quantiles, date_values_str, q_cols, value_prefix,
+    cmap, s, alpha, axis_off,
+    overall_min, overall_max, cbar_orientation,
+    cbar_fraction, cbar_pad,
+    figsize, dpi, savefig
+):
+    # Reversed mode: quantiles in columns, dates in rows
+    n_rows = len(date_values_str)
+    n_cols = len(quantiles)
+    if figsize is None:
+        figsize = (5 * n_cols, 4 * n_rows)
+
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=figsize,
+        constrained_layout=True
+    )
+
+    if n_rows == 1 and n_cols == 1:
+        axes = np.array([[axes]])
+    elif n_rows == 1:
+        axes = np.array([axes])
+    elif n_cols == 1:
+        axes = axes.reshape(n_rows, 1)
+
+    for j, d in enumerate(date_values_str):
+        for i, q in enumerate(quantiles):
+            ax = axes[j, i]
+
+            if q_cols is None:
+                col_name = f'{value_prefix}_{d}_q{q}'
+                if col_name not in df.columns:
+                    ax.axis('off')
+                    ax.set_title(f'No data for {d} (q={q})')
+                    continue
+                subset_col = col_name
+            else:
+                mapping = q_cols[q]
+                if isinstance(mapping, dict):
+                    if d not in mapping:
+                        ax.axis('off')
+                        ax.set_title(f'No col mapped for {d} (q={q})')
+                        continue
+                    subset_col = mapping[d]
+                else:
+                    idx_date = date_values_str.index(d)
+                    subset_col = mapping[idx_date]
+
+            subset = df[[x_col, y_col, date_col, subset_col]].dropna()
+
+            # Filter subset based on date_col and d
+            if np.issubdtype(df[date_col].dtype, np.datetime64):
+                year_int = int(d)
+                subset = subset[subset[date_col].dt.year == year_int]
+            else:
+                try:
+                    val = int(d)
+                except ValueError:
+                    val = d
+                subset = subset[subset[date_col] == val]
+
+            if subset.empty:
+                ax.axis('off')
+                ax.set_title(f'No data after filter for {d} (q={q})')
+                continue
+
+            scatter = ax.scatter(
+                subset[x_col],
+                subset[y_col],
+                c=subset[subset_col],
+                cmap=cmap,
+                s=s,
+                alpha=alpha,
+                norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
+            )
+
+            if np.issubdtype(df[date_col].dtype, np.datetime64):
+                title_str = f"Quantile={q}, Year={d}"
+            else:
+                title_str = f"Quantile={q}, {date_col}={d}"
+            ax.set_title(title_str, fontsize=10)
+
+            if axis_off:
+                ax.axis('off')
+
+        # Add colorbar for the last column in each row
+        # Actually, we add one per row: better to add at the end of each row?
+        # But here symmetrical to normal, we do once per row
+        cbar = fig.colorbar(
+            scatter,
+            ax=axes[j, -1] if n_cols > 1 else axes[j, 0],
+            orientation=cbar_orientation,
+            fraction=cbar_fraction,
+            pad=cbar_pad
+        )
+        cbar.set_label('Value', fontsize=10)
+
+    if savefig:
+        fig.savefig(savefig, dpi=dpi)
+    plt.show()
+
+
+@default_params_plot(
+    savefig='my_uncertainty_plot.png', 
+    title ="Distribution of Uncertainties",
+    fig_size=None 
+ )
+@validate_params ({ 
+    'df': ['array-like'], 
+    'cols': ['array-like', None], 
+    'plot_type': [StrOptions({ 'box', 'violin', 'strip', 'swarm'})], 
+    'numeric_only': [bool], 
+    })
+@isdf 
+@param_deprecated_message(
+    conditions_params_mappings=[
+        {
+            'param': 'numeric_only',
+            'condition': lambda v: v is False,
+            'message': ( 
+                "Current version only supports 'numeric_only=True'."
+                " Resetting numeric_only to True. Note: this parameter"
+                " should be removed in the future version."
+                ),
+            'default': True
+        }
+    ]
+)
+def plot_uncertainty(
+    df,
+    cols=None,
+    plot_type='box',
+    figsize=None,
+    numeric_only=True,
+    title=None,
+    ylabel="Predicted Value",
+    xlabel_rotation=45,
+    palette='Set2',
+    showfliers=True,
+    grid=True,
+    savefig=None,
+    dpi=300
+):
+    r"""
+    Plot uncertainty distributions from numeric columns in a DataFrame 
+    using various plot types. This function helps visualize the spread 
+    and variability (uncertainty) of predictions or measurements by 
+    generating box plots, violin plots, strip plots, or swarm plots 
+    for each selected column.
+
+    Mathematically, given a set of features 
+    :math:`X = \{x_1, x_2, \ldots, x_n\}`, each representing a 
+    distribution of values, we aim to represent their statistical 
+    properties. For box plots, for example, we often visualize: 
+    median ( :math:`m` ), quartiles ( :math:`q_1, q_3` ), and 
+    outliers [1]_. Such visualizations allow users to quickly 
+    assess uncertainty and variability.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame containing the data to plot. If `<cols>` is None 
+        and `<numeric_only>` is True, all numeric columns in `df` are 
+        selected.
+    cols : list of str or None, optional
+        The columns from `df` to visualize. If None, numeric columns 
+        are detected automatically if `<numeric_only>` is True. If 
+        `<numeric_only>` is False and no columns are numeric, all 
+        columns are chosen.
+    plot_type : str, optional
+        The type of plot to generate. Supported values:
+        
+        - ``'box'``: Box plot, showing quartiles and outliers.
+        - ``'violin'``: Violin plot, showing the kernel density 
+          estimate of the distribution.
+        - ``'strip'``: Strip plot, plotting individual data points.
+        - ``'swarm'``: Swarm plot, arranging points to avoid 
+          overlapping.
+        
+        Defaults to ``'box'``.
+    figsize : tuple or None, optional
+        The size of the figure in inches (width, height). If None, 
+        determined automatically based on the number of columns.
+    numeric_only : bool, optional
+        If True, only numeric columns are considered when `<cols>` is 
+        None. This helps avoid errors if `df` contains non-numeric 
+        data. Default is True.
+    title : str, optional
+        The title of the plot, displayed above the visualization.
+    ylabel : str, optional
+        The label for the y-axis. Defaults to "Predicted Value".
+    xlabel_rotation : int or float, optional
+        The rotation angle (in degrees) for the x-axis labels. 
+        Default is 45 degrees.
+    palette : str or sequence, optional
+        The color palette used for the plot. See seaborn documentation 
+        for available palettes.
+    showfliers : bool, optional
+        If True (for box plots), outliers are shown. For other plot 
+        types, ignored. Default is True.
+    grid : bool, optional
+        If True, a grid is displayed (on the y-axis for typical 
+        distributions). Default is True.
+    savefig : str or None, optional
+        If not None, the figure is saved to the specified path at the 
+        given `<dpi>` resolution. If None, the figure is displayed 
+        interactively.
+    dpi : int, optional
+        The resolution of the saved figure in dots per inch. Default 
+        is 300.
+
+    Methods
+    -------
+    This object is a standalone function and does not provide any 
+    additional callable methods. Users interact solely through its 
+    parameters.
+
+    Notes
+    -----
+    - By selecting different `<plot_type>` values, users can choose 
+      the representation that best suits their data. Box plots show 
+      summary statistics, violin plots add density information, 
+      strip and swarm plots display raw data points.
+    - If `<cols>` is not provided and `<numeric_only>` is True, this 
+      function tries to detect numeric columns automatically. If no 
+      numeric columns are found, a ValueError is raised.
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_uncertainty
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> df = pd.DataFrame({
+    ...     'A': np.random.normal(0,1,100),
+    ...     'B': np.random.normal(5,2,100),
+    ...     'C': np.random.uniform(-1,1,100)
+    ... })
+    >>> # Automatic numeric detection and box plot:
+    >>> plot_uncertainty(df)
+    >>> # Use a violin plot and specify columns:
+    >>> plot_uncertainty(df, cols=['A','B'], plot_type='violin')
+
+    See Also
+    --------
+    seaborn.boxplot : For box plots.
+    seaborn.violinplot : For violin plots.
+    seaborn.stripplot : For strip plots.
+    seaborn.swarmplot : For swarm plots.
+
+    References
+    ----------
+    .. [1] Tukey, J. W. "Exploratory Data Analysis." Addison-Wesley, 
+           1977.
+
+    """
+    # If no cols provided, select numeric columns if numeric_only=True
+    if cols is None:
+        if numeric_only:
+            cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        else:
+            cols = df.columns.tolist()
+    cols = columns_manager(cols, empty_as_none= True )
+    # If no numeric columns found and numeric_only=True
+    if not cols:
+        raise ValueError(
+            "No columns to plot. Please provide columns or set numeric_only=False.")
+
+    check_features_types(df, features=cols, dtype='numeric')
+    # Drop NaN values or handle them
+    plot_data = df[cols].dropna()
+
+    # Automatic figsize
+    if figsize is None:
+        # Simple heuristic: width proportional to number of cols
+        # height fixed at 6
+        width = max(5, len(cols) * 1.2)
+        figsize = (width, 6)
+
+    plt.figure(figsize=figsize)
+
+    # Plot according to type
+    if plot_type == 'box':
+        sns.boxplot(data=plot_data, showfliers=showfliers, palette=palette)
+    elif plot_type == 'violin':
+        sns.violinplot(data=plot_data, palette=palette)
+    elif plot_type == 'strip':
+        sns.stripplot(data=plot_data, palette=palette)
+    elif plot_type == 'swarm':
+        sns.swarmplot(data=plot_data, palette=palette)
    
-  
+    plt.title(title, fontsize=14)
+    plt.ylabel(ylabel, fontsize=12)
+
+    # Rotate x-labels if needed
+    plt.xticks(rotation=xlabel_rotation)
     
-  
+    if grid:
+        plt.grid(True, axis='y', linestyle='--', alpha=0.7)
+
+    if savefig:
+        plt.savefig(savefig, dpi=dpi, bbox_inches='tight')
+
+    plt.show()
+
+@default_params_plot(
+    savefig='my_prediction_intervals_plot.png', 
+    title ="Prediction Intervals",
+    fig_size=(10, 6) 
+ )
+@validate_params ({ 
+    'df': ['array-like'], 
+    'x': ['array-like', None], 
+    'line_colors': ['array-like'], 
+    'numeric_only': [bool], 
+    })
+def plot_prediction_intervals(
+    df,
+    median_col=None,
+    lower_col=None,
+    upper_col=None, 
+    actual_col=None,
+    x=None,
+    title=None,
+    xlabel="X",
+    ylabel="Value",
+    legend=True,
+    line_colors=('black', 'blue'),
+    fill_color='blue',
+    fill_alpha=0.2,
+    figsize=None,
+    grid=True,
+    savefig=None,
+    dpi=300
+):
+    r"""
+    Plot prediction intervals to visualize forecast uncertainty or 
+    variation in predicted values. This function displays a median 
+    prediction line, optionally actual observed values, and fills the 
+    area between lower and upper quantiles (or prediction bounds) to 
+    highlight uncertainty.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame containing columns for actual and predicted 
+        values. Must at least have `<median_col>`, `<lower_col>` and 
+        `<upper_col>`.
+    median_col : str
+        The name of the column in `df` representing the median 
+        prediction. This is the central prediction line.
+    lower_col : str
+        The name of the column in `df` representing the lower bound 
+        of the prediction interval.
+    upper_col : str
+        The name of the column in `df` representing the upper bound 
+        of the prediction interval.
+    actual_col : str or None, optional
+        The name of the column in `df` representing actual observed 
+        values. If None, no actual line is plotted.
+    x : array-like or None, optional
+        The x-coordinates for plotting. If None, the index of `df` is 
+        used.
+    title : str, optional
+        The plot title, describing the scenario or data.
+    xlabel: str, optional
+        The label for the x-axis.
+    ylabel : str, optional
+        The label for the y-axis.
+    legend : bool, optional
+        If True, display a legend showing line and interval labels.
+    line_colors : tuple, optional
+        A tuple of colors (actual_line_color, median_line_color). 
+        Defaults to ('black', 'blue').
+    fill_color`: str, optional
+        The color used for filling the interval region. Default is 
+        'blue'.
+    fill_alpha : float, optional
+        The transparency level of the filled interval region. 
+        Default is 0.2.
+    figsize : tuple or None, optional
+        The figure size in inches (width, height). If None, defaults 
+        to (10, 6).
+    grid: bool, optional
+        If True, display a grid on the plot. Default is True.
+    savefig : str or None, optional
+        If provided, a file path to save the figure. If None, the 
+        figure is displayed interactively.
+    dpi: int, optional
+        The resolution of the saved figure in dots-per-inch. 
+        Default is 300.
+
+    Methods
+    -------
+    This object is a standalone function without additional methods. 
+    Users interact solely through the given parameters.
+
+    Notes
+    -----
+    Given a series of predictions indexed by :math:`i`, let 
+    :math:`m_i` be the median prediction and 
+    :math:`\ell_i`, :math:`u_i` be the lower and upper bounds of the 
+    prediction interval at index :math:`i`. The plot represents:
+
+    .. math::
+       \ell_i \leq m_i \leq u_i
+
+    as a shaded region from :math:`\ell_i` to :math:`u_i`, with a line 
+    at :math:`m_i`. If actual values :math:`a_i` are provided, they are 
+    plotted as well to compare predictions against reality.
     
-  
+    By visualizing the median prediction along with the lower and 
+    upper bounds, users gain insight into the uncertainty or 
+    confidence intervals around their forecasts. If actual 
+    observations are provided, comparing them against the median 
+    and interval can highlight prediction accuracy or deviation.
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_prediction_intervals
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...    'median_pred': [10, 12, 11, 13],
+    ...    'lower_pred':  [9,  11, 10, 12],
+    ...    'upper_pred':  [11, 13, 12, 14],
+    ...    'actual':      [10.5, 11.5, 11.2, 12.8]
+    ... })
+    >>> # Plot intervals with actual:
+    >>> plot_prediction_intervals(
+    ...     df,
+    ...     actual_col='actual',
+    ...     median_col='median_pred',
+    ...     lower_col='lower_pred',
+    ...     upper_col='upper_pred',
+    ...     xlabel='Time Step',
+    ...     ylabel='Value',
+    ...     title='Forecast Intervals'
+    ... )
+
+    See Also
+    --------
+    matplotlib.pyplot.fill_between : Used for filling intervals.
+    matplotlib.pyplot.plot : For line plotting.
+
+    References
+    ----------
+    .. [1] Gneiting, T., and Raftery, A. E. "Strictly Proper 
+           Scoring Rules, Prediction, and Estimation." J. Amer. 
+           Statist. Assoc. 102 (2007): 359–378.
+    """
+    is_frame(df, df_only=True, raise_exception =True, objname ='df')
     
-  
+    # If x is None, use the index
+    if x is None:
+        x = np.arange(len(df))
+        
+    check_consistent_length(df, x )
     
+    # Validate columns
+    if median_col is None or lower_col is None or upper_col is None:
+        raise ValueError(
+            "median_col, lower_col, and upper_col must be specified.")
     
+    exist_features(df, features =[median_col, lower_col, upper_col])
+    # Extract data
+    median_vals = df[median_col].values
+    lower_vals = df[lower_col].values
+    upper_vals = df[upper_col].values
+
+    # Create figure
+    plt.figure(figsize=figsize)
     
+    # Plot actual if provided
+    if actual_col is not None:
+        exist_features(df, features=actual_col, name ='Actual feature column')
+        plt.plot(x, df[actual_col].values, label=actual_col, color=line_colors[0])
+
+    # Plot median line
+    plt.plot(x, median_vals, label=median_col, color=line_colors[1])
+
+    # Fill interval
+    plt.fill_between(
+        x, lower_vals, upper_vals,
+        color=fill_color, alpha=fill_alpha,
+        label=f'{lower_col} - {upper_col}'
+    )
+
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+
+    if grid:
+        plt.grid(True, linestyle='--', alpha=0.5)
+
+    if legend:
+        plt.legend()
+
+    if savefig:
+        plt.savefig(savefig, dpi=dpi, bbox_inches='tight')
+
+    plt.show()
+
+@default_params_plot(
+    savefig='my_temporal_trends_plot.png', 
+    title ="Temporal Trends",
+    fig_size=(8, 6) 
+ )
+@validate_params ({ 
+    'df': ['array-like'], 
+    'date_col':[str], 
+    'value_cols': ['array-like', str], 
+    'line_colors': ['array-like'], 
+    'to_datetime': [StrOptions({'auto', 'Y','M','W','D','H','min','s'}), None], 
+    })
+def plot_temporal_trends(
+    df,
+    date_col,
+    value_cols,
+    agg_func='mean',
+    freq=None,
+    to_datetime=None,
+    kind='line',
+    figsize=None,
+    color=None,
+    marker='o',
+    linestyle='-',
+    grid=True,
+    title=None,
+    xlabel=None,
+    ylabel=None,
+    legend=True,
+    xrotation=0,
+    savefig=None,
+    dpi=300,
+    verbose=0
+):
+    r"""
+    Plot temporal trends of aggregated values over time, allowing 
+    flexible input data handling, aggregation, and optional conversion 
+    of date columns to a datetime format. By grouping data by `<date_col>` 
+    and applying an aggregation function `<agg_func>`, this function 
+    derives time-based trends that can be visualized using different 
+    plot styles.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame containing `<date_col>` and `<value_cols>`.
+    date_col : str
+        The name of the column in `df` representing the temporal axis.
+        If `to_datetime` is provided, the column may be converted to 
+        a datetime format.
+    value_cols : str or list of str
+        The column name(s) representing the values to aggregate and 
+        plot over time. If a single string is provided, it is internally 
+        converted to a list.
+    agg_func : str or callable, optional
+        The aggregation function applied to the grouped data. If a 
+        string (e.g., 'mean'), it must correspond to a valid pandas 
+        aggregation method. If callable, it should accept an array 
+        and return a scalar.
+    freq : None or str, optional
+        Reserved for future use or advanced frequency adjustments. 
+        Currently not implemented.
+    to_datetime : {None, 'auto', 'Y','M','W','D','H','min','s'}, optional
+        Controls conversion of `<date_col>` to datetime if not already 
+        in datetime format:
+        
+        - None: No conversion, date_col used as-is.
+        - 'auto': Attempt automatic detection and conversion via 
+          `smart_ts_detector`.
+        - Explicit codes (e.g. 'Y','M','W','min','s') instruct how 
+          to interpret and convert numeric values into datetime 
+          objects (e.g., integers as years, months, weeks).
+    kind : {'line', 'bar'}, optional
+        The type of plot:
+        
+        - 'line': A line plot connecting aggregated points over time.
+        - 'bar': A bar plot showing discrete aggregated values.
+    figsize : tuple, optional
+        Figure size (width, height) in inches. Default is (10,6).
+    color : color or sequence of colors, optional
+        Color(s) for the plot lines or bars. If None, defaults 
+        to matplotlib defaults.
+    marker : str, optional
+        Marker style for line plots. Default is 'o'.
+    linestyle : str, optional
+        Line style for line plots. Default is '-'.
+    grid : bool, optional
+        If True, display a grid. Default is True.
+    title : str, optional
+        The title of the plot. Default "Temporal Trends".
+    xlabel : str or None, optional
+        Label for the x-axis. If None, uses `<date_col>`.
+    ylabel : str or None, optional
+        Label for the y-axis. If None, defaults to "Value".
+    legend : bool, optional
+        If True, display a legend for multiple `<value_cols>`. 
+        Default is True.
+    xrotation : int or float, optional
+        Rotation angle for x-axis tick labels. Default is 0 (no rotation).
+    savefig : str or None, optional
+        File path to save the figure. If None, displays interactively.
+    dpi: int, optional
+        Resolution of saved figure in dots-per-inch. Default is 300.
+    verbose : int, optional
+        Verbosity level for logging
+ 
+    Returns
+    -------
+    None
+        Displays the plot or saves it to the specified file.
+
+    Notes
+    -----
+    Consider a DataFrame :math:`D` with a time-related column 
+    :math:`d \in D` and value columns :math:`v \in D`. The goal is 
+    to produce a plot:
+
+    .. math::
+       T(t) = \text{agg_func}(\{v_i | d_i = t\}),
+
+    where `<agg_func>` (e.g. `mean`) is applied to subsets of 
+    `<value_cols>` grouped by each unique time unit in `<date_col>`. 
+    The resulting series :math:`T(t)` highlights how `<value_cols>` 
+    evolve over time.
     
+    If `<to_datetime>` is not None, `smart_ts_detector` may be used 
+    internally to guess and convert `<date_col>` into a datetime 
+    object. For example, if `<to_datetime>='Y'` and the column 
+    contains integers like 2020, 2021, they are interpreted as years 
+    and converted accordingly.
+
+    If multiple `<value_cols>` are provided and `kind='line'`, each 
+    column is plotted as a separate line. If `kind='bar'`, a grouped 
+    bar plot is produced automatically using `DataFrame.plot`.
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_temporal_trends
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'year': [2020,2021,2022,2023],
+    ...     'subsidence': [5.4, 5.6, 5.9, 6.1]
+    ... })
+    >>> # Simple line plot by year
+    >>> plot_temporal_trends(df, 'year', 'subsidence')
+    >>> # Convert from year int to datetime year and plot
+    >>> plot_temporal_trends(df, 'year', 'subsidence', to_datetime='Y')
+
+    See Also
+    --------
+    pandas.DataFrame.plot : General plotting tool for DataFrames.
+    gofast.core.array_manager.smart_ts_detector : 
+        Helps infer and convert numeric columns to datetime.
+    """
+    is_frame(df, df_only=True, raise_exception =True, objname='df')
+    
+    # If to_datetime is specified, use smart_ts_detector to convert date_col
+    if to_datetime is not None:
+        # We will call smart_ts_detector with appropriate parameters to 
+        # handle the conversion return_types='df' to get a converted df back
+        if verbose >= 2:
+            print(f"Converting {date_col!r} using smart_ts_detector"
+                  f" with to_datetime={to_datetime}")
+        df = smart_ts_detector(
+            df=df,
+            date_col=date_col,
+            return_types='df',
+            to_datetime=to_datetime,
+            error='raise',  # Raise error if something goes wrong
+            verbose=verbose
+        )
+
+    # Ensure value_cols is a list
+    value_cols = columns_manager(value_cols, empty_as_none= False )
+    # checks whether columns exist
+    exist_features(df, features= value_cols, name ='Value columns')
+
+    # Perform grouping by date_col and aggregation
+    grouped = df.groupby(date_col)[value_cols]
+
+    if isinstance(agg_func, str):
+        # If a string is given, we assume it's a known aggregation function
+        agg_data = grouped.agg(agg_func)
+    else:
+        # If agg_func is callable, use it directly
+        agg_data = grouped.agg(agg_func)
+
+    # Create figure and plot
+    plt.figure(figsize=figsize)
+
+    if kind == 'line':
+        # Plot each value_col as a separate line
+        for c in value_cols:
+            plt.plot(
+                agg_data.index, agg_data[c],
+                marker=marker,
+                linestyle=linestyle,
+                color=color,
+                label=c if legend else None
+            )
+    elif kind == 'bar':
+        # Let pandas handle the bar plot
+        agg_data.plot(
+            kind='bar', ax=plt.gca(),
+            legend=legend, color=color
+        )
+    else:
+        # Fallback to line if unknown kind
+        for c in value_cols:
+            plt.plot(
+                agg_data.index, agg_data[c],
+                marker=marker,
+                linestyle=linestyle,
+                color=color,
+                label=c if legend else None
+            )
+
+    # Set plot titles and labels
+    plt.title(title)
+    plt.xlabel(xlabel if xlabel else date_col)
+    plt.ylabel(ylabel if ylabel else "Value")
+    plt.xticks(rotation=xrotation)
+
+    # Add grid if requested
+    if grid:
+        plt.grid(True, linestyle='--', alpha=0.7)
+
+    # Add legend if needed
+    if legend and kind != 'bar':
+        plt.legend()
+
+    # Save figure if a path is provided
+    if savefig:
+        plt.savefig(savefig, dpi=dpi, bbox_inches='tight')
+
+    # Show the plot
+    plt.show()
+

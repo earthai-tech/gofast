@@ -111,6 +111,7 @@ MODULE_MAPPING = {
         'step_regression',
         'weighted_spearman_rank', 
         'rescale_data', 
+        'compute_coverage', 
     ],
     'ml': [
         'bi_selector', 

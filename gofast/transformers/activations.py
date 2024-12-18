@@ -24,7 +24,6 @@ from ..decorators import Appender, DataTransformer
 from ..utils.validator import check_array, filter_valid_kwargs
 from ..utils.validator import parameter_validator  
 
-
 __all__= [ 
     'ReLUTransformer',
     'SigmoidTransformer',
