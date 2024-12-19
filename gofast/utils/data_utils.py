@@ -14,6 +14,7 @@ import os
 import re
 import copy 
 import warnings 
+from numbers import Real
 from typing import Any, List, Union, Optional, Set, Tuple   
 from functools import reduce
 
@@ -23,7 +24,7 @@ import pandas as pd
 
 from .._gofastlog import gofastlog 
 from ..api.types import _F, ArrayLike, NDArray, DataFrame 
-from ..compat.sklearn import validate_params, StrOptions
+from ..compat.sklearn import validate_params, StrOptions, Interval
 from ..decorators import isdf
 from ..core.array_manager import to_numeric_dtypes 
 from ..core.checks import ( 
@@ -60,7 +61,512 @@ __all__= [
     'swap_ic', 
     'to_categories', 
     'pop_labels_in', 
+    'truncate_data', 
     ]
+
+
+@validate_params ({ 
+    'threshold':[Interval(Real, 0, 1, closed='neither')], 
+    'along_with': [StrOptions({'rows', 'cols'}), None],
+    'ops': [StrOptions({'check_only', 'drop'}), None], 
+    'atol': [Interval(Real, 0, 1, closed='neither'), None]
+    })
+@is_data_readable 
+def has_duplicates(
+    data,
+    ops=None,
+    in_cols=None,
+    along_with=None,
+    inplace=False,
+    atol=None,
+    verbose=0
+):  
+    """
+    Check for and optionally drop duplicate entries in a pandas DataFrame.
+    
+    This function allows for checking duplicates within a DataFrame based on 
+    specified columns or along rows or columns. It supports both exact and 
+    approximate duplicate detection using an absolute tolerance (`atol`). 
+    Additionally, it can drop duplicate rows or columns, providing detailed 
+    statistics based on the verbosity level.
+    
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The DataFrame to check for duplicates.
+    ops : {'check_only', 'drop'}, default='check_only'
+        The operation to perform:
+            - ``'check_only'``: Only checks for duplicates without modifying the 
+              DataFrame.
+            - ``'drop'``: Drops duplicate entries from the DataFrame.
+    in_cols : list-like, optional
+        Specific columns to consider when checking for duplicates. If `None`, 
+        duplicates are checked across all columns.
+    along_with : {'rows', 'cols'}, default=None
+        Specifies the axis along which to check for duplicates:
+            - ``'rows'``: Checks for duplicate rows.
+            - ``'cols'``: Checks for duplicate columns.
+            - `None`: Uses pandas' default behavior, typically checking duplicate rows.
+    inplace : bool, default=False
+        If ``True``, performs the operation inplace and returns ``None``. If 
+        ``False``, returns a new DataFrame with duplicates handled accordingly.
+    atol : float, optional
+        Absolute tolerance for considering numeric values as duplicates. If 
+        ``None``, exact matches are required. For example, if ``atol=0.01``, 
+        values within ``0.01`` of each other are treated as duplicates.
+    verbose : int, default=0
+        Controls the verbosity of the output:
+            - ``0``: No output.
+            - ``1``: Basic information about duplicates found or dropped.
+            - ``2``: Detailed statistics about the duplicates.
+            - ``3``: Comprehensive summary including locations of duplicates.
+    
+    Returns
+    -------
+    bool or pandas.DataFrame or None
+        - If ``ops='check_only'``, returns ``True`` if duplicates are found, 
+          ``False`` otherwise. Additionally, returns a dictionary with details 
+          about the duplicates if found.
+        - If ``ops='drop'``, returns the DataFrame with duplicates dropped if 
+          ``inplace=False``. Returns ``None`` if ``inplace=True``.
+    
+    Notes 
+    ------
+    
+    .. math::
+        d\left(p, q\right) = \sqrt{\sum_{i=1}^{n} \left(p_i - q_i\right)^2}
+    
+    The duplication check is based on calculating the distance between data points 
+    using the above Euclidean distance formula when ``atol`` is specified. For exact 
+    duplicate detection, ``atol`` is set to ``None``, and duplicates are identified 
+    based on identical values in the specified columns.
+    
+    - The function can handle both row-wise and column-wise duplicate checks 
+      based on the ``along_with`` parameter.
+    - When using ``atol``, numeric columns are rounded to the specified 
+      tolerance before checking for duplicates.
+    - The verbosity level allows users to receive varying degrees of detail 
+      regarding the duplicate detection and removal process.
+      
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.utils.data_utils import has_duplicates
+    >>> df = pd.DataFrame({
+    ...     'A': [1, 2, 2, 4],
+    ...     'B': [5, 6, 6, 8],
+    ...     'C': [9, 10, 10, 12]
+    ... })
+    >>> # Check for duplicates across all columns
+    >>> has_duplicates(df)
+    (True, {'rows':    A  B   C
+    2  2  6  10})
+    >>> # Drop duplicate rows
+    >>> clean_df = has_duplicates(
+    ...     df, ops='drop', verbose=1
+    ... )
+    Dropped 1 duplicate rows.
+    >>> print(clean_df)
+       A  B   C
+    0  1  5   9
+    1  2  6  10
+    3  4  8  12
+    
+    See Also
+    --------
+    pandas.DataFrame.duplicated : Return boolean Series denoting duplicate rows.
+    pandas.DataFrame.drop_duplicates : Remove duplicate rows from a DataFrame.
+    pandas.DataFrame.T : Transpose index and columns of DataFrame.
+    
+    References
+    ----------
+    .. [1] McKinney, W. (2010). Data Structures for Statistical Computing 
+       in Python. *Proceedings of the 9th Python in Science Conference*, 
+       51-56.
+    .. [2] pandas Documentation. (2023). 
+       https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.duplicated.html
+    .. [3] SciPy Developers. (2023). *SciPy Spatial Documentation*. 
+       https://docs.scipy.org/doc/scipy/reference/spatial.html
+    """
+
+    is_frame(data, df_only=True, raise_exception=True, objname='df')
+    # Validate the 'ops' parameter
+    if ops is None:
+        ops= 'check_only'
+    
+    # Create a copy of the DataFrame if not inplace
+    if not inplace:
+        df_copy = data.copy()
+    else:
+        df_copy = data
+    
+    # Handle absolute tolerance for numeric columns
+    if atol is not None and in_cols is not None:
+        numeric_cols = df_copy[in_cols].select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) > 0:
+            df_copy[numeric_cols] = df_copy[numeric_cols].round(
+                decimals=int(-np.log10(atol)) if atol > 0 else 0
+            )
+    
+    duplicates_info = {}
+    
+    # Check for duplicates based on 'along_with' parameter
+    if along_with == 'rows' or along_with is None:
+        subset = in_cols if in_cols is not None else None
+        duplicated_mask = df_copy.duplicated(subset=subset, keep=False)
+        duplicate_rows = df_copy[duplicated_mask]
+        if not duplicate_rows.empty:
+            duplicates_info['rows'] = duplicate_rows
+    if along_with == 'cols':
+        subset = in_cols if in_cols is not None else df_copy.columns
+        duplicated_mask = df_copy.T.duplicated(keep=False)
+        duplicate_cols = df_copy.columns[duplicated_mask]
+        if duplicate_cols.any():
+            duplicates_info['cols'] = duplicate_cols.tolist()
+    
+    # Handle 'check_only' operation
+    if ops == 'check_only':
+        has_dup = len(duplicates_info) > 0
+        if verbose >= 1:
+            if has_dup:
+                print("Duplicates found:")
+                for key, value in duplicates_info.items():
+                    if key == 'rows':
+                        print(f"- Duplicate Rows:\n{value}")
+                    elif key == 'cols':
+                        print(f"- Duplicate Columns: {value}")
+            else:
+                print("No duplicates found.")
+        return has_dup, duplicates_info if has_dup else {}
+    
+    # Handle 'drop' operation
+    if ops == 'drop':
+        initial_shape = df_copy.shape
+        if along_with in {'rows', None}:
+            subset = in_cols if in_cols is not None else None
+            df_copy.drop_duplicates(subset=subset, inplace=True)
+        if along_with == 'cols':
+            subset = in_cols if in_cols is not None else df_copy.columns
+            df_copy = df_copy.loc[:, ~df_copy.T.duplicated()]
+        
+        final_shape = df_copy.shape
+        duplicates_dropped = initial_shape[0] - final_shape[0] if along_with in {
+            'rows', None} else initial_shape[1] - final_shape[1]
+        
+        if verbose >= 1:
+            print(f"Dropped {duplicates_dropped} duplicate"
+                  f" {'rows' if along_with in {'rows', None} else 'columns'}.")
+            if verbose >= 2:
+                print(f"Initial shape: {initial_shape}, Final shape: {final_shape}")
+        
+        if inplace:
+            data.drop(data.index, inplace=True)
+            data.loc[df_copy.index, df_copy.columns] = df_copy
+            return None
+        
+        return df_copy
+
+
+@validate_params ({ 
+    'threshold':[Interval(Real, 0, 1, closed='neither')], 
+    'error': [StrOptions({'raise', 'warn', 'ignore'})]
+    })
+def truncate_data(
+    *dfs,
+    base,
+    feature_cols=None,  
+    find_closest=False,
+    threshold=0.01,
+    force_coords=False,
+    error='raise',
+    verbose=0
+):
+    """
+    Truncate multiple DataFrames based on spatial coordinates or index alignment 
+    with a base DataFrame.
+
+    Truncates the provided DataFrames (`*dfs`) by aligning them with a `base` 
+    DataFrame either through spatial coordinates specified in `feature_cols` 
+    or by index alignment when `feature_cols` is `None`. The function supports 
+    finding the closest matches within a specified `threshold` and can optionally 
+    overwrite the feature coordinates with those from the `base` DataFrame.
+
+    Parameters
+    ----------
+    *dfs : pandas.DataFrame
+        Variable number of DataFrames to be truncated.
+    base : pandas.DataFrame, default=None
+        The base DataFrame used for truncation. If ``feature_cols`` is provided, 
+        truncation is based on matching feature columns (e.g., spatial coordinates). 
+        If ``feature_cols`` is `None`, truncation is based on index alignment.
+    feature_cols : tuple or list, default=None
+        Columns used for truncation. When provided, these columns must exist in all 
+        DataFrames, including the `base`. If `None`, truncation is based on DataFrame 
+        indices.
+    find_closest : bool, default=False
+        If ``True``, finds the closest matching points within the specified 
+        ``threshold`` using nearest-neighbor search. Applicable only when 
+        ``feature_cols`` is provided.
+    threshold : float, default=0.01
+        The maximum distance within which points are considered a match when 
+        ``find_closest`` is `True`. The unit should correspond to the feature 
+        columns (e.g., degrees for latitude/longitude).
+    force_coords : bool, default=False
+        If ``True``, replaces the feature column values in the truncated DataFrames 
+        with those from the `base` DataFrame for matched points.
+    error : {'raise', 'warn', 'ignore'}, default='raise'
+        Determines the behavior when encountering issues:
+            - 'raise': Raises an exception.
+            - 'warn': Emits a warning.
+            - 'ignore': Suppresses warnings and continues execution.
+    verbose : int, default=0
+        Controls the verbosity of the output:
+            - 0: No output.
+            - 1: Basic information about truncation results.
+            - 2: Additional details on matching accuracy.
+            - 3 or higher: Comprehensive summary of all truncated DataFrames.
+
+    Returns
+    -------
+    pandas.DataFrame or list of pandas.DataFrame
+        The truncated DataFrames. Returns a single DataFrame if only one is 
+        provided; otherwise, returns a list.
+
+    Notes
+    -----
+    .. math::
+        d\left(p, q\right) = \sqrt{\sum_{i=1}^{n} \left(p_i - q_i\right)^2}
+
+    The truncation process involves calculating the Euclidean distance between 
+    the feature coordinates of the DataFrames to be truncated and those of the 
+    `base` DataFrame. If ``find_closest`` is enabled, the function identifies 
+    points in the target DataFrames that are within the ``threshold`` distance 
+    from any point in the `base` DataFrame.
+
+    - When ``feature_cols`` is `None`, truncation strictly relies on index 
+      alignment. Ensure that the indices of all DataFrames match the `base` 
+      DataFrame to avoid unintended truncation.
+    - The function utilizes `cKDTree` from `scipy.spatial` for efficient 
+      nearest-neighbor searches when ``find_closest`` is enabled.
+    - If ``force_coords`` is set to `True`, the spatial coordinates in the 
+      truncated DataFrames will be overwritten by those from the `base` DataFrame 
+      for matched points.    
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.utils.data_utils import truncate_data
+    >>> df1 = pd.DataFrame({
+    ...     'longitude': [1.1, 1.2, 1.3],
+    ...     'latitude': [2.1, 2.2, 2.3],
+    ...     'value1': [10, 20, 30]
+    ... })
+    >>> df2 = pd.DataFrame({
+    ...     'longitude': [1.1, 1.4],
+    ...     'latitude': [2.1, 2.4],
+    ...     'value2': [100, 200]
+    ... })
+    >>> base_df = pd.DataFrame({
+    ...     'longitude': [1.1, 1.4],
+    ...     'latitude': [2.1, 2.4]
+    ... })
+    >>> result = truncate_data(
+    ...     df1,
+    ...     base=base_df,
+    ...     feature_cols=('longitude', 'latitude'),
+    ...     find_closest=True,
+    ...     threshold=0.05,
+    ...     verbose=2
+    ... )
+    DataFrame 0: Original size=3, Truncated size=1 (33.33%)
+     - 100.00% of truncated points are within threshold and matched closely.
+    >>> print(result)
+       longitude  latitude  value1
+    0        1.1       2.1      10
+
+
+    See Also
+    --------
+    pandas.DataFrame.merge : Merge DataFrame objects by performing a database-style 
+    join operation.
+    scipy.spatial.cKDTree : A fast implementation of KDTree for nearest-neighbor search.
+
+    References
+    ----------
+    .. [1] McKinney, W. (2010). Data Structures for Statistical Computing 
+       in Python. *Proceedings of the 9th Python in Science Conference*, 51-56.
+    .. [2] SciPy Developers. (2023). *SciPy Spatial Documentation*. 
+       https://docs.scipy.org/doc/scipy/reference/spatial.html
+    """
+
+    from scipy.spatial import cKDTree
+    are_all_frames_valid(*dfs)
+    # Handle the case where 'base' DataFrame is not provided
+    if base is None:
+        message = "Base DataFrame is required for truncation."
+        if error == 'raise':
+            raise ValueError(message)
+        elif error == 'warn':
+            warnings.warn(message)
+        # Proceed without truncation if 'ignore'
+        return dfs[0] if len(dfs) == 1 else list(dfs)
+    
+    is_frame(base, df_only=True, raise_exception=True, objname='Base `df`') 
+    
+    # Ensure feature columns exist in the base DataFrame and all target DataFrames
+    if feature_cols is not None:
+        feature_cols = columns_manager(feature_cols)
+        missing_base_cols = [col for col in feature_cols if col not in base.columns]
+        if missing_base_cols:
+            message = f"Base DataFrame is missing feature columns: {missing_base_cols}."
+            if error == 'raise':
+                raise ValueError(message)
+            elif error == 'warn':
+                warnings.warn(message)
+
+        for idx, df in enumerate(dfs):
+            missing_cols = [col for col in feature_cols if col not in df.columns]
+            if missing_cols:
+                msg = f"DataFrame at position {idx} is missing feature columns: {missing_cols}."
+                if error == 'raise':
+                    raise ValueError(msg)
+                elif error == 'warn':
+                    warnings.warn(msg)
+    else:
+        # Truncate based on index alignment when 'feature_cols' is None
+        base_indices = base.index
+        for idx, df in enumerate(dfs):
+            if not df.index.equals(base_indices):
+                message = (
+                    f"DataFrame at position {idx} does not have identical"
+                    " indices as the base DataFrame."
+                )
+                if error == 'raise':
+                    raise ValueError(message)
+                elif error == 'warn':
+                    warnings.warn(message)
+        # Determine common indices across all DataFrames
+        common_indices = base_indices
+        for df in dfs:
+            common_indices = common_indices.intersection(df.index)
+        if verbose >= 1 and len(common_indices) < len(base_indices):
+            print(
+                f"Warning: Truncation based on index. "
+                f"Only {len(common_indices)} common indices found"
+                f" out of {len(base_indices)}."
+            )
+
+    # Prepare KDTree for spatial truncation if applicable
+    if feature_cols is not None and find_closest:
+        base_coords = base[feature_cols].dropna().values
+        if len(base_coords) == 0:
+            message = "Base DataFrame has no valid feature coordinates for truncation."
+            if error == 'raise':
+                raise ValueError(message)
+            elif error == 'warn':
+                warnings.warn(message)
+            # Proceed without truncation if 'ignore'
+            return dfs[0] if len(dfs) == 1 else list(dfs)
+        tree = cKDTree(base_coords)
+
+    # Initialize list to store truncated DataFrames
+    truncated_dfs = []
+
+    # Create a set of base feature coordinates for exact matching
+    if feature_cols is not None and not find_closest:
+        base_set = set(tuple(x) for x in base[feature_cols].dropna().values)
+
+    # Iterate through each DataFrame to perform truncation
+    for idx, df in enumerate(dfs):
+        if feature_cols is not None:
+            # Clean DataFrame by removing rows with missing feature columns
+            df_clean = df.dropna(subset=feature_cols).copy()
+            coords = df_clean[feature_cols].values
+
+            if find_closest:
+                # Perform nearest-neighbor search within the specified threshold
+                distances, indices = tree.query(
+                    coords, distance_upper_bound=threshold
+                )
+                # Identify valid matches within the threshold
+                valid = distances != np.inf
+                matched_indices = indices[valid]
+                truncated = df_clean[valid].copy()
+
+                if force_coords:
+                    # Overwrite feature column values with those from the base DataFrame
+                    truncated[feature_cols] = base.iloc[matched_indices][feature_cols].values
+            else:
+                # Perform exact match truncation based on feature columns
+                matched = df_clean[feature_cols].apply(tuple, axis=1).isin(base_set)
+                truncated = df_clean[matched].copy()
+
+            # Append the truncated DataFrame to the list
+            truncated_dfs.append(truncated)
+
+            # Provide verbose output for truncation results
+            if verbose >= 1:
+                original_len = len(df)
+                truncated_len = len(truncated)
+                percent = (
+                    (truncated_len / original_len) * 100
+                    if original_len > 0 else 0
+                )
+                print(
+                    f"DataFrame {idx}: Original size={original_len}, "
+                    f"Truncated size={truncated_len} ({percent:.2f}%)"
+                )
+
+            if verbose >= 2 and find_closest:
+                # Calculate the percentage of points that closely match the base coordinates
+                identical = np.isclose(
+                    df_clean[feature_cols].values,
+                    base.iloc[indices[valid]][feature_cols].values,
+                    atol=threshold
+                ).all(axis=1)
+                match_percent = (
+                    (identical.sum() / len(identical)) * 100
+                    if len(identical) > 0 else 0
+                )
+                print(
+                    f" - {match_percent:.2f}% of truncated points are within "
+                    f"threshold and matched closely."
+                )
+        else:
+            # Truncate based on index alignment
+            common_indices = base.index.intersection(df.index)
+            truncated = df.loc[common_indices].copy()
+
+            # Append the truncated DataFrame to the list
+            truncated_dfs.append(truncated)
+
+            # Provide verbose output for truncation based on index
+            if verbose >= 1:
+                original_len = len(df)
+                truncated_len = len(truncated)
+                percent = (
+                    (truncated_len / original_len) * 100
+                    if original_len > 0 else 0
+                )
+                print(
+                    f"DataFrame {idx}: Original size={original_len}, "
+                    f"Truncated size={truncated_len} ({percent:.2f}%) based on index alignment."
+                )
+
+        # Provide additional verbose information if verbosity level is higher
+        if verbose >= 3:
+            print(f"Final shape of DataFrame {idx}: {truncated.shape}")
+
+    # Provide a final verbose summary if required
+    if verbose >= 3 and feature_cols is not None:
+        print("\nSummary of Truncated DataFrames:")
+        for idx, truncated in enumerate(truncated_dfs):
+            print(f" - DataFrame {idx}: {truncated.shape}")
+
+    # Return the truncated DataFrames appropriately
+    if len(truncated_dfs) == 1:
+        return truncated_dfs[0]
+    return truncated_dfs
 
 @SaveFile 
 def pop_labels_in(

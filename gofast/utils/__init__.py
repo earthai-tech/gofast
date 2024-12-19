@@ -112,6 +112,7 @@ MODULE_MAPPING = {
         'weighted_spearman_rank', 
         'rescale_data', 
         'compute_coverage', 
+        'compute_coverages',
     ],
     'ml': [
         'bi_selector', 

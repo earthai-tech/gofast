@@ -29,12 +29,14 @@ from ..api.types import (
     ArrayLike, DataFrame, Dict, List, Optional, Tuple, Union, NDArray, 
 )
 from ..api.summary import ResultSummary
-from ..compat.sklearn import validate_params 
+from ..compat.sklearn import validate_params, InvalidParameterError 
 from ..core.array_manager import ( 
     to_numeric_dtypes, concat_array_from_list, extract_array_from
 )
-from ..core.checks  import  _assert_all_types, validate_name_in
-from ..core.handlers import columns_manager, param_deprecated_message
+from ..core.checks  import  _assert_all_types, validate_name_in, exist_features
+from ..core.handlers import ( 
+    columns_manager, param_deprecated_message, delegate_on_error
+  )
 from ..core.io import is_data_readable 
 from ..core.utils import normalize_string, type_of_target, smart_format 
 
@@ -105,8 +107,304 @@ __all__=[
      'step_regression',
      'weighted_spearman_rank',
      'compute_coverage', 
+     'compute_coverages', 
    ]
 
+
+def compute_coverages(
+    df,
+    actual_cols,
+    lower_cols,
+    upper_cols,
+    coverage_metric='percentage',
+    drop_missing=True,
+    ignore_errors=False,
+    result_format='dict',
+    add_coverage_column=True,
+    coverage_column_suffix='_coverage',
+    verbose=0,
+    **kwargs
+):
+    """
+    Compute coverage probabilities for multiple datasets across different years.
+
+    This function calculates the coverage probability by comparing actual values 
+    against predicted intervals across multiple datasets. It is designed to be 
+    versatile and robust, allowing usage with various types of datasets beyond 
+    the provided example. The function supports multiple configurations through 
+    additional parameters, making it adaptable to diverse analytical needs.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame containing actual values and prediction intervals.
+    actual_cols : list-like
+        Columns representing the actual observed values. Each entry should 
+        correspond to a specific year or dataset.
+    lower_cols : list-like
+        Columns representing the lower bounds of the prediction intervals. 
+        Each entry should correspond to the respective entry in ``actual_cols``.
+    upper_cols : list-like
+        Columns representing the upper bounds of the prediction intervals. 
+        Each entry should correspond to the respective entry in ``actual_cols``.
+    coverage_metric : str, default='percentage'
+        The metric to compute coverage probabilities. Supported options are:
+            - ``'percentage'``: Calculates the coverage as a percentage.
+            - ``'count'``: Calculates the count of covered instances.
+    drop_missing : bool, default=True
+        If ``True``, rows with missing values in any of the specified 
+        columns are excluded from the coverage calculation.
+    ignore_errors : bool, default=False
+        If ``True``, the function will skip any sets of columns that raise 
+        errors during processing and continue with the remaining sets. If 
+        ``False``, errors will be propagated.
+    result_format : str, default='dict'
+        The format of the returned coverage results. Supported options are:
+            - ``'dict'``: Returns a dictionary with coverage results.
+            - ``'DataFrame'``: Returns a pandas DataFrame with coverage results.
+    add_coverage_column : bool, default=True
+        If ``True``, adds a new column to the DataFrame indicating the 
+        coverage for each set of actual and prediction interval columns.
+    coverage_column_suffix : str, default='_coverage'
+        The suffix to append to the actual column names for the coverage 
+        columns added to the DataFrame.
+    verbose : int, default=0
+        Controls the verbosity of the output:
+            - ``0``: No output.
+            - ``1``: Basic information about coverage results.
+            - ``2``: Detailed information about missing data and coverage computations.
+            - ``3``: Comprehensive information including coverage column additions.
+
+    Returns
+    -------
+    dict or pandas.DataFrame
+        - If ``result_format='dict'``, returns a dictionary where keys are 
+          identifiers for each set of columns and values are the computed 
+          coverage metrics.
+        - If ``result_format='DataFrame'``, returns a DataFrame with coverage 
+          results for each set of columns.
+
+    .. math::
+        \text{Coverage} = \frac{\text{Number of } 
+        :math:`actual_i \in [lower_i, upper_i]`}{\text{Total number of observations}} \times 100
+
+    The coverage calculation involves determining the proportion of actual 
+    values that fall within their respective prediction intervals. For each 
+    set of actual and prediction interval columns, the function checks whether 
+    each actual value lies between the corresponding lower and upper bounds. 
+    The coverage is then computed based on the chosen ``coverage_metric``.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.utils.mathext import compute_coverages
+    >>> data = pd.DataFrame({
+    ...     'actual_2019': [1.0, 2.0, 3.0, 4.0],
+    ...     'predicted_2019_q0.1': [0.8, 1.9, 2.8, 3.9],
+    ...     'predicted_2019_q0.9': [1.2, 2.1, 3.2, 4.1],
+    ...     'actual_2020': [1.5, 2.5, 3.5, 4.5],
+    ...     'predicted_2020_q0.1': [1.3, 2.3, 3.3, 4.3],
+    ...     'predicted_2020_q0.9': [1.7, 2.7, 3.7, 4.7]
+    ... })
+    >>> coverage = compute_coverages(
+    ...     df=data,
+    ...     actual_cols=['actual_2019', 'actual_2020'],
+    ...     lower_cols=['predicted_2019_q0.1', 'predicted_2020_q0.1'],
+    ...     upper_cols=['predicted_2019_q0.9', 'predicted_2020_q0.9'],
+    ...     coverage_metric='percentage',
+    ...     verbose=2
+    ... )
+    Set 1 (actual_2019): Dropping 0 rows with missing data.
+    Set 1 (actual_2019): Coverage = 100.00%.
+    Set 2 (actual_2020): Dropping 0 rows with missing data.
+    Set 2 (actual_2020): Coverage = 100.00%.
+    >>> print(coverage)
+    {'Set_1': 100.0, 'Set_2': 100.0}
+    >>> coverage_df = compute_coverages(
+    ...     df=data,
+    ...     actual_cols=['actual_2019', 'actual_2020'],
+    ...     lower_cols=['predicted_2019_q0.1', 'predicted_2020_q0.1'],
+    ...     upper_cols=['predicted_2019_q0.9', 'predicted_2020_q0.9'],
+    ...     coverage_metric='percentage',
+    ...     result_format='DataFrame',
+    ...     verbose=3
+    ... )
+    Set 1 (actual_2019): Coverage = 100.00%.
+    Set 1 (actual_2019): Added coverage column 'actual_2019_coverage'.
+    Set 2 (actual_2020): Coverage = 100.00%.
+    Set 2 (actual_2020): Added coverage column 'actual_2020_coverage'.
+    >>> print(coverage_df)
+      Coverage Set  Coverage
+    0        Set_1     100.0
+    1        Set_2     100.0
+
+    Notes
+    -----
+    - The function is designed to handle multiple sets of actual and prediction 
+      interval columns, making it suitable for various datasets beyond the 
+      provided example.
+    - When ``drop_missing`` is enabled, any rows with missing values in the 
+      specified columns are excluded from the coverage calculation to ensure 
+      accuracy.
+    - The ``add_coverage_column`` parameter allows users to append coverage 
+      metrics directly to the original DataFrame for easy reference and further 
+      analysis.
+    - Verbosity levels provide users with control over the amount of information 
+      printed during execution, facilitating both quiet operations and detailed 
+      debugging as needed.
+
+    See Also
+    --------
+    pandas.DataFrame.isna : Detect missing values.
+    pandas.DataFrame.dropna : Remove missing values.
+    numpy.mean : Compute the arithmetic mean along the specified axis.
+    numpy.sum : Sum of array elements over a given axis.
+    
+    References
+    ----------
+    .. [1] McKinney, W. (2010). Data Structures for Statistical Computing 
+       in Python. *Proceedings of the 9th Python in Science Conference*, 
+       51-56.
+    .. [2] pandas Documentation. (2023). 
+       https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.html
+    .. [3] NumPy Developers. (2023). *NumPy Documentation*. 
+       https://numpy.org/doc/stable/
+    """
+
+    # Validate input DataFrame
+    is_frame(df, df_only=True, raise_exception= True, objname='df')
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("`df` must be a pandas DataFrame.")
+    
+    # Validate columns lists
+    try: 
+        actual_cols = columns_manager(actual_cols, empty_as_none=False) 
+        lower_cols = columns_manager(lower_cols, empty_as_none=False) 
+        upper_cols = columns_manager(upper_cols, empty_as_none=False) 
+    except:
+        raise TypeError(
+            "`actual_cols`, `lower_cols`, and `upper_cols` must be lists or tuples.")
+    
+    if not (len(actual_cols) == len(lower_cols) == len(upper_cols)):
+        raise ValueError(
+            "`actual_cols`, `lower_cols`, and "
+            "`upper_cols` must have the same length."
+            )
+        
+    exist_features (df, features= actual_cols + lower_cols + upper_cols,  )
+    # Initialize coverage results dictionary
+    coverage_results = {}
+    
+    # Iterate through each set of actual, lower, and upper columns
+    for idx, (actual_col, lower_col, upper_col) in enumerate(
+        zip(actual_cols, lower_cols, upper_cols), start=1
+    ):
+        try:
+            # Check if required columns exist in the DataFrame
+            required_cols = [actual_col, lower_col, upper_col]
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                message = f"Missing columns for set {idx}: {missing_cols}."
+                if ignore_errors:
+                    if verbose >= 1:
+                        warnings.warn(message + " Skipping this set.")
+                    continue
+                else:
+                    raise KeyError(message)
+            
+            # Extract actual values and prediction intervals
+            actual_values = df[actual_col]
+            lower_bound = df[lower_col]
+            upper_bound = df[upper_col]
+            
+            # Handle missing data if drop_missing is True
+            if drop_missing:
+                mask = actual_values.notna() & lower_bound.notna() & upper_bound.notna()
+                if verbose >= 2:
+                    num_missing = len(df) - mask.sum()
+                    if num_missing > 0:
+                        print(
+                            f"Set {idx} ({actual_col}): Dropping {num_missing}"
+                            " rows with missing data."
+                        )
+                actual_values = actual_values[mask]
+                lower_bound = lower_bound[mask]
+                upper_bound = upper_bound[mask]
+            
+            # Compute coverage based on the specified metric
+            if coverage_metric == 'percentage':
+                coverage = np.mean(
+                    (actual_values >= lower_bound) & (actual_values <= upper_bound)
+                ) * 100
+            elif coverage_metric == 'count':
+                coverage = ((actual_values >= lower_bound) & 
+                            (actual_values <= upper_bound)).sum()
+            else:
+                raise ValueError(
+                    f"Unsupported `coverage_metric`: {coverage_metric}. "
+                    "Choose 'percentage' or 'count'."
+                )
+            
+            # Store the coverage result
+            coverage_results[f"Set_{idx}"] = coverage
+            
+            # Add coverage column to DataFrame if required
+            if add_coverage_column and coverage_metric == 'percentage':
+                coverage_col_name = f"{actual_col}{coverage_column_suffix}"
+                df.loc[mask, coverage_col_name] = (
+                    ((df.loc[mask, actual_col] >= df.loc[mask, lower_col]) &
+                     (df.loc[mask, actual_col] <= df.loc[mask, upper_col]))
+                    .astype(float) * 100
+                )
+                if verbose >= 3:
+                    print(
+                        f"Set {idx} ({actual_col}): Added coverage"
+                        f" column '{coverage_col_name}'."
+                    )
+            
+            # Verbose logging for each set
+            if verbose >= 1:
+                print(
+                    f"Set {idx} ({actual_col}): Coverage = {coverage:.2f}%."
+                )
+        
+        except Exception as e:
+            # Handle exceptions based on ignore_errors flag
+            if ignore_errors:
+                if verbose >= 1:
+                    warnings.warn(
+                        f"Error processing set {idx} ({actual_col}): {e}."
+                        "Skipping this set."
+                    )
+                continue
+            else:
+                raise e
+    
+    # Return results in the specified format
+    if result_format == 'dict':
+        return coverage_results
+    elif result_format == 'DataFrame':
+        coverage_df = pd.DataFrame(
+            list(coverage_results.items()), 
+            columns=['Coverage Set', 'Coverage']
+        )
+        return coverage_df
+    else:
+        raise ValueError(
+            f"Unsupported `result_format`: {result_format}. "
+            "Use 'dict' or 'DataFrame'."
+        )
+
+
+@delegate_on_error(
+         transfer=compute_coverages,
+         delegate_params_mapping={
+             'lower_bound': 'lower_cols', 
+             'upper_bound': 'upper_cols', 
+             'actual': 'actual_cols', 
+         }, 
+         condition=lambda e: not isinstance(e, InvalidParameterError)
+     )
 @validate_params ({ 
     'actual': ['array-like'], 
     'lower_bound': ['array-like', str, None], 
@@ -329,6 +627,7 @@ def compute_coverage(
         print(f"Coverage computed: {coverage:.4f}")
 
     return coverage
+
 
 @is_data_readable 
 def rescale_data(
@@ -3037,6 +3336,7 @@ def compute_sunburst_data(
     seen = set()
     return [x for x in sunburst_data if not (
         tuple(x.items()) in seen or seen.add(tuple(x.items())))]
+
 
 def compute_effort_yield(
         d: ArrayLike,  reverse: bool = True

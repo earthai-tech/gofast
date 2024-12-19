@@ -362,6 +362,208 @@ class TypeEnforcer:
             self.logger.debug(f"Failed to convert value to Series: {e}")
             return value
 
+def delegate_on_error(
+    transfer,
+    delegate_params_mapping=None,
+    additional_args=None,
+    additional_kwargs=None,
+    condition=lambda exc: True
+):
+    """
+    Decorator to delegate function/method execution to another upon encountering 
+    an error.
+    
+    This decorator allows a function or method to delegate its execution to another 
+    specified function or method when an error occurs. It smartly maps and transfers 
+    parameters from the original function to the delegate function, ensuring a seamless 
+    fallback mechanism. This enhances the robustness and flexibility of code by 
+    providing alternative execution paths in case of failures.
+    
+    Parameters
+    ----------
+    transfer : callable
+        The function or method to delegate to if an error occurs in the decorated 
+        function/method.
+    delegate_params_mapping : dict, optional
+        A dictionary mapping parameter names from the decorated function to 
+        corresponding parameter names in the ``transfer`` function. This allows for 
+        renaming or restructuring of arguments during delegation.
+    additional_args : list, optional
+        Additional positional arguments to pass to the ``transfer`` function. These 
+        are appended to the original function's positional arguments.
+    additional_kwargs : dict, optional
+        Additional keyword arguments to pass to the ``transfer`` function. These 
+        are merged with the original function's keyword arguments.
+    condition : callable, optional
+        A function that takes an exception instance as input and returns 
+        ``True`` if delegation should occur for that exception, or ``False`` 
+        otherwise. This allows for selective delegation based on exception types 
+        or attributes.
+    
+    Returns
+    -------
+    callable
+        The decorated function or method with delegation capability.
+    
+    .. math::
+        d\left(f, g\right) = 
+        \begin{cases} 
+            f(x) & \text{if no exception occurs} \\
+            g(x) & \text{if exception occurs and condition is met}
+        \end{cases}
+    
+    The decorator works by attempting to execute the original function ``f``. If an 
+    exception is raised and the ``condition`` evaluates to ``True`` for that exception, 
+    the decorator delegates the call to the ``transfer`` function ``g``, passing the 
+    mapped and transferred parameters as specified in ``delegate_params_mapping``. This 
+    allows for graceful degradation or alternative processing without halting the 
+    program.
+    
+    Examples
+    --------
+    >>> import warnings
+    >>> from gofast.compat.sklearn import InvalidParametersError 
+    >>> from gofast.core.handlers import delegate_on_error
+    >>> 
+    >>> class A:
+    ...     def methodA2(self, param, parama11, parama12=None, verbose=1):
+    ...         return f"Delegated {param}, {parama11}, {parama12}"
+    ...     
+    ...     @delegate_on_error(
+    ...         transfer=methodA2,
+    ...         delegate_params_mapping={
+    ...             'parama1': 'parama11',
+    ...             'parama2': 'parama12'
+    ...         }
+    ...     )
+    ...     def methodA1(self, param, parama1, parama2=None, verbose=0):
+    ...         if parama1 < 0:
+    ...             raise ValueError("parama1 must be non-negative")
+    ...         return f"Processed {param}, {parama1}, {parama2}"
+    ... 
+    >>> a = A()
+    >>> print(a.methodA1(param=10, parama1=5, parama2=15, verbose=2))
+    Processed 10, 5, 15
+    >>> print(a.methodA1(param=10, parama1=-1, parama2=15, verbose=2))
+    /path/to/file.py:XX: UserWarning: 
+    Error in methodA1: parama1 must be non-negative. Delegating to methodA2.
+    Delegated 10, -1, 15
+    >>> 
+    >>> class B:
+    ...     def compute_average(self, data, ignore_errors=False, verbose=0):
+    ...         if not isinstance(data, list):
+    ...             raise TypeError("Data must be a list.")
+    ...         return sum(data) / len(data)
+    ...     
+    ...     def fallback_average(self, data, numeric_only=True, verbose=1):
+    ...         if numeric_only:
+    ...             data = [x for x in data if isinstance(x, (int, float))]
+    ...         return np.mean(data)
+    ...     
+    ...     @delegate_on_error(
+    ...         transfer=fallback_average,
+    ...         delegate_params_mapping={
+    ...             'ignore_errors': 'numeric_only'
+    ...         },
+    ...         condition=lambda e: not isinstance(e, InvalidParametersError)
+    ...     )
+    ...     def compute_average_decorated(self, data, ignore_errors=False, verbose=0):
+    ...         if not isinstance(data, list):
+    ...             raise InvalidParametersError("Data must be a list.")
+    ...         return sum(data) / len(data)
+    ... 
+    >>> b = B()
+    >>> print(b.compute_average_decorated(data=[1, 2, 3, 4], verbose=2))
+    Computed average: 2.5
+    >>> print(b.compute_average_decorated(data="not a list", verbose=2))
+    /path/to/file.py:XX: UserWarning: 
+    Error in compute_average_decorated: Data must be a list.. Delegating to fallback_average.
+    nan
+    >>> 
+    >>> # Delegation does not occur for InvalidParametersError
+    >>> try:
+    ...     b.compute_average_decorated(data="not a list", verbose=2)
+    ... except InvalidParametersError as e:
+    ...     print(f"Caught an exception: {e}")
+    Caught an exception: Data must be a list.
+    Notes
+    -----
+    - The decorator ``delegate_on_error`` enhances the resilience of functions and 
+      methods by providing an automated delegation mechanism in response to 
+      exceptions.
+    - The ``delegate_params_mapping`` allows for flexible parameter translation, 
+      accommodating differences in parameter names between the original and 
+      transfer functions.
+    - The ``condition`` parameter enables fine-grained control over which 
+      exceptions should trigger delegation, supporting sophisticated error-handling 
+      strategies.
+    
+    See Also
+    --------
+    functools.wraps : A decorator for updating the wrapper function to look 
+    like the wrapped function.
+    warnings.warn : Issues a warning message.
+    Exception : Base class for all built-in exceptions.
+    
+    References
+    ----------
+    .. [1] Python Documentation. (2023). `functools.wraps`. Retrieved from 
+       https://docs.python.org/3/library/functools.html#functools.wraps
+    .. [2] Python Documentation. (2023). `warnings.warn`. Retrieved from 
+       https://docs.python.org/3/library/warnings.html#warnings.warn
+    .. [3] Python Documentation. (2023). `Exception`. Retrieved from 
+       https://docs.python.org/3/library/exceptions.html#Exception
+    """
+
+    delegate_params_mapping = delegate_params_mapping or {}
+    additional_args = additional_args or []
+    additional_kwargs = additional_kwargs or {}
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                # Attempt to execute the original function
+                return func(*args, **kwargs)
+            except Exception as e:
+                # Check if delegation condition is met
+                if condition(e):
+                    if kwargs.get('verbose', 0) >= 2:
+                        warnings.warn(
+                            f"Error in {func.__name__}: {e}. Delegating to {transfer.__name__}."
+                        )
+                    # Prepare arguments for the transfer function
+                    transfer_kwargs = {}
+                    
+                    # Map parameters based on delegate_params_mapping
+                    for orig_param, transfer_param in delegate_params_mapping.items():
+                        if orig_param in kwargs:
+                            transfer_kwargs[transfer_param] = kwargs.pop(orig_param)
+                    
+                    # Automatically transfer parameters with the same name
+                    common_params = set(kwargs.keys()) & set(
+                        transfer.__code__.co_varnames
+                    )
+                    for param in common_params:
+                        transfer_kwargs[param] = kwargs[param]
+                    
+                    # Add any additional arguments
+                    if additional_args:
+                        transfer_args = list(args) + additional_args
+                    else:
+                        transfer_args = list(args)
+                    
+                    if additional_kwargs:
+                        transfer_kwargs.update(additional_kwargs)
+                    
+                    # Execute the transfer function with mapped parameters
+                    return transfer(*transfer_args, **transfer_kwargs)
+                else:
+                    # Re-raise the exception if condition is not met
+                    raise e
+        return wrapper
+    return decorator
+
 def default_params_plot(
     savefig=None, 
     close=False, 
