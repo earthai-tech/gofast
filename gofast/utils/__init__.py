@@ -56,6 +56,9 @@ MODULE_MAPPING = {
         'merge_datasets', 
         'swap_ic', 
         'to_categories', 
+        'pop_labels_in', 
+        'truncate_data', 
+        'filter_data', 
         
     ], 
     'io_utils':[ 

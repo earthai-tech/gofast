@@ -3184,6 +3184,7 @@ def plot_dist(
     plot_type: str = 'scatter',
     axis_off: bool = True,
     max_cols: int = 3,
+    cmap='viridis', 
     savefig=None,
 ):
     r"""
@@ -3258,6 +3259,9 @@ def plot_dist(
         The maximum number of columns in the subplot grid. If the 
         total number of `z_cols` exceeds `max_cols`, additional 
         rows are created automatically. Default is 3.
+    cmap: str,  
+       Matplotlib colormap plot. Default is ``'viridis'``. 
+       
     savefig : str or None, optional
         If provided, specifies the filename or path where the 
         resulting figure should be saved. If None, the figure is 
@@ -3339,6 +3343,7 @@ def plot_dist(
     n_cols = min(max_cols, num_z)
     n_rows = math.ceil(num_z / max_cols)
 
+    
     # Create Subplots
     fig, axes = plt.subplots(
         n_rows, n_cols,
@@ -3371,7 +3376,7 @@ def plot_dist(
                 df[x_col],
                 df[y_col],
                 c=df[z_col],
-                cmap='viridis',
+                cmap=cmap,
                 s=10,
                 alpha=0.7,
                 norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
@@ -3383,7 +3388,7 @@ def plot_dist(
                 df[y_col],
                 C=df[z_col],
                 gridsize=50,
-                cmap='viridis',
+                cmap=cmap,
                 reduce_C_function=np.mean,
                 norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
             )
@@ -3396,7 +3401,7 @@ def plot_dist(
                 y=df[y_col],
                 weights=df[z_col],
                 fill=True,
-                cmap='viridis',
+                cmap=cmap,
                 ax=ax,
                 thresh=0
             )
@@ -3420,7 +3425,7 @@ def plot_dist(
     if plot_type in ['scatter', 'hexbin', 'density']:
         # Create a ScalarMappable for the colorbar
         sm = plt.cm.ScalarMappable(
-            cmap='viridis',
+            cmap=cmap,
             norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
         )
         sm.set_array([])  # Only needed for older Matplotlib versions
@@ -3437,7 +3442,6 @@ def plot_dist(
             pad=0.04
         )
         cbar.set_label('Value', fontsize=12)
-
 
     plt.show()
 
@@ -4097,7 +4101,7 @@ def _plot_reversed(
             ax=axes[j, -1] if n_cols > 1 else axes[j, 0],
             orientation=cbar_orientation,
             fraction=cbar_fraction,
-            pad=cbar_pad
+            pad=cbar_pad,
         )
         cbar.set_label('Value', fontsize=10)
 

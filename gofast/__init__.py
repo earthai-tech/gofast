@@ -147,15 +147,16 @@ class GoFastConfig:
     def enable_public_api(self):
         """Expose public API components."""
         from .assistance import assist_me, explore
-        from .core.io import read_data
+        from .core.io import read_data, export_data
 
         globals().update({
             'assist_me': assist_me,
             'explore': explore,
-            'read_data': read_data
+            'read_data': read_data, 
+            'export_data':export_data
         })
 
-        __all__.extend(['assist_me', 'explore', 'read_data'])
+        __all__.extend(['assist_me', 'explore', 'read_data', 'export_data'])
 
         warnings.warn("Public API has been enabled.", UserWarning)
 
@@ -205,17 +206,18 @@ def __getattr__(name):
 
     Disabling public API:
         gf.config.public = False
-        gf.assist_me()  # raises AttributeError
+        gf.assist_me()  # raises warning
     """
-    public_attributes = ['assist_me', 'explore', 'read_data']
+    public_attributes = ['assist_me', 'explore', 'read_data', 'export_data']
     if config.public:
         if name in public_attributes:
             from .assistance import assist_me, explore
-            from .core.io import read_data
+            from .core.io import read_data, export_data
             mapping = {
                 'assist_me': assist_me,
                 'explore': explore,
-                'read_data': read_data
+                'read_data': read_data, 
+                'export_data': export_data
             }
             return mapping[name]
 
@@ -223,10 +225,11 @@ def __getattr__(name):
     # attribute is not in public attributes.
     hint = (
         "The requested attribute '{attr}' is not available. "
-        "If you intended to access the public API, please ensure that:\n\n"
+        "If you intend to access the public API, please ensure that:\n\n"
         "    >>> import gofast as gf\n"
         "    >>> gf.config.public = True\n\n"
-        "Once the public API is enabled, you can access 'assist_me', 'explore', and 'read_data'."
+        "Once the public API is enabled, you can access 'assist_me',"
+        " 'explore', 'read_data', 'export_data' ..."
     )
     warnings.warn(hint.format(attr=name))
 

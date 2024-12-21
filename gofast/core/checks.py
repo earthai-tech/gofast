@@ -4457,102 +4457,13 @@ def check_files(
         
         return valid_files
 
-def validate_nested_param(
+def _validate_nested_param(
     value: Any,
     expected_type: Any,
     param_name: str = '',
     coerce: bool = True, 
     empty_as_none: bool =..., 
 ) -> Any:
-    """
-    Validate and coerce parameters and their nested items to the expected types.
-    
-    This function ensures that the provided ``value`` conforms to the 
-    ``expected_type``. It supports validation of nested structures such as 
-    lists of dictionaries, dictionaries containing lists, and other complex 
-    nested types. If the ``value`` is not of the expected type but can be 
-    coerced (e.g., a single item to a list), the function performs the 
-    necessary conversion. If coercion is not possible, it raises a 
-    ``TypeError`` with a descriptive message.
-    
-    .. math::
-        \text{If } x \text{ is not of type } T, \text{ attempt to convert } 
-        x \text{ to } T.
-    
-    Parameters
-    ----------
-    value : Any
-        The value to be validated and coerced. It can be a single item, a list 
-        of items, a dictionary, or nested combinations thereof. If ``None`` is 
-        acceptable for the parameter, it should be handled appropriately.
-    expected_type : Any
-        The expected type of the ``value``. This can include nested types like 
-        ``List[str]``, ``Dict[str, float]``, etc., using Python's typing 
-        constructs. The function recursively validates each level of the input 
-        against the specified ``expected_type``.
-    param_name : str, optional
-        The name of the parameter being validated. This is used in error 
-        messages to provide clear and descriptive feedback in case of 
-        validation failures.
-        
-    coerce : bool, optional
-        If ``True``, attempt conversions to match `'expected_type'`. If
-        ``False``, enforce strict type checking with no conversions.
-    empty_as_none : bool, default=True
-        If True, returns `None` when type is `Optional`. If ``False``, an 
-        empty Iterable  object  `List` is returned.
-
-    Returns
-    -------
-    Any
-        The validated and potentially coerced value, matching the 
-        ``expected_type``. If ``value`` is ``None`` and ``None`` is 
-        acceptable, it returns ``None`` or an empty list/dictionary based 
-        on the context.
-    
-    Raises
-    ------
-    TypeError
-        If the ``value`` cannot be coerced to the ``expected_type`` or if any 
-        nested item fails validation.
-    
-    Examples
-    --------
-    >>> from gofast.core.checks import validate_nested_param
-    >>> # Validate a single string item
-    >>> validate_nested_param('item', str, 'static_feature_names')
-    'item'
-    >>> # Validate a single integer item to be a list of integers
-    >>> validate_nested_param(5, List[int], 'ages')
-    [5]
-    >>> # Validate a list of strings
-    >>> validate_nested_param(['feature1', 'feature2'], List[str], 'static_feature_names')
-    ['feature1', 'feature2']
-    >>> # Validate a dictionary with string keys and float values
-    >>> validate_nested_param({'a': 1.0, 'b': 2.5}, Dict[str, float], 'scaling_params')
-    {'a': 1.0, 'b': 2.5}
-    
-    Notes
-    -----
-    - This function is designed to be highly flexible and can handle deeply 
-      nested structures by recursively validating each level of the input.
-    - If a single item is provided where a list is expected, the function will 
-      automatically wrap the item in a list.
-    - For dictionary validations, both keys and values are validated against 
-      expected types, ensuring the integrity of complex nested data.
-    
-    See Also
-    --------
-    prepare_future_data : Function for preparing future data inputs with validation.
-    validate_parameter : Another utility function for parameter validation.
-    
-    References
-    ----------
-    .. [1] Python Software Foundation. *typing — Support for type hints*. 
-        https://docs.python.org/3/library/typing.html
-    .. [2] Smith, J., & Doe, A. (2020). *Effective Type Validation in Python*. 
-        Journal of Python Development, 10(2), 123-135.
-    """
 
     origin = get_origin(expected_type)
     args = get_args(expected_type)
@@ -4706,6 +4617,250 @@ def validate_nested_param(
         return value
 
 
+def validate_nested_param(
+        value: Any, 
+        expected_type: Any, 
+        param_name: str = '', 
+        coerce: bool = False
+    ) -> Any:
+    """
+    Validate and coerce parameters and their nested items to the expected types.
+    
+    This function ensures that the provided ``value`` conforms to the 
+    ``expected_type``. It supports validation of nested structures such as 
+    lists of dictionaries, dictionaries containing lists, and other complex 
+    nested types. If the ``value`` is not of the expected type but can be 
+    coerced (e.g., a single item to a list), the function performs the 
+    necessary conversion. If coercion is not possible, it raises a 
+    ``TypeError`` with a descriptive message.
+    
+    .. math::
+        \text{If } x \text{ is not of type } T, \text{ attempt to convert } 
+        x \text{ to } T.
+    
+    Parameters
+    ----------
+    value : Any
+        The value to be validated and coerced. It can be a single item, a list 
+        of items, a dictionary, or nested combinations thereof. If ``None`` is 
+        acceptable for the parameter, it should be handled appropriately.
+    expected_type : Any
+        The expected type of the ``value``. This can include nested types like 
+        ``List[str]``, ``Dict[str, float]``, etc., using Python's typing 
+        constructs. The function recursively validates each level of the input 
+        against the specified ``expected_type``.
+    param_name : str, optional
+        The name of the parameter being validated. This is used in error 
+        messages to provide clear and descriptive feedback in case of 
+        validation failures.
+        
+    coerce : bool, optional
+        If ``True``, attempt conversions to match `'expected_type'`. If
+        ``False``, enforce strict type checking with no conversions.
+    empty_as_none : bool, default=True
+        If True, returns `None` when type is `Optional`. If ``False``, an 
+        empty Iterable  object  `List` is returned.
+
+    Returns
+    -------
+    Any
+        The validated and potentially coerced value, matching the 
+        ``expected_type``. If ``value`` is ``None`` and ``None`` is 
+        acceptable, it returns ``None`` or an empty list/dictionary based 
+        on the context.
+    
+    Raises
+    ------
+    TypeError
+        If the ``value`` cannot be coerced to the ``expected_type`` or if any 
+        nested item fails validation.
+    
+    Examples
+    --------
+    >>> from gofast.core.checks import validate_nested_param
+    >>> # Validate a single string item
+    >>> validate_nested_param('item', str, 'static_feature_names')
+    'item'
+    >>> # Validate a single integer item to be a list of integers
+    >>> validate_nested_param(5, List[int], 'ages')
+    [5]
+    >>> # Validate a list of strings
+    >>> validate_nested_param(['feature1', 'feature2'], List[str], 'static_feature_names')
+    ['feature1', 'feature2']
+    >>> # Validate a dictionary with string keys and float values
+    >>> validate_nested_param({'a': 1.0, 'b': 2.5}, Dict[str, float], 'scaling_params')
+    {'a': 1.0, 'b': 2.5}
+    
+    Notes
+    -----
+    - This function is designed to be highly flexible and can handle deeply 
+      nested structures by recursively validating each level of the input.
+    - If a single item is provided where a list is expected, the function will 
+      automatically wrap the item in a list.
+    - For dictionary validations, both keys and values are validated against 
+      expected types, ensuring the integrity of complex nested data.
+    
+    See Also
+    --------
+    prepare_future_data : Function for preparing future data inputs with validation.
+    validate_parameter : Another utility function for parameter validation.
+    
+    References
+    ----------
+    .. [1] Python Software Foundation. *typing — Support for type hints*. 
+        https://docs.python.org/3/library/typing.html
+    .. [2] Smith, J., & Doe, A. (2020). *Effective Type Validation in Python*. 
+        Journal of Python Development, 10(2), 123-135.
+    """
+
+    origin = get_origin(expected_type)
+    args = get_args(expected_type)
+    
+    # **New logic for Callable:**
+    # Detect if expected_type is a Callable or a Union that includes Callable.
+    if expected_type is Callable or origin is Callable or (
+        origin is Union and any(t is Callable for t in args)
+    ):
+        return check_callable(value, expected_type, param_name)
+    
+    # Handle Optional[...] which is Union[..., NoneType]
+    if origin is Union and type(None) in args:
+        non_none_args = tuple(arg for arg in args if arg is not type(None))
+        if value is None:
+            return value
+        return validate_nested_param(
+            value, 
+            Union[non_none_args], 
+            param_name, 
+            coerce
+        )
+    
+    # Handle Union types
+    if origin is Union:
+        last_exception = None
+        for arg in args:
+            try:
+                return validate_nested_param(value, arg, param_name, coerce)
+            except TypeError as e:
+                last_exception = e
+        raise TypeError(
+            f"Parameter '{param_name}': Value '{value}' does not"
+            f" match any type in {expected_type}."
+        ) from last_exception
+    
+    # Handle List[...] types
+    if origin in {list, List}:
+        if not isinstance(value, list):
+            if coerce:
+                try:
+                    value = list(value)
+                except Exception as e:
+                    raise TypeError(
+                        f"Parameter '{param_name}': Cannot coerce"
+                        f" value '{value}' to list."
+                    ) from e
+            else:
+                raise TypeError(
+                    f"Parameter '{param_name}': Expected type list for"
+                    f" value '{value}', got {type(value)}."
+                )
+        if not args:
+            return value  # No inner type to validate
+        return [
+            validate_nested_param(item, args[0], param_name, coerce) 
+            for item in value
+        ]
+    
+    # Handle Dict[...] types
+    if origin in {dict, Dict}:
+        if not isinstance(value, dict):
+            if coerce:
+                try:
+                    value = dict(value)
+                except Exception as e:
+                    raise TypeError(
+                        f"Parameter '{param_name}': Cannot coerce"
+                        f" value '{value}' to dict."
+                    ) from e
+            else:
+                raise TypeError(
+                    f"Parameter '{param_name}': Expected type dict for"
+                    f" value '{value}', got {type(value)}."
+                )
+        if not args:
+            return value  # No inner types to validate
+        key_type, val_type = args
+        return {
+            validate_nested_param(k, key_type, f"{param_name} key", coerce): 
+            validate_nested_param(v, val_type, f"{param_name} value", coerce)
+            for k, v in value.items()
+        }
+    
+    # Handle Tuple[...] types
+    if origin in {tuple, Tuple}:
+        if not isinstance(value, tuple):
+            if coerce:
+                try:
+                    value = tuple(value)
+                except Exception as e:
+                    raise TypeError(
+                        f"Parameter '{param_name}': Cannot coerce"
+                        f" value '{value}' to tuple."
+                    ) from e
+            else:
+                raise TypeError(
+                    f"Parameter '{param_name}': Expected type tuple for"
+                    f" value '{value}', got {type(value)}."
+                )
+        if not args:
+            return value  # No inner types to validate
+        if len(args) != len(value):
+            raise TypeError(
+                f"Parameter '{param_name}': Expected tuple of"
+                f" length {len(args)}, got {len(value)}."
+            )
+        return tuple(
+            validate_nested_param(item, arg, f"{param_name}[{i}]", coerce) 
+            for i, (item, arg) in enumerate(zip(value, args))
+        )
+    
+    # Handle Callable[...] types
+    if origin is Callable:
+        if not callable(value):
+            raise TypeError(
+                f"Parameter '{param_name}': Expected a callable"
+                f" for value '{value}', got {type(value)}."
+            )
+        return value
+    
+    # Handle Any type
+    if expected_type is Any:
+        return value
+    
+    # Handle basic types
+    if isinstance(expected_type, type):
+        if not isinstance(value, expected_type):
+            if coerce:
+                try:
+                    value = expected_type(value)
+                except Exception as e:
+                    raise TypeError(
+                        f"Parameter '{param_name}': Cannot coerce"
+                        f" value '{value}' to {expected_type}."
+                    ) from e
+            else:
+                raise TypeError(
+                    f"Parameter '{param_name}': Expected type {expected_type}"
+                    f" for value '{value}', got {type(value)}."
+                )
+        return value
+    
+    # If expected_type is still not handled, raise an error
+    raise TypeError(
+        f"Parameter '{param_name}': Unsupported type"
+        " annotation: {expected_type}."
+    )
+
 def check_params(param_types: Dict[str, Any], coerce: bool = True):
     """
     Validate parameters of the decorated function against given
@@ -4797,6 +4952,7 @@ def check_params(param_types: Dict[str, Any], coerce: bool = True):
 
     """
     def decorator(func):
+        @wraps(func)
         def wrapper(*args, **kwargs):
             sig   = inspect.signature(func)
             bound = sig.bind(*args, **kwargs)

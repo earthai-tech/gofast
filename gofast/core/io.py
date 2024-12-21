@@ -17,13 +17,13 @@ import numpy as np
 import pandas as pd 
 from collections.abc import Iterable
 from functools import wraps 
-from typing import List, Union, Optional, Callable  
+from typing import Any, List, Union, Dict, Optional, Callable  
 
 from ..exceptions import FileHandlingError 
 from ..api.types import DataFrame, NDArray
 from ..api.util import get_table_size
 from ..api.property import PandasDataHandlers
-from .array_manager import to_numeric_dtypes 
+from .array_manager import to_numeric_dtypes
 from .checks import is_iterable, check_params 
 from .utils import  ellipsis2false, lowertify, smart_format 
 
@@ -37,8 +37,8 @@ __all__=[
     "to_frame_if", 
     "SaveFile", 
     "fmt_text",
+    "export_data"
     ]
-
 
 class EnsureFileExists:
     """
@@ -454,7 +454,6 @@ class SaveFile:
 
         return wrapper(*args, **kwargs)
 
-
 @EnsureFileExists(action ='ignore')
 def read_data(
     f: str | pathlib.PurePath, 
@@ -542,7 +541,10 @@ def read_data(
     np.loadtxt : Load text file.
     np.load : Load uncompressed or compressed numpy `.npy` and `.npz` formats.
     gofast.dataops.management.save_or_load : Save or load numpy arrays.
-
+    gofast.core.io.export_data: 
+        Export a pandas DataFrame to multiple file formats based on specified
+        extensions.
+        
     References
     ----------
     .. [1] McKinney, W. (2010). Data Structures for Statistical Computing in 
@@ -626,6 +628,301 @@ def read_data(
         f = min_sanitizer (f)
         
     return f 
+
+@check_params(
+    {
+        'file_paths': Union[str, List[str]], 
+        'columns': Optional[List[str]], 
+        'extensions': Optional[Union [str, List[str]]], 
+        'writer_opptions': Optional[Dict[str, Dict[str, Any]]], 
+        'default_extension': str, 
+        'overwrite': bool
+   }, 
+   coerce=False, 
+)
+def export_data(
+    df,
+    file_paths,
+    columns=None,
+    extensions=None,
+    overwrite=False,
+    writer_options=None,
+    default_extension='.csv',
+    verbose=0,
+    **kwargs
+):
+    """
+    Export a pandas DataFrame to multiple file formats based on specified 
+    extensions.
+    
+    This function facilitates exporting a pandas DataFrame to various file formats by 
+    leveraging the `PandasDataHandlers.writers` method. It provides robust and flexible 
+    options to handle multiple export scenarios, ensuring compatibility with diverse 
+    datasets and user requirements. The function intelligently manages file extensions, 
+    supports selective column exports, and allows for customization through additional 
+    parameters.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame to be exported to various file formats.
+    file_paths : list-like
+        A list of file paths where the DataFrame will be exported. Each path should 
+        include the desired file name and extension.
+    columns : list-like, optional
+        Specific columns to include in the export. If `None`, all columns in the 
+        DataFrame are exported.
+    extensions : list-like or str, optional
+        File extensions corresponding to each file path. If a single string is provided, 
+        the same extension is applied to all file paths. If `None`, the extension is 
+        inferred from each file path. If an extension cannot be determined, the 
+        `default_extension` is used.
+    overwrite : bool, default=False
+        Determines whether to overwrite existing files:
+            - ``True``: Overwrites files if they already exist.
+            - ``False``: Skips exporting to files that already exist.
+    writer_options : dict, optional
+        A dictionary mapping file extensions to specific keyword arguments for the 
+        Pandas writer functions. This allows customization of the export process for 
+        different file formats. For example:
+            {
+                ".csv": {"index": False},
+                ".json": {"orient": "records"},
+                ".xlsx": {"index": False, "sheet_name": "Data"}
+            }
+    default_extension : str, default='.csv'
+        The default file extension to use if none is provided in the `file_paths`. 
+        Defaults to ``'.csv'``.
+    verbose : int, default=0
+        Controls the verbosity of the output:
+            - ``0``: No output.
+            - ``1``: Basic information about export progress.
+            - ``2``: Detailed information about each export operation.
+            - ``3``: Extensive information including file-specific details.
+            - Levels ``4`` to ``7``: Additional debugging information as needed.
+    **kwargs : dict, optional
+        Additional keyword arguments to pass to the Pandas writer functions, providing 
+        further flexibility in the export process.
+    
+    Returns
+    -------
+    None
+        The function performs the export operation and does not return any value. The 
+        DataFrame remains unmodified unless changes are made inplace.
+    
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.core.io import export_data
+    >>> 
+    >>> # Sample DataFrame
+    >>> data = pd.DataFrame({
+    ...     'A': [1, 2, 3],
+    ...     'B': ['x', 'y', 'z'],
+    ...     'C': [4.5, 5.5, 6.5]
+    ... })
+    >>> 
+    >>> # Define file paths for export
+    >>> file_paths = [
+    ...     'output.csv',
+    ...     'output.json',
+    ...     'output.xlsx'
+    ... ]
+    >>> 
+    >>> # Define writer-specific options
+    >>> writer_options = {
+    ...     '.csv': {'index': False},
+    ...     '.json': {'orient': 'records'},
+    ...     '.xlsx': {'index': False, 'sheet_name': 'Sheet1'}
+    ... }
+    >>> 
+    >>> # Export the DataFrame to multiple formats
+    >>> export_data(
+    ...     df=data,
+    ...     file_paths=file_paths,
+    ...     overwrite=True,
+    ...     writer_options=writer_options,
+    ...     verbose=2
+    ... )
+    Processing columns: ['A', 'B', 'C']
+    Successfully exported to 'output.csv'.
+    Successfully exported to 'output.json'.
+    Successfully exported to 'output.xlsx'.
+    
+    Notes
+    -----
+    .. math::
+        \text{Export Operation} = 
+        \begin{cases} 
+            \text{Export to specified format} & \text{if extension is supported} \\
+            \text{Use default extension} & \text{otherwise}
+        \end{cases}
+    
+    The export process involves iterating through each specified file path, determining 
+    the appropriate writer function based on the file extension using 
+    `PandasDataHandlers.writers`, and executing the export. If an extension is not 
+    provided or unsupported, the function defaults to using the `default_extension`. 
+    The `overwrite` parameter ensures that existing files are handled according to the 
+    user's preference, preventing accidental data loss.
+    
+    - **Flexibility**: The function is designed to handle multiple export formats 
+      seamlessly, making it suitable for a wide range of data export scenarios.
+    - **Error Management**: By controlling the `overwrite` flag and utilizing 
+      `warnings`, the function ensures that users are informed of potential issues 
+      without abrupt terminations unless necessary.
+    - **Customization**: Through `writer_options` and `**kwargs`, users can tailor 
+      the export process to meet specific requirements for different file formats.
+    - **Verbosity Levels**: The `verbose` parameter provides users with control over 
+      the amount of information displayed during execution, facilitating both quiet 
+      operations and detailed monitoring.
+    - **Extension Handling**: If a file path lacks an extension or the extension is 
+      unsupported, the function intelligently defaults to the `default_extension`, 
+      ensuring that the export process remains robust and error-free.
+    - **Column Selection**: By specifying the `columns` parameter, users can export 
+      only relevant subsets of the DataFrame, enhancing performance and reducing 
+      unnecessary data storage.
+    
+    See Also
+    --------
+    pandas.DataFrame.to_csv : Write DataFrame to a comma-separated values (csv) file.
+    pandas.DataFrame.to_json : Convert the DataFrame to a JSON string.
+    pandas.DataFrame.to_excel : Write DataFrame to an Excel file.
+    gofast.api.property.PandasDataHandlers.writers :
+        Provides a mapping of file extensions to Pandas writer functions.
+    gofast.core.io.read_data: 
+        Read all specific files and URLs allowed by the package.
+    
+    References
+    ----------
+    .. [1] McKinney, W. (2010). "Data Structures for Statistical Computing 
+           in Python." In *Proceedings of the 9th Python in Science Conference*, 
+           51-56.
+    .. [2] Pandas Documentation. (2023). 
+           https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.to_csv.html
+    .. [3] Pandas Documentation. (2023). 
+           https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.to_json.html
+    .. [4] Pandas Documentation. (2023). 
+           https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.to_excel.html
+    .. [5] Gofast Package Documentation. (2023). 
+           https://github.com/gofast/gofast
+    """
+
+    # Validate that the input is a pandas DataFrame
+    df = to_frame_if(df)
+    # If specific columns are provided, ensure they exist in the DataFrame
+    if columns is not None:
+        missing_columns = set(columns) - set(df.columns)
+        if missing_columns:
+            raise ValueError(
+                f"The following columns are not in the DataFrame: {missing_columns}"
+            )
+        # Select only the specified columns for export
+        export_df = df[columns]
+        if verbose >= 2:
+            print(f"Selected columns for export: {columns}")
+    else:
+        # If no columns specified, use the entire DataFrame
+        export_df = df.copy()
+        if verbose >= 2:
+            print("No specific columns provided. Exporting the entire DataFrame.")
+    
+    # Initialize the PandasDataHandlers instance to access writer methods
+    data_handler = PandasDataHandlers()
+    writers = data_handler.writers(export_df)
+    
+    if isinstance (file_paths, str): 
+        file_paths = [file_paths]
+    # Iterate through each file path to export the DataFrame
+    for file_path in file_paths:
+        # Extract the file extension from the file path
+        extension = (
+            '.' + file_path.split('.')[-1] 
+            if '.' in file_path else default_extension
+        )
+        
+        # If extensions list is provided, map each to the corresponding file path
+        if extensions is not None:
+            if isinstance(extensions, (list, tuple)):
+                # Handle multiple extensions
+                if len(extensions) != len(file_paths):
+                    raise ValueError(
+                        "`extensions` list must match the length of `file_paths`."
+                    )
+                extension = extensions[file_paths.index(file_path)]
+            elif isinstance(extensions, str):
+                # Handle single extension applied to all file paths
+                extension = extensions
+            else:
+                raise TypeError("`extensions` must be a list, tuple, or string.")
+        
+        # If the extension is still not determined, use the default extension
+        if not extension:
+            extension = default_extension
+            if verbose >= 3:
+                print(
+                    f"No extension found for '{file_path}'. Using default "
+                    f"extension '{default_extension}'."
+                )
+        
+        # Retrieve the appropriate writer function based on the file extension
+        writer_func = writers.get(extension.lower())
+        if writer_func is None:
+            warning_msg = (
+                f"No writer available for extension '{extension}'. "
+                f"Skipping file '{file_path}'."
+            )
+            if verbose >= 1:
+                warnings.warn(warning_msg)
+            continue
+        
+        # Check if the file already exists and handle based on the overwrite flag
+        try:
+            if not overwrite and pd.io.common.file_exists(file_path):
+                warning_msg = (
+                    f"File '{file_path}' already exists and `overwrite` is set to "
+                    f"`False`. Skipping export to this file."
+                )
+                if verbose >= 1:
+                    warnings.warn(warning_msg)
+                continue
+        except Exception as e:
+            warning_msg = (
+                f"Could not check existence of file '{file_path}': {e}. "
+                f"Proceeding with export."
+            )
+            if verbose >= 1:
+                warnings.warn(warning_msg)
+        
+        # Prepare writer-specific options if provided
+        writer_kwargs = writer_options.get(extension.lower(), {}) if writer_options else {}
+        # Merge any additional keyword arguments passed to the function
+        writer_kwargs.update(kwargs)
+        
+        # Attempt to write the DataFrame to the specified file path
+        try:
+            writer_func(file_path, **writer_kwargs)
+            if verbose >= 1:
+                print(f"Successfully exported to '{file_path}'.")
+        except Exception as e:
+            error_msg = (
+                f"Failed to export DataFrame to '{file_path}': {e}."
+            )
+            if overwrite:
+                warnings.warn(error_msg)
+            else:
+                raise RuntimeError(error_msg)
+    
+    # Final verbosity logging after all exports
+    if verbose >= 4:
+        print("Completed exporting DataFrame to all specified file paths.")
+    
+    if verbose >= 5:
+        print("Exported DataFrame preview:")
+        print(export_df.head())
+    
+    # Return None as the export operation does not modify the DataFrame
+    return None
 
 def save_or_load(
     fname:str, 
