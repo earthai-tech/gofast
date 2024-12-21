@@ -12,9 +12,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from ..api.types import Tuple, Optional, List, Dict, Callable
-from ..decorators import EnsureFileExists 
-from ..tools.depsutils import ensure_pkg 
-from ..tools.validator import validate_positive_integer 
+from ..core.io import EnsureFileExists 
+from ..utils.deps_utils import ensure_pkg 
+from ..utils.validator import validate_positive_integer 
 
 __all__= [
      'decompose_image_to_rgb',
@@ -65,7 +65,7 @@ def load_image(image_path: str, grayscale: bool = False) -> np.ndarray:
 
     Examples
     --------
-    >>> from gofast.tools.baseutils import load_image
+    >>> from gofast.utils.baseutils import load_image
     >>> img = load_image("path/to/image.png")
     >>> img_gray = load_image("path/to/image.png", grayscale=True)
 
@@ -138,7 +138,7 @@ def define_grid(
 
     Examples
     --------
-    >>> from gofast.tools.baseutils import define_grid
+    >>> from gofast.utils.baseutils import define_grid
     >>> image = np.random.rand(500, 500, 3)  # Example image
     >>> num_cells_x, num_cells_y = define_grid(image, 20)
     >>> num_cells_x, num_cells_y, extents = define_grid(

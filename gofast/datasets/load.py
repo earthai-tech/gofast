@@ -20,20 +20,16 @@ import numpy as np
 import pandas as pd
 
 from ..api.structures import Boxspace
-from ..tools.baseutils import check_file_exists, fancier_downloader
-from ..tools.coreutils import (
-    assert_ratio,
-    convert_to_structured_format,
-    format_to_datetime,
-    is_in_if,
-    smart_format,
-    split_train_test_by_id,
-    to_numeric_dtypes,
-    validate_feature
-)
-from ..tools.ioutils import get_valid_key, key_checker
+from ..api.summary import ResultSummary
+from ..core.array_manager import to_numeric_dtypes, convert_to_structured_format 
+from ..core.array_manager import split_train_test_by_id 
+from ..core.checks import assert_ratio, is_in_if, validate_feature 
+from ..core.utils import smart_format, format_to_datetime, type_of_target
+from ..utils.base_utils import check_file_exists, fancier_downloader 
+from ..utils.io_utils import get_valid_key, key_checker
 from .io import DMODULE, RemoteDataURL, _to_dataframe, csv_data_loader
 from .io import DESCR, description_loader
+from .util import _format_feature_descriptions 
 
 
 __all__= [ "load_iris",  "load_hlogs",  "load_nansha", "load_forensic", 
@@ -47,7 +43,7 @@ def load_hydro_metrics(*, return_X_y=False, as_frame=False, tag=None,
     Load and return the Hydro-Meteorological dataset collected in Yobouakro, 
     S-P Agnibilekro, Cote d'Ivoire(West-Africa).
 
-    This dataset encompasses a comprehensive range of environmental and 
+    The dataset encompasses a comprehensive range of environmental and 
     hydro-meteorological variables, including temperature, humidity, wind speed,
     solar radiation, evapotranspiration, rainfall, and river flow metrics. 
     It's instrumental for studies in environmental science, agriculture, 
@@ -365,6 +361,13 @@ def load_dyspnea(
     from ..dataops.preprocessing import transform_dates 
     from ._globals import DYSPNEA_DICT, DYSPNEA_LABELS_DESCR
     
+    cdescr = _format_feature_descriptions( 
+        DYSPNEA_DICT, title ='Dyspnea Features', 
+        descriptor='dyspnea', 
+        ) 
+    ldescr = ResultSummary('DyspneaLabels').add_results(DYSPNEA_LABELS_DESCR)
+    # ---- end formattage 
+    
     key = get_valid_key(key, "pp", {
         "pp": ("pp", 'preprocessed', 'cleaned', 'transformed', 'structured'), 
         "raw": ["raw", "unprocessed", "source", "original"]
@@ -407,8 +410,8 @@ def load_dyspnea(
         feature_names=feature_names,
         filename=data_file,
         data_module=DMODULE,
-        labels_descr=DYSPNEA_LABELS_DESCR,
-        columns_descr=DYSPNEA_DICT
+        labels_descr=ldescr,
+        columns_descr=cdescr
     )
 
 def load_hlogs(
@@ -517,6 +520,7 @@ def _finalize_return(data, target_names, frame, data_file):
         filename=data_file,
         data_module=DMODULE,
     )
+
 load_hlogs.__doc__ =r"""\
 Load hydro-logging dataset for hydrogeophysical analysis.
 
@@ -558,7 +562,7 @@ drop_observations: bool, default=False
 
 Returns
 -------
-data : :class:`~gofast.tools.Boxspace`
+data : :class:`~gofast.utils.Boxspace`
     Dictionary-like object with attributes:
     - data: {ndarray, DataFrame} 
       Data matrix; pandas DataFrame if `as_frame=True`.
@@ -620,7 +624,7 @@ def load_nansha (
     shuffle =False, 
     **kws
     ): 
-    from ..tools.datautils import random_sampling 
+    from ..utils.datautils import random_sampling 
     
     drop_display_rate = kws.pop("drop_display_rate", True)
     key = key or 'b0' 
@@ -692,12 +696,13 @@ def load_nansha (
         
     # read dataframe and separate data to target. 
     frame, data, target = _to_dataframe(
-        data, feature_names = feature_names, target_names = target_names, 
+        data, feature_names = feature_names, 
+        target_names = target_names, 
         target=data[target_names].values 
         )
-    # for consistency, re-cast values to numeric 
+    # for consistency, re-cast values to numeric
     frame = to_numeric_dtypes(frame)
-        
+
     if split_X_y: 
         return _split_X_y(frame,target_columns, as_frame=as_frame, 
                           test_ratio=test_ratio)
@@ -773,7 +778,7 @@ drop_display_rate: bool, default=True
 
 Returns
 -------
-data : :class:`~gofast.tools.box.Boxspace`
+data : :class:`~gofast.utils.box.Boxspace`
     Dictionary-like object with attributes:
     - data: {ndarray, DataFrame} 
       Data matrix; pandas DataFrame if `as_frame=True`.
@@ -847,9 +852,11 @@ def load_bagoue(
     target_column = [
         "flow",
     ]
+
     frame, data, target = _to_dataframe(
         data, feature_names = feature_names, target_names = target_column, 
         target=target)
+
     frame = to_numeric_dtypes(frame)
 
     if split_X_y: 
@@ -883,7 +890,7 @@ Parameters
 ----------
 return_X_y : bool, default=False
     If True, returns ``(data, target)`` instead of a 
-    :class:`~gofast.tools.box.Boxspace` object. See below for more information 
+    :class:`~gofast.utils.box.Boxspace` object. See below for more information 
     about the `data` and `target` object.
 as_frame : bool, default=False
     If True, the data is a pandas DataFrame including columns with
@@ -904,7 +911,7 @@ tag, data_names: None
 
 Returns
 -------
-data: :class:`~gofast.tools.box.Boxspace`
+data: :class:`~gofast.utils.box.Boxspace`
     Dictionary-like object, with the following attributes.
     data : {ndarray, dataframe} of shape (150, 4)
         The data matrix. If `as_frame=True`, `data` will be a pandas DataFrame.
@@ -1016,7 +1023,7 @@ as_frame : bool, default=False
     latter already holds `tag` and `data_names` as parameters. 
 Returns
 -------
-data : :class:`~gofast.tools.Boxspace`
+data : :class:`~gofast.utils.Boxspace`
     Dictionary-like object, with the following attributes.
     data : {ndarray, dataframe} of shape (150, 4)
         The data matrix. If `as_frame=True`, `data` will be a pandas
@@ -1071,9 +1078,12 @@ def load_mxs (
     target_names = None , 
     data_names=None, 
     split_X_y=False, 
+    drop_observations=False, 
+    drop_nan_columns=True, 
     seed = None, 
     shuffle=False,
-    test_ratio=.2,  
+    test_ratio=.2, 
+    
     **kws):
     """
     Load the dataset after implementing the mixture learning strategy (MXS).
@@ -1134,6 +1144,9 @@ def load_mxs (
     drop_observations: bool, default='False'
         Drop the ``remark`` column in the logging data if set to ``True``. 
         
+    drop_nan_columns : bool, default=True
+        If True, drops columns filled entirely with NaN values.
+        
     seed: int, array-like, BitGenerator, np.random.RandomState, \
         np.random.Generator, optional
        If int, array-like, or BitGenerator, seed for random number generator. 
@@ -1148,7 +1161,7 @@ def load_mxs (
         
     Returns
     ---------
-    data : :class:`~gofast.tools.Boxspace`
+    data : :class:`~gofast.utils.Boxspace`
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -1196,9 +1209,8 @@ def load_mxs (
     >>> X_train, X_test, y_train, y_test = load_mxs_dataset(split_X_y=True, 
                                                             return_X_y=True)
     """
-    from ..tools.datautils import resample_data 
+    from ..utils.datautils import resample_data 
     
-    drop_observations = kws.pop("drop_observations", False)
     target_map = {0: '1', 1: '11*', 2: '2', 3: '2*', 4: '3', 5: '33*'}
     
     # Handling the 'key' parameter and validating against available options
@@ -1210,24 +1222,46 @@ def load_mxs (
         data_file = str(p)
     data_dict = joblib.load(data_file)
     samples = ( None if samples =="*" else samples) or .5 # 50%
-    data, frame,feature_names, target_names = _prepare_common_dataset(
-        data_dict["data"], drop_observations, target_names,  samples, seed, shuffle)
+    #XXX
+    # data is processed data then feature_data 
+    # frame is a combined data 
+    data, frame, feature_names, target_names = _prepare_common_dataset(
+        data_dict["data"], 
+        drop_observations,
+        target_names,  
+        samples, 
+        seed, 
+        shuffle, 
+        drop_nan_columns, 
+    )
     # Processing based on the specified 'key'
     if key in available_dict:
         Xy = _get_mxs_X_y(available_dict[key], data_dict)
         if Xy:
-            Xy = resample_data(*Xy, samples=samples, random_state=seed, shuffle=shuffle)
+            Xy = resample_data(
+                *Xy, samples=samples, 
+                random_state=seed,
+                shuffle=shuffle
+            )
   
             if (split_X_y and key == 'pp') or return_X_y:
                 return Xy
             elif split_X_y:
-                return _split_and_convert(Xy, test_ratio, seed, shuffle, as_frame)
+                return _split_and_convert(
+                    Xy, test_ratio, seed, 
+                    shuffle, as_frame
+                    )
   
     elif split_X_y:
         return _split_X_y(frame, target_names, test_ratio, as_frame)
 
-    return (data, frame[target_names]) if return_X_y else frame if as_frame else\
-        Boxspace(
+    if return_X_y: 
+        return data, frame[target_names]
+    
+    if as_frame: 
+        return frame 
+    
+    return Boxspace(
             data=np.array(data),
             target=np.array(frame[target_names]),
             frame=data,
@@ -1292,10 +1326,12 @@ def _validate_key(key: str):
         
     return available_data
 
-def _prepare_common_dataset(data, drop_observations, target_names, samples, seed, shuffle):
+def _prepare_common_dataset(
+        data, drop_observations, target_names, samples, seed, shuffle, 
+        drop_nan_columns):
     # Process the common dataset: handling dropping columns, sampling,
     # and converting to DataFrame
-    from ..tools.datautils import random_sampling 
+    from ..utils.datautils import random_sampling 
     
     if drop_observations:
         data = data.drop(columns="remark")
@@ -1309,7 +1345,19 @@ def _prepare_common_dataset(data, drop_observations, target_names, samples, seed
     frame, processed_data, target = _to_dataframe(
         sampled_data, target_names, list(data.columns [:13] ),
         target=sampled_data[target_names].values)
-    return processed_data, to_numeric_dtypes(frame), feature_names, target_names
+    
+    combined_frame = to_numeric_dtypes(
+        frame, drop_nan_columns=drop_nan_columns
+        )
+    if drop_nan_columns:
+        # dr
+        feature_names= list(
+            set(feature_names).intersection(combined_frame.columns)) 
+        target_names = list(
+            set(target_names).intersection(combined_frame.columns))
+        
+    return processed_data, combined_frame, feature_names, target_names
+
 
 def _split_and_convert(Xy, test_ratio, seed, shuffle, as_frame):
     # Split data into training and testing sets and optionally convert
@@ -1321,6 +1369,7 @@ def _split_and_convert(Xy, test_ratio, seed, shuffle, as_frame):
         return convert_to_structured_format(X_train, X_test, y_train, y_test,
                                             as_frame=True)
     return X_train, X_test, y_train, y_test
+
 
 def _get_subsidence_data (
         data_file, /, 
@@ -1389,7 +1438,6 @@ def _get_subsidence_data (
     
     return  data,  feature_names, target_columns     
     
-
 def load_forensic( *, 
     return_X_y=False, 
     as_frame=False, 
@@ -1402,7 +1450,14 @@ def load_forensic( *,
     exclude_vectorized_features=True,  
     **kws
 ):
+    # data formatters 
     from ._globals import FORENSIC_BF_DICT, FORENSIC_LABELS_DESCR 
+    cdescr = _format_feature_descriptions( 
+        FORENSIC_BF_DICT, title ='Forensic Features', 
+        descriptor='forensic', 
+        ) 
+    ldescr = ResultSummary('Forensic Labels').add_results(FORENSIC_LABELS_DESCR)
+    # ---- end formattage 
     
     key = get_valid_key(key, "pp", {
         "pp": ("pp", 'preprocessed', 'cleaned', 'transformed', 'structured'), 
@@ -1424,8 +1479,9 @@ def load_forensic( *,
     target_columns = [
         "dna_use_terrorism_fight",
     ]
+ 
     feature_names= is_in_if(data, items=target_columns, return_diff=True)
-    
+
     frame, data, target = _to_dataframe(
          data, feature_names = feature_names, target_names = target_columns, 
          )
@@ -1451,9 +1507,10 @@ def load_forensic( *,
         feature_names=feature_names,
         filename=data_file,
         data_module=DMODULE,
-        labels_descr=FORENSIC_LABELS_DESCR,
-        colums_descr= FORENSIC_BF_DICT
+        labels_descr=ldescr,
+        colums_descr= cdescr
     )
+
 load_forensic.__doc__="""\
 Load and return the forensic dataset for criminal investigation studies.
 
@@ -2041,7 +2098,6 @@ def _get_target_classes(target, target_columns):
     type. Designed to distinguish between classification and regression
     tasks for appropriate model selection and preprocessing.
     """
-    from ..tools.coreutils import type_of_target
     try:
         target_type = type_of_target(target)
         unique_classes = np.unique(target)

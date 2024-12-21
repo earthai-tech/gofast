@@ -12,7 +12,7 @@ from sklearn.model_selection import cross_val_score
 from sklearn.model_selection._search import BaseSearchCV
 from sklearn.base import  clone
 
-from ..tools.validator import _is_numeric_dtype 
+from ..utils.validator import _is_numeric_dtype 
 from .utils import apply_param_types 
 
 class BaseSwarmSearch(BaseSearchCV):

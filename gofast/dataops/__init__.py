@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 
+from .core import ( 
+    Data, 
+    Frames, 
+    MergeableFrames, 
+    MergeableSeries, 
+    Missing 
+)
 from .enrichment import ( 
     enrich_data_spectrum,
     outlier_performance_impact,
@@ -14,11 +21,11 @@ from .management import (
     fetch_remote_data,
     handle_datasets_with_hdfstore,
     handle_unique_identifiers,
-    read_data,
     request_data,
     store_or_retrieve_data, 
     )
-from .preprocessing import ( 
+from .preprocessing import (
+    Target, Features, 
     apply_bow_vectorization,
     apply_tfidf_vectorization,
     apply_word_embeddings,
@@ -54,6 +61,13 @@ from .transformation import (
   )
 
 __all__=[
+        'Data', 
+        'Frames', 
+        'MergeableSeries', 
+        'MergeableFrames', 
+        "Missing", 
+        'Target', 
+        'Features', 
         'analyze_data_corr',
         'apply_bow_vectorization',
         'apply_tfidf_vectorization', 
@@ -61,7 +75,6 @@ __all__=[
         'assess_outlier_impact', 
         'augment_data', 
         'audit_data', 
-        
         'boxcox_transformation',
         'check_correlated_features', 
         'check_missing_data',
@@ -83,7 +96,6 @@ __all__=[
         'inspect_data',
         'outlier_performance_impact',
         'prepare_data',
-        'read_data', 
         'quality_control',
         'request_data', 
         'sanitize', 

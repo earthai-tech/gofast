@@ -26,7 +26,7 @@ from ..api.summary import ReportFactory
 from ..api.types import Any,Dict, Optional, ArrayLike
 from ..api.types import NDArray, DataFrame
 from ..api.util import parse_component_kind 
-from ..tools.validator import check_array, validate_positive_integer
+from ..utils.validator import check_array, validate_positive_integer
 
 _logger = gofastlog().get_gofast_logger(__name__)
 

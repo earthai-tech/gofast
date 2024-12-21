@@ -79,7 +79,7 @@ from .._gofastlog import gofastlog
 from ..decorators import RunReturn, smartFitRun
 from ..api.types import Optional
 from ..api.property import BaseClass
-from ..tools.depsutils import import_optional_dependency
+from ..utils.deps_utils import import_optional_dependency
 
 # Initialize logging
 _logger = gofastlog().get_gofast_logger(__name__)

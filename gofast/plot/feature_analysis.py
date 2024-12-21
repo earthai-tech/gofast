@@ -26,10 +26,12 @@ from sklearn.linear_model import LogisticRegression
 from ..api.types import Optional, Tuple,  List, Union 
 from ..api.types import ArrayLike, DataFrame, Series
 from ..api.summary import ReportFactory 
+from ..core.array_manager import to_numeric_dtypes 
+from ..core.checks import is_iterable 
+from ..core.utils import fill_nan_in
+from ..utils.validator import get_estimator_name
+from ..utils.validator import check_X_y, check_consistent_length
 from ..transformers import SequentialBackwardSelector 
-from ..tools.coreutils import is_iterable, to_numeric_dtypes, fill_nan_in
-from ..tools.validator import get_estimator_name
-from ..tools.validator import check_X_y, check_consistent_length
 from .utils import _set_sns_style, make_mpl_properties 
 
 __all__=[
@@ -470,7 +472,7 @@ def plot_sbs_feature_selection(
     >>> from sklearn.neighbors import KNeighborsClassifier, train_test_split
     >>> from gofast.datasets import fetch_data
     >>> from gofast.transformers import SequentialBackwardSelection
-    >>> from gofast.tools.utils import plot_sbs_feature_selection
+    >>> from gofast.utils.utils import plot_sbs_feature_selection
     >>> X, y = fetch_data('bagoue analysed')  # Data already standardized
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y)
     >>> knn = KNeighborsClassifier(n_neighbors=5)

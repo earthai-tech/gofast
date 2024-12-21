@@ -19,9 +19,10 @@ from ._selection import GeneticBaseSearch, BaseSwarmSearch
 from ._selection import GradientBaseSearch, AnnealingBaseSearch
 from .utils import apply_param_types 
 
-__all__=["SwarmSearchCV", "GradientSearchCV", "AnnealingSearchCV", 
-         "GeneticSearchCV", "EvolutionarySearchCV", "SequentialSearchCV", 
-         ]
+__all__=[
+    "SwarmSearchCV", "GradientSearchCV", "AnnealingSearchCV", 
+    "GeneticSearchCV", "EvolutionarySearchCV", "SequentialSearchCV", 
+    ]
 
 class SwarmSearchCV(BaseSwarmSearch):
     """

@@ -13,14 +13,306 @@ import matplotlib.pyplot as plt
 
 from ..api.types import ArrayLike, DataFrame 
 from ..api.types import List, Tuple, Optional, Union 
-from ..tools.coreutils import is_iterable 
-from ..tools.validator import is_frame 
+from ..core.checks import is_iterable, exist_features 
+from ..utils.validator import is_frame 
 
 __all__=[
-    "plot_pie_charts", "create_radar_chart", "create_base_radar_chart"
+    "pie_charts", "radar_chart", "radar_chart_in", "donut_chart"
     ]
 
-def plot_pie_charts(
+def donut_chart(
+    data,
+    values,
+    labels=None,
+    aggfunc='sum',
+    groupby=None,
+    colors=None,
+    title=None,
+    figsize=(8, 8),
+    textprops=None,
+    wedgeprops=None,
+    explode=None,
+    startangle=90,
+    counterclock=True,
+    pctdistance=0.85,
+    labeldistance=1.05,
+    inner_radius=0.70,
+    outer_radius=1.0,
+    legend=True,
+    legend_loc='best',
+    legend_title=None,
+    autopct='%1.1f%%',
+    **kwargs
+):
+    """
+    Plot a donut chart from a DataFrame.
+
+    This function creates a donut chart, which is a variation
+    of a pie chart with a hollow center. It allows for flexible
+    customization of the chart's appearance and supports data
+    aggregation through grouping and aggregation functions.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The input DataFrame containing the data to plot. It must
+        include the specified `values` column and optionally
+        `labels` and `groupby` columns.
+
+    values : str
+        The column name in `data` to use for the values of the
+        chart. This column must contain numerical data.
+
+    labels : str or list of str, optional
+        The column name(s) in `data` to use for the labels of
+        the chart. If `None`, labels are generated from the
+        `groupby` columns or the DataFrame index.
+
+    aggfunc : str or callable, default ``'sum'``
+        The aggregation function to apply to the `values` column
+        if `groupby` is specified. It can be a string such as
+        ``'sum'``, ``'mean'``, or a callable function.
+
+    groupby : str or list of str, optional
+        Column(s) in `data` to group by before applying the
+        aggregation function. If `None`, the data is not grouped.
+
+    colors : list of color, optional
+        A list of colors to use for the chart. If not provided,
+        the default Matplotlib color cycle is used.
+
+    title : str, optional
+        The title of the chart. If `None`, no title is displayed.
+
+    figsize : tuple of float, default ``(8, 8)``
+        The size of the figure in inches, as a tuple
+        ``(width, height)``.
+
+    textprops : dict, optional
+        A dictionary of text properties for the labels. This is
+        passed to the `textprops` parameter of
+        `matplotlib.pyplot.pie`.
+
+    wedgeprops : dict, optional
+        A dictionary of properties for the wedges. This is passed
+        to the `wedgeprops` parameter of `matplotlib.pyplot.pie`.
+
+    explode : list of float, optional
+        A list of fractions to offset each wedge. This is used to
+        "explode" wedges from the center of the chart.
+
+    startangle : float, default ``90``
+        The starting angle of the chart in degrees. The default
+        ``90`` degrees starts the chart from the top.
+
+    counterclock : bool, default ``True``
+        If ``True``, the chart is plotted counterclockwise. If
+        ``False``, it is plotted clockwise.
+
+    pctdistance : float, default ``0.85``
+        The radial distance at which the numeric labels are drawn,
+        relative to the center of the chart.
+
+    labeldistance : float, default ``1.05``
+        The radial distance at which the labels are drawn,
+        relative to the center of the chart.
+
+    inner_radius : float, default ``0.70``
+        The radius of the inner hole of the donut chart, as a
+        fraction of the total chart radius.
+
+    outer_radius : float, default ``1.0``
+        The radius of the outer edge of the donut chart, as a
+        fraction of the total chart radius.
+
+    legend : bool, default ``True``
+        If ``True``, a legend is displayed. If ``False``, no
+        legend is displayed.
+
+    legend_loc : str, default ``'best'``
+        The location of the legend. Valid locations are strings
+        such as ``'upper right'``, ``'lower left'``, etc.
+
+    legend_title : str, optional
+        The title of the legend. If `None`, no title is displayed.
+
+    autopct : str or callable, optional
+        A string or function used to label the wedges with their
+        numeric value. If `None`, no numeric labels are displayed.
+
+    **kwargs
+        Additional keyword arguments passed to
+        `matplotlib.pyplot.pie`.
+
+    Returns
+    -------
+    None
+        The function displays the plot and does not return any
+        value.
+
+    Notes
+    -----
+    The donut chart is a variation of the pie chart, with a hole
+    in the center. The size of each wedge is proportional to the
+    sum of the `values` in each group, calculated as:
+
+    .. math::
+
+        S_i = \\text{aggfunc}(V_i)
+
+    where :math:`S_i` is the size of the i-th wedge,
+    :math:`V_i` is the set of values in the i-th group, and
+    :math:`\\text{aggfunc}` is the aggregation function applied.
+
+    The chart is plotted using `matplotlib.pyplot.pie` [1]_ with
+    the `wedgeprops` parameter adjusted to create the hole in
+    the center.
+
+    Examples
+    --------
+    >>> from gofast.plot.charts import donut_chart
+    >>> import pandas as pd
+    >>> # Sample data
+    >>> data = pd.DataFrame({
+    ...     'year': [2018, 2019, 2020, 2021],
+    ...     'rainfall': [800, 950, 700, 850],
+    ...     'region': ['North', 'South', 'East', 'West']
+    ... })
+    >>> # Plot average rainfall per year
+    >>> donut_chart(
+    ...     data=data,
+    ...     values='rainfall',
+    ...     labels='year',
+    ...     title='Average Rainfall per Year'
+    ... )
+    >>> # Plot total rainfall per region with custom colors
+    >>> donut_chart(
+    ...     data=data,
+    ...     values='rainfall',
+    ...     labels='region',
+    ...     colors=['#ff9999', '#66b3ff', '#99ff99', '#ffcc99'],
+    ...     title='Total Rainfall by Region',
+    ...     aggfunc='sum'
+    ... )
+
+    See Also
+    --------
+    matplotlib.pyplot.pie : Plot a pie chart.
+    matplotlib.patches.Wedge : Wedge patch object.
+
+    References
+    ----------
+    .. [1] Hunter, J. D. (2007). Matplotlib: A 2D graphics
+       environment. *Computing in Science & Engineering*, 9(3),
+       90-95.
+
+    """
+    is_frame (data, df_only=True, raise_exception= True)
+
+    # Aggregate data if groupby is specified
+    if groupby is not None:
+        # Ensure groupby is a list
+        if isinstance(groupby, str):
+            groupby = [groupby]
+        grouped_data = (
+            data
+            .groupby(groupby)[values]
+            .agg(aggfunc)
+            .reset_index()
+        )
+    else:
+        grouped_data = data.copy()
+
+    # Determine labels
+    if labels is not None:
+        exist_features(data, features= labels, name="Labels")
+        if isinstance(labels, str):
+            labels = grouped_data[labels].astype(str)
+        elif isinstance(labels, list):
+            labels = (
+                grouped_data[labels]
+                .astype(str)
+                .agg(' - '.join, axis=1)
+            )
+        else:
+            raise ValueError("labels must be a string or list of strings.")
+            
+    elif groupby is not None:
+        labels = (
+            grouped_data[groupby]
+            .astype(str)
+            .agg(' - '.join, axis=1)
+        )
+    else:
+        labels = grouped_data.index.astype(str)
+
+    # Extract values to plot
+    plot_values = grouped_data[values]
+
+    # Use default colors if not specified
+    if colors is None:
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        if len(plot_values) > len(colors):
+            colors = colors * (len(plot_values) // len(colors) + 1)
+        colors = colors[:len(plot_values)]
+    else:
+        if len(colors) < len(plot_values):
+            raise ValueError(
+                "Not enough colors provided for the number of slices."
+            )
+
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Adjust wedgeprops for donut hole
+    if wedgeprops is None:
+        wedgeprops = {}
+    wedgeprops.setdefault('width', outer_radius - inner_radius)
+
+    # Plot the donut chart
+    wedges, texts, autotexts = ax.pie(
+        plot_values,
+        labels=labels,
+        colors=colors,
+        startangle=startangle,
+        counterclock=counterclock,
+        explode=explode,
+        autopct=autopct,
+        pctdistance=pctdistance,
+        labeldistance=labeldistance,
+        textprops=textprops,
+        wedgeprops=wedgeprops,
+        **kwargs
+    )
+
+    # Set aspect ratio to be equal
+    ax.axis('equal')
+
+    # Set title if specified
+    if title is not None:
+        ax.set_title(title)
+
+    # Add legend if required
+    if legend:
+        if legend_title is not None:
+            ax.legend(
+                wedges,
+                labels,
+                title=legend_title,
+                loc=legend_loc
+            )
+        else:
+            ax.legend(
+                wedges,
+                labels,
+                loc=legend_loc
+            )
+
+    # Display the plot
+    plt.show()
+
+
+def pie_charts(
     data: DataFrame, /, 
     columns: Optional[Union[str, List[str]]] = None,
     bin_numerical: bool = True,
@@ -85,12 +377,12 @@ def plot_pie_charts(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.plot.charts import plot_pie_charts
+    >>> from gofast.plot.charts import pie_charts
     >>> df = pd.DataFrame({
     ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'D', 'D'],
     ...     'Values': [1, 2, 3, 4, 5, 6, 7, 8]
     ... })
-    >>> plot_pie_charts(df, bin_numerical=True, num_bins=3)
+    >>> pie_charts(df, bin_numerical=True, num_bins=3)
     
     Notes
     -----
@@ -185,7 +477,7 @@ def _plot_pie_chart(
     ax.set_title(title)
     ax.axis('equal')  # Ensures the pie chart is drawn as a circle
 
-def create_radar_chart(
+def radar_chart(
     d: ArrayLike, /, categories: List[str], 
     cluster_labels: List[str], 
     title: str = "Radar plot Umatrix cluster properties",
@@ -261,13 +553,13 @@ def create_radar_chart(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.plot.charts import create_radar_chart
+    >>> from gofast.plot.charts import radar_chart
     >>> num_clusters = 5
     >>> num_vars = 10
     >>> data = np.random.rand(num_clusters, num_vars)
     >>> categories = [f"Variable {i}" for i in range(num_vars)]
     >>> cluster_labels = [f"Cluster {i}" for i in range(num_clusters)]
-    >>> create_radar_chart(data, categories, cluster_labels)
+    >>> radar_chart(data, categories, cluster_labels)
     
     Notes
     -----
@@ -331,7 +623,7 @@ def create_radar_chart(
     plt.show()
     return fig, ax
 
-def create_base_radar_chart(
+def radar_chart_in(
     d: ArrayLike, /, 
     categories: List[str], 
     cluster_labels: List[str], 
@@ -368,13 +660,13 @@ def create_base_radar_chart(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.plot.charts import create_base_radar_chart
+    >>> from gofast.plot.charts import radar_chart_in
     >>> num_clusters = 5
     >>> num_vars = 10
     >>> data = np.random.rand(num_clusters, num_vars)
     >>> categories = [f"Variable {i}" for i in range(num_vars)]
     >>> cluster_labels = [f"Cluster {i}" for i in range(num_clusters)]
-    >>> create_base_radar_chart(data, categories, cluster_labels)
+    >>> radar_chart_in(data, categories, cluster_labels)
     
     Notes
     -----
