@@ -18,7 +18,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.preprocessing import LabelBinarizer 
 from sklearn.metrics import accuracy_score, r2_score
 
-from ..utils.depsutils import ensure_pkg 
+from ..utils.deps_utils import ensure_pkg 
 from ..utils.validator import check_X_y, check_array 
 from ..utils.validator import check_is_fitted
 from ._neural import BaseFuzzyNeuralNet, BaseNeuroFuzzy, BaseGD 
@@ -28,7 +28,7 @@ __all__=[
     "Perceptron", "LightGDClassifier","LightGDRegressor", 
     "NeuroFuzzyRegressor", "NeuroFuzzyClassifier", 
     "FuzzyNeuralNetClassifier", "FuzzyNeuralNetRegressor", 
-    ]
+]
 
 class Perceptron(BaseEstimator, RegressorMixin, ClassifierMixin):
     """
@@ -159,7 +159,7 @@ class Perceptron(BaseEstimator, RegressorMixin, ClassifierMixin):
         n_iter_no_change=5,
         problem='auto',
         random_state=None, 
-        verbose=False
+        verbose=0
     ):
         self.eta0 = eta0
         self.max_iter = max_iter
@@ -586,8 +586,7 @@ class Perceptron(BaseEstimator, RegressorMixin, ClassifierMixin):
         return f"{self.__class__.__name__}(\n    {params}\n)"
     
 @ensure_pkg("skfuzzy", extra="The `skfuzzy` package is required for the"
-            " `NeuroFuzzyRegressor` to function correctly. Please install"
-            " it to proceed."
+            " `NeuroFuzzyRegressor` correctly proceed."
     )
 class NeuroFuzzyRegressor(RegressorMixin, BaseNeuroFuzzy):
     """
@@ -932,7 +931,7 @@ class NeuroFuzzyRegressor(RegressorMixin, BaseNeuroFuzzy):
     
 @ensure_pkg(
     "skfuzzy", ("The `skfuzzy` package is required for the "
-     " `NeuroFuzzyClassifier`to function correctly.")
+     " `NeuroFuzzyClassifier` to correctly proceed.")
     )
 class NeuroFuzzyClassifier(ClassifierMixin, BaseNeuroFuzzy):
     """
@@ -1498,7 +1497,7 @@ class LightGDClassifier(ClassifierMixin, BaseGD):
         clipping_threshold=250,
         shuffle=True, 
         random_state=None, 
-        verbose=False,
+        verbose=0,
     ):
         super().__init__(
             eta0=eta0, 
@@ -1853,7 +1852,7 @@ class LightGDRegressor(RegressorMixin, BaseGD):
         clipping_threshold=250, 
         shuffle=True, 
         random_state=None, 
-        verbose=False,
+        verbose=0,
     ):
         super().__init__(
             eta0=eta0, 
@@ -2027,7 +2026,7 @@ class LightGDRegressor(RegressorMixin, BaseGD):
 @ensure_pkg(
     "skfuzzy", 
     extra= ( "The `skfuzzy` is required for the `FuzzyNeuralNetClassifier`"
-            "to function correctly.")
+            " to correctly proceed.")
     )
 class FuzzyNeuralNetClassifier(ClassifierMixin, BaseFuzzyNeuralNet):
     """
@@ -2465,7 +2464,7 @@ class FuzzyNeuralNetClassifier(ClassifierMixin, BaseFuzzyNeuralNet):
     
 @ensure_pkg(
     "skfuzzy", ("The `skfuzzy` package is required for the "
-     " `FuzzyNeuralNetRegressor`to function correctly.")
+     " `FuzzyNeuralNetRegressor` to correctly proceed.")
     )
 class FuzzyNeuralNetRegressor(RegressorMixin, BaseFuzzyNeuralNet):
     """

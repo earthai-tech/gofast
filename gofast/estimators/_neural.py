@@ -149,7 +149,7 @@ class BaseGD(BaseEstimator, metaclass=LearnerMeta):
         activation='sigmoid',
         shuffle=True, 
         random_state=None, 
-        verbose=False
+        verbose=0
     ):
         self.eta0 = eta0
         self.max_iter = max_iter

@@ -24,6 +24,7 @@ from typing import (
     Union, 
     Tuple,
     Type, 
+    Pattern, 
     Callable, 
     get_origin,
     get_args, 
@@ -1649,53 +1650,280 @@ def validate_noise(noise):
         #     raise ValueError("The `noise` parameter must be convertible to a float.")
     return noise
 
-
 def validate_feature(
-    data: Union[DataFrame, Series],  
-    features: List[str],
-    verbose: str = 'raise'
-    ) -> bool:
+    data: Union[DataFrame, Series],
+    features: Union[List[str], Pattern, Callable[[str], bool]],
+    error: str = 'raise',  
+    ops: str = 'validate'  
+) -> Union[bool, pd.DataFrame]:
     """
     Validate the existence of specified features in a DataFrame or Series.
-    
+
+    This function verifies whether the specified features exist within the
+    provided data. The ``features`` parameter can be a list of feature names,
+    a regular expression (regex) pattern, or a callable that determines feature
+    selection based on column names.
+
+    .. math::
+        \text{Let } C = \{c_1, c_2, \dots, c_n\} \text{ be the set of columns in }
+        \text{data. Let } F = \{f_1, f_2, \dots, f_m\} \text{ be the set of features to validate.}
+
+    The function evaluates the intersection of ``C`` and ``F``, and based on the
+    operation mode and error handling parameters, it performs the necessary
+    actions.
+
     Parameters
     ----------
-    data : DataFrame or Series
-        The DataFrame or Series to validate feature existence.
-    features : list of str
-        List of features to check for existence in the data.
-    verbose : str, {'raise', 'ignore'}, optional
-        Specify how to handle the absence of features. 'raise' (default) will raise
-        a ValueError if any feature is missing, while 'ignore' will return a
-        boolean indicating whether all features exist.
-    
+    data : Union[pd.DataFrame, pd.Series]
+        The DataFrame or Series in which to validate feature existence.
+    features : Union[List[str], Pattern, Callable[[str], bool]]
+        Features to check for existence. Can be a list of feature names, a
+        regex pattern (``str`` or ``re.Pattern``), or a callable that takes a
+        column name and returns ``True`` if the column should be selected.
+    error : str, {'raise', 'warn', 'ignore'}, default='raise'
+        Specifies how to handle the absence of features when ``ops='validate'``.
+        
+        - ``'raise'``: Raises a ``ValueError`` if any feature is missing.
+        - ``'warn'``: Issues a warning if any feature is missing and returns a
+          DataFrame with the valid features.
+        - ``'ignore'``: Silently returns a DataFrame with the valid features,
+          disregarding any missing features.
+    ops : str, {'validate', 'check_only'}, default='validate'
+        Operation mode.
+        
+        - ``'validate'``: Performs validation and handles missing features based
+          on the ``error`` parameter.
+        - ``'check_only'``: Returns a boolean indicating whether the specified
+          features exist without raising errors.
+
     Returns
     -------
-    bool
-        True if all specified features exist in the data, False otherwise.
-    
+    Union[bool, pd.DataFrame]
+        - If ``ops='validate'``:
+            - ``'raise'``: Returns ``True`` if all features exist, otherwise
+              raises a ``ValueError``.
+            - ``'warn'`` or ``'ignore'``: Returns a DataFrame containing only
+              the valid features.
+        - If ``ops='check_only'``:
+            - Returns ``True`` if all specified features are present, ``False``
+              otherwise.
+
+    Raises
+    ------
+    ValueError
+        If ``error='raise'`` and any specified features are missing.
+        If ``ops`` or ``error`` parameters are invalid.
+    TypeError
+        If ``features`` is not a list of strings, a regex pattern, or a callable.
+
     Examples
     --------
     >>> from gofast.core.checks import validate_feature
     >>> import pandas as pd
-    >>> data = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
-    >>> result = validate_feature(data, ['A', 'C'], verbose='raise')
-    >>> print(result)  # This will raise a ValueError
+    >>> import re
+    >>> # Sample DataFrame
+    >>> data = pd.DataFrame({'A': [1, 2], 'B': [3, 4], 'C1': [5, 6]})
+    
+    # Example 1: Validating a list of feature names
+    >>> validate_feature(data, ['A', 'B'])
+        B  A
+     0  3  1
+     1  4  2
+    
+    >>> validate_feature(data, ['A', 'D'], error='raise')
+    Traceback (most recent call last):
+        ...
+    ValueError: The following feature is missing in the data: D.
+    
+    # Example 2: Using a regex pattern
+    >>> pattern = re.compile(r'^C\d+$')
+    >>> validate_feature(data, pattern)
+       C1
+    0   5
+    1   6
+    
+    >>> invalid_pattern = re.compile(r'^D\d+$')
+    >>> validate_feature(data, invalid_pattern, ops='check_only')
+    False
+    
+    # Example 3: Using a callable
+    >>> callable_selector = lambda col: col.startswith('A') or col.startswith('B')
+    >>> validate_feature(data, callable_selector)
+       A  B
+    0  1  3
+    1  2  4
+    
+    >>> invalid_callable = lambda col: col.startswith('D')
+    >>> validate_feature(data, invalid_callable, ops='check_only')
+    False
+
+    Notes
+    -----
+    - This function is particularly useful in data preprocessing pipelines
+      where the presence of certain features is critical for subsequent
+      analysis or modeling steps.
+    - When using regex patterns, ensure that the pattern accurately reflects
+      the intended column names to avoid unintended matches.
+    - The callable provided to ``features`` should accept a single string
+      argument (the column name) and return a boolean indicating whether
+      the column should be selected.
+
+    See Also
+    --------
+    pandas.DataFrame.columns : Provides access to the column labels of a DataFrame.
+    pandas.Series.apply : Applies a function along an axis of the DataFrame or Series.
+    warnings.warn : Issues a warning message.
+
+    References
+    ----------
+    .. [1] Pandas Documentation. "DataFrame.columns." 
+       https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.columns.html
+    .. [2] Python `re` Module. 
+       https://docs.python.org/3/library/re.html
+    .. [3] Python `warnings` Module.
+       https://docs.python.org/3/library/warnings.html
+
     """
     if isinstance(data, pd.Series):
-        data = data.to_frame().T  # Convert Series to DataFrame
-    features= is_iterable(features, exclude_string= True, transform =True )
-    present_features = set(features).intersection(data.columns)
-    
-    if len(present_features) != len(features):
-        missing_features = set(features).difference(present_features)
-        verb =" is" if len(missing_features) <2 else "s are"
-        if verbose == 'raise':
-            raise ValueError(f"The following feature{verb} missing in the "
-                             f"data: {_smart_format(missing_features)}.")
-        return False
-    
-    return True
+        # Convert Series to DataFrame for uniform processing
+        data = data.to_frame().T
+
+    # Initialize sets for selected and missing features
+    selected_columns = set()
+    missing_features = set()
+
+    # Determine selected columns based on the type of 'features'
+    if isinstance(features, (list, tuple)):
+        # Features specified as a list of strings
+        selected_columns = set(features).intersection(data.columns)
+        missing_features = set(features).difference(selected_columns)
+    elif isinstance(features, (re.Pattern, str)):
+        # Features specified as a regex pattern
+        pattern = features if isinstance(features, re.Pattern) else re.compile(features)
+        matched_columns = set(data.columns[data.columns.to_series().str.match(pattern)])
+        selected_columns = matched_columns
+        if isinstance(features, str):
+            pattern_str = features
+        else:
+            pattern_str = pattern.pattern
+        # For regex, missing features are not explicitly tracked
+    elif callable(features):
+        # Features specified as a callable
+        matched_columns = set(
+            data.columns[data.columns.to_series().apply(features)]
+        )
+        selected_columns = matched_columns
+    else:
+        raise TypeError(
+            "``features`` must be a list of strings, a regex pattern, or a callable."
+        )
+
+    # Calculate missing features only if 'features' is a list
+    if isinstance(features, list):
+        missing_features = set(features).difference(selected_columns)
+
+    message =''
+    if missing_features:
+        verb = "is" if len(missing_features) == 1 else "are"
+        message = (
+            f"The following feature {verb} missing in the data: "
+            f"{_smart_format(missing_features)}."
+        )
+        
+    if ops == 'validate':
+        if isinstance(features, list):
+            if missing_features:
+                if error == 'raise':
+                    # Raise ValueError if any features are missing
+                    raise ValueError(message)
+                elif error == 'warn':
+                    # Issue a warning and proceed with valid features
+                    warnings.warn(
+                        f"{message}. Proceeding with available features.",
+                        UserWarning
+                    )
+                elif error == 'ignore':
+                    # Silently proceed with available features
+                    pass
+                else:
+                    raise ValueError(
+                        f"Invalid ``error`` parameter: {error}. Must be "
+                        f"'raise', 'warn', or 'ignore'."
+                    )
+            # Return DataFrame with valid features
+            return data[list(selected_columns)]
+        else:
+            # For regex or callable, missing features are not explicitly tracked
+            if isinstance(features, (re.Pattern, str)):
+                if not selected_columns:
+                    if error == 'raise':
+                        pattern_str = features.pattern if isinstance(
+                            features, re.Pattern) else features
+                        raise ValueError(
+                            f"No columns match the regex pattern: {pattern_str}."
+                        )
+                    elif error == 'warn':
+                        pattern_str = features.pattern if isinstance(
+                            features, re.Pattern) else features
+                        warnings.warn(
+                            f"No columns match the regex pattern: {pattern_str}.",
+                            UserWarning
+                        )
+                    elif error == 'ignore':
+                        pass
+                    else:
+                        raise ValueError(
+                            f"Invalid ``error`` parameter: {error}. Must be "
+                            f"'raise', 'warn', or 'ignore'."
+                        )
+            elif callable(features):
+                if not selected_columns:
+                    if error == 'raise':
+                        raise ValueError(
+                            "No columns match the callable criteria."
+                        )
+                    elif error == 'warn':
+                        warnings.warn(
+                            "No columns match the callable criteria.",
+                            UserWarning
+                        )
+                    elif error == 'ignore':
+                        pass
+                    else:
+                        raise ValueError(
+                            f"Invalid ``error`` parameter: {error}. Must be "
+                            f"'raise', 'warn', or 'ignore'."
+                        )
+            # Return DataFrame with matched features
+            return data[list(selected_columns)]
+        
+    elif ops == 'check_only':
+        if isinstance(features, list):
+            if missing_features:
+                if error == 'warn':
+                    warnings.warn(message,  UserWarning)
+                elif error == 'ignore':
+                    pass
+                elif error == 'raise':
+                    # Even in 'check_only', if error='raise', raise an error
+       
+                    raise ValueError(message)
+                else:
+                    raise ValueError(
+                        f"Invalid ``error`` parameter: {error}. Must be "
+                        f"'raise', 'warn', or 'ignore'."
+                    )
+                return False
+            else:
+                return True
+        else:
+            # For regex or callable, simply check if any columns matched
+            return bool(selected_columns)
+    else:
+        raise ValueError(
+            f"Invalid ``ops`` parameter: {ops}. Must be "
+            f"'validate' or 'check_only'."
+        )
 
 def features_in(
     *data: Union[pd.DataFrame, pd.Series], features: List[str],

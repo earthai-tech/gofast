@@ -9,6 +9,7 @@ data manipulation tasks.
 """
 
 import os
+import re
 import copy
 import time
 import shutil
@@ -34,9 +35,10 @@ from sklearn.utils import all_estimators
 
 from ..api.property import PandasDataHandlers
 from ..api.types import (
-    Union, List, Optional, Tuple, Iterable, Any, Set, 
-    _T, _F, DataFrame, ArrayLike, Series, NDArray, 
+    Union, List, Optional, Tuple, Iterable, Any, Set, Pattern, Dict, 
+    _T, _F, DataFrame, ArrayLike, Series, Callable, NDArray, 
 )
+from ..compat.pandas import select_dtypes 
 from ..core.array_manager import  to_numeric_dtypes, reshape 
 from ..core.checks import( 
     _assert_all_types,  is_iterable, exist_features, validate_feature, 
@@ -2076,11 +2078,11 @@ def smart_rotation(ax):
     ax.xaxis.set_major_locator(FixedLocator(tick_locs))
     ax.set_xticklabels(labels, rotation=rotation)
     
-def select_features(
-    data: DataFrame,
+def select_features0(
+    df: DataFrame,
     features: Optional[List[str]] = None,
-    dtypes_include: Optional[Union[str, List[str]]] = None,
-    dtypes_exclude: Optional[Union[str, List[str]]] = None,
+    dtypes_inc: Optional[Union[str, List[str]]] = None,
+    dtypes_exc: Optional[Union[str, List[str]]] = None,
     coerce: bool = False,
     columns: Optional[List[str]] = None,
     verify_integrity: bool = False,
@@ -2098,10 +2100,10 @@ def select_features(
     features : List[str], optional
         Specific feature names to select. An error is raised if any
         feature is not present in `data`.
-    dtypes_include : str or List[str], optional
+    dtypes_inc : str or List[str], optional
         The data type(s) to include in the selection. Possible values
         are the same as for the pandas `include` parameter in `select_dtypes`.
-    dtypes_exclude : str or List[str], optional
+    dtypes_exc : str or List[str], optional
         The data type(s) to exclude from the selection. Possible values
         are the same as for the pandas `exclude` parameter in `select_dtypes`.
     coerce : bool, default False
@@ -2158,7 +2160,7 @@ def select_features(
     coerce, verify_integrity, parse_features= ellipsis2false( 
         coerce, verify_integrity, parse_features)
     
-    data = build_data_if(data, columns = columns, )
+    data = build_data_if(df, columns = columns, )
   
     if verify_integrity: 
         data = to_numeric_dtypes(data )
@@ -2176,7 +2178,263 @@ def select_features(
         return data [features] 
     # raise ValueError: at least one of include or exclude must be nonempty
     # use coerce to no raise error and return data frame instead.
-    return data if coerce else data.select_dtypes (dtypes_include, dtypes_exclude) 
+    return data if coerce else data.select_dtypes (dtypes_inc, dtypes_exc) 
+
+def select_features(
+    data: Union[DataFrame, dict, np.ndarray, list],
+    features: Optional[Union[List[str], Pattern, Callable[[str], bool]]] = None,
+    dtypes_inc: Optional[Union[str, List[str]]] = None,
+    dtypes_exc: Optional[Union[str, List[str]]] = None,
+    coerce: bool = False,
+    columns: Optional[List[str]] = None,
+    verify_integrity: bool = False,
+    parse_features: bool = False,
+    include_missing: Optional[bool] = None,
+    exclude_missing: Optional[bool] = None,
+    transform: Optional[Union[Callable[[pd.Series], Any],
+                              Dict[str, Callable[[pd.Series], Any]]]] = None,
+    regex: Optional[Union[str, Pattern]] = None,
+    callable_selector: Optional[Callable[[str], bool]] = None,
+    inplace: bool = False,
+    **astype_kwargs: Any
+) -> DataFrame:
+    """
+    Selects features from a dataset based on various criteria and returns
+    a new DataFrame.
+
+    .. math::
+        \text{Selected Columns} = 
+        \text{Features Selection Criteria Applied to } C
+
+    Where:
+    - \( C = \{c_1, c_2, \dots, c_n\} \) is the set of columns in the data.
+    - Features Selection Criteria include feature names, data types, regex patterns,
+      callable selectors, and missing data conditions.
+
+    Parameters
+    ----------
+    data : Union[pd.DataFrame, dict, np.ndarray, list]
+        The dataset from which to select features. Can be a pandas DataFrame, a 
+        dictionary, a NumPy array, or a list of dictionaries/lists.
+    features : Optional[Union[List[str], Pattern, Callable[[str], bool]]], default=None
+        Specific feature names to select. Can also be a regex pattern or a callable
+        that takes a column name and returns ``True`` if the column should be selected.
+    dtypes_inc : Optional[Union[str, List[str]]], default=None
+        The data type(s) to include in the selection. Possible values are the same 
+        as for the pandas ``include`` parameter in ``select_dtypes``.
+    dtypes_exc : Optional[Union[str, List[str]]], default=None
+        The data type(s) to exclude from the selection. Possible values are the same 
+        as for the pandas ``exclude`` parameter in ``select_dtypes``.
+    coerce : bool, default=False
+        If ``True``, numeric columns are coerced to the appropriate types without
+        selection, ignoring ``features``, ``dtypes_inc``, and ``dtypes_exc`` parameters.
+    columns : Optional[List[str]], default=None
+        Column names to use if ``data`` is a NumPy array or a list without column
+        names.
+    verify_integrity : bool, default=False
+        Verifies the data type integrity and converts data to the correct types if 
+        necessary.
+    parse_features : bool, default=False
+        Parses string features and converts them to an iterable object (e.g., lists).
+    include_missing : Optional[bool], default=None
+        If ``True``, includes only columns with missing values.
+        If ``False``, excludes columns with missing values.
+    exclude_missing : Optional[bool], default=None
+        If ``True``, excludes columns with any missing values.
+    transform : Optional, default=None
+        Function or dictionary of functions to apply to the selected columns.
+        If a dictionary is provided, keys should correspond to column names.
+    regex : Optional[Union[str, Pattern]], default=None
+        Regular expression pattern to select columns.
+    callable_selector : Optional[Callable[[str], bool]], default=None
+        A callable that takes a column name and returns ``True`` if the column should
+        be selected.
+    inplace : bool, default=False
+        If ``True``, modifies the data in place. Otherwise, returns a new DataFrame.
+    **astype_kwargs : Any
+        Additional keyword arguments for ``pandas.DataFrame.astype``.
+
+    Returns
+    -------
+    pd.DataFrame
+        A new DataFrame with the selected features.
+
+    Raises
+    ------
+    ValueError
+        If no columns match the selection criteria and ``coerce`` is ``False``.
+    TypeError
+        If ``regex`` is not a string or compiled regex pattern.
+        If ``callable_selector`` is not a callable.
+        If ``transform`` is not a callable or a dictionary of callables.
+        If provided parameters are of incorrect types.
+
+    Examples
+    --------
+    >>> from gofast.utils.base_utils import select_features
+    >>> import pandas as pd
+    >>> import re
+    >>> import numpy as np
+    >>> data = {
+    ...     "Color": ['Blue', 'Red', 'Green'],
+    ...     "Name": ['Mary', "Daniel", "Augustine"],
+    ...     "Price ($)": ['200', "300", "100"],
+    ...     "Discount": [20, 30, np.nan]
+    ... }
+    >>> select_features(data, dtypes_inc='number', verify_integrity=True)
+       Price ($)  Discount
+    0      200.0      20.0
+    1      300.0      30.0
+    2      100.0       NaN
+
+    >>> select_features(data, features=['Color', 'Price ($)'])
+       Color Price ($)
+    0   Blue       200
+    1    Red       300
+    2  Green       100
+
+    >>> select_features(
+    ...     data,
+    ...     regex='^Price|Discount$',
+    ...     transform={'Price ($)': lambda x: x / 100}
+    ... )
+       Price ($)  Discount
+    0        2.0        20
+    1        3.0        30
+    2        1.0         NaN
+
+    >>> select_features(
+    ...     data,
+    ...     callable_selector=lambda col: col.startswith('C')
+    ... )
+       Color
+    0   Blue
+    1    Red
+    2  Green
+
+    Notes
+    -----
+    - This function is particularly useful in data preprocessing pipelines
+      where the presence of certain features is critical for subsequent
+      analysis or modeling steps.
+    - When using regex patterns, ensure that the pattern accurately reflects
+      the intended column names to avoid unintended matches.
+    - The callable provided to ``callable_selector`` should accept a single string
+      argument (the column name) and return a boolean indicating whether the column
+      should be selected.
+    - Transformation functions should be designed to handle the data types of
+      the respective columns to avoid runtime errors.
+
+    See Also
+    --------
+    validate_feature : Validates the existence of specified features in data.
+    pandas.DataFrame.select_dtypes : For more information on how to use ``include`` and
+        ``exclude`` parameters.
+    pandas.DataFrame.astype : For information on data type conversion.
+
+    References
+    ----------
+    .. [1] Pandas Documentation. "DataFrame.select_dtypes." 
+       https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.select_dtypes.html
+    .. [2] Python `re` Module. 
+       https://docs.python.org/3/library/re.html
+    .. [3] Pandas Documentation. "DataFrame.astype."
+       https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.astype.html
+    .. [4] Pandas Documentation. "DataFrame."
+       https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.html
+    """
+
+    # Convert input data to DataFrame if necessary
+    df = build_data_if(
+        data, columns =columns, force =True, raise_exception= True )
+
+    # Handle coercion
+    if coerce:
+        numeric_cols = select_dtypes (df, dtypes ='number', return_columns =True)
+        df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
+        return df
+
+    # Handle verify_integrity
+    if verify_integrity:
+        df = to_numeric_dtypes(df )
+
+    # Handle parse_features
+    if parse_features:
+        for col in df.select_dtypes(['object', 'string']):
+            df[col] = df[col].apply(lambda x: x.split(',') if isinstance(x, str) else x)
+
+    # Initialize mask for column selection
+    mask = pd.Series([True] * df.shape[1], index=df.columns)
+
+    # Select features by names, regex, or callable
+    if features is not None:
+        return validate_feature(df, features, ops='validate', error ='raise')
+        
+    # Select features by regex separately if provided
+    if regex is not None:
+        if isinstance(regex, str):
+            pattern = re.compile(regex)
+        elif isinstance(regex, re.Pattern):
+            pattern = regex
+        else:
+            raise TypeError(
+                "`regex` must be a string or a compiled regex pattern.")
+        mask &= df.columns.str.match(pattern)
+
+    # Select features by callable_selector separately if provided
+    if callable_selector is not None:
+        if not callable(callable_selector):
+            raise TypeError("`callable_selector` must be a callable.")
+        mask &= df.columns.to_series().apply(callable_selector)
+
+    # Select features by data types to include
+    if dtypes_inc is not None:
+        included = select_dtypes(df, dtypes=dtypes_inc, return_columns=True) 
+        mask &= df.columns.isin(included)
+
+    # Select features by data types to exclude
+    if dtypes_exc is not None:
+        excluded = df.select_dtypes(exclude=dtypes_exc).columns
+        mask &= df.columns.isin(excluded)
+
+    # Handle missing data inclusion/exclusion
+    if include_missing is True:
+        cols_with_missing = df.columns[df.isnull().any()]
+        mask &= df.columns.isin(cols_with_missing)
+    if exclude_missing is True:
+        cols_without_missing = df.columns[~df.isnull().any()]
+        mask &= df.columns.isin(cols_without_missing)
+
+    # Apply the mask to select columns
+    selected_columns = df.columns[mask]
+    if selected_columns.empty:
+        if coerce:
+            return df
+        else:
+            raise ValueError("No columns match the selection criteria.")
+
+    df_selected = df[selected_columns].copy() 
+
+    # Apply transformations if specified
+    if transform is not None:
+        if callable(transform):
+            df_selected = transform(df_selected)
+        elif isinstance(transform, dict):
+            for col, func in transform.items():
+                if col in df_selected.columns:
+                    df_selected[col] = df_selected[col].apply(func)
+                else:
+                    raise KeyError(
+                        f"Column '{col}' not found in the selected DataFrame.")
+        else:
+            raise TypeError(
+                "`transform` must be a callable or a dictionary of callables.")
+
+    # Change data types as specified
+    if astype_kwargs:
+        df_selected = df_selected.astype(**astype_kwargs)
+
+    return df_selected
 
 def speed_rowwise_process(
     data, 
@@ -2336,7 +2594,6 @@ def download_file(url, local_filename , dstpath =None ):
     print("{:-^70}".format(" ok! "))
     
     return None if dstpath else local_filename
-
 
 def fancier_downloader(url, local_filename, dstpath =None ):
     """ Download remote file with a bar progression. 

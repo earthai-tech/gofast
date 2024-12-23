@@ -26,9 +26,10 @@ from gofast.utils.ml.feature_selection import (
     display_feature_contributions
     
     )
+from gofast.utils.base_utils import select_features 
 
 __all__= [ 
-    'bi_selector',
+    'bi_selector','select_features', 
     'get_correlated_features',
     'select_feature_importances', 
     'get_feature_contributions',
