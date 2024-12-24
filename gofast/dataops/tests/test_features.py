@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 import pandas as pd
 import numpy as np
-from gofast.tools.depsutils import ensure_module_installed 
+from gofast.utils.deps_utils import ensure_module_installed 
 from gofast.dataops.preprocessing import Features
 
 try:

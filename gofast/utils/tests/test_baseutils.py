@@ -10,20 +10,20 @@ from unittest.mock import patch, mock_open
 import numpy as np 
 import pandas as pd 
 
-from gofast.tools.datautils import cleaner
-from gofast.tools.mlutils import smart_label_classifier
+from gofast.utils.data_utils import cleaner
+from gofast.utils.ml.utils import smart_label_classifier
 from gofast.datasets.load import load_bagoue
-from gofast.tools.baseutils import download_file
-from gofast.tools.baseutils import lowertify
-from gofast.tools.baseutils import fancier_downloader
-from gofast.tools.baseutils import save_or_load
-from gofast.tools.baseutils import array2hdf5
-from gofast.tools.baseutils import extract_target 
-from gofast.tools.baseutils import labels_validator #  
-from gofast.tools.baseutils import rename_labels_in  # 
-from gofast.tools.baseutils import select_features 
-from gofast.tools.baseutils import categorize_target
-from gofast.tools.baseutils import get_target
+from gofast.utils.base_utils import download_file
+from gofast.core.utils import lowertify
+from gofast.utils.base_utils import fancier_downloader
+from gofast.core.io import save_or_load
+from gofast.utils.base_utils import array2hdf5
+from gofast.utils.base_utils import extract_target 
+from gofast.utils.base_utils import labels_validator #  
+from gofast.utils.base_utils import rename_labels_in  # 
+from gofast.utils.base_utils import select_features 
+from gofast.utils.base_utils import categorize_target
+from gofast.utils.base_utils import get_target
 
 DOWNLOAD_FILE='https://raw.githubusercontent.com/WEgeophysics/gofast/main/gofast/datasets/data/iris.csv'
 

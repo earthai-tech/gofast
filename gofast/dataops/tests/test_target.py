@@ -5,7 +5,7 @@ import pandas as pd
 import importlib.util
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from gofast.dataops.preprocessing import Target
-from gofast.tools.coreutils import reshape 
+from gofast.core.array_manager import reshape 
 
 # Sample data for testing
 y_binary = np.array([0, 1, 0, 1])

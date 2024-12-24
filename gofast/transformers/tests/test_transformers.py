@@ -74,7 +74,7 @@ SKLIM_AVAILABLE =False
 try: 
     from skimage.transform import resize # noqa 
 except: 
-    from gofast.utils.depsutils import ensure_module_installed 
+    from gofast.utils.deps_utils import ensure_module_installed 
     if not is_module_installed("skimage", distribution_name='scikit-image'): 
         SKLIM_AVAILABLE =ensure_module_installed(
             'skimage', 

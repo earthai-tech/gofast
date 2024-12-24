@@ -387,19 +387,28 @@ def _get_gofast_package_descriptions(include_private=False):
         "_distributor_init[m]": "Initialization for distribution setup.",
         "_gofastlog[m]": "Logging configurations and settings for gofast.",
         "_public[m]": "Public API definitions and exports.",
+        "adaline[m]": "Implements ADALINE (Adaptive Linear Neuron) -based algorithms.",
         "assistance[m]": "Helper functions and assistance utilities.",
+        "benchmark[m]": "Performance benchmarking utilities and stress tests for algorithms.",
+        "boosting[m]": "Implements boosting tree-based algorithms.",
+        "cluster_based[m]": "Clustering algorithms and data partitioning techniques.",
         "config[m]": "Configuration settings and utilities.",
         "decorators[m]": "Decorators for various functionalities within the package.",
+        "decomposition[m]": "Methods for matrix decomposition, such as PCA, SVD, and factor analysis.",
+        "dimensionality[m]": "Dimensionality reduction techniques for high-dimensional datasets.",
+        "ensemble[m]": "Ensemble learning methods that combine multiple models for robust performance.",
         "exceptions[m]": "Custom exceptions and error handling.",
-        "feature_selection[m]": "Tools for feature selections and contribution analyses.", 
+        "factors[m]": "Advanced factor extraction and factor analysis for feature transformation.",
+        "feature_selection[m]": "Tools for feature selections and contribution analyses.",
         "metrics[m]": "Performance metrics and evaluation tools.",
-        "metrics_special[m]":"Specialized metrics for model evaluation.", 
+        "metrics_special[m]": "Specialized metrics for model evaluation.",
         "model_selection[m]": "Tools for model selection and validation.",
+        "perceptron[m]": "Perceptron-based algorithms and linear classification and regression methods.",
         "preprocessing[m]": "Tools for quick preprocesssing  data and processor built.",
         "query[m]": "Query utilities for data retrieval and manipulation.",
-        # "util[m]": "Base package initialization utility functions.",
+        "tree[m]": "Decision tree-based methods for classification, regression, and ensemble approaches."
     }
-    
+
     if not include_private:
         descriptions = {k: v for k, v in descriptions.items() if not k.startswith('_')}
     

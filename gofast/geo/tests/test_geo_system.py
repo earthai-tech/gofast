@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 # test_geo_system.py
+
+import pandas as pd
 import pytest
 from gofast.experimental import enable_geo_intel_system # noqa 
 from gofast.geo.system import GeoIntelligentSystem
-from gofast.tools.depsutils import ensure_pkg, ensure_module_installed 
-import pandas as pd
+from gofast.utils.deps_utils import ensure_pkg, ensure_module_installed 
 
 GPD_AVAILABLE =False 
 try:

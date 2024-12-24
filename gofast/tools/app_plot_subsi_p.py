@@ -588,7 +588,6 @@ def merge_and_plot(
         logger.error("Failed to merge and plot data: %s", e)
         raise
 
-
 def categorize_and_plot(
     tft_pred_data: pd.DataFrame,
     visualize_years: List[int],

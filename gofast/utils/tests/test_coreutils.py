@@ -10,13 +10,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from gofast.datasets.load import load_bagoue
-from gofast.tools.baseutils import normalizer, interpolate_grid
+from gofast.utils.base_utils import normalizer, interpolate_grid
 from gofast.core.array_manager import reshape, to_numeric_dtypes
-from gofast.tools.datautils import (
-    cleaner, random_selector,
-)
-from gofast.tools.mlutils import smart_label_classifier
-from gofast.tools.baseutils import remove_outliers
+from gofast.utils.data_utils import cleaner, random_selector
+from gofast.utils.ml.utils import smart_label_classifier
+from gofast.utils.base_utils import remove_outliers
 
 # Load data for testing
 X, y = load_bagoue(as_frame=True, return_X_y=True)

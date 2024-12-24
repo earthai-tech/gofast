@@ -39,7 +39,7 @@ from sklearn.datasets import make_moons
 from sklearn.cluster import KMeans
 from sklearn.linear_model import LinearRegression
 
-from gofast.tools.depsutils import ensure_module_installed 
+from gofast.utils.deps_utils import ensure_module_installed 
 
 LF_INSTALLED = ensure_module_installed (
     "lifelines",

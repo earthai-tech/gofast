@@ -24,10 +24,11 @@ from gofast.decorators import Temp2D, CheckGDALData
 from gofast.decorators import SignalFutureChange, RedirectToNew  
 from gofast.decorators  import AppendDocReferences, Deprecated
 from gofast.decorators import PlotPrediction, PlotFeatureImportance
-from gofast.decorators import AppendDocSection, SuppressOutput
+from gofast.decorators import AppendDocSection 
 from gofast.decorators import AppendDocFrom, NumpyDocstringFormatter
 from gofast.decorators import NumpyDocstring, sanitize_docstring
 from gofast.decorators import DataTransformer, Extract1dArrayOrSeries
+from gofast.utils.contextual import SuppressOutput 
 
 # Define a logger mock to capture warnings
 _logger = gofastlog.get_gofast_logger(__name__)

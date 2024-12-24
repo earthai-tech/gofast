@@ -624,7 +624,7 @@ def load_nansha (
     shuffle =False, 
     **kws
     ): 
-    from ..utils.datautils import random_sampling 
+    from ..utils.data_utils import random_sampling 
     
     drop_display_rate = kws.pop("drop_display_rate", True)
     key = key or 'b0' 
@@ -1134,7 +1134,7 @@ def load_mxs (
             - "train": train data `X` and  `y` with preprocessing already performed
             - "raw": for original dataset X and y  with no preprocessing 
             - "data": Default when key is not supplied. It returns 
-              the :class:`Bowlspace` objects.
+              the :class:`Boxspace` objects.
             
         When k is not supplied, "data" is used instead and return a 
         :class:`Bowlspace` objects. where: 
@@ -1209,7 +1209,7 @@ def load_mxs (
     >>> X_train, X_test, y_train, y_test = load_mxs_dataset(split_X_y=True, 
                                                             return_X_y=True)
     """
-    from ..utils.datautils import resample_data 
+    from ..utils.data_utils import resample_data 
     
     target_map = {0: '1', 1: '11*', 2: '2', 3: '2*', 4: '3', 5: '33*'}
     
@@ -1221,7 +1221,7 @@ def load_mxs (
     with resources.path(DMODULE, data_file) as p:
         data_file = str(p)
     data_dict = joblib.load(data_file)
-    samples = ( None if samples =="*" else samples) or .5 # 50%
+    samples = ( 1 if samples =="*" else samples) or .5 # 50%
     #XXX
     # data is processed data then feature_data 
     # frame is a combined data 
@@ -1260,6 +1260,8 @@ def load_mxs (
     
     if as_frame: 
         return frame 
+
+    fdescr = description_loader(descr_module=DESCR, descr_file="mxs.rst")
     
     return Boxspace(
             data=np.array(data),
@@ -1268,11 +1270,12 @@ def load_mxs (
             target_names=target_names,
             target_map = target_map, 
             nga_labels = data_dict.get('nga_labels'), 
-            DESCR= 'Not uploaded yet: Authors are waiting for a publication first.',
+            DESCR= fdescr, 
             feature_names=feature_names,
             filename=data_file,
             data_module=DMODULE,
-            )
+    )
+
 def _get_mxs_X_y(key_Xy: tuple, data_dict: dict):
     """
     Retrieve the data and target arrays from a dictionary given specific keys.
@@ -1316,9 +1319,11 @@ def _get_mxs_X_y(key_Xy: tuple, data_dict: dict):
 def _validate_key(key: str):
     # Validate the provided 'key' against known dataset variants
     available_data = { 
-        "sparse": ('X_csr', 'ymxs_transf'), "scale": ('Xsc', 'ymxs_transf'), 
+        "sparse": ('X_csr', 'ymxs_transf'), 
+        "scale": ('Xsc', 'ymxs_transf'), 
         "pp": ( 'X_train', 'X_test', 'y_train', 'y_test'),
-        'numeric': ( 'Xnm', 'ymxs_transf'), 'raw': ('X', 'y')
+        'numeric': ( 'Xnm', 'ymxs_transf'), 
+        'raw': ('X', 'y')
         }
     available_keys = list(available_data.keys())  + ['data']
     if key not in available_keys:
@@ -1331,17 +1336,17 @@ def _prepare_common_dataset(
         drop_nan_columns):
     # Process the common dataset: handling dropping columns, sampling,
     # and converting to DataFrame
-    from ..utils.datautils import random_sampling 
+    from ..utils.data_utils import random_sampling 
     
     if drop_observations:
         data = data.drop(columns="remark")
     feature_names = list(data.columns [:13] ) 
     target_columns = list(data.columns [13:])
     target_names = target_names or target_columns
-
+    
     sampled_data = random_sampling(
         data, samples=samples, random_state=seed, shuffle=shuffle)
-    
+
     frame, processed_data, target = _to_dataframe(
         sampled_data, target_names, list(data.columns [:13] ),
         target=sampled_data[target_names].values)
@@ -1496,7 +1501,7 @@ def load_forensic( *,
         return to_numeric_dtypes(frame )
     
     fdescr = description_loader(
-        descr_module=DESCR,descr_file=data_file.replace (".csv", ".rst"))
+        descr_module=DESCR, descr_file=data_file.replace (".csv", ".rst"))
     
     return Boxspace(
         data=data,

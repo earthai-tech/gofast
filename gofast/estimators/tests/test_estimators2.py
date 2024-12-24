@@ -10,8 +10,8 @@ from gofast.estimators.base import StumpClassifier
 from gofast.estimators.base import StumpRegressor 
 from gofast.estimators.boosting import BoostedTreeClassifier
 from gofast.estimators.boosting import BoostedTreeRegressor
-from gofast.estimators.boosting import HybridBoostingClassifier
-from gofast.estimators.boosting import HybridBoostingRegressor
+from gofast.estimators.boosting import HybridBoostClassifier
+from gofast.estimators.boosting import HybridBoostRegressor
 
 def test_regressor_fit_predict():
     X, y = make_regression(n_samples=100, n_features=1, noise=0.1, random_state=42)
@@ -72,7 +72,7 @@ def data():
 def test_hybrid_boosting_classifier_fit_predict(data):
     X, y = data
     
-    clf = HybridBoostingClassifier(
+    clf = HybridBoostClassifier(
         n_estimators=50, 
         eta0=0.1, 
         max_depth=3, 
@@ -99,7 +99,7 @@ def test_hybrid_boosting_classifier_fit_predict(data):
 
 def test_hybrid_boosting_classifier_incorrect_shape(data):
     X, y = data
-    clf = HybridBoostingClassifier(
+    clf = HybridBoostClassifier(
         n_estimators=50, 
         eta0=0.1, 
         max_depth=3, 
@@ -121,7 +121,7 @@ def test_hybrid_boosting_classifier_incorrect_shape(data):
 
 def test_hybrid_boosting_classifier_predict_before_fit(data):
     X, _ = data
-    clf = HybridBoostingClassifier(
+    clf = HybridBoostClassifier(
         n_estimators=50, 
         eta0=0.1, 
         max_depth=3, 
@@ -144,7 +144,7 @@ def test_hybrid_boosting_classifier_predict_before_fit(data):
 def test_hybrid_boosting_classifier_predict_proba(data):
     X, y = data
     
-    clf = HybridBoostingClassifier(
+    clf = HybridBoostClassifier(
         n_estimators=50, 
         eta0=0.1, 
         max_depth=3, 
@@ -169,7 +169,7 @@ def test_hybrid_boosting_classifier_predict_proba(data):
 
 def test_hybrid_boosting_classifier_predict_proba_before_fit(data):
     X, _ = data
-    clf = HybridBoostingClassifier(
+    clf = HybridBoostClassifier(
         n_estimators=50, 
         eta0=0.1, 
         max_depth=3, 
@@ -200,7 +200,7 @@ def datar():
 def test_hybrid_boosting_regressor_fit_predict(datar):
     X, y = datar
     y= _normalize_y (y)
-    reg = HybridBoostingRegressor(
+    reg = HybridBoostRegressor(
         n_estimators=100, 
         eta0=0.1, 
         max_depth=3, 
@@ -227,7 +227,7 @@ def test_hybrid_boosting_regressor_fit_predict(datar):
 def test_hybrid_boosting_regressor_incorrect_shape(datar):
     X, y = datar
     y= _normalize_y (y)
-    reg = HybridBoostingRegressor(
+    reg = HybridBoostRegressor(
         n_estimators=100, 
         eta0=0.1, 
         max_depth=3, 
@@ -248,7 +248,7 @@ def test_hybrid_boosting_regressor_incorrect_shape(datar):
 
 def test_hybrid_boosting_regressor_predict_before_fit(datar):
     X, _ = datar
-    reg = HybridBoostingRegressor(
+    reg = HybridBoostRegressor(
         n_estimators=100, 
         eta0=0.1, 
         max_depth=3, 
@@ -270,7 +270,7 @@ def test_hybrid_boosting_regressor_predict_before_fit(datar):
 def test_hybrid_boosting_regressor_score(datar):
     X, y = datar
     y= _normalize_y (y)
-    reg = HybridBoostingRegressor(
+    reg = HybridBoostRegressor(
         n_estimators=100, 
         eta0=0.1, 
         max_depth=3, 

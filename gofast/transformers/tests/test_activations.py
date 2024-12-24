@@ -1,13 +1,28 @@
 # -*- coding: utf-8 -*-
+
+import warnings 
 import pytest
 import numpy as np
-try: 
+from gofast.compat.tf import HAS_TF 
+from gofast.utils.deps_utils import ensure_module_installed 
+
+if not HAS_TF: 
+    try:
+        HAS_TF=ensure_module_installed("tensorflow", auto_install=True)
+    except  Exception as e: 
+        warnings.warn(f"Fail to install `tensorflow` library: {e}")
+ 
+if HAS_TF: 
     import tensorflow as tf
-except: 
-    pass 
+
+
+HAS_TORCH=False 
 try: 
    import torch
-except :  pass 
+except :  pass
+else: 
+    HAS_TORCH =True 
+
 
 from gofast.utils.validator import filter_valid_kwargs 
 

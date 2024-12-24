@@ -20,7 +20,7 @@ from gofast.stats.comparisons import (
     compute_model_ranks
 )
 from gofast.api.formatter import DataFrameFormatter
-from gofast.tools.depsutils import ensure_module_installed 
+from gofast.utils.deps_utils import ensure_module_installed 
 
 SK_POSTHOC_AVAILABLE =False 
 try : 

@@ -1280,7 +1280,6 @@ def resample_data(
     pandas.DataFrame.sample : Randomly samples rows from a DataFrame.
     """
     resampled_structures = []
-
     for data in d:
         # Handle sparse matrices encapsulated in numpy objects
         if ( 
@@ -1292,7 +1291,7 @@ def resample_data(
 
         # Determine sample size based on `samples` parameter
         n_samples = _determine_sample_size(data, samples, is_percent="%" in str(samples))
-        
+
         # Sample the data structure based on the computed sample size
         sampled_d = _perform_sampling(data, n_samples, replace, random_state, shuffle)
         resampled_structures.append(sampled_d)
@@ -1306,16 +1305,20 @@ def _determine_sample_size(d: Any, samples: Union[int, float, str],
     Determine the number of samples to draw based on the input size or ratio.
     """
     if isinstance(samples, str) and is_percent:
-        samples = samples.replace("%", "")
-    try:
-        samples = float(samples)
-    except ValueError:
-        raise TypeError(f"Invalid type for 'samples': {type(samples).__name__}."
-                        " Expected int, float, or percentage string.")
-   
+        samples = assert_ratio(samples, in_percent =True , name='samples')
+    else: 
+        try:
+            samples = float(samples)
+        except ValueError:
+            raise TypeError(
+                f"Invalid type for 'samples': {type(samples).__name__}."
+                " Expected int, float, or percentage string."
+                )
+ 
     d_length = d.shape[0] if hasattr(d, 'shape') else len(d)
     if samples < 1 or is_percent:
         return max(1, int(samples * d_length))
+    
     return int(samples)
 
 def _perform_sampling(d: Any, n_samples: int, replace: bool, 
@@ -1577,7 +1580,7 @@ def random_sampling(
 
     Examples
     --------
-    >>> from gofast.utils.datautils import random_sampling
+    >>> from gofast.utils.data_utils import random_sampling
     >>> import numpy as np
     >>> data = np.arange(100).reshape(20, 5)
     
@@ -1618,7 +1621,7 @@ def random_sampling(
     # Set default sample size to 1 if samples is None or wildcarded
     if samples is None or str(samples) in ('1', '*'):
         samples = "100%"
-
+        
     # Handle percentage-based sampling if specified as a string
     if "%" in str(samples):
         samples = str(samples).replace("%", "")
@@ -1630,12 +1633,12 @@ def random_sampling(
     except ValueError:
         raise TypeError("Invalid value for 'samples'. Expected an integer "
                         f"or percentage, got {type(orig).__name__!r}")
-
+    
     # Calculate the sample size based on percentage if necessary
     if samples <= 1 or is_percent:
         samples = assert_ratio(
             samples, bounds=(0, 1), exclude_values='use lower bound',
-            in_percent=True
+            in_percent=True if is_percent else False 
         )
         n = int(samples * (d.shape[0] if scipy.sparse.issparse(d) else len(d)))
     else:
