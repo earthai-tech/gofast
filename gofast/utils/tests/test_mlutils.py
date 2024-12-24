@@ -45,7 +45,7 @@ from gofast.utils.ml.utils import stratify_categories
 
 from gofast.utils.ml.utils import soft_data_split, smart_split # 
 from gofast.utils.ml.utils import laplace_smoothing, laplace_smoothing_categorical 
-from gofast.tools.ml.utils import laplace_smoothing_word
+from gofast.utils.ml.utils import laplace_smoothing_word
 
 DOWNLOAD_FILE='https://raw.githubusercontent.com/earthai-tech/gofast/main/gofast/datasets/data/bagoue.csv'
 with resources.path ('gofast.datasets.data', "bagoue.csv") as csv_f : 

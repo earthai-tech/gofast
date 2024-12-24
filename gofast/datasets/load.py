@@ -34,7 +34,7 @@ from .util import _format_feature_descriptions
 
 __all__= [ "load_iris",  "load_hlogs",  "load_nansha", "load_forensic", 
           "load_jrs_bet", "load_statlog", "load_hydro_metrics", "load_mxs", 
-          "load_bagoue"]
+          "load_bagoue", "load_dyspnea"]
 
 
 def load_hydro_metrics(*, return_X_y=False, as_frame=False, tag=None, 
@@ -664,7 +664,7 @@ def load_nansha (
         target_names=target_columns 
     else: 
         data = pd.read_csv( data_file )
-        # since target and columns are alread set 
+        # since target and columns are already set 
         # for land subsidence data, then 
         # go for "ns" and "b0" to
         # set up features and target names
@@ -834,13 +834,13 @@ References
 """
 
 def load_bagoue(
-        *, return_X_y=False, 
-        as_frame=False, 
-        split_X_y=False, 
-        test_ratio ="30%" , 
-        tag=None , 
-        data_names=None, 
-        **kws
+    *, return_X_y=False, 
+    as_frame=False, 
+    split_X_y=False, 
+    test_ratio ="30%" , 
+    tag=None , 
+    data_names=None, 
+    **kws
  ):
 
     data_file = "bagoue.csv"
@@ -855,7 +855,7 @@ def load_bagoue(
 
     frame, data, target = _to_dataframe(
         data, feature_names = feature_names, target_names = target_column, 
-        target=target)
+        target=target, error ='ignore')
 
     frame = to_numeric_dtypes(frame)
 

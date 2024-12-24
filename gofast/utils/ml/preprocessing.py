@@ -2264,8 +2264,8 @@ def _concat_scaled_numeric_with_categorical(X_scaled_numeric, X, cat_features):
     return X_scaled[X.columns]  # Maintain original column order
 
 
-@Dataify(auto_columns=True, prefix='feature_')
 @is_data_readable
+@Dataify(auto_columns=True, prefix='feature_')
 @validate_params ({ 
     "data": ['array-like'], 
     "target": [str, 'array-like'], 
@@ -2543,10 +2543,10 @@ def _manage_target(data, target):
             "Target must be a column name (str), a Series, or an ndarray.")
 
     return data, target_column
-        
+   
 
-@Dataify(auto_columns=True, prefix='feature_')
 @is_data_readable 
+@Dataify(auto_columns=True, prefix='feature_')
 @validate_params ({ 
     "data": ['array-like'], 
     "num_categories": [Interval(Real, 1, None, closed="left")], 

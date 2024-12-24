@@ -166,6 +166,7 @@ MODULE_MAPPING = {
         'make_mxs_labels',
         'extract_coordinates', 
         'dual_merge', 
+        'extract_zones_from', 
         ]
 }
 

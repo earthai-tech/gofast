@@ -1130,7 +1130,6 @@ def is_data_readable(func=None, *, data_to_read=None, params=None):
     >>> process_data(data1="my_data1.csv")
     # This will read and process the file 'my_data1.csv' using _read_data.
     """
-
     # Handle the case where the decorator is used without parentheses
     # (i.e., with params or data_to_read).
     if func is None:

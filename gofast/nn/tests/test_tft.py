@@ -3,11 +3,6 @@ import pytest
 import numpy as np
 import warnings 
 from gofast.compat.tf import HAS_TF 
-from gofast.nn.transformers import TemporalFusionTransformer
-from gofast.nn.transformers import ( 
-    GatedResidualNetwork, VariableSelectionNetwork, 
-    StaticEnrichmentLayer, TemporalAttentionLayer
-)
 from gofast.utils.deps_utils import ensure_module_installed 
 
 if not HAS_TF: 
@@ -19,7 +14,13 @@ if not HAS_TF:
 if HAS_TF: 
     import tensorflow as tf
     from tensorflow.keras.optimizers import Adam
-        
+
+from gofast.nn.transformers import TemporalFusionTransformer
+from gofast.nn._tft import ( 
+    GatedResidualNetwork, VariableSelectionNetwork, 
+    StaticEnrichmentLayer, TemporalAttentionLayer
+)
+    
 #%
 @pytest.fixture
 def model_params():

@@ -25,6 +25,7 @@ from ..api.util import get_table_size
 from ..core.array_manager import to_numeric_dtypes, reshape, decode_sparse_data 
 from ..core.checks import is_iterable, assert_ratio, exist_features 
 from ..core.checks import is_sparse_matrix
+from ..core.io import is_data_readable 
 from ..core.utils import format_to_datetime
 from ..utils.deps_utils import ensure_pkg
 from ..decorators import ( 
@@ -1317,8 +1318,8 @@ class Features(BaseClass):
         if provided, and separates numeric and categorical features. This setup
         facilitates various feature processing tasks that may follow.
         """
-        from ..utils.baseutils import get_target, select_features 
-        from ..utils.mlutils import bi_selector
+        from ..utils.base_utils import get_target, select_features 
+        from ..utils.ml.feature_selection import bi_selector
    
         # Ensure input data is a DataFrame
         X = build_data_if(
@@ -2217,7 +2218,7 @@ class Features(BaseClass):
     def update_features (self ): 
         """ Update the numeric and categorical features lists based "
         "on the current DataFrame."""
-        from ..utils.mlutils import bi_selector 
+        from ..utils.ml.feature_selection import bi_selector 
         self.features = list (self.data.columns )
         self.numeric_features_, self.categorical_features_ = bi_selector ( 
             self.data )
@@ -2382,6 +2383,7 @@ References
        Journal.
 """
 
+@is_data_readable
 @Dataify (auto_columns=True)
 def transform_dates(
     data: DataFrame, /, 
@@ -2487,7 +2489,8 @@ def transform_dates(
         return datetime_columns
     
     return df
-    
+ 
+@is_data_readable   
 def detect_datetime_columns(data: DataFrame, / ) -> List[str]:
     """
     Detects columns in a DataFrame that can be interpreted as date and time,
@@ -2533,6 +2536,7 @@ def detect_datetime_columns(data: DataFrame, / ) -> List[str]:
 
     return datetime_columns
 
+@is_data_readable
 def boxcox_transformation(
     data: DataFrame, 
     columns: Optional[Union[str, List[str]]] = None, 
@@ -2719,11 +2723,12 @@ def boxcox_transformation(
     return transformed_data, lambda_values
 
 
-@DataTransformer('data', mode='lazy')
+@is_data_readable
 @DynamicMethod(
     'both', 
     capture_columns=True, 
 )
+@DataTransformer('data', mode='lazy')
 def transform(
     data: DataFrame, 
     target_columns: Optional[str|List[str]] = None, 
@@ -2959,7 +2964,7 @@ def _decode_sparse_processed_data(
     
         ```python
         import pandas as pd
-        from gofast.utils.coreutils import decode_sparse_data, is_sparse_matrix
+        from gofast.core.array_manager import decode_sparse_data, is_sparse_matrix
         from gofast.utils.transformers.feature_engineering import FloatCategoricalToInt
         
         # Sample string-encoded sparse data
@@ -3033,14 +3038,13 @@ def _decode_sparse_processed_data(
         
     except Exception as decode_exception:
         # Handle any exceptions that occur during decoding or transformation
+        # Optionally, we choose to return the original data or raise an error
         msg = f"Warning: Decoding or transformation failed. {decode_exception}"
         if error =='warn': 
             warnings.warn(msg)
         elif error =="raise": 
             raise TypeError(msg)
-        # Optionally, you can choose to return the original data or raise an error
-        return processed_data
-    
+        
     return processed_data
 
 def augment_data(
@@ -3154,6 +3158,7 @@ def augment_data(
             
         return X_augmented
 
+@is_data_readable
 def apply_tfidf_vectorization(
     data: DataFrame,/,
     text_columns: Union[str, List[str]],
@@ -3242,7 +3247,7 @@ def apply_tfidf_vectorization(
 
     return prepared_data
 
-
+@is_data_readable 
 @Dataify(auto_columns=True) 
 def apply_word_embeddings(
     data: DataFrame,/, 
@@ -3523,6 +3528,7 @@ def _generate_tfidf_features(
     feature_names = [f'tfidf_{i}' for i in range(tfidf_features.shape[1])]
     return pd.DataFrame(tfidf_features, columns=feature_names, index=text_data.index)
 
+@is_data_readable
 def apply_bow_vectorization(
     data: DataFrame, /, 
     text_columns: Union[str, List[str]],

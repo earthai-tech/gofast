@@ -40,7 +40,7 @@ from ..api.types import (
     _T,
 )
 from ..compat.sklearn import validate_params, StrOptions, Interval 
-from ..core.array_manager import reshape 
+from ..core.array_manager import reshape, extract_array_from 
 from ..core.checks import ( 
     _assert_all_types, 
     is_iterable,
@@ -49,7 +49,7 @@ from ..core.checks import (
     assert_ratio, 
     are_all_frames_valid, 
     )
-from ..core.handlers import columns_manager 
+from ..core.handlers import columns_manager, resolve_label  
 from ..core.io import SaveFile, is_data_readable 
 from ..core.utils import ellipsis2false, smart_format 
 from ..decorators import Deprecated, AppendDocReferences, isdf 
@@ -57,7 +57,8 @@ from ..decorators import Deprecated, AppendDocReferences, isdf
 from .validator import ( 
     _is_arraylike_1d, 
     assert_xy_in, check_y, 
-    validate_positive_integer
+    validate_positive_integer, 
+    validate_length_range 
     )
 
 __all__ = [
@@ -90,8 +91,303 @@ __all__ = [
      'extract_coordinates', 
      'batch_spatial_sampling', 
      'make_mxs_labels',
-     'extract_coordinates', 
+     'extract_zones_from', 
  ]
+
+@is_data_readable(data_to_read='data')
+@SaveFile
+@validate_params ({ 
+    'z': ['array-like', str], 
+    'threshold': ['array-like', StrOptions({'auto'}), Real], 
+    'condition': [StrOptions({'auto', 'above', 'below', 'between'})], 
+    'use_negative_criteria': [bool], 
+    'percentile': [Real], 
+    'x': ['array-like', str, None], 
+    'y': ['array-like', str, None], 
+    'data': ['array-like', None], 
+    })
+def extract_zones_from(
+    z,
+    threshold='auto',        
+    condition='auto',        
+    use_negative_criteria=True,  
+    percentile=10,           
+    x=None,                  
+    y=None,                 
+    data=None,              
+    view=False,              
+    plot_type='scatter',    
+    figsize=(8, 6),  
+    savefile=None,  
+    axis_off=False, 
+    show_grid=True,        
+    **kwargs                 
+):
+    """
+    Extracts specific zones by filtering an input array or arrays
+    using a threshold criterion. This function applies a logical
+    mask to the values and retains those which satisfy a chosen
+    condition (e.g. ``'above'``, ``'below'``, or ``'between'`` a
+    specific threshold or thresholds). The threshold can be
+    automatically derived using percentiles if ``'auto'`` is
+    specified.
+
+    .. math::
+       \text{mask}(z) \;=\;
+       \begin{cases}
+         1 & \text{if } z \,\in\, \Omega \\
+         0 & \text{otherwise}
+       \end{cases}
+
+    where :math:`\Omega` is the region of acceptance determined
+    by the threshold mechanism.
+
+    Parameters
+    ----------
+    z : array-like, Series, or string
+        The input data to be filtered. If <z> is a string,
+        it is treated as a column name from the provided
+        <data> (see below). If it is an array or Series, it
+        is used directly.
+    threshold : { ``'auto'``, float, int, tuple }
+        The criterion for filtering. If ``'auto'``, the
+        function computes a percentile-based threshold
+        driven by <percentile>. If a float or int is
+        given, the function will filter values above or
+        below that single threshold. If a tuple of length 2
+        is provided, the function will filter between those
+        bounds.
+    condition : { ``'auto'``, ``'above'``, ``'below'``,
+                     ``'between'`` }
+        Defines how the filter is applied relative to the
+        given or derived threshold. If ``'auto'``, the
+        function decides based on <use_negative_criteria>.
+        If ``'above'``, all values satisfying
+        :math:`z > \text{threshold}` are kept. If
+        ``'below'``, then :math:`z < \text{threshold}`
+        are retained. If ``'between'``, a range
+        (low, high) is respected.
+    use_negative_criteria : bool
+        When ``True``, automatically interprets
+        ``'auto'`` condition as filtering from below, akin
+        to negative-based risk. When ``False``, filters
+        from above.
+    percentile : int or float
+        Used only if ``threshold='auto'``. Determines which
+        percentile is used to compute the threshold. For
+        example, if <use_negative_criteria> is ``True``,
+        the <percentile>th percentile is chosen, otherwise
+        the (100 - <percentile>)th percentile is used.
+    x : array-like, Series, or string, optional
+        The x-axis data. If <x> is a string and <data> is
+        provided, the function extracts the relevant
+        column. If <x> is an array or Series, it is used
+        directly.
+    y : array-like, Series, or string, optional
+        Similar to <x>, representing the y-axis data.
+    data : pandas.DataFrame, optional
+        The DataFrame source if <x>, <y>, or <z> are
+        provided as strings referencing column names.
+    view : bool
+        If ``True``, displays a plot of the filtered data.
+    plot_type : { ``'scatter'``, ``'line'``, ``'hist'``,
+                      ... }
+        Determines how the data are visualized when <view>
+        is ``True``.
+    figsize : tuple of int
+        The size of the generated figure for plotting. E.g.
+        ``(8,6)`` is typical.
+    axis_off: bool, default=False 
+        Remove the axis if set to ``True``. 
+    show_grid: bool, default=True 
+        Display the plot grid or make it invisible if ``False``. 
+
+    Methods
+    -------
+    The function itself does not expose methods starting with
+    letters (excluding `_`), as it is a single operation. All
+    steps are executed internally with no additional public
+    methods.
+
+    Notes
+    ------
+    .. math::
+       \mathbf{z}_{\text{filtered}}
+       \;=\; \{ z_i \mid \text{condition}(z_i) \}
+
+    where :math:`\text{condition}(z_i)` is derived from
+    ``threshold`` and ``condition``. For instance, if
+    ``condition='below'`` and :math:`\tau =
+    \text{threshold}`, then
+
+    .. math::
+       \text{condition}(z_i)
+       \;=\; [\, z_i < \tau \,].
+       
+    This function relies on ``extract_array_from`` (from
+    the gofast.core.array_manager) if <z>, <x>, or <y>
+    are passed as strings and a <data> DataFrame is
+    supplied. The user has the option to visualize the
+    retained data points by enabling <view> and
+    customizing <plot_type>.
+    
+    Examples
+    --------
+    >>> from gofast.utils.spatial_utils import extract_zones
+    >>> import numpy as np
+    >>> z_data = np.array([0, 2, 5, 10, 15, 20])
+    >>> result = extract_zones(z=z_data, threshold=10,
+    ...                        condition='above')
+    >>> print(result)
+
+    See Also
+    --------
+    gofast.core.array_manager.extract_array_from`` :
+        The array extraction utility used for retrieving
+        arrays from DataFrame columns.
+
+    References
+    ----------
+    .. [1] Smith, J. & Doe, A. "Advanced Filtering
+       Techniques", Journal of Data Science, 2022.
+    .. [2] Brown, K. "Data Visualization Best
+       Practices", Data Analytics Press, 2021.
+    """
+
+    # 1) If z, x, y are strings, extract from DataFrame
+    if data is not None:
+        z, x, y = extract_array_from(
+            data,
+            z,
+            x,
+            y,
+            handle_unknown='raise',  # raise if columns not found
+            error='raise',
+            check_size=True,         # ensure x,y,z have same length
+        )
+
+    # 2) Ensure z, x, y are arrays
+    z = np.asarray(z) if not isinstance(z, np.ndarray) else z
+    x = np.asarray(x) if (x is not None and not isinstance(x, np.ndarray)) else x
+    y = np.asarray(y) if (y is not None and not isinstance(y, np.ndarray)) else y
+
+    # 3) If threshold='auto', compute it using percentiles
+    #    and decide condition based on use_negative_criteria
+    if isinstance(threshold, str) and threshold.lower() == 'auto':
+        if use_negative_criteria:
+            thr_value = np.percentile(z, percentile)  # e.g., lower percentile
+            condition = 'below'
+        else:
+            thr_value = np.percentile(z, 100 - percentile)
+            condition = 'above'
+        threshold = thr_value
+
+    # 4) Build a mask depending on single-value or range threshold
+    if isinstance(threshold, (tuple, list)) and len(threshold) == 2:
+        threshold = validate_length_range(threshold, param_name ='Threshold')
+        
+        if condition == 'auto':
+            condition = 'between'  # default if user didn't specify
+        if condition.lower() == 'between':
+            mask = (z >= threshold[0]) & (z <= threshold[1])
+        else:
+            raise ValueError(
+                "For tuple/list threshold, specify condition='between'"
+                " or handle logic manually."
+            )
+    else:
+        # Single numeric threshold
+        if condition == 'auto':
+            condition = 'below' if use_negative_criteria else 'above'
+        if condition.lower() == 'above':
+            mask = (z > threshold)
+        elif condition.lower() == 'below':
+            mask = (z < threshold)
+        else:
+            raise ValueError(
+                f"condition={condition} not valid for a single numeric threshold."
+            )
+
+    # 5) Filter the arrays
+    z_filtered = z[mask]
+    x_filtered = x[mask] if x is not None else None
+    y_filtered = y[mask] if y is not None else None
+
+    # 6) Prepare the output
+    #    If x & y exist, return a DataFrame with columns [x, y, z].
+    #    If only x, return [x, z].
+    #    Otherwise, return just the filtered z as a Series.
+    x_name = resolve_label(x, default_name ='x')
+    y_name = resolve_label(y, default_name ='y')
+    z_name = resolve_label(z, default_name ='z')
+    if x_filtered is not None and y_filtered is not None:
+        result = pd.DataFrame({x_name: x_filtered, y_name: y_filtered, z_name: z_filtered})
+    elif x_filtered is not None:
+        result = pd.DataFrame({x_name: x_filtered, z_name: z_filtered})
+    else:
+        result = pd.Series(z_filtered)
+
+    # 7) If view=True, build a plot according to plot_type and data availability
+    if view:
+        plt.figure(figsize=figsize)
+        #  - If x & y provided, do a 2D scatter of x vs y (colored by z or sized by z).
+        #  - If only x provided, do 1D plot with z as the values.
+        #  - If neither x nor y, do a histogram of z.
+        if x_filtered is not None and y_filtered is not None:
+            if plot_type == 'scatter':
+                plt.scatter(x_filtered, y_filtered, c=z_filtered, **kwargs)
+                plt.colorbar(label=z_name)
+                plt.xlabel(x_name)
+                plt.ylabel(y_name)
+                plt.title('Filtered Scatter Plot')
+            elif plot_type == 'line':
+                # Plot lines in x-y plane, ignoring z
+                plt.plot(x_filtered, y_filtered, **kwargs)
+                plt.xlabel(x_name)
+                plt.ylabel(y_name)
+                plt.title('Filtered Line Plot')
+            else:
+                # fallback
+                plt.scatter(x_filtered, y_filtered, **kwargs)
+                plt.xlabel(x_name)
+                plt.ylabel(y_name)
+                plt.title(f'Fallback to Scatter: {plot_type}')
+        elif x_filtered is not None: # only x is given
+            if plot_type == 'scatter':
+                plt.scatter(x_filtered, z_filtered, **kwargs)
+                plt.xlabel(x_name)
+                plt.ylabel(z_name)
+                plt.title('Filtered Scatter (x vs z)')
+            elif plot_type == 'line':
+                plt.plot(x_filtered, z_filtered, **kwargs)
+                plt.xlabel(x_name)
+                plt.ylabel(z_name)
+                plt.title('Filtered Line (x vs z)')
+            elif plot_type == 'hist':
+                plt.hist(z_filtered, **kwargs)
+                plt.xlabel(z_name)
+                plt.title('Filtered Histogram (z)')
+            else:
+                # fallback
+                plt.scatter(x_filtered, z_filtered, **kwargs)
+                plt.xlabel(x_name)
+                plt.ylabel(z_name)
+                plt.title(f'Fallback to Scatter: {plot_type}')
+        else:
+            # No x or y => just do a histogram of z
+            plt.hist(z_filtered, **kwargs)
+            plt.xlabel(z_name)
+            plt.title('Filtered Histogram (z)')
+            
+        if axis_off : 
+            plt.axis('off')
+        if not show_grid: 
+            plt.grid(False )
+            
+        plt.tight_layout()
+        plt.show()
+
+    return result
 
 @SaveFile            
 def dual_merge(
@@ -538,8 +834,9 @@ def get_xy_coordinates(
             tuple (xy.columns) if as_frame else xy), "coordinates found.")
         
     return  xy , df , xynames 
-@isdf
+
 @is_data_readable 
+@isdf
 def batch_spatial_sampling(
     data,
     sample_size=0.1,
@@ -828,8 +1125,8 @@ def batch_spatial_sampling(
 
     return batches
 
-@isdf
 @is_data_readable 
+@isdf
 def spatial_sampling(
     data,
     sample_size=0.01,

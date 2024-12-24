@@ -35,9 +35,8 @@ from ..core.checks import (
     _assert_all_types, is_iterable, str2columns, is_in_if, 
     exist_features, check_features_types, check_spatial_columns, 
 )
-from ..core.handlers import ( 
-    columns_manager, default_params_plot, param_deprecated_message 
-)
+from ..core.handlers import columns_manager,  param_deprecated_message 
+from ..core.plot_manager import default_params_plot 
 from ..compat.sklearn import validate_params, StrOptions, Interval 
 from ..decorators import isdf
 from ..utils.validator import  ( 
@@ -4546,15 +4545,15 @@ def plot_temporal_trends(
     r"""
     Plot temporal trends of aggregated values over time, allowing 
     flexible input data handling, aggregation, and optional conversion 
-    of date columns to a datetime format. By grouping data by `<date_col>` 
-    and applying an aggregation function `<agg_func>`, this function 
+    of date columns to a datetime format. By grouping data by `date_col` 
+    and applying an aggregation function `agg_func`, this function 
     derives time-based trends that can be visualized using different 
     plot styles.
 
     Parameters
     ----------
     df : pandas.DataFrame
-        The DataFrame containing `<date_col>` and `<value_cols>`.
+        The DataFrame containing `date_col` and `value_cols`.
     date_col : str
         The name of the column in `df` representing the temporal axis.
         If `to_datetime` is provided, the column may be converted to 
@@ -4600,11 +4599,11 @@ def plot_temporal_trends(
     title : str, optional
         The title of the plot. Default "Temporal Trends".
     xlabel : str or None, optional
-        Label for the x-axis. If None, uses `<date_col>`.
+        Label for the x-axis. If None, uses `date_col`.
     ylabel : str or None, optional
         Label for the y-axis. If None, defaults to "Value".
     legend : bool, optional
-        If True, display a legend for multiple `<value_cols>`. 
+        If True, display a legend for multiple `value_cols`. 
         Default is True.
     xrotation : int or float, optional
         Rotation angle for x-axis tick labels. Default is 0 (no rotation).
@@ -4629,18 +4628,18 @@ def plot_temporal_trends(
     .. math::
        T(t) = \text{agg_func}(\{v_i | d_i = t\}),
 
-    where `<agg_func>` (e.g. `mean`) is applied to subsets of 
+    where `agg_func` (e.g. `mean`) is applied to subsets of 
     `<value_cols>` grouped by each unique time unit in `<date_col>`. 
     The resulting series :math:`T(t)` highlights how `<value_cols>` 
     evolve over time.
     
-    If `<to_datetime>` is not None, `smart_ts_detector` may be used 
-    internally to guess and convert `<date_col>` into a datetime 
-    object. For example, if `<to_datetime>='Y'` and the column 
+    If `to_datetime` is not None, `smart_ts_detector` may be used 
+    internally to guess and convert `date_col` into a datetime 
+    object. For example, if `to_datetime='Y'` and the column 
     contains integers like 2020, 2021, they are interpreted as years 
     and converted accordingly.
 
-    If multiple `<value_cols>` are provided and `kind='line'`, each 
+    If multiple `value_cols` are provided and `kind='line'`, each 
     column is plotted as a separate line. If `kind='bar'`, a grouped 
     bar plot is produced automatically using `DataFrame.plot`.
 

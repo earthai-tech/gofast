@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 import warnings
 import pytest
-
 from gofast.compat.tf import HAS_TF 
-from gofast.nn.transformers import XTFT
 from gofast.utils.deps_utils import ensure_module_installed 
 
 if not HAS_TF: 
@@ -17,6 +15,9 @@ if HAS_TF:
     from tensorflow.keras.optimizers import Adam
     from tensorflow.keras.losses import MeanSquaredError
     
+from gofast.nn.transformers import XTFT
+
+
 #%
 @pytest.fixture
 def basic_model():

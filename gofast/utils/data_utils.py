@@ -65,7 +65,7 @@ __all__= [
     'filter_data', 
     ]
 
-@SaveFile 
+@is_data_readable 
 @validate_params ({ 
     'data': ['array-like'],
     'columns': ['array-like', None],
@@ -76,7 +76,7 @@ __all__= [
             {'linear', 'nearest', 'zero', 'slinear', 'quadratic', 'cubic'})], 
     'categorical_strategy': [StrOptions({'mode', 'constant', 'ffill', 'bfill'}), None]
     })
-@is_data_readable 
+@SaveFile 
 def filter_data(
     data,
     columns=None,
@@ -411,14 +411,13 @@ def filter_data(
     # Return the sanitized DataFrame
     return sanitized_df
 
-
+@is_data_readable 
 @validate_params ({ 
     'threshold':[Interval(Real, 0, 1, closed='neither')], 
     'along_with': [StrOptions({'rows', 'cols'}), None],
     'ops': [StrOptions({'check_only', 'drop'}), None], 
     'atol': [Interval(Real, 0, 1, closed='neither'), None]
     })
-@is_data_readable 
 def has_duplicates(
     data,
     ops=None,
@@ -3179,8 +3178,8 @@ def wide_to_long(
 
     return long_df
 
-@isdf 
 @is_data_readable
+@isdf 
 def repeat_feature_accross(
     data: DataFrame,
     date_col: str = 'date',
@@ -3656,8 +3655,8 @@ def swap_ic(
     else:
         return aligned_df
     
+@is_data_readable     
 @isdf 
-@is_data_readable 
 def batch_sampling(
     data,
     sample_size=0.1,

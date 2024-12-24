@@ -3245,11 +3245,14 @@ def isdf(func):
         # Proceed with conversion if necessary
         if data is not None and not isinstance(data, pd.DataFrame):
             try:
-                data = pd.DataFrame(data, columns=columns)
                 if columns and len(columns) != data.shape[1]:
                     data = pd.DataFrame(data)
+                else: 
+                    data = pd.DataFrame(data, columns=columns)
             except Exception as e:
-                raise ValueError(f"Unable to convert to DataFrame: {e}")
+                raise ValueError(
+                    f"Unable to convert {type(data).__name__!r} to DataFrame: {e}"
+                )
             
             # Update the bound arguments with the new data
             bound_args.arguments[data_param_name] = data
@@ -4024,7 +4027,8 @@ class Dataify:
                 # Re-try without columns if ignoring mismatches
                 df = pd.DataFrame(data)
             else:
-                raise ValueError(f"Error converting data to DataFrame: {e}")
+                raise ValueError(
+                    f"Error converting data <{type(data).__name__!r}> to DataFrame: {e}")
         
         return df  
     

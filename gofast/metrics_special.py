@@ -273,7 +273,8 @@ def coverage_score(
 
     return coverage
 
-
+@Appender( _shared_params,join='\n')    
+@Substitution ( **_shared_doc_kwargs)
 @Appender(dedent( 
     """
 perturbation : float, default=0.1
@@ -355,9 +356,8 @@ References
     """
     ), 
     join ='\n', 
- )
-@Substitution ( **_shared_doc_kwargs)
-@Appender( _shared_params,join='\n')
+)
+
 @validate_params({
     "model": [HasMethods(["predict"])],
     "X": ['array-like'],
@@ -478,6 +478,8 @@ def relative_sensitivity_score(
 
     return result
 
+@Appender( _shared_params,join='\n')
+@Substitution ( **_shared_doc_kwargs)
 @Appender(dedent( 
     """
 perturbations : list of float, optional
@@ -524,8 +526,6 @@ See Also
     ), 
     join ='\n', 
  )
-@Substitution ( **_shared_doc_kwargs)
-@Appender( _shared_params,join='\n')
 def relative_sensitivity_scores(
     model, X, *, 
     perturbations=None, 

@@ -37,9 +37,8 @@ __all__= [
     'display_feature_contributions'
     ]
 
-
-@Dataify(auto_columns=True)
 @is_data_readable
+@Dataify(auto_columns=True)
 def bi_selector(
     data,  
     features=None, 

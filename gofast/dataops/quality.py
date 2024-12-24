@@ -21,7 +21,7 @@ from ..api.types import Any, List, DataFrame, Optional, Series
 from ..api.types import Dict, Union, Tuple, ArrayLike, Callable
 from ..api.util import get_table_size , to_snake_case
 from ..core.utils import ellipsis2false, smart_format
-from ..core.checks import assert_ratio, validate_ratio 
+from ..core.checks import assert_ratio, validate_ratio, check_params  
 from ..core.io import is_data_readable 
 from ..decorators import isdf, Dataify
 from ..decorators import Extract1dArrayOrSeries 
@@ -52,9 +52,37 @@ __all__= [
      'scale_data',
  ]
 
+
 @is_data_readable
+@Dataify(auto_columns=True, ignore_mismatch= True)
+@check_params (
+    { 
+        'dropna_threshold': float, 
+        'categorical_threshold': int , 
+        'handle_outliers': bool,
+        'handle_missing': bool, 
+        'handle_scaling': bool, 
+        'handle_date_features': bool, 
+        'handle_categorical': bool , 
+        'replace_with': str, 
+        'lower_quantile': float, 
+        'upper_quantile': float,
+        'fill_value': Optional[Any],
+        'scale_method': str,
+        'missing_method': str, 
+        'outliers_method': str , 
+        'date_features': Optional[List[str]],
+        'day_of_week': bool, 
+        'quarter': bool, 
+        'format_date': Optional[str], 
+        'return_report': bool, 
+        'view': bool, 
+        'cmap': str , 
+        'fig_size': Tuple[int, int]
+    }
+)
 def audit_data(
-    data: DataFrame,/,  
+    data: DataFrame, 
     dropna_threshold: float = 0.5, 
     categorical_threshold: int = 10, 
     handle_outliers: bool = False,
@@ -208,8 +236,9 @@ def audit_data(
     >>> data = pd.DataFrame({'A': [1, 2, 3, 100], 'B': [4, 5, 6, -50]})
     >>> audited_data, report = audit_data(data, handle_outliers=True, return_report=True)
     """
-    is_frame (data, df_only=True, raise_exception=True, 
-              objname="Data for auditing" )
+    is_frame (
+        data, df_only=True, raise_exception=True, objname="Data for auditing" 
+    )
     report = {}
     data_copy = data.copy()
 
@@ -268,6 +297,7 @@ def audit_data(
         sns.heatmap(data.isnull(), yticklabels=False, cbar=False,
                     cmap=cmap)
         plt.title('Data After Auditing')
+        plt.tight_layout() 
         plt.show()
     
     # make a report obj 
@@ -453,8 +483,8 @@ def convert_date_features(
     report_obj.add_mixed_types(report, table_width= TW)
     return (data, report_obj) if return_report else data
 
-@isdf 
 @is_data_readable
+@isdf 
 def scale_data(
     data: DataFrame, /, 
     method: str = 'norm',
@@ -679,8 +709,8 @@ def handle_outliers_in(
     report_obj.add_mixed_types(report, table_width= int(TW/2))
     return (data, report_obj) if return_report else data
 
-@isdf 
 @is_data_readable
+@isdf 
 def handle_missing_data(
     data: DataFrame, /, 
     method: Optional[str] = None,  
@@ -803,7 +833,8 @@ def handle_missing_data(
         data = handling_methods[method](data)
 
     else:
-        raise ValueError(f"Invalid method specified: {method}")
+        raise ValueError(f"Invalid method specified: '{method}'. Expect one of"
+                         f" {smart_format(handling_methods.keys(), 'or')}.")
 
     # Visualization of missing data before and after handling
     if view:
@@ -837,8 +868,8 @@ def handle_missing_data(
     
     return (data, report_obj) if return_report else data
 
-@isdf
 @is_data_readable
+@isdf
 def assess_outlier_impact(
     data: ArrayLike, /,
     outlier_threshold: int=3, 
@@ -923,7 +954,7 @@ def assess_outlier_impact(
     elif isinstance(data, pd.DataFrame):
         data = data.select_dtypes( include = [np.number])
         if data.empty: 
-            raise ValueError("DataFrame must be of numeric types.")
+            raise ValueError("DataFrame must be of numeric types. Get empty.")
         columns = data.columns.tolist()
         data = data.values.flatten()
     
@@ -1077,8 +1108,8 @@ def merge_frames_on_index(
 
     return merged_df
 
-@isdf 
 @is_data_readable
+@isdf
 def check_missing_data(
     data: DataFrame, /, 
     view: bool = False,
@@ -1208,8 +1239,8 @@ def check_missing_data(
 
     return missing_stats
 
-@Dataify(auto_columns=True)
 @is_data_readable
+@Dataify(auto_columns=True)
 def data_assistant(data: DataFrame, view: bool=False):
     """
     Performs an in-depth analysis of a pandas DataFrame, providing insights,
@@ -1348,7 +1379,7 @@ def data_assistant(data: DataFrame, view: bool=False):
             " to be used in these models.")
         helper_funcs ["4. Non-numeric data"]=( 
             "Use: pandas.get_dummies(), sklearn.preprocessing.LabelEncoder"
-            " ~.utils.soft_encoder, ~.transformers.CategoricalEncoder2"
+            " ~.preprocessing.soft_encoder, ~.transformers.CategoricalEncoder2"
             " ~.dataops.handle_categorical_features and more ..."
             ) 
         
@@ -1436,7 +1467,7 @@ def data_assistant(data: DataFrame, view: bool=False):
             )
         helper_funcs ["7. Duplicate analysis"]=(
             "Use: pandas.DataFrame.drop_duplicates(),"
-            " ~.utils.handle_duplicates and more ...")
+            " ~.dataops.handle_duplicates and more ...")
         
     # Unique value check
     texts["8. Unique value check with threshold=10"]="Passed"
@@ -1516,10 +1547,10 @@ def data_assistant(data: DataFrame, view: bool=False):
         assistance_reports.append(helper_tools_report)
 
     assemble_reports( *assistance_reports, display=True)
+ 
     
-    
+@is_data_readable    
 @Dataify(auto_columns= True, ignore_mismatch=True)  
-@is_data_readable
 def check_unique_values(
     data: DataFrame, 
     columns: Optional[List[str]] = None, 
@@ -1679,8 +1710,8 @@ def check_unique_values(
     
     return unique_counts
 
-@Dataify(auto_columns= True, ignore_mismatch=True, prefix="feature_")   
 @is_data_readable
+@Dataify(auto_columns= True, ignore_mismatch=True, prefix="feature_")   
 def check_correlated_features(
     data, /, threshold: float=0.8, 
     method: str | callable ='pearson',
@@ -1813,8 +1844,8 @@ def check_correlated_features(
     
     return bool(correlated_pairs)
 
-@Dataify(auto_columns= True , ignore_mismatch=True, prefix="var_")
 @is_data_readable
+@Dataify(auto_columns= True , ignore_mismatch=True, prefix="var_")
 def analyze_data_corr(
     data: DataFrame, 
     columns: Optional[ List[str]]=None, 
@@ -2184,8 +2215,8 @@ def _make_correlation_pairs(dict_of_dfs):
     
     return result
 
-@Dataify (auto_columns=True)  
 @is_data_readable
+@Dataify (auto_columns=True)  
 def drop_correlated_features(
     data: DataFrame, 
     method: str | Callable[[ArrayLike, ArrayLike], float] = 'pearson', 
@@ -2502,8 +2533,8 @@ def _drop_correlated_features(
     
     return to_drop
 
-@Dataify (auto_columns=True)
 @is_data_readable
+@Dataify (auto_columns=True)
 def handle_skew(
     data: DataFrame,
     method: str = 'log', 
@@ -2636,10 +2667,21 @@ def _visualize_skew(original_data: DataFrame, transformed_data: DataFrame,
     fig, axes = plt.subplots(nrows=2, ncols=num_columns, figsize=fig_size)
 
     for i, column in enumerate(original_data.columns):
-        sns.boxplot(x=original_data[column], ax=axes[0, i], color='skyblue')
-        axes[0, i].set_title(f'Original {column}')
-        sns.violinplot(x=transformed_data[column], ax=axes[1, i], color='lightgreen')
-        axes[1, i].set_title(f'Transformed {column}')
+        sns.boxplot(
+            x=original_data[column],
+            ax=axes[0, i] if num_columns > 1 else axes[i], 
+            color='skyblue'
+        )
+        if num_columns > 1: 
+            axes[0, i].set_title(f'Original {column}')
+            sns.violinplot(x=transformed_data[column], ax=axes[1, i], 
+                           color='lightgreen')
+            axes[1, i].set_title(f'Transformed {column}')
+        else: 
+            axes[i].set_title(f'Original {column}')
+            sns.violinplot(x=transformed_data[column], ax=axes[1], 
+                           color='lightgreen')
+            axes[i].set_title(f'Transformed {column}')
 
     plt.tight_layout()
     plt.show()
@@ -2712,8 +2754,8 @@ def validate_skew_method(data: Series, method: str):
 
     return f"The {method} transformation is appropriate for this data."
 
-@isdf
 @is_data_readable
+@isdf
 def check_skew_methods_applicability(
     data: DataFrame, return_report: bool = False, 
     return_best_method: bool = False) -> Union[Dict[str, List[str]], str]:
@@ -2796,8 +2838,8 @@ def check_skew_methods_applicability(
         
     return applicable_methods
 
-@Dataify(auto_columns=True)
 @is_data_readable
+@Dataify(auto_columns=True)
 def handle_duplicates(
     data: DataFrame, 
     return_duplicate_rows: bool=False, 
@@ -2932,8 +2974,8 @@ def _visualize_data(original_data: DataFrame, duplicates_mask: Series,
     plt.colorbar(im1, ax=axs[1], orientation='vertical', fraction=0.046, pad=0.04)
     plt.show()
     
-@Dataify(auto_columns=True)
 @is_data_readable
+@Dataify(auto_columns=True)
 def quality_control(
     data, /, 
     missing_threshold=0.05, 
