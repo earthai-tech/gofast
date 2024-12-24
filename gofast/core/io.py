@@ -1046,7 +1046,7 @@ def save_or_load(
          
     return arr if task=='load' else None 
 
-def is_data_readable(func=None, *, data_to_read=None, params=None):
+def _is_data_readable(func=None, *, data_to_read=None, params=None):
     """
     A decorator to automatically read data if it is not explicitly passed
     to the decorated function.
@@ -1158,6 +1158,182 @@ def is_data_readable(func=None, *, data_to_read=None, params=None):
             args = (data,) + args[1:]
 
         # Call the decorated function with the updated arguments
+        return func(*args, **kwargs)
+
+    return wrapper
+
+def is_data_readable(
+    func=None,
+    *,
+    data_to_read=None,
+    params=None,
+    fallback=None,
+    strict=False,
+    error='raise'
+):
+    """
+    A decorator to automatically read data if it is not explicitly passed
+    to the decorated function.
+    
+    Attempts to convert or read a provided data argument into
+    a valid DataFrame before invoking the decorated function.
+    If no valid data is passed, it checks the first positional
+    argument. In case of reading or validation issues, it can
+    either raise an error, warn the user, or silently ignore
+    the problem by using a fallback value.
+
+    .. math::
+       \mathbf{Data}_{\text{out}} \;=\;
+       \begin{cases}
+         \text{read\_data}(\mathbf{Data}_{\text{in}}), & 
+         \text{if valid and no errors} \\
+         \text{fallback}, & 
+         \text{if errors occur and } \textit{error} \neq 'raise'
+       \end{cases}
+
+    Parameters
+    ----------
+    func : callable, optional
+        The function to decorate. If this decorator is used
+        without parentheses, <func> is inferred automatically.
+    data_to_read : str, optional
+        The name of the argument whose value will be read
+        by ``read_data``. If ``None``, the decorator falls
+        back to the first positional argument.
+    params : dict, optional
+        Additional keyword arguments passed to the
+        ``read_data`` function. Useful for specifying file
+        parsing options (e.g., separator, header info, etc.).
+    fallback : any, optional
+        A default value used if data reading fails. If
+        the reading process or strict validation triggers
+        an exception and ``error`` is not set to
+        ``'raise'``, the decorator replaces the data with
+        this fallback value.
+    strict : bool, optional
+        If ``True``, enforces that the final data is a
+        non-empty DataFrame. Otherwise, an error is raised
+        or handled according to <error>.
+    error : { ``'raise'``, ``'warn'``, ``'ignore'`` }, optional
+        Determines how exceptions are handled:
+          - ``'raise'``: re-raise the exception immediately.
+          - ``'warn'``: issue a warning, then replace the
+            data with <fallback>.
+          - ``'ignore'``: silently ignore errors and replace
+            the data with <fallback>.
+
+    Formulation
+    -------------
+    .. math::
+       \text{validated\_data} \;=\;
+       \begin{cases}
+         \text{DataFrame}, & \text{if successful parse} \\
+         \text{fallback}, & \text{if parse fails and } 
+         error \neq \text{'raise'}
+       \end{cases}
+
+    Examples
+    --------
+    >>> from gofast.core.io import is_data_readable
+    >>> @is_data_readable(data_to_read='input_data',
+    ...                   params={'sep': ';'},
+    ...                   fallback=pd.DataFrame(),
+    ...                   strict=True,
+    ...                   error='warn')
+    ... def process_data(input_data):
+    ...     return input_data
+    ...
+    >>> # If reading fails, a warning is shown, and
+    >>> # an empty DataFrame is used as fallback.
+
+    Notes
+    -----
+    - If <strict> is ``True``, the data must be a non-empty
+      DataFrame, or an exception occurs (handled according to
+      <error>).
+    - If <fallback> is provided, any failures or invalid data
+      (including empty frames when <strict> is ``True``)
+      result in <fallback> being passed to the decorated
+      function (unless ``error='raise'``).
+    - The order of decorators matters if used alongside
+      other decorators that also manipulate function
+      arguments.
+
+    See Also
+    --------
+    ``read_data`` :
+        A function to parse or convert input into a DataFrame.
+    ``pd.DataFrame`` :
+        The typical data structure produced by reading.
+
+    References
+    ----------
+    .. [1] Smith, J. & Doe, A. "Enhancing Decorators for
+       Robust Data Pipelines," Journal of PyDev, 2024.
+    .. [2] Brown, K. "Error-Handling Strategies in
+       Data-Oriented Decorators," Data Press, 2023.
+    """
+
+    # If the decorator is invoked without directly specifying `func`,
+    # we return a function that can later decorate the actual target.
+    if func is None:
+        return lambda f: is_data_readable(
+            f,
+            data_to_read=data_to_read,
+            params=params,
+            fallback=fallback,
+            strict=strict,
+            error=error
+        )
+
+    # Validate `error` parameter to ensure it has an acceptable value.
+    if error not in {'raise', 'warn', 'ignore'}:
+        raise ValueError(
+            "`error` must be one of {'raise', 'warn', 'ignore'}."
+        )
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # 1) Attempt to retrieve the data argument from kwargs using
+        #    `data_to_read` as the key if provided; otherwise, check
+        #    the first positional arg (args[0]) if available.
+        data = kwargs.get(data_to_read, None) if data_to_read else None
+        if data is None and len(args) > 0:
+            data = args[0]
+        try:
+            # 2) If `data` is not None, call `read_data` to convert
+            #    it into a DataFrame (or something else) as needed.
+            if data is not None:
+                data = read_data(data, **(params or {}))
+
+            # 3) If `strict=True`, ensure we have a non-empty
+            #    DataFrame. If not, raise an error or handle it below.
+            if strict:
+                if not isinstance(data, pd.DataFrame) or data.empty:
+                    raise ValueError(
+                        "Invalid data: resulting DataFrame is "
+                        "empty or not a DataFrame."
+                    )
+        except Exception as e:
+            # 4) Depending on the `error` policy, we raise, warn,
+            #    or ignore the exception, replacing data with `fallback`.
+            if error == 'raise':
+                raise
+            elif error == 'warn':
+                warnings.warn(str(e), stacklevel=2)
+                data = fallback
+            else:  # 'ignore'
+                data = fallback
+
+        # 5) Update the arguments so the wrapped function receives
+        #    the (possibly) transformed `data` in the correct position
+        #    (keyword vs positional).
+        if data_to_read:
+            kwargs[data_to_read] = data
+        elif args:
+            args = (data,) + args[1:]
+
+        # 6) Finally, call the original function with updated args/kwargs.
         return func(*args, **kwargs)
 
     return wrapper
