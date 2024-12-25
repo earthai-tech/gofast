@@ -2544,7 +2544,6 @@ def _manage_target(data, target):
 
     return data, target_column
    
-
 @is_data_readable 
 @Dataify(auto_columns=True, prefix='feature_')
 @validate_params ({ 
@@ -2665,7 +2664,7 @@ def generate_dirichlet_features(
 
     Example:
     --------
-    >>> from gofast.utils.mlutils import generate_dirichlet_features
+    >>> from gofast.utils.ml.preprocessing import generate_dirichlet_features
     >>> import pandas as pd
     
     # Create a sample dataframe
@@ -2689,7 +2688,7 @@ def generate_dirichlet_features(
           distributed random variables.
     `pandas.DataFrame.join` : The method used to join the generated features 
           with the original data.
-    `gofast.utils.mlutils.generate_proxy_feature`: Generate a proxy feature 
+    `gofast.utils.ml.preprocessing.generate_proxy_feature`: Generate a proxy feature 
          based on the available features. 
          
     References

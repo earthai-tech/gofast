@@ -1274,8 +1274,6 @@ def is_data_readable(
        Data-Oriented Decorators," Data Press, 2023.
     """
 
-    # If the decorator is invoked without directly specifying `func`,
-    # we return a function that can later decorate the actual target.
     if func is None:
         return lambda f: is_data_readable(
             f,
@@ -1294,12 +1292,30 @@ def is_data_readable(
 
     @wraps(func)
     def wrapper(*args, **kwargs):
+        nonlocal data_to_read  # Explicitly declare data_to_read as nonlocal
         # 1) Attempt to retrieve the data argument from kwargs using
         #    `data_to_read` as the key if provided; otherwise, check
         #    the first positional arg (args[0]) if available.
-        data = kwargs.get(data_to_read, None) if data_to_read else None
-        if data is None and len(args) > 0:
-            data = args[0]
+        data = kwargs.get(data_to_read, None) if data_to_read else None 
+
+        if data is None: 
+            if len(args) > 0:
+            # user passed data as a positional argument
+                data = args[0]
+                data_to_read = None  # so we end up rewriting args
+            
+            elif 'data' in kwargs:
+                # user passed data as a named keyword
+                # i.e no positional argument passed, we expected the data
+                # parameter being set as 'data'.
+                data = kwargs['data']
+                data_to_read = 'data'
+            
+            else:
+                # reinitialize data parameter.
+                data = None
+                data_to_read = None
+
         try:
             # 2) If `data` is not None, call `read_data` to convert
             #    it into a DataFrame (or something else) as needed.

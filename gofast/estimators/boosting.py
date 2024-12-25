@@ -12,13 +12,13 @@ from numbers import Real
 import numpy as np
 from tqdm import tqdm 
 
-from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
+from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
 from sklearn.metrics  import  mean_squared_error
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
-from sklearn.utils._param_validation import Interval, StrOptions
 
 from ._boosting import BaseBoostingTree 
+from ..compat.sklearn import Interval, StrOptions
 from ..utils.validator import check_X_y, get_estimator_name, check_array 
 from ..utils.validator import check_is_fitted
 
@@ -1019,8 +1019,8 @@ class HybridBoostClassifier(BaseBoostingTree, ClassifierMixin):
         
         X, y = check_X_y(X, y, accept_sparse=True, estimator=self )
         
-        if self.verbose:
-            print("Starting fit of Hybrid Boosting Classifier")
+        if self.verbose > 1:
+            print("Starting fit of Hybrid Boost Classifier")
             print("Fitting Decision Tree Classifier...")
     
         # First layer: Decision Tree Classifier
@@ -1040,14 +1040,14 @@ class HybridBoostClassifier(BaseBoostingTree, ClassifierMixin):
         )
         self.decision_tree_.fit(X, y, sample_weight=sample_weight)
     
-        if self.verbose:
+        if self.verbose > 1:
             print("Decision Tree Classifier fitted successfully.")
             print("Fitting Gradient Boosting Classifier...")
     
         # Second layer: Gradient Boosting Classifier
         if self.verbose:
             with tqdm(total=self.n_estimators, ascii=True,ncols= 100,
-                      desc='Fitting GradientBoostingClassifier ') as pbar:
+                      desc='Fitting HybridBoostClassifier ') as pbar:
                 for i in range(self.n_estimators):
                     self.gradient_boosting_ = GradientBoostingClassifier(
                         learning_rate=self.eta0,
@@ -1067,7 +1067,7 @@ class HybridBoostClassifier(BaseBoostingTree, ClassifierMixin):
             )
             self.gradient_boosting_.fit(X, y, sample_weight=sample_weight)
     
-        if self.verbose:
+        if self.verbose > 1:
             print("\nGradient Boosting Classifier fitted successfully.")
             print("Hybrid Boosting Classifier fit completed.")
     
@@ -1123,7 +1123,7 @@ class HybridBoostClassifier(BaseBoostingTree, ClassifierMixin):
         
         return combined_proba
 
-class HybridBoostRegressor(BaseEstimator, RegressorMixin):
+class HybridBoostRegressor(BaseBoostingTree, RegressorMixin):
     """
     Hybrid Boosting Regressor.
 
@@ -1283,6 +1283,7 @@ class HybridBoostRegressor(BaseEstimator, RegressorMixin):
         min_impurity_decrease=0.,
         ccp_alpha=0.,
         random_state=None,
+        epsilon=1e-8, 
         verbose=0
         ):
         
@@ -1300,8 +1301,9 @@ class HybridBoostRegressor(BaseEstimator, RegressorMixin):
             max_leaf_nodes=max_leaf_nodes, 
             min_impurity_decrease=min_impurity_decrease, 
             ccp_alpha=ccp_alpha, 
+            epsilon=epsilon, 
             verbose=verbose
-            )
+        )
    
     def fit(self, X, y, sample_weight=None):
         """
@@ -1328,7 +1330,7 @@ class HybridBoostRegressor(BaseEstimator, RegressorMixin):
             y_numeric=True, 
             estimator=self.__class__.__name__
         )
-        if self.verbose:
+        if self.verbose > 1:
             print("Starting fit of Hybrid Boosting Regressor")
             print("Fitting Decision Tree Regressor...")
     
@@ -1350,14 +1352,14 @@ class HybridBoostRegressor(BaseEstimator, RegressorMixin):
         self.decision_tree_.fit(X, y, sample_weight=sample_weight)
         dt_predictions = self.decision_tree_.predict(X)
     
-        if self.verbose:
+        if self.verbose > 1:
             print("Decision Tree Regressor fitted successfully.")
             print("Calculating residuals...")
     
         # Calculate residuals for Gradient Boosting
         residuals = y - dt_predictions
     
-        if self.verbose:
+        if self.verbose > 1:
             print("Fitting Gradient Boosting Regressor...")
     
         # Second layer: Gradient Boosting Regressor
@@ -1379,7 +1381,7 @@ class HybridBoostRegressor(BaseEstimator, RegressorMixin):
                     
         gb_predictions = self.gradient_boosting_.predict(X)
     
-        if self.verbose:
+        if self.verbose > 1:
             print("\nGradient Boosting Regressor fitted successfully.")
             print("Calculating weights for combination...")
     
@@ -1387,15 +1389,15 @@ class HybridBoostRegressor(BaseEstimator, RegressorMixin):
         dt_mse = mean_squared_error(y, dt_predictions)
         gb_mse = mean_squared_error(y, gb_predictions)
         
-        self.dt_weight_ = 1 / dt_mse
-        self.gb_weight_ = 1 / gb_mse
+        self.dt_weight_ = 1 / (dt_mse + self.epsilon) 
+        self.gb_weight_ = 1 / ( gb_mse + self.epsilon) 
     
         # Normalize weights
         total_weight = self.dt_weight_ + self.gb_weight_
         self.dt_weight_ /= total_weight
         self.gb_weight_ /= total_weight
     
-        if self.verbose:
+        if self.verbose > 1:
             print("Hybrid Boosting Regressor fit completed.")
     
         return self

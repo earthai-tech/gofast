@@ -394,7 +394,7 @@ _shared_docs [
 ]="""
 Apply the activation function element-wise to the input data.
 
-This method applies the specified activation function to each element 
+The {fmt} applies the specified activation function to each element 
 of the input data array, transforming the values accordingly.
 
 Parameters
@@ -420,10 +420,19 @@ depends on the specific activation function being applied.
 
 Examples
 --------
+>>> import numpy as np 
+>>> from gofast.transformers.activations import {fmt}
 >>> X = np.array([[1, 2], [3, 4]])
->>> transformer.fit().transform(X)
-array([[0.73105858, 0.88079708],
-       [0.95257413, 0.98201379]])
+>>> transformer = {fmt}(
+...    scale=1.0, 
+...    shift=0.0, 
+...    precision=1e-6, 
+...    verbose=1
+...    ) 
+>>> transformer.fit(X)
+>>> transformer.transform(X)
+array([[0. ..., 0. ...],
+       [0. ..., 0. ...]])
 """
 
 

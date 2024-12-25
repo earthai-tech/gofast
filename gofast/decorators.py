@@ -3948,22 +3948,25 @@ class Dataify:
         self.fail_silently = fail_silently
 
     def __call__(self, func):
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             if not self.enforce_df or not args:
                 return func(*args, **kwargs)
-
+        
             data = args[0]
             if not isinstance(data, pd.DataFrame):
+                # Remove 'data' from kwargs if present to avoid collision
+                new_kwargs = {k: v for k, v in kwargs.items() if k != 'data'}
+                
                 try:
-                    data = self._attempt_dataframe_conversion(data, **kwargs)
+                    data = self._attempt_dataframe_conversion(data, **new_kwargs)
                 except ValueError as e:
                     if self.fail_silently:
                         warnings.warn(f"Dataify Warning: {e}")
                         return func(*args, **kwargs)
                     else:
                         raise
-                        
             return func(data, *args[1:], **kwargs)
         return wrapper
 

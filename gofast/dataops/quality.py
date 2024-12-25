@@ -52,7 +52,6 @@ __all__= [
      'scale_data',
  ]
 
-
 @is_data_readable
 @Dataify(auto_columns=True, ignore_mismatch= True)
 @check_params (
@@ -712,7 +711,7 @@ def handle_outliers_in(
 @is_data_readable
 @isdf 
 def handle_missing_data(
-    data: DataFrame, /, 
+    data: DataFrame,  
     method: Optional[str] = None,  
     fill_value: Optional[Any] = None,
     dropna_threshold: float = 0.5, 
@@ -871,7 +870,7 @@ def handle_missing_data(
 @is_data_readable
 @isdf
 def assess_outlier_impact(
-    data: ArrayLike, /,
+    data: ArrayLike, 
     outlier_threshold: int=3, 
     handle_na='ignore', 
     view=False, 
@@ -1111,7 +1110,7 @@ def merge_frames_on_index(
 @is_data_readable
 @isdf
 def check_missing_data(
-    data: DataFrame, /, 
+    data: DataFrame, 
     view: bool = False,
     explode: Optional[Union[Tuple[float, ...], str]] = None,
     shadow: bool = True,

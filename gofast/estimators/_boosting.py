@@ -3,7 +3,7 @@
 from abc import abstractmethod
 from numbers import Integral, Real
 from sklearn.base import BaseEstimator
-from sklearn.utils._param_validation import Interval, StrOptions
+from sklearn.utils._param_validation import Interval, StrOptions, Hidden 
 
 from ..api.property import LearnerMeta 
 
@@ -166,6 +166,7 @@ class BaseBoostingTree(BaseEstimator, metaclass=LearnerMeta):
         "max_leaf_nodes": [Interval(Integral, 2, None, closed="left"), None],
         "min_impurity_decrease": [Interval(Real, 0.0, None, closed="left")],
         "ccp_alpha": [Interval(Real, 0.0, None, closed="left")],
+        "epsilon": [Hidden(Interval(Real, 0, 1 , closed ='neither'))], 
         "verbose": [bool, Interval(Integral, 0, None, closed="left")],
     }
 
@@ -185,6 +186,7 @@ class BaseBoostingTree(BaseEstimator, metaclass=LearnerMeta):
         max_leaf_nodes=None,
         min_impurity_decrease=0.0,
         ccp_alpha=0.0,
+        epsilon=1e-8, 
         verbose=False,
     ):
         self.n_estimators = n_estimators
@@ -200,4 +202,5 @@ class BaseBoostingTree(BaseEstimator, metaclass=LearnerMeta):
         self.max_leaf_nodes = max_leaf_nodes
         self.min_impurity_decrease = min_impurity_decrease
         self.ccp_alpha = ccp_alpha
+        self.epsilon=epsilon
         self.verbose = verbose

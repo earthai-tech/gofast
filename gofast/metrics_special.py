@@ -273,10 +273,18 @@ def coverage_score(
 
     return coverage
 
-@Appender( _shared_params,join='\n')    
-@Substitution ( **_shared_doc_kwargs)
+@validate_params({
+    "model": [HasMethods(["predict"])],
+    "X": ['array-like'],
+    "feature_names": ['array-like', None],
+    "perturbation": [Interval(Real, 0, 1, closed='both')],
+    "plot_type": [
+        StrOptions({'hist', 'bar', 'line', 'boxplot', 'box'}), None],
+    "interpret": [bool]
+   }, 
+)
 @Appender(dedent( 
-    """
+"""
 perturbation : float, default=0.1
     The amount by which to perturb each feature when calculating sensitivity.
     Should be a small fraction between 0 and 1. For instance, 0.1 indicates
@@ -353,21 +361,13 @@ References
 .. [2] Sobol, I. M. (1993). Sensitivity analysis for nonlinear mathematical 
     models. *Mathematical Modelling and Computation*, 4(6), 247-278.    
     
-    """
+"""
     ), 
     join ='\n', 
 )
 
-@validate_params({
-    "model": [HasMethods(["predict"])],
-    "X": ['array-like'],
-    "feature_names": ['array-like', None],
-    "perturbation": [Interval(Real, 0, 1, closed='both')],
-    "plot_type": [
-        StrOptions({'hist', 'bar', 'line', 'boxplot', 'box'}), None],
-    "interpret": [bool]
-   }, 
-)
+@Substitution ( **_shared_doc_kwargs) 
+@Appender( _shared_params)  
 def relative_sensitivity_score(
     model, X, *, 
     perturbation=0.1,
@@ -378,15 +378,15 @@ def relative_sensitivity_score(
     """
     Compute the Relative Sensitivity (RS) for each feature in the model 
     predictions.
-
+    
     This function calculates the relative sensitivity of input features in
     a model by perturbing each feature and measuring the resulting changes
     in predictions. This is useful in understanding how sensitive a model is
     to variations in its input features [1]_. It computes the sensitivity score 
     for each feature and optionally visualizes the results with various plots.
-
+    
     See more in :ref:`User Guide <user_guide>`.
-
+    
     """
     # build dataframe if numpy array is passed
     X = build_data_if(
@@ -478,10 +478,8 @@ def relative_sensitivity_score(
 
     return result
 
-@Appender( _shared_params,join='\n')
-@Substitution ( **_shared_doc_kwargs)
 @Appender(dedent( 
-    """
+"""
 perturbations : list of float, optional
     A list of perturbation amounts to use when calculating sensitivity.
     Each value should be a small fraction between 0 and 1.
@@ -526,6 +524,8 @@ See Also
     ), 
     join ='\n', 
  )
+@Substitution ( **_shared_doc_kwargs)
+@Appender( _shared_params, join='\n')
 def relative_sensitivity_scores(
     model, X, *, 
     perturbations=None, 
@@ -536,7 +536,7 @@ def relative_sensitivity_scores(
     """
     Compute the Relative Sensitivity (RS) for multiple perturbations
     for each feature in the model predictions. 
-    
+
     See more in :ref:`User Guide <user_guide>`. 
     
     """

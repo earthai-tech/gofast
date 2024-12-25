@@ -251,7 +251,7 @@ class ReLUTransformer(BaseEstimator, TransformerMixin):
     >>> X = np.array([[1, -2, 3], [-1, 5, -6]])
 
     # Apply the ReLU transformation
-    >>> X_transformed = transformer.transform(X)
+    >>> X_transformed = transformer.fit_transform(X)
 
     # Print transformed data
     >>> print(X_transformed)
@@ -339,8 +339,10 @@ class ReLUTransformer(BaseEstimator, TransformerMixin):
         )
         return self
 
+    @doc(_shared_docs['activation_transform'].format(
+        fmt='ReLUTransformer'), 
+    )
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             self._log(1, f"Using backend: {self.backend_name_}")
@@ -560,8 +562,8 @@ class SigmoidTransformer(BaseEstimator, TransformerMixin):
         )
         return self
 
+    @doc(_shared_docs['activation_transform'].format(fmt='SigmoidTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             self._log(1, f"Using backend: {self.backend_name_}")
@@ -802,8 +804,8 @@ class TanhTransformer(BaseEstimator, TransformerMixin):
         )
         return self
 
+    @doc(_shared_docs['activation_transform'].format(fmt='TanhTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             self._log(1, f"Using backend: {self.backend_name_}")
@@ -1094,8 +1096,8 @@ class ELUTransformer(BaseEstimator, TransformerMixin):
         )
         return self
 
+    @doc(_shared_docs['activation_transform'].format(fmt='ELUTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             self._log(1, f"Using backend: {self.backend_name_}")
@@ -1378,8 +1380,8 @@ class LeakyReLUTransformer(BaseEstimator, TransformerMixin):
         )
         return self
 
+    @doc(_shared_docs['activation_transform'].format(fmt='LeakyReLUTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             self._log(1, f"Using backend: {self.backend_name_}")
@@ -1664,8 +1666,8 @@ class SoftmaxTransformer(BaseEstimator, TransformerMixin):
         )
         return self
 
+    @doc(_shared_docs['activation_transform'].format(fmt='SoftmaxTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             self._log(1, f"Using backend: {self.backend_name_}")
@@ -1942,8 +1944,8 @@ class SwishTransformer(BaseEstimator, TransformerMixin):
         )
         return self
 
+    @doc(_shared_docs['activation_transform'].format(fmt='SwishTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             self._log(1, f"Using backend: {self.backend_name_}")
@@ -2221,8 +2223,8 @@ class HardSigmoidTransformer(BaseEstimator, TransformerMixin):
         )
         return self
 
+    @doc(_shared_docs['activation_transform'].format(fmt='HardSigmoidTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             self._log(1, f"Using backend: {self.backend_name_}")
@@ -2474,8 +2476,8 @@ class HardSwishTransformer(BaseEstimator, TransformerMixin):
         )
         return self
 
+    @doc(_shared_docs['activation_transform'].format(fmt='HardSwishTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             self._log(1, f"Using backend: {self.backend_name_}")
@@ -2699,8 +2701,8 @@ class SoftplusTransformer(BaseEstimator, TransformerMixin):
         )
         return self
 
+    @doc(_shared_docs['activation_transform'].format(fmt='SoftplusTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             self._log(1, f"Using backend: {self.backend_name_}")
@@ -2920,8 +2922,8 @@ class GELUTransformer(BaseEstimator, TransformerMixin):
         )
         return self
 
+    @doc(_shared_docs['activation_transform'].format(fmt='GELUTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             self._log(1, f"GELU computed using backend: {self.backend_name_}")
@@ -3181,8 +3183,8 @@ class SELUTransformer(BaseEstimator, TransformerMixin):
         )
         return self
 
+    @doc(_shared_docs['activation_transform'].format(fmt='SELUTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             self._log(1, f"SELU computation using backend: {self.backend_name_}")
@@ -3512,8 +3514,8 @@ class MishTransformer(BaseEstimator, TransformerMixin):
         
         return self
     
+    @doc(_shared_docs['activation_transform'].format(fmt='MishTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             print(
@@ -3800,8 +3802,8 @@ class ELISHTransformer(BaseEstimator, TransformerMixin):
         
         return self
     
+    @doc(_shared_docs['activation_transform'].format(fmt='ELISHTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             print("ELISHTransformer: Starting transformation.")
@@ -4058,8 +4060,8 @@ class LogSigmoidTransformer(BaseEstimator, TransformerMixin):
         
         return self
     
+    @doc(_shared_docs['activation_transform'].format(fmt='LogSigmoidTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             print("LogSigmoidTransformer: Starting transformation.")
@@ -4311,8 +4313,8 @@ class TanhshrinkTransformer(BaseEstimator, TransformerMixin):
         
         return self
     
+    @doc(_shared_docs['activation_transform'].format(fmt='TanhshrinkTransformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             print("TanhshrinkTransformer: Starting transformation.")
@@ -4600,8 +4602,8 @@ class Swish1Transformer(BaseEstimator, TransformerMixin):
         
         return self
     
+    @doc(_shared_docs['activation_transform'].format(fmt='Swish1Transformer'))
     @DataTransformer(name='X', mode='lazy', keep_origin_type=True)
-    @doc(_shared_docs['activation_transform'])
     def transform(self, X):
         if self.verbose >= 1:
             print("Swish1Transformer: Starting transformation.")
