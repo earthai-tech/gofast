@@ -1292,7 +1292,9 @@ def is_data_readable(
 
     @wraps(func)
     def wrapper(*args, **kwargs):
+        
         nonlocal data_to_read  # Explicitly declare data_to_read as nonlocal
+        
         # 1) Attempt to retrieve the data argument from kwargs using
         #    `data_to_read` as the key if provided; otherwise, check
         #    the first positional arg (args[0]) if available.
