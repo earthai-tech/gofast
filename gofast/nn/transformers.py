@@ -163,6 +163,7 @@ experiment and adapt them to your own datasets and forecasting tasks.
 """
 
 from ._tft import TemporalFusionTransformer
-from ._xtft import XTFT
+from ._adjusted_tft import TFT 
+from ._xtft import XTFT, SuperXTFT
 
-__all__ = ["TemporalFusionTransformer", "XTFT"]
+__all__ = ["TemporalFusionTransformer", "XTFT", "SuperXTFT", "TFT"]

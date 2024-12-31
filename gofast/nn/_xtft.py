@@ -16,13 +16,16 @@ from ..api.property import NNLearner
 from ..core.checks import validate_nested_param, ParamsValidator 
 from ..compat.sklearn import validate_params, Interval, StrOptions 
 from ..utils.deps_utils import ensure_pkg
+from ..decorators import Appender , Deprecated
 from ..utils.validator import check_consistent_length 
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 from ._nn_docs import _shared_docs 
 from ._tensor_validation import validate_anomaly_scores, validate_xtft_inputs 
+from ._tft import VariableSelectionNetwork, GatedResidualNetwork
 from .losses import combined_quantile_loss
 from .utils import set_default_params, set_anomaly_config 
+
 
 if KERAS_BACKEND:
     LSTM = KERAS_DEPS.LSTM
@@ -57,7 +60,6 @@ if KERAS_BACKEND:
     from . import Activation 
 
 DEP_MSG = dependency_message('transformers.xtft') 
-
 
 # -------------------- XTFT components ----------------------------------------
 
@@ -1116,7 +1118,10 @@ class XTFT(Model, NNLearner):
             'dropout_rate': self.dropout_rate,
             'output_dim': self.output_dim,
             'anomaly_config': {
-                'anomaly_scores': self.anomaly_scores.numpy() if self.anomaly_scores is not None else None,
+                'anomaly_scores': ( 
+                    self.anomaly_scores.numpy() 
+                    if self.anomaly_scores is not None else None
+                    ),
                 'anomaly_loss_weight': self.anomaly_loss_weight
             },
             'attention_units': self.attention_units,
@@ -1437,5 +1442,501 @@ References
 .. [1] Wang, X., et al. (2021). "Enhanced Temporal Fusion Transformer
        for Time Series Forecasting." International Journal of
        Forecasting, 37(3), 1234-1245.
+       
 """
- 
+
+@Deprecated(
+    "SuperXTFT is currently under maintenance and will be released soon. " 
+    "Please stay updated for the upcoming release. For now, use the "
+    "standard XTFT instead."
+)
+@Appender ( dedent( 
+    XTFT.__doc__.replace ('XTFT', 'SuperXTFT'),
+    ), 
+    join='\n', 
+)
+@register_keras_serializable('Gofast')
+class SuperXTFT(XTFT):
+    """
+    SuperXTFT: An enhanced version of XTFT with Variable Selection Networks (VSNs) 
+    and integrated Gate → Add & Norm → GRN pipeline in attention layers.
+    
+    """
+    @validate_params({
+        "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
+        "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
+        "future_covariate_dim": [Interval(Integral, 1, None, closed='left')], 
+        "num_static_vars": [Interval(Integral, 1, None, closed='left')], 
+        "num_dynamic_vars": [Interval(Integral, 1, None, closed='left')],
+        "embed_dim": [Interval(Integral, 1, None, closed='left')],
+        "forecast_horizons": [Interval(Integral, 1, None, closed='left')], 
+        "quantiles": ['array-like', StrOptions({'auto'}),  None],
+        "max_window_size": [Interval(Integral, 1, None, closed='left')],
+        "memory_size": [Interval(Integral, 1, None, closed='left')], 
+        "num_heads": [Interval(Integral, 1, None, closed='left')],
+        "dropout_rate": [Interval(Real, 0, 1, closed="both")],
+        "output_dim": [Interval(Integral, 1, None, closed='left')],
+        "forecast_horizon": [Interval(Integral, 1, None, closed='left')],
+        "attention_units": [
+            'array-like', 
+            Interval(Integral, 1, None, closed='left')
+        ], 
+        "hidden_units": [
+            'array-like', 
+            Interval(Integral, 1, None, closed='left')
+          ], 
+        "lstm_units": [
+            'array-like', 
+            Interval(Integral, 1, None, closed='left'), 
+            None
+        ], 
+        "activation": [
+            StrOptions({"elu", "relu", "tanh", "sigmoid", "linear", "gelu"}),
+            callable 
+            ],
+        "multi_scale_agg": [
+            StrOptions({"last", "average",  "flatten", "auto"}),
+            None
+        ],
+        "scales": ['array-like', StrOptions({"auto"}),  None],
+        "use_batch_norm": [bool],
+        "use_residuals": [bool],
+        "final_agg": [StrOptions({"last", "average",  "flatten"})],
+        },
+    )
+    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+    def __init__(
+        self,
+        static_input_dim: int,
+        dynamic_input_dim: int,
+        future_covariate_dim: int,
+        num_static_vars: int,
+        num_dynamic_vars: int,
+        embed_dim: int = 32,
+        forecast_horizons: int = 1,
+        quantiles: Union[str, List[float], None] = None,
+        max_window_size: int = 10,
+        memory_size: int = 100,
+        num_heads: int = 4,
+        dropout_rate: float = 0.1,
+        output_dim: int = 1, 
+        anomaly_config: Optional[Dict[str, Any]] = None,  
+        attention_units: int = 32,
+        hidden_units: int = 64,
+        lstm_units: int = 64,
+        scales: Union[str, List[int], None] = None,
+        multi_scale_agg: Optional[str] = None, 
+        activation: str = 'relu',
+        use_residuals: bool = True,
+        use_batch_norm: bool = False,
+        final_agg: str = 'last',
+        **kwargs
+    ):
+        super().__init__(
+            static_input_dim=static_input_dim,
+            dynamic_input_dim=dynamic_input_dim,
+            future_covariate_dim=future_covariate_dim,
+            embed_dim=embed_dim,
+            forecast_horizons=forecast_horizons,
+            quantiles=quantiles,
+            max_window_size=max_window_size,
+            memory_size=memory_size,
+            num_heads=num_heads,
+            dropout_rate=dropout_rate,
+            output_dim=output_dim,
+            anomaly_config=anomaly_config,
+            attention_units=attention_units,
+            hidden_units=hidden_units,
+            lstm_units=lstm_units,
+            scales=scales,
+            multi_scale_agg=multi_scale_agg,
+            activation=activation,
+            use_residuals=use_residuals,
+            use_batch_norm=use_batch_norm,
+            final_agg=final_agg,
+            **kwargs
+        )
+        
+        self.logger = gofastlog().get_gofast_logger(__name__)
+        
+        # Initialize Variable Selection Networks (VSNs)
+        self.variable_selection_static = VariableSelectionNetwork(
+            input_dim=static_input_dim,
+            num_inputs=num_static_vars,  
+            units=hidden_units,
+            dropout_rate=dropout_rate,
+            use_time_distributed=False,
+            activation=activation,
+            use_batch_norm=use_batch_norm
+        )
+        
+        self.variable_selection_dynamic = VariableSelectionNetwork(
+            input_dim=dynamic_input_dim,
+            num_inputs=num_dynamic_vars,  
+            units=hidden_units,
+            dropout_rate=dropout_rate,
+            use_time_distributed=True,
+            activation=activation,
+            use_batch_norm=use_batch_norm
+        )
+        
+        # Initialize Gated Residual Networks (GRNs) for attention outputs
+        self.grn_attention_hierarchical = GatedResidualNetwork(
+            units=attention_units,
+            dropout_rate=dropout_rate,
+            use_time_distributed=False,
+            activation=activation,
+            use_batch_norm=use_batch_norm
+        )
+        
+        self.grn_attention_cross = GatedResidualNetwork(
+            units=attention_units,
+            dropout_rate=dropout_rate,
+            use_time_distributed=False,
+            activation=activation,
+            use_batch_norm=use_batch_norm
+        )
+        
+        # Initialize Gate -> Add & Norm -> GRN pipeline for decoder outputs
+        self.grn_decoder = GatedResidualNetwork(
+            units=output_dim,
+            dropout_rate=dropout_rate,
+            use_time_distributed=False,
+            activation=activation,
+            use_batch_norm=use_batch_norm
+        )
+        # Override attention layers to include Gate -> Add & Norm -> GRN pipeline
+        # hierarchical_attention and cross_attention are defined in XTFT
+        # We will wrap their outputs with GRNs after adding residuals and normalization
+        
+    def call(self, inputs, training=False):
+        static_input, dynamic_input, future_covariate_input = self.validate_xtft_inputs(
+            inputs=inputs,
+            static_input_dim=self.static_input_dim, 
+            dynamic_input_dim=self.dynamic_input_dim, 
+            future_covariate_dim=self.future_covariate_dim, 
+        )
+        
+        # Variable Selection for static and dynamic inputs
+        selected_static = self.variable_selection_static(static_input, training=training)
+        selected_dynamic = self.variable_selection_dynamic(dynamic_input, training=training)
+        
+        self.logger.debug(
+            f"Selected Static Features Shape: {selected_static.shape}"
+        )
+        self.logger.debug(
+            f"Selected Dynamic Features Shape: {selected_dynamic.shape}"
+        )
+        
+        # Proceed with the original XTFT forward pass using selected features
+        # Normalize and process static features
+        normalized_static = self.learned_normalization(
+            selected_static, 
+            training=training
+        )
+        self.logger.debug(
+            f"Normalized Static Shape: {normalized_static.shape}"
+        )
+        
+        static_features = self.static_dense(normalized_static)
+        if self.use_batch_norm:
+            static_features = self.static_batch_norm(
+                static_features,
+                training=training
+            )
+            self.logger.debug(
+                "Static Features after BatchNorm Shape: "
+                f"{static_features.shape}"
+            )
+        
+        static_features = self.static_dropout(
+            static_features,
+            training=training
+        )
+        self.logger.debug(
+            f"Static Features Shape: {static_features.shape}"
+        )
+        
+        # Embeddings for dynamic and future covariates using selected_dynamic
+        embeddings = self.multi_modal_embedding(
+            [selected_dynamic, future_covariate_input],
+            training=training
+        )
+        self.logger.debug(
+            f"Embeddings Shape: {embeddings.shape}"
+        )
+        
+        if self.use_residuals:
+            embeddings = embeddings + self.residual_dense(embeddings)
+            self.logger.debug(
+                "Embeddings with Residuals Shape: "
+                f"{embeddings.shape}"
+            )
+        
+        # Multi-scale LSTM outputs
+        lstm_output = self.multi_scale_lstm(
+            selected_dynamic,
+            training=training
+        )
+        # Handle multi_scale_agg as in XTFT
+        if self.multi_scale_agg is None:
+            lstm_features = lstm_output  # (B, units * len(scales))
+        else:
+            if self.multi_scale_agg == "average":
+                averaged_outputs = [
+                    tf_reduce_mean(o, axis=1) 
+                    for o in lstm_output
+                ]  # Each is (B, units)
+                lstm_features = tf_concat(
+                    averaged_outputs,
+                    axis=-1
+                )  # (B, units * len(scales))
+            elif self.multi_scale_agg == "flatten":
+                concatenated = tf_concat(
+                    lstm_output, 
+                    axis=-1
+                )  # (B, T', units*len(scales))
+                shape = tf_shape(concatenated)
+                batch_size, time_dim, feat_dim = shape[0], shape[1], shape[2]
+                lstm_features = tf_reshape(
+                    concatenated,
+                    [batch_size, time_dim * feat_dim]
+                )
+            else:
+                last_outputs = [
+                    o[:, -1, :] 
+                    for o in lstm_output
+                ]  # (B, units)
+                lstm_features = tf_concat(
+                    last_outputs,
+                    axis=-1
+                )  # (B, units * len(scales))
+        
+        # Expand and tile lstm_features to match time steps
+        time_steps = tf_shape(dynamic_input)[1]
+        lstm_features = tf_expand_dims(lstm_features, axis=1)  # (B, 1, features)
+        lstm_features = tf_tile(lstm_features, [1, time_steps, 1])  # (B, T, features)
+        
+        self.logger.debug(
+            f"LSTM Features Shape: {lstm_features.shape}"
+        )
+        
+        # Attention mechanisms with integrated GRNs
+        hierarchical_att = self.hierarchical_attention(
+            [selected_dynamic, future_covariate_input],
+            training=training
+        )
+        self.logger.debug(
+            f"Hierarchical Attention Shape: {hierarchical_att.shape}"
+        )
+
+        # Apply Gate -> Add & Norm -> GRN pipeline to hierarchical attention
+        hierarchical_att_grn = self.grn_attention_hierarchical(
+            hierarchical_att,
+            training=training
+        )
+        self.logger.debug(
+            f"Hierarchical Attention after GRN Shape: {hierarchical_att_grn.shape}"
+        )
+        
+        cross_attention_output = self.cross_attention(
+            [selected_dynamic, embeddings],
+            training=training
+        )
+        self.logger.debug(
+            f"Cross Attention Output Shape: {cross_attention_output.shape}"
+        )
+        
+        # Apply Gate -> Add & Norm -> GRN pipeline to cross attention
+        cross_attention_grn = self.grn_attention_cross(
+            cross_attention_output,
+            training=training
+        )
+        self.logger.debug(
+            f"Cross Attention after GRN Shape: {cross_attention_grn.shape}"
+        )
+        
+        memory_attention_output = self.memory_augmented_attention(
+            hierarchical_att_grn,
+            training=training
+        )
+        self.logger.debug(
+            "Memory Augmented Attention Output Shape: "
+            f"{memory_attention_output.shape}"
+        )
+        
+        # Combine all features
+        static_features_expanded = tf_tile(
+            tf_expand_dims(static_features, axis=1),
+            [1, time_steps, 1]
+        )
+        self.logger.debug(
+            "Static Features Expanded Shape: "
+            f"{static_features_expanded.shape}"
+        )
+        
+        combined_features = Concatenate()([
+            static_features_expanded,
+            lstm_features,
+            memory_attention_output,
+            cross_attention_grn
+        ])
+        self.logger.debug(
+            f"Combined Features Shape: {combined_features.shape}"
+        )
+        
+        attention_fusion_output = self.multi_resolution_attention_fusion(
+            combined_features,
+            training=training
+        )
+        self.logger.debug(
+            "Attention Fusion Output Shape: "
+            f"{attention_fusion_output.shape}"
+        )
+        
+        time_window_output = self.dynamic_time_window(
+            attention_fusion_output,
+            training=training
+        )
+        self.logger.debug(
+            f"Time Window Output Shape: {time_window_output.shape}"
+        )
+        
+        # Final Aggregation
+        if self.final_agg == "last":
+            final_features = time_window_output[:, -1, :]
+        elif self.final_agg == "average":
+            final_features = tf_reduce_mean(time_window_output, axis=1)
+        else:  # "flatten"
+            shape = tf_shape(time_window_output)
+            batch_size, time_dim, feat_dim = shape[0], shape[1], shape[2]
+            final_features = tf_reshape(
+                time_window_output,
+                [batch_size, time_dim * feat_dim]
+            )
+        
+        # Decode the aggregated features
+        decoder_outputs = self.multi_decoder(
+            final_features,
+            training=training
+        )
+        self.logger.debug(
+            f"Decoder Outputs Shape: {decoder_outputs.shape}"
+        )
+        
+        # Apply Gate -> Add & Norm -> GRN pipeline to decoder_outputs
+        # Gate
+        G = self.grn_decoder.gate(decoder_outputs)
+        # Add & Norm
+        Z_norm = self.grn_decoder.layer_norm(decoder_outputs + G)
+        # GRN
+        Z_grn = self.grn_decoder(Z_norm, training=training)
+        self.logger.debug(
+            f"Decoder Outputs after GRN Pipeline Shape: {Z_grn.shape}"
+        )
+        
+        # Quantile Distribution Modeling
+        predictions = self.quantile_distribution_modeling(
+            Z_grn,
+            training=training
+        )
+        self.logger.debug(
+            f"Predictions Shape: {predictions.shape}"
+        )
+        
+        
+        # Compute anomaly scores if configured
+        self.anomaly_scores = self.validate_anomaly_scores(
+            self.anomaly_config, forecast_horizons=self.forecast_horizons
+        )
+        
+        self.anomaly_loss_weight = self.anomaly_config.get('anomaly_loss_weight')
+        
+        if self.anomaly_scores is not None:
+            self.logger.debug(
+                "Using Anomaly Scores from anomaly_config "
+                f"Shape: {self.anomaly_scores.shape}"
+            )
+            
+            if self.anomaly_loss_weight is None: 
+                self.logger.debug(
+                    "Anomaly Loss Weight is None. Resetting to 1.0."
+                )
+                self.anomaly_loss_weight = 1.0
+        
+        # Add anomaly loss if configured
+        if self.anomaly_loss_weight is not None:
+            anomaly_loss = self.anomaly_loss_layer(self.anomaly_scores)
+            self.add_loss(self.anomaly_loss_weight * anomaly_loss)
+            self.logger.debug(f"Anomaly Loss Computed and Added: {anomaly_loss}")
+        
+        return predictions
+    
+    def compile(self, optimizer, loss=None, **kwargs):
+        if self.quantiles is None:
+            # Deterministic scenario
+            super().compile(
+                optimizer=optimizer, loss=loss or 'mse', **kwargs)
+        else:
+            # Probabilistic scenario with combined quantile loss and anomaly loss
+            quantile_loss_fn = combined_quantile_loss(self.quantiles)
+    
+            if not hasattr(self, 'anomaly_scores'): 
+                self.anomaly_scores = self.anomaly_config.get('anomaly_scores')
+                
+            if self.anomaly_scores is not None:
+                # Define a total loss that includes both quantile loss and anomaly loss
+                def total_loss(y_true, y_pred):
+                    # Compute quantile loss
+                    q_loss = quantile_loss_fn(y_true, y_pred)
+        
+                    # Compute anomaly loss
+                    a_loss = self.anomaly_loss_layer(self.anomaly_scores)
+        
+                    # Combine losses
+                    return q_loss + a_loss
+        
+                super().compile(
+                    optimizer=optimizer, loss=total_loss, **kwargs)
+            else:
+                # Only quantile loss
+                super().compile(
+                    optimizer=optimizer, loss=quantile_loss_fn, **kwargs)
+    
+    @ParamsValidator(
+        { 
+          'y_true': ['array-like:tf:transf'], 
+          'y_pred': ['array-like:tf:transf'], 
+          'anomaly_scores':['array-like:tf:transf']
+        }, 
+    )
+    def objective_loss(
+        self, 
+        y_true: Tensor, 
+        y_pred: Tensor, 
+        anomaly_scores: Tensor=None
+    ) -> Tensor:
+        if not hasattr(self, 'anomaly_scores'): 
+            self.anomaly_scores = self.anomaly_config.get('anomaly_scores')
+                
+        if self.anomaly_scores is not None: 
+            check_consistent_length(y_true, y_pred, self.anomaly_scores)
+            # Compute the multi-objective loss
+            loss = self.multi_objective_loss(y_true, y_pred, self.anomaly_scores)
+            return loss
+        else: 
+            # When anomaly_loss_weight is None, y_true is a tensor
+            check_consistent_length(y_true, y_pred)
+            return self.multi_objective_loss(y_true, y_pred)
+    
+    def get_config(self):
+        config = super().get_config().copy()
+        # Add any SuperXTFT specific configurations if necessary
+        return config
+    
+    @classmethod
+    def from_config(cls, config):
+        logger = gofastlog().get_gofast_logger(__name__)
+        logger.debug("Creating SuperXTFT instance from config.")
+        return cls(**config)
+

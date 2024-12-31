@@ -387,8 +387,8 @@ class VariableSelectionNetwork(Layer, NNLearner):
             variable_outputs.append(grn_output)
 
         stacked_outputs = tf_stack(variable_outputs, axis=-2)
-        variable_importances = self.variable_importance_dense(stacked_outputs)
-        weights = self.softmax(variable_importances)
+        self.variable_importances_ = self.variable_importance_dense(stacked_outputs)
+        weights = self.softmax(self._variable_importances_)
         outputs = tf_reduce_sum(stacked_outputs * weights, axis=-2)
         return outputs
 
@@ -1054,11 +1054,15 @@ class TemporalFusionTransformer(Model, NNLearner):
         static_embedding = self.static_var_sel(
             static_inputs, training=training
         )
+        self.static_variable_importances_=self.static_var_sel.variable_importances_ 
+        
         self.logger.debug("Applying Variable Selection on Dynamic Inputs...")
         dynamic_embedding = self.dynamic_var_sel(
             dynamic_inputs, training=training
         )
-
+        
+        self.dynamic_variable_importances_= self.dynamic_var_sel.variable_importances_ 
+        
         # Positional Encoding
         self.logger.debug("Applying Positional Encoding to Dynamic Embedding...")
         dynamic_embedding = self.positional_encoding(dynamic_embedding)

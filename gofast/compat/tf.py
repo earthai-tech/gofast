@@ -111,6 +111,7 @@ class KerasDependencies:
             'Dropout': ('layers', 'Dropout'),
             'BatchNormalization': ('layers', 'BatchNormalization'),
             'LSTM': ('layers', 'LSTM'),
+            'LSTMCell':('layers', 'LSTMCell'), 
             'Input': ('layers', 'Input'),
             'Conv2D': ('layers', 'Conv2D'),
             'Optimizer':('optimizers', 'Optimizer'), 
