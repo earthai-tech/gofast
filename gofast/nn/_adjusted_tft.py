@@ -16,6 +16,7 @@ from gofast.compat.tf import HAS_TF
 from gofast.compat.sklearn import validate_params, Interval, StrOptions
 from gofast.nn import KERAS_DEPS, KERAS_BACKEND, dependency_message 
 from gofast.nn._tft import TemporalFusionTransformer 
+from gofast.nn._tensor_validation import validate_xtft_inputs
 from gofast.nn.losses import combined_quantile_loss 
 from gofast.nn.utils import set_default_params
 
@@ -134,7 +135,7 @@ class TFT(Model, NNLearner):
             f"output_dim={output_dim}"
         )
         # Handle default quantiles, scales and multi_scale_agg 
-        self.quantiles, _, _ = set_default_params(self.quantiles) 
+        self.quantiles, _, _ = set_default_params(quantiles) 
         
         # Embedding layers for dynamic (past) inputs
         self.past_embedding = TimeDistributed(
@@ -233,6 +234,13 @@ class TFT(Model, NNLearner):
     
     def call(self, inputs, training=None):
         # Unpack inputs
+        # past_inputs, future_inputs, static_inputs=validate_xtft_inputs(
+        #     inputs =inputs,
+        #     static_input_dim=self.static_input_dim, 
+        #     dynamic_input_dim= self.dynamic_input_dim, 
+        #     future_covariate_dim= self.future_input_dim, 
+        #     transformer ='tft'
+        # )
         if isinstance(inputs, (list, tuple)):
             if len(inputs) == 3:
                 past_inputs, future_inputs, static_inputs = inputs

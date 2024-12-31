@@ -112,7 +112,8 @@ def validate_xtft_inputs(
     inputs: Union[List[Any], Tuple[Any, ...]],
     static_input_dim: int,
     dynamic_input_dim: int,
-    future_covariate_dim: Optional[int] = None
+    future_covariate_dim: Optional[int] = None, 
+    transformer='xtft', 
 ) -> Tuple[tf.Tensor, tf.Tensor, Optional[tf.Tensor]]:
     """
     Validates and processes the ``inputs`` for the XTFT model.
@@ -192,11 +193,34 @@ def validate_xtft_inputs(
     >>> print(validated_static.shape, validated_dynamic.shape, validated_future.shape)
     (32, 10) (32, 20, 45) (32, 20, 5)
     """
+    if transformer =='tft': 
+        if isinstance(inputs, (list, tuple)):
+            if len(inputs) == 3:
+                past_inputs, future_inputs, static_inputs = inputs
+            elif len(inputs) == 2:
+                past_inputs, future_inputs = inputs
+                static_inputs = None
+            else:
+                raise ValueError(
+                    "Inputs should be a list or tuple containing "
+                    "(past_inputs, future_inputs, static_inputs) or "
+                    "(past_inputs, future_inputs)."
+                )
+        else:
+            raise ValueError(
+                "Inputs should be a list or tuple containing "
+                "(past_inputs, future_inputs, static_inputs) or "
+                "(past_inputs, future_inputs)."
+            )
+        return past_inputs, future_inputs, static_inputs
+    
     # Step 1: Validate the type and length of inputs
     if not isinstance(inputs, (list, tuple)):
         raise ValueError(
             f"'inputs' must be a list or tuple, but got type {type(inputs).__name__}."
         )
+    
+    
     
     expected_length = 3
     if len(inputs) != expected_length:
@@ -209,6 +233,7 @@ def validate_xtft_inputs(
     # Unpack inputs
     static_input, dynamic_input, future_covariate_input = inputs
 
+    
     # Step 2: Validate static_input
     if static_input is None:
         raise ValueError("``static_input`` cannot be None.")
