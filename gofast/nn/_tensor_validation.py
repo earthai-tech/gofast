@@ -220,8 +220,6 @@ def validate_xtft_inputs(
             f"'inputs' must be a list or tuple, but got type {type(inputs).__name__}."
         )
     
-    
-    
     expected_length = 3
     if len(inputs) != expected_length:
         raise ValueError(
