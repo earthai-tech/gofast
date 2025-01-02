@@ -1490,47 +1490,6 @@ class SuperXTFT(XTFT):
     and integrated Gate → Add & Norm → GRN pipeline in attention layers.
     
     """
-    @validate_params({
-        "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
-        "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
-        "future_covariate_dim": [Interval(Integral, 1, None, closed='left')], 
-        "embed_dim": [Interval(Integral, 1, None, closed='left')],
-        "forecast_horizons": [Interval(Integral, 1, None, closed='left')], 
-        "quantiles": ['array-like', StrOptions({'auto'}),  None],
-        "max_window_size": [Interval(Integral, 1, None, closed='left')],
-        "memory_size": [Interval(Integral, 1, None, closed='left')], 
-        "num_heads": [Interval(Integral, 1, None, closed='left')],
-        "dropout_rate": [Interval(Real, 0, 1, closed="both")],
-        "output_dim": [Interval(Integral, 1, None, closed='left')],
-        "forecast_horizon": [Interval(Integral, 1, None, closed='left')],
-        "attention_units": [
-            'array-like', 
-            Interval(Integral, 1, None, closed='left')
-        ], 
-        "hidden_units": [
-            'array-like', 
-            Interval(Integral, 1, None, closed='left')
-          ], 
-        "lstm_units": [
-            'array-like', 
-            Interval(Integral, 1, None, closed='left'), 
-            None
-        ], 
-        "activation": [
-            StrOptions({"elu", "relu", "tanh", "sigmoid", "linear", "gelu"}),
-            callable 
-            ],
-        "multi_scale_agg": [
-            StrOptions({"last", "average",  "flatten", "auto"}),
-            None
-        ],
-        "scales": ['array-like', StrOptions({"auto"}),  None],
-        "use_batch_norm": [bool],
-        "use_residuals": [bool],
-        "final_agg": [StrOptions({"last", "average",  "flatten"})],
-        },
-    )
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
         self,
         static_input_dim: int,
