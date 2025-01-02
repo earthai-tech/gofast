@@ -32,15 +32,15 @@ configurations to tailor the tool to their specific forecasting tasks.
 Example:
 --------
 ```bash
-python xtft_proba_app.py \
-    --data /path/to/final_data.bc_cat.csv \
-    --target subsidence \
-    --categorical_features geological_category bc_category \
-    --numerical_features longitude latitude year GWL soil_thickness soil_quality \
-    --epochs 100 \
-    --batch_size 32 \
-    --time_steps 4 \
-    --forecast_horizon 4 \
+python xtft_proba_app.py 
+    --data /path/to/final_data.bc_cat.csv 
+    --target subsidence 
+    --categorical_features geological_category bc_category 
+    --numerical_features longitude latitude year GWL soil_thickness soil_quality 
+    --epochs 100 
+    --batch_size 32 
+    --time_steps 4 
+    --forecast_horizon 4 
     --quantiles 0.1 0.5 0.9
 ```
 
@@ -61,6 +61,7 @@ Ensure all dependencies are installed before running the application.
 """
 
 import os
+import sys
 import argparse
 import warnings
 import logging
@@ -77,7 +78,7 @@ import tensorflow as tf
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 import gofast as gf
-from gofast.core.io import read_data, fmt_text 
+from gofast.core.io import read_data, print_script_info, show_usage 
 from gofast.nn.transformers import XTFT
 
 # Configure logging
@@ -88,16 +89,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def __getattr__(name): 
-    
-    print(fmt_text(
-        __doc__, 
-        border_style='|', 
-        alignment='left', 
-        # extra_space=1, 
-        )
- )
-
+# A module-level flag to ensure docstring is printed only once
+_DOCSTRING_PRINTED = False
+ 
 def load_data(main_data_file):
     """
     Load the main dataset from the specified path.
@@ -608,6 +602,10 @@ def main(args):
     :param args: Command-line arguments.
     :type args: argparse.Namespace
     """
+    global _DOCSTRING_PRINTED
+    if not _DOCSTRING_PRINTED:
+        print_script_info(__doc__)
+        _DOCSTRING_PRINTED = True
     
     main_data_file = args.data
     # cat_data_file = args.cat_data_file
@@ -620,7 +618,7 @@ def main(args):
     forecast_horizon = args.forecast_horizon
     quantiles = args.quantiles
     visualize_years = args.visualize_years
-
+ 
     # Suppress warnings for clarity
     warnings.filterwarnings('ignore')
     tf.get_logger().setLevel('ERROR')
@@ -735,7 +733,9 @@ def main(args):
     # Visualize predictions
     visualize_predictions(future_data, quantiles, visualize_years, data_path)
 
+
 if __name__ == "__main__":
+    
     parser = argparse.ArgumentParser(
         description="XTFT Probabilistic Prediction Application using Quantiles."
     )
@@ -745,12 +745,7 @@ if __name__ == "__main__":
         required=True,
         help='Path to the the main dataset preferably in CSV format.'
     )
-    # parser.add_argument(
-    #     '--cat_data_file',
-    #     type=str,
-    #     default='final_data.bc_cat.csv',
-    #     help='Filename of the categorical data CSV.'
-    # )
+
     parser.add_argument(
         '--target',
         type=str,
@@ -815,6 +810,28 @@ if __name__ == "__main__":
         default='xtft_quantile_predictions.csv',
         help='Filename for saving prediction results.'
     )
-
+    parser.add_argument(
+        "--helpdoc", 
+        action="store_true", 
+        help='Script documentation'
+        )
+    # 1) If no arguments or only the script name, show usage and exit.
+    # if len(sys.argv) == 1:
+    #     show_usage()
+    #     sys.exit(0)
+    
+    if len(sys.argv) == 1:
+        show_usage(parser, script_name="app_xtft_proba")
+        sys.exit(0)
+        
+    # 2) Parse arguments
     args = parser.parse_args()
+    
+    # 3) If user specifically asked for helpdoc, show usage and exit.
+    if args.helpdoc:
+        print_script_info(__doc__)
+        sys.exit(0)
+
+    # 3) Otherwise, run main logic
     main(args)
+    

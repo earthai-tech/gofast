@@ -33,7 +33,8 @@ from .simulate import (
    simulate_sentiment_analysis, simulate_weather_forecasting, 
    simulate_default_loan, simulate_traffic_flow, simulate_medical_diagnosis,
    simulate_retail_sales, simulate_landfill_capacity, simulate_climate_data, 
-   simulate_patient_data, simulate_weather_data, simulate_telecom_data
+   simulate_patient_data, simulate_weather_data, simulate_telecom_data, 
+   simulate_electricity_data, simulate_retail_data, simulate_traffic_data
 )
 
 __all__ = [
@@ -55,6 +56,7 @@ __all__ = [
     "simulate_default_loan", "simulate_traffic_flow", "simulate_medical_diagnosis",
     "simulate_retail_sales", "simulate_landfill_capacity", "simulate_climate_data",
     "simulate_stock_prices", "simulate_transactions", "simulate_patient_data",
-    "simulate_weather_data", "simulate_clinical_trials", "simulate_telecom_data"
+    "simulate_weather_data", "simulate_clinical_trials", "simulate_telecom_data", 
+    "simulate_electricity_data", "simulate_retail_data", "simulate_traffic_data"
     
 ]

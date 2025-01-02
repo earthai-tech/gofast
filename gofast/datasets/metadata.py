@@ -2729,8 +2729,124 @@ DESCR_METADATA={
                 "to predict stock prices or market behavior."
             )
         }
-    }
+    },
+    "simulate_retail_data": {
+        "overview": (
+            "Simulated Retail Dataset models daily or weekly retail sales  "
+            "data across a specified time period. Influencing factors include "
+            "baseline sales trends, seasonal demand fluctuations, scheduled discounts, "
+            "and holiday promotions. By analyzing retail dynamics such as discount "
+            "periods and holiday spikes, one can develop and evaluate predictive "
+            "models for inventory management, revenue forecasting, and promotional "
+            "effectiveness."
+        ),
+        "features": {
+            "time": (
+                "Represents the time index (e.g., days or weeks), defining the "
+                "temporal dimension for the dataset."
+            ),
+            "sales_trend": (
+                "A linear or polynomial trend reflecting general increases or "
+                "decreases in consumer demand over time. This can be influenced "
+                "by broad market forces."
+            ),
+            "seasonality": (
+                "A sinusoidal component capturing recurring sales patterns (e.g., "
+                "holiday seasons, back-to-school)."
+            ),
+            "holiday_indicator": (
+                "A numeric indicator (often 0 or 1) marking special events or "
+                "holidays, during which sales typically spike."
+            ),
+            "discount_indicator": (
+                "A numeric indicator (often 0 or a positive number) specifying "
+                "the magnitude of discounts/promotions on given dates."
+            ),
+            "sales": (
+                "Total sales volume (or revenue) for each time point, representing "
+                "the key target variable in forecasting models. This figure "
+                "integrates baseline sales, seasonal variations, and promotional "
+                "impacts."
+            ),
+        },
+    },
 
+    "simulate_electricity_data": {
+        "overview": (
+            "Simulated Electricity Dataset represents daily or hourly "
+            "electricity usage and related features over a set period. "
+            "Key drivers include baseline demand, seasonal consumption patterns, "
+            "holiday loads, and external variables like temperature. By combining "
+            "dynamic factors (e.g., real-time price variations) with trending usage, "
+            "the dataset supports the development of machine learning models aiming "
+            "to forecast electricity load and optimize power distribution."
+        ),
+        "features": {
+            "time": (
+                "A continuous or discrete time index (hours or days), signifying "
+                "the temporal scope for analyzing power usage patterns."
+            ),
+            "trend": (
+                "A linear component illustrating long-term shifts in consumption "
+                "habits (e.g., gradual adoption of electric vehicles or changes "
+                "in industrial activity)."
+            ),
+            "seasonality": (
+                "A sinusoidal function capturing cyclical changes, such as "
+                "higher air-conditioning usage in summer and increased heating "
+                "needs in winter."
+            ),
+            "holiday_indicator": (
+                "Marks holidays or special events that generate unusual load "
+                "patterns, commonly resulting in spikes or dips in electricity demand."
+            ),
+            "discount_indicator": (
+                "Specifies time windows with reduced electricity rates or "
+                "demand-response signals, potentially influencing load shifting."
+            ),
+            "demand": (
+                "Overall electricity usage (e.g., in kWh). This target variable "
+                "serves as the primary forecast objective for capacity planning "
+                "and grid management."
+            ),
+        },
+    },
 
+    "simulate_traffic_data": {
+        "overview": (
+            "Simulated Traffic Dataset models vehicular flow over a time horizon,"
+            " incorporating peak-hour congestion, daily or weekly "
+            "seasonality, and external factors such as weather or holidays. "
+            "Its main objective is to enable spatiotemporal forecasting of traffic "
+            "volumes to support route planning, congestion mitigation strategies, "
+            "and infrastructure development."
+        ),
+        "features": {
+            "time": (
+                "Denotes the hour or minute of the day (or sequence index), "
+                "defining the time resolution for traffic flow observations."
+            ),
+            "flow_trend": (
+                "A gradual increase or decrease in baseline traffic volume, "
+                "reflecting shifts in population, road usage policies, or "
+                "urban expansion."
+            ),
+            "daily_seasonality": (
+                "A sinusoidal pattern capturing regular fluctuations in traffic, "
+                "such as predictable daytime and nighttime flows."
+            ),
+            "peak_spike": (
+                "A numeric measure indicating rush-hour intensity at specific "
+                "time indices, accounting for morning/evening commutes or "
+                "other high-traffic windows."
+            ),
+            "traffic_flow": (
+                "Total observed vehicles (or flow rate) in the time interval. "
+                "This variable is typically the main target for short-term "
+                "forecasting, congestion analysis, and route optimization."
+            ),
+        },
+    },
 }
+
 

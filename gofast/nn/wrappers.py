@@ -20,13 +20,13 @@ from sklearn.base import BaseEstimator, RegressorMixin
 
 import numpy as np 
 
-from ..api.docs import _shared_docs, doc
+from ..api.docs import doc
 from ..compat.sklearn import validate_params, Interval, StrOptions
-from ..decorators import Appender
 from ..utils.deps_utils import ensure_pkg 
 from ..utils.validator import check_is_fitted 
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
+from ._nn_docs import _shared_docs
 from ._tft import TemporalFusionTransformer 
 from ._xtft import XTFT
 from ._wrappers import _scigofast_set_X_compat
@@ -52,7 +52,21 @@ DEP_MSG = dependency_message('wrappers')
 __all__ = ['TFTWrapper', 'TFTRegressor', "create_tft_model"]
 
 
-@Appender ( dedent( 
+@doc(
+tft_params=dedent(_shared_docs['tft_params_doc']),      
+math_f= dedent ( 
+"""
+.. math::
+    Y = \text{TFT}(X_{\text{static}}, X_{\text{dynamic}})
+
+Where:
+- :math:`X_{\text{static}}` represents the static input features.
+- :math:`X_{\text{dynamic}}` represents the dynamic input features.
+- :math:`Y` is the predicted output.
+"""
+),
+
+notes=dedent( 
 """
 Notes
 -----
@@ -121,30 +135,85 @@ gofast.nn.transformers.TemporalFusionTransformer:
 References
 ----------
 .. [1] Lim, B., & Zohdy, M. A. (2019). Temporal Fusion Transformers for interpretable
-   multi-horizon time series forecasting. *International Journal of Forecasting*.
+    multi-horizon time series forecasting. *International Journal of Forecasting*.
 .. [2] McKinney, W. (2017). *Python for Data Analysis: Data Wrangling with Pandas,
-   NumPy, and IPython*. O'Reilly Media.
+    NumPy, and IPython*. O'Reilly Media.
 .. [3] Vaswani, A., Shazeer, N., Parmar, N., et al. (2017). Attention is All You Need.
-   *Advances in Neural Information Processing Systems*, 30.
+    *Advances in Neural Information Processing Systems*, 30.
 
 """ ), 
- join='\n', 
+examples = dedent ( 
+"""
+Examples
+--------
+>>> from gofast.nn.wrappers import TFTRegressor
+>>> import numpy as np
+>>> from sklearn.model_selection import RandomizedSearchCV
+>>> 
+>>> # Sample data
+>>> X_static = np.random.rand(100, 5, 10)  # 100 samples, 5 static vars, 10 dims each
+>>> # 100 samples, 10 time steps, 3 dynamic vars, 15 dims each
+>>> X_dynamic = np.random.rand(100, 10, 3, 15)  
+>>> y = np.random.rand(100, 1)  # 100 samples, 1 target
+>>> 
+>>> # Concatenate static and dynamic features for Scikit-Learn compatibility
+>>> X = np.concatenate([
+...     X_static.reshape(100, -1), 
+...     X_dynamic.reshape(100, -1)
+... ], axis=1)
+>>> 
+>>> # Initialize the wrapper
+>>> tft = TFTRegressor(
+...     static_input_dim=10,
+...     dynamic_input_dim=15,
+...     num_static_vars=5,
+...     num_dynamic_vars=3,
+...     hidden_units=64,
+...     num_heads=4,
+...     dropout_rate=0.1,
+...     forecast_horizon=1,
+...     quantiles=[0.1, 0.5, 0.9],
+...     activation='elu',
+...     use_batch_norm=True,
+...     num_lstm_layers=2,
+...     lstm_units=128,
+...     verbose=3
+... )
+>>> 
+>>> # Define parameter distributions for RandomizedSearchCV
+>>> param_distributions = {
+...     'hidden_units': [64, 128],
+...     'num_heads': [4, 8],
+...     'dropout_rate': [0.1, 0.2],
+...     'forecast_horizon': [1, 3],
+...     'num_lstm_layers': [1, 2],
+...     'lstm_units': [64, 128]
+... }
+>>> 
+>>> # Initialize RandomizedSearchCV
+>>> random_search = RandomizedSearchCV(
+...     estimator=tft,
+...     param_distributions=param_distributions,
+...     n_iter=10,
+...     cv=3,
+...     verbose=2,
+...     random_state=42
+... )
+>>> 
+>>> # Fit RandomizedSearchCV
+>>> random_search.fit(X=X, y=y)
+>>> 
+>>> # Access best parameters and estimator
+>>> best_params = random_search.best_params_
+>>> best_estimator = random_search.best_estimator_
+>>> print(f"Best Parameters: {best_params}")
+Best Parameters: {'hidden_units': 128, 'num_heads': 8, 'dropout_rate': 0.2,
+                  'forecast_horizon': 3, 'num_lstm_layers': 2, 'lstm_units': 128}
+>>> print(f"Best Estimator: {best_estimator}")
+Best Estimator: TFTRegressor(...)
+"""
+    )
 )
-@doc(math_f= dedent ( 
-    """
-    .. math::
-        Y = \text{TFT}(X_{\text{static}}, X_{\text{dynamic}})
-
-    Where:
-    - :math:`X_{\text{static}}` represents the static input features.
-    - :math:`X_{\text{dynamic}}` represents the dynamic input features.
-    - :math:`Y` is the predicted output.
-    """
-    ),
-    tft_params=dedent(
-        _shared_docs['tft_params_doc']
-        )
- )
 class TFTRegressor(BaseEstimator, RegressorMixin):
     """
     A Scikit-Learn Compatible Regressor Wrapper for the Temporal Fusion Transformer.
@@ -156,7 +225,7 @@ class TFTRegressor(BaseEstimator, RegressorMixin):
     requirements, facilitating easy training, prediction, and evaluation within
     Scikit-Learn workflows.
 
-    {mathf}
+    {math_f}
 
     {tft_params}
 
@@ -222,75 +291,10 @@ class TFTRegressor(BaseEstimator, RegressorMixin):
        NumPy, and IPython*. O'Reilly Media.
     .. [3] Vaswani, A., Shazeer, N., Parmar, N., et al. (2017). Attention is All You Need.
        *Advances in Neural Information Processing Systems*, 30.
-
-    Examples
-    --------
-    >>> from gofast.nn.wrappers import TFTRegressor
-    >>> import numpy as np
-    >>> from sklearn.model_selection import RandomizedSearchCV
-    >>> 
-    >>> # Sample data
-    >>> X_static = np.random.rand(100, 5, 10)  # 100 samples, 5 static vars, 10 dims each
-    >>> # 100 samples, 10 time steps, 3 dynamic vars, 15 dims each
-    >>> X_dynamic = np.random.rand(100, 10, 3, 15)  
-    >>> y = np.random.rand(100, 1)  # 100 samples, 1 target
-    >>> 
-    >>> # Concatenate static and dynamic features for Scikit-Learn compatibility
-    >>> X = np.concatenate([
-    ...     X_static.reshape(100, -1), 
-    ...     X_dynamic.reshape(100, -1)
-    ... ], axis=1)
-    >>> 
-    >>> # Initialize the wrapper
-    >>> tft = TFTRegressor(
-    ...     static_input_dim=10,
-    ...     dynamic_input_dim=15,
-    ...     num_static_vars=5,
-    ...     num_dynamic_vars=3,
-    ...     hidden_units=64,
-    ...     num_heads=4,
-    ...     dropout_rate=0.1,
-    ...     forecast_horizon=1,
-    ...     quantiles=[0.1, 0.5, 0.9],
-    ...     activation='elu',
-    ...     use_batch_norm=True,
-    ...     num_lstm_layers=2,
-    ...     lstm_units=128,
-    ...     verbose=3
-    ... )
-    >>> 
-    >>> # Define parameter distributions for RandomizedSearchCV
-    >>> param_distributions = {
-    ...     'hidden_units': [64, 128],
-    ...     'num_heads': [4, 8],
-    ...     'dropout_rate': [0.1, 0.2],
-    ...     'forecast_horizon': [1, 3],
-    ...     'num_lstm_layers': [1, 2],
-    ...     'lstm_units': [64, 128]
-    ... }
-    >>> 
-    >>> # Initialize RandomizedSearchCV
-    >>> random_search = RandomizedSearchCV(
-    ...     estimator=tft,
-    ...     param_distributions=param_distributions,
-    ...     n_iter=10,
-    ...     cv=3,
-    ...     verbose=2,
-    ...     random_state=42
-    ... )
-    >>> 
-    >>> # Fit RandomizedSearchCV
-    >>> random_search.fit(X=X, y=y)
-    >>> 
-    >>> # Access best parameters and estimator
-    >>> best_params = random_search.best_params_
-    >>> best_estimator = random_search.best_estimator_
-    >>> print(f"Best Parameters: {best_params}")
-    Best Parameters: {'hidden_units': 128, 'num_heads': 8, 'dropout_rate': 0.2,
-                      'forecast_horizon': 3, 'num_lstm_layers': 2, 'lstm_units': 128}
-    >>> print(f"Best Estimator: {best_estimator}")
-    Best Estimator: TFTRegressor(...)
     
+    {examples} 
+    
+    {notes} 
     """
    
     @validate_params({

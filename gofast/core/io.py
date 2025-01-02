@@ -12,6 +12,7 @@ import os
 import pathlib
 import warnings 
 import textwrap
+import argparse
 
 import numpy as np 
 import pandas as pd 
@@ -1476,13 +1477,15 @@ def to_frame_if(
     }
  )
 def fmt_text(
-    text: str, 
-    style: Optional[str] = '-', 
-    border_style: Optional[str] = None, 
-    alignment: str = 'left', 
-    extra_space: int = 3, 
-    text_size: Optional[int] = None, 
-    break_word: bool = False
+    text: str,
+    style: str | None = "-",
+    border_style: str | None = None,
+    alignment: str = "left",
+    extra_space: int = 3,
+    text_size: int | None = None,
+    break_word: bool = False,
+    preserve_newlines: bool = False,
+    verbose: bool=False, 
 ) -> str:
     """
     Format text with specified styling, alignment, and wrapping.
@@ -1520,7 +1523,14 @@ def fmt_text(
     break_word : bool, default False
         If `True`, words longer than the remaining space in a line will be 
         broken with a hyphen. If ``False``, the word moves to the next line.
-    
+        
+    preserve_newlines: bool, default False
+        Manage docstring lines if ``True``. This break lines on paragraphs or 
+        direct lines ensuring docstring line breaks remain.
+        
+    verbose: bool, default=False, 
+        If true, print the formatage and return None, 
+        
     Returns
     -------
     str
@@ -1547,93 +1557,230 @@ def fmt_text(
     |                   spaces, underlines, and auto-wrapping. |
     ------------------------------------------------------------
     """
+    # Handle text wrapping for both normal text or docstrings.
+
+    # 1) Determine final text size.
+    #    If none is given, fallback to default terminal size 
+    #    Mostly (e.g., 80).
     if text_size is None:
         text_size = TW
-    else:
-        if text_size <= 0:
-            raise ValueError("`text_size` must be a positive integer or None.")
-    
-    if alignment not in {'left', 'center', 'right', 'justify'}:
+    elif text_size <= 0:
         raise ValueError(
-            "`alignment` must be one of {'left', 'center', 'right', 'justify'}.")
-    
-    if border_style is not None and len(border_style) != 1:
+            "`text_size` must be a positive integer or None.")
+
+    # 2) Validate alignment and style inputs.
+    if alignment not in {"left", "center", "right", "justify"}:
         raise ValueError(
-            "`border_style` must be a single character or None."
-            )
-    
-    if style is not None and len(style) != 1:
+            "`alignment` must be one of {'left','center','right','justify'}.")
+
+    if border_style and len(border_style) != 1:
+        raise ValueError("`border_style` must be a single character or None.")
+
+    if style and len(style) != 1:
         raise ValueError("`style` must be a single character or None.")
-    
-    # Calculate available width for text
-    border_width = 2 if border_style else 0
-    available_width = text_size - border_width - 2 * extra_space
-    if available_width <= 0:
+
+    # 3) Determine how to parse text if preserve_newlines=True.
+    #    We keep manual line breaks by splitting on '\n' and handling each 
+    #    line separately. Otherwise, we treat the text as continuous.
+    paragraphs: list[str] = []
+    if preserve_newlines:
+        # Split docstring by lines, but keep blank lines as well.
+        raw_lines = text.split("\n")
+        for line in raw_lines:
+            paragraphs.append(line.rstrip())
+    else:
+        # Treat text as one paragraph.
+        paragraphs = [text.strip()]
+
+    # 4) Compute available width for the text (after adding side spaces and border).
+    border_w = 2 if border_style else 0
+    available_w = text_size - border_w - 2 * extra_space
+    if available_w <= 0:
         raise ValueError(
-            "`text_size` is too small for the given `extra_space` and borders.")
-    
-    # Function to handle word breaking
-    def wrap_text(text: str, width: int) -> List[str]:
+            "`text_size` too small for given `extra_space` and border options.")
+
+    def wrap_line(line: str) -> list[str]:
+        """Wrap a single line with or without word breaking."""
         if break_word:
             return textwrap.wrap(
-                text, width=width, break_long_words=True, 
+                line, width=available_w, break_long_words=True, 
                 break_on_hyphens=True
-                )
-        else:
-            return textwrap.wrap(
-                text, width=width, break_long_words=False, 
-                break_on_hyphens=False
-                )
-    
-    wrapped_lines = wrap_text(text, available_width)
-    
-    # Function to apply alignment
-    def align_line(line: str) -> str:
-        if alignment == 'left':
-            return line.ljust(available_width)
-        elif alignment == 'right':
-            return line.rjust(available_width)
-        elif alignment == 'center':
-            return line.center(available_width)
-        elif alignment == 'justify':
-            words = line.split()
-            if len(words) == 1:
-                return words[0].ljust(available_width)
-            total_spaces = available_width - sum(len(word) for word in words)
-            space_between_words, extra = divmod(total_spaces, len(words) - 1)
-            justified_line = ''
-            for i, word in enumerate(words[:-1]):
-                justified_line += word + ' ' * (space_between_words + (1 if i < extra else 0))
-            justified_line += words[-1]
-            return justified_line
-        else:
-            return line  # Fallback to no alignment
-    
-    aligned_lines = [align_line(line) for line in wrapped_lines]
-    
-    # Add borders and extra spaces
-    formatted_lines = []
-    for line in aligned_lines:
-        if border_style:
-            formatted_line = (
-                border_style + 
-                ' ' * extra_space + 
-                line + 
-                ' ' * extra_space + 
-                border_style
             )
         else:
-            formatted_line = ' ' * extra_space + line + ' ' * extra_space
-        formatted_lines.append(formatted_line)
-    
-    # Create border lines
+            return textwrap.wrap(
+                line, width=available_w, break_long_words=False, 
+                break_on_hyphens=False
+            )
+
+    def align_line(line: str) -> str:
+        """Align a single line according to the chosen alignment."""
+        if alignment == "left":
+            return line.ljust(available_w)
+        elif alignment == "right":
+            return line.rjust(available_w)
+        elif alignment == "center":
+            return line.center(available_w)
+        elif alignment == "justify":
+            words = line.split()
+            if len(words) <= 1:
+                return line.ljust(available_w)
+            total_spaces = available_w - sum(len(w) for w in words)
+            gaps = len(words) - 1
+            space, extra = divmod(total_spaces, gaps)
+            out = ""
+            for i, w in enumerate(words[:-1]):
+                out += w + " " * (space + (1 if i < extra else 0))
+            out += words[-1]
+            return out
+        return line  # fallback
+
+    # 5) Convert paragraphs or lines into final wrapped lines.
+    all_wrapped_lines = []
+    for paragraph in paragraphs:
+        if paragraph.strip() == "":
+            # blank line
+            all_wrapped_lines.append("")
+            continue
+        wrapped = wrap_line(paragraph)
+        if not wrapped:
+            # might be a single short blank line
+            all_wrapped_lines.append("")
+        else:
+            all_wrapped_lines.extend(wrapped)
+
+    # 6) Align lines and add left/right side spaces (plus optional borders).
+    aligned_lines = []
+    for line in all_wrapped_lines:
+        aligned = align_line(line)
+        if border_style:
+            aligned_lines.append(
+                f"{border_style}{' ' * extra_space}"
+                f"{aligned}"
+                f"{' ' * extra_space}{border_style}"
+            )
+        else:
+            aligned_lines.append(
+                f"{' ' * extra_space}{aligned}{' ' * extra_space}"
+            )
+
+    # 7) Create top and bottom borders if style is provided.
     if style:
-        border_line = style * text_size
-        formatted_text = [border_line] + formatted_lines + [border_line]
+        top_bottom = style * text_size
+        final_lines = [top_bottom] + aligned_lines + [top_bottom]
     else:
-        formatted_text = formatted_lines
+        final_lines = aligned_lines
     
-    return '\n'.join(formatted_text)
+    doc ="\n".join(final_lines)
+    
+    if verbose : 
+        print(doc )
+        return 
 
+    return doc 
 
+def print_script_info(doc):
+    # 1) Grab the docstring from `__doc__`
+    # doc = __doc__
+    # 2) Format it with your `fmt_text` function
+    #    For example, preserve_newlines to keep paragraph structure
+    styled_doc = fmt_text(
+        text=doc,
+        style="~",
+        border_style="|",
+        alignment="left",
+        extra_space=2,
+        text_size=70,
+        break_word=False,
+        preserve_newlines=True  # Keep docstring line breaks
+    )
+    
+    # 3) Print or log the result
+    print(styled_doc)
   
+def show_usage(
+    parser: argparse.ArgumentParser, 
+    script_name: str = "my_script"
+    ) -> None:
+    """
+    Print a custom usage message derived from an ArgumentParser instance.
+
+    Parameters
+    ----------
+    parser : argparse.ArgumentParser
+        The parser object containing arguments, defaults, and help messages.
+
+    script_name : str, optional
+        The name of the script or command to display at the top of the usage.
+    """
+    # 1) Gather all parser actions.
+    actions = parser._actions
+
+    # 2) Start building a usage string.
+    usage_lines = [
+        "\nUsage:",
+        f"  {script_name}:"
+    ]
+
+    # 3) For each action, build a line indicating its usage or default.
+    #    - If required, show a placeholder <value>.
+    #    - If optional, show [--arg <value>] or default if relevant.
+    #    - Multi-line indent for clarity.
+    required_args = []
+    optional_args = []
+    
+    for act in actions:
+        # skip positional container or help
+        if isinstance(act, argparse._HelpAction) or act.option_strings == []:
+            continue
+        
+        # if required or has no default, show placeholder
+        is_required = act.required or (act.default is None and act.nargs is not None)
+        
+        # Build argument signature (e.g., --data or -d or multiple)
+        # For typical short+long combos, use e.g.  --data / -d
+        arg_name = " / ".join(act.option_strings) if act.option_strings else act.dest
+        
+        # If it has a default or a required placeholder
+        if is_required:
+            # e.g.,  --data <path_to_csv>
+            usage_str = f"    {arg_name} <{act.dest}>"
+        else:
+            # show default if not None
+            if act.default is not None and act.default != argparse.SUPPRESS:
+                usage_str = (f"    [{arg_name} "
+                             f"{act.default if not isinstance(act.default, list) else ' '.join(map(str, act.default))}]")
+            else:
+                usage_str = f"    [{arg_name} <?>]"
+        
+        if is_required:
+            required_args.append(usage_str)
+        else:
+            optional_args.append(usage_str)
+
+    # 4) Combine required and optional in usage output
+    if required_args:
+        usage_lines.append("      Required:")
+        usage_lines.extend(required_args)
+    if optional_args:
+        usage_lines.append("      Optional:")
+        usage_lines.extend(optional_args)
+
+    usage_str = "\n".join(usage_lines)
+
+    # 5) Wrap the usage string for a fixed width
+    final = textwrap.fill(usage_str, width=TW, replace_whitespace=False)
+
+    # 6) Print the usage
+    print(final)
+    print()
+
+    # 7) Print a short note about how to see normal parser help
+    print("Description:")
+    if parser.description:
+        desc_lines = textwrap.wrap(parser.description, width=80)
+        print("\n".join(desc_lines))
+    
+    print("\nTo see standard argparse help, use:")
+    print(f"  {script_name} --help\n")
+
+

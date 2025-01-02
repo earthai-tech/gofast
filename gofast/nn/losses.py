@@ -3,9 +3,9 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-Contains loss functions used in the `gofast.nn` package for neural 
-network models, including custom implementations like quantile loss. The loss 
-functions are designed to be compatible with Keras and TensorFlow models. 
+Contains loss functions used in the `gofast-nn` package for neural 
+network models. The loss functions are designed to be compatible with Keras
+and TensorFlow models. 
 
 Importantly, the module checks for required dependencies like Keras backend 
 and ensures that necessary packages are available.

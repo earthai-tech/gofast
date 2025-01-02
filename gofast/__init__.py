@@ -78,7 +78,6 @@ suppress_warnings()
 # Disable oneDNN custom operations
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-
 # Setup logging configuration
 from ._util import initialize_logging 
 initialize_logging()
