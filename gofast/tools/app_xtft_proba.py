@@ -33,9 +33,7 @@ Example:
 --------
 ```bash
 python xtft_proba_app.py \
-    --data_path /path/to/data \
-    --main_data_file final_data.csv \
-    --cat_data_file final_data.bc_cat.csv \
+    --data /path/to/final_data.bc_cat.csv \
     --target subsidence \
     --categorical_features geological_category bc_category \
     --numerical_features longitude latitude year GWL soil_thickness soil_quality \
@@ -79,6 +77,7 @@ import tensorflow as tf
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 import gofast as gf
+from gofast.core.io import read_data, fmt_text 
 from gofast.nn.transformers import XTFT
 
 # Configure logging
@@ -89,28 +88,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def load_data(data_path, main_data_file):
+def __getattr__(name): 
+    
+    print(fmt_text(
+        __doc__, 
+        border_style='|', 
+        alignment='left', 
+        # extra_space=1, 
+        )
+ )
+
+def load_data(main_data_file):
     """
     Load the main dataset from the specified path.
-
-    :param data_path: Path to the data directory.
-    :type data_path: str
     :param main_data_file: Filename of the main dataset CSV.
     :type main_data_file: str
     :return: Loaded DataFrame.
     :rtype: pandas.DataFrame
     """
     try:
-        file_path = os.path.join(data_path, main_data_file)
-        final_data = pd.read_csv(file_path)
+        file_path = os.path.dirname(main_data_file)
+        final_data = read_data(main_data_file)
         logger.info("Data loaded successfully from %s", file_path)
         return final_data.copy()
     except Exception as e:
         logger.error("Failed to load data from %s: %s", file_path, e)
         raise
 
-def preprocess_data(final_data, data_path, cat_data_file,
-                    categorical_features, numerical_features, target):
+def preprocess_data(
+        final_data, 
+        data_path, 
+        # cat_data_file,
+        categorical_features,
+        numerical_features, target):
     """
     Preprocess the data by encoding categorical variables and scaling numerical features.
 
@@ -130,9 +140,10 @@ def preprocess_data(final_data, data_path, cat_data_file,
     :rtype: tuple[pandas.DataFrame, dict]
     """
     logger.info("Starting data preprocessing...")
+
     try:
         # Load categorized data
-        cat_data_path = os.path.join(data_path, cat_data_file)
+        cat_data_path = os.path.join(final_data)
         batch_data = pd.read_csv(cat_data_path)
         logger.info("Categorical data loaded from %s", cat_data_path)
 
@@ -597,9 +608,9 @@ def main(args):
     :param args: Command-line arguments.
     :type args: argparse.Namespace
     """
-    data_path = args.data_path
-    main_data_file = args.main_data_file
-    cat_data_file = args.cat_data_file
+    
+    main_data_file = args.data
+    # cat_data_file = args.cat_data_file
     target = args.target
     categorical_features = args.categorical_features
     numerical_features = args.numerical_features
@@ -615,11 +626,11 @@ def main(args):
     tf.get_logger().setLevel('ERROR')
 
     # Load data
-    final_data = load_data(data_path, main_data_file)
-
+    final_data = load_data(main_data_file)
+    data_path = os.path.dirname (final_data)
     # Preprocess data
     final_processed_data, dict_scalers = preprocess_data(
-        final_data, data_path, cat_data_file,
+        final_data, data_path, # cat_data_file,
         categorical_features, numerical_features, target
     )
 
@@ -673,7 +684,7 @@ def main(args):
         epochs=epochs,
         batch_size=batch_size
     )
-
+    logger.info("History model loaded from %s", history.history)
     # Load the best model
     best_model_path = os.path.join(data_path, 'best_xtft_q_model')
     try:
@@ -682,7 +693,7 @@ def main(args):
     except Exception as e:
         logger.error("Failed to load the best model from %s: %s", best_model_path, e)
         raise
-
+    
     # Make predictions
     quantile_predictions = predict_and_inverse_scale(
         model,
@@ -729,23 +740,17 @@ if __name__ == "__main__":
         description="XTFT Probabilistic Prediction Application using Quantiles."
     )
     parser.add_argument(
-        '--data_path',
+        '--data',
         type=str,
         required=True,
-        help='Path to the data directory.'
+        help='Path to the the main dataset preferably in CSV format.'
     )
-    parser.add_argument(
-        '--main_data_file',
-        type=str,
-        default='final_data.csv',
-        help='Filename of the main dataset CSV.'
-    )
-    parser.add_argument(
-        '--cat_data_file',
-        type=str,
-        default='final_data.bc_cat.csv',
-        help='Filename of the categorical data CSV.'
-    )
+    # parser.add_argument(
+    #     '--cat_data_file',
+    #     type=str,
+    #     default='final_data.bc_cat.csv',
+    #     help='Filename of the categorical data CSV.'
+    # )
     parser.add_argument(
         '--target',
         type=str,

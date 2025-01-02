@@ -23,7 +23,6 @@ from gofast.nn.utils import set_default_params
 try:
     import tensorflow as tf
 except ImportError:
-    # Warn the user that TensorFlow is required for this module
     import warnings
     warnings.warn(
         "TensorFlow is not installed. Please install TensorFlow to use "
@@ -685,15 +684,20 @@ class VariableSelectionNetwork(Layer):
                 self.grns[i](x[:, :, i, :], training=training) 
                 for i in range(self.num_inputs)
             ]  # List of (batch_size, timesteps, hidden_units)
-            grn_outputs = tf.stack(grn_outputs, axis=2)  # (batch_size, timesteps, num_inputs, hidden_units)
+            # ---->  (batch_size, timesteps, num_inputs, hidden_units)
+            grn_outputs = tf.stack(grn_outputs, axis=2) 
             
             # Compute weights across hidden units
-            flattened = tf.reduce_mean(grn_outputs, axis=-1)  # (batch_size, timesteps, num_inputs)
-            weights    = self.softmax(flattened)                # (batch_size, timesteps, num_inputs)
+                 # (batch_size, timesteps, num_inputs)
+            flattened = tf.reduce_mean(grn_outputs, axis=-1) 
+                 # (batch_size, timesteps, num_inputs)
+            weights    = self.softmax(flattened)               
             
             # Weighted sum of GRN outputs
-            w_expanded   = tf.expand_dims(weights, axis=-1)     # (batch_size, timesteps, num_inputs, 1)
-            weighted_sum = tf.reduce_sum(grn_outputs * w_expanded, axis=2)  # (batch_size, timesteps, hidden_units)
+                  # (batch_size, timesteps, num_inputs, 1)
+            w_expanded   = tf.expand_dims(weights, axis=-1)     
+                  # (batch_size, timesteps, hidden_units)
+            weighted_sum = tf.reduce_sum(grn_outputs * w_expanded, axis=2)  
             return weighted_sum, weights
         
         elif len(x.shape) == 3:
@@ -702,15 +706,20 @@ class VariableSelectionNetwork(Layer):
                 self.grns[i](x[:, i, :], training=training) 
                 for i in range(self.num_inputs)
             ]  # List of (batch_size, hidden_units)
-            grn_outputs = tf.stack(grn_outputs, axis=1)  # (batch_size, num_inputs, hidden_units)
+                       # (batch_size, num_inputs, hidden_units)
+            grn_outputs = tf.stack(grn_outputs, axis=1)  
             
             # Compute weights
-            flattened = tf.reduce_mean(grn_outputs, axis=-1)  # (batch_size, num_inputs)
-            weights    = self.softmax(flattened)                # (batch_size, num_inputs)
+                 # (batch_size, num_inputs)
+            flattened = tf.reduce_mean(grn_outputs, axis=-1)  
+                 # (batch_size, num_inputs)
+            weights    = self.softmax(flattened)               
             
             # Weighted sum of GRN outputs
-            w_expanded   = tf.expand_dims(weights, axis=-1)     # (batch_size, num_inputs, 1)
-            weighted_sum = tf.reduce_sum(grn_outputs * w_expanded, axis=1)  # (batch_size, hidden_units)
+                   # (batch_size, num_inputs, 1)
+            w_expanded   = tf.expand_dims(weights, axis=-1)    
+                   # (batch_size, hidden_units)
+            weighted_sum = tf.reduce_sum(grn_outputs * w_expanded, axis=1)  
             return weighted_sum, weights
         
         else:
@@ -720,7 +729,7 @@ class VariableSelectionNetwork(Layer):
                 f"VariableSelectionNetwork. Got shape {x.shape}."
             )
             
-            # TODO: We used for static metadata ,the Timedistributed for embeeding 
+            # TODO: We used for static metadata ,the Timedistributed for embedding 
             # which work perfectly. The next work, should be to remove the 
             # TimeDistributed... Below a bit trick to fix this issue .. 
             
@@ -729,7 +738,8 @@ class VariableSelectionNetwork(Layer):
             # We can interpret that as a single "feature" => num_inputs=1
             # Alternatively, if shape is (batch_size, num_inputs), we can 
             # interpret embed_dim=1 (rare usage).
-            # We'll attempt a best guess approach by checking if num_inputs=1 or embed_dim=1.
+            # We'll attempt a best guess approach by checking 
+            # if num_inputs=1 or embed_dim=1.
 
             bsz, dim2 = tf.shape(x)[0], tf.shape(x)[1]
 

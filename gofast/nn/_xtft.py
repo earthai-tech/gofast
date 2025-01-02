@@ -56,6 +56,7 @@ if KERAS_BACKEND:
     tf_float32=KERAS_DEPS.float32
     tf_constant=KERAS_DEPS.constant 
     tf_square=KERAS_DEPS.square 
+    tf_autograph=KERAS_DEPS.autograph
     
     from . import Activation 
 
@@ -87,7 +88,7 @@ class LearnedNormalization(Layer, NNLearner):
             initializer="ones",
             trainable=True
         )
-
+    @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False):
         return (inputs - self.mean) / (self.stddev + 1e-6)
 
@@ -121,7 +122,8 @@ class MultiModalEmbedding(Layer, NNLearner):
                     Dense(self.embed_dim, activation='relu'))
             else:
                 raise ValueError("Unsupported modality type.")
-
+                
+    @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False):
         embeddings = []
         for idx, modality in enumerate(inputs):
@@ -161,6 +163,7 @@ class HierarchicalAttention(Layer, NNLearner):
         self.long_term_attention = MultiHeadAttention(
             num_heads=num_heads, key_dim=units)
 
+    @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False):
         short_term, long_term = inputs
         short_term = self.short_term_dense(short_term)
@@ -198,6 +201,7 @@ class CrossAttention(Layer, NNLearner):
         self.source2_dense = Dense(units)
         self.cross_attention = MultiHeadAttention(num_heads=num_heads, key_dim=units)
 
+    @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False):
         source1, source2 = inputs
         source1 = self.source1_dense(source1)
@@ -237,7 +241,8 @@ class MemoryAugmentedAttention(Layer, NNLearner):
             initializer="zeros",
             trainable=True
         )
-
+    
+    @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False):
         batch_size = tf_shape(inputs)[0]
         memory_expanded = tf_tile(tf_expand_dims(
@@ -272,6 +277,7 @@ class AdaptiveQuantileLoss(Layer, NNLearner):
             quantiles = [0.1, 0.5, 0.9]
         self.quantiles = quantiles
 
+    @tf_autograph.experimental.do_not_convert
     def call(self, y_true, y_pred, training=False):
         if self.quantiles is None:
             return 0.0
@@ -303,6 +309,7 @@ class AnomalyLoss(Layer, NNLearner):
         super().__init__()
         self.weight = weight
 
+    
     def call(self, anomaly_scores: Tensor):
         return self.weight * tf_reduce_mean(tf_square(anomaly_scores))
 
@@ -378,6 +385,7 @@ class ExplainableAttention(Layer, NNLearner):
         self.key_dim = key_dim
         self.attention = MultiHeadAttention(num_heads=num_heads, key_dim=key_dim)
 
+    @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False):
         _, attention_scores = self.attention(
             inputs, inputs, return_attention_scores=True)
@@ -412,6 +420,7 @@ class MultiDecoder(Layer, NNLearner):
         self.num_horizons = num_horizons
         self.decoders = [Dense(output_dim) for _ in range(num_horizons)]
 
+    @tf_autograph.experimental.do_not_convert
     def call(self, x, training=False):
         outputs = [decoder(x) for decoder in self.decoders]
         return tf_stack(outputs, axis=1)
@@ -443,6 +452,7 @@ class MultiResolutionAttentionFusion(Layer, NNLearner):
         self.num_heads = num_heads
         self.attention = MultiHeadAttention(num_heads=num_heads, key_dim=units)
 
+    @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False):
         return self.attention(inputs, inputs)
 
@@ -507,6 +517,7 @@ class QuantileDistributionModeling(Layer, NNLearner):
         else:
             self.output_layer = Dense(output_dim)
 
+    @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False):
         # If no quantiles, return deterministic predictions as (B, H, O)
         if self.quantiles is None:
@@ -568,6 +579,7 @@ class MultiScaleLSTM(Layer, NNLearner):
             for _ in scales
         ]
 
+    @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False):
         outputs = []
         for scale, lstm in zip(self.scales, self.lstm_layers):
@@ -722,7 +734,6 @@ class XTFT(Model, NNLearner):
         self.num_heads = num_heads
         self.dropout_rate = dropout_rate
         self.output_dim = output_dim
-        # self.anomaly_loss_weight = anomaly_loss_weight 
         self.anomaly_config=set_anomaly_config(anomaly_config)
         self.attention_units = attention_units
         self.hidden_units = hidden_units
@@ -794,10 +805,21 @@ class XTFT(Model, NNLearner):
         )
 
         # ---------------------------------------------------------------------
+        
         self.static_dense = Dense(hidden_units, activation=self.activation_name)
         self.static_dropout = Dropout(dropout_rate)
         if self.use_batch_norm:
             self.static_batch_norm = LayerNormalization()
+            
+        # Initialize Gated Residual Networks (GRNs) for attention outputs
+        self.grn_static = GatedResidualNetwork(
+            units=hidden_units,
+            dropout_rate=dropout_rate,
+            use_time_distributed=False,
+            activation=self.activation_name,
+            use_batch_norm=self.use_batch_norm
+        )
+    
         self.residual_dense = Dense(2 * embed_dim) if use_residuals else None
         self.final_dense = Dense(output_dim)
         
@@ -818,7 +840,7 @@ class XTFT(Model, NNLearner):
         self.logger.debug(
             f"Normalized Static Shape: {normalized_static.shape}"
         )
-    
+        # Apply -> GRN pipeline to cross attention
         static_features = self.static_dense(normalized_static)
         if self.use_batch_norm:
             static_features = self.static_batch_norm(
@@ -837,7 +859,12 @@ class XTFT(Model, NNLearner):
         self.logger.debug(
             f"Static Features Shape: {static_features.shape}"
         )
-    
+        # XXX TODO # Fix apply --> GRN
+        static_features = self.grn_static(
+            static_features, 
+            training=training
+        ) 
+        
         # Embeddings for dynamic and future covariates
         embeddings = self.multi_modal_embedding(
             [dynamic_input, future_covariate_input],
@@ -958,8 +985,9 @@ class XTFT(Model, NNLearner):
         combined_features = Concatenate()([
             static_features_expanded,
             lstm_features,
+            cross_attention_output, 
+            hierarchical_att,
             memory_attention_output,
-            cross_attention_output
         ])
         self.logger.debug(
             f"Combined Features Shape: {combined_features.shape}"
@@ -1466,8 +1494,6 @@ class SuperXTFT(XTFT):
         "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "future_covariate_dim": [Interval(Integral, 1, None, closed='left')], 
-        "num_static_vars": [Interval(Integral, 1, None, closed='left')], 
-        "num_dynamic_vars": [Interval(Integral, 1, None, closed='left')],
         "embed_dim": [Interval(Integral, 1, None, closed='left')],
         "forecast_horizons": [Interval(Integral, 1, None, closed='left')], 
         "quantiles": ['array-like', StrOptions({'auto'}),  None],
@@ -1510,8 +1536,6 @@ class SuperXTFT(XTFT):
         static_input_dim: int,
         dynamic_input_dim: int,
         future_covariate_dim: int,
-        num_static_vars: int,
-        num_dynamic_vars: int,
         embed_dim: int = 32,
         forecast_horizons: int = 1,
         quantiles: Union[str, List[float], None] = None,
@@ -1561,8 +1585,7 @@ class SuperXTFT(XTFT):
         
         # Initialize Variable Selection Networks (VSNs)
         self.variable_selection_static = VariableSelectionNetwork(
-            input_dim=static_input_dim,
-            num_inputs=num_static_vars,  
+            num_inputs=static_input_dim,  
             units=hidden_units,
             dropout_rate=dropout_rate,
             use_time_distributed=False,
@@ -1571,8 +1594,16 @@ class SuperXTFT(XTFT):
         )
         
         self.variable_selection_dynamic = VariableSelectionNetwork(
-            input_dim=dynamic_input_dim,
-            num_inputs=num_dynamic_vars,  
+            num_inputs=dynamic_input_dim,  
+            units=hidden_units,
+            dropout_rate=dropout_rate,
+            use_time_distributed=True,
+            activation=activation,
+            use_batch_norm=use_batch_norm
+        )
+        
+        self.variable_future_covariate = VariableSelectionNetwork(
+            num_inputs=future_covariate_dim,  
             units=hidden_units,
             dropout_rate=dropout_rate,
             use_time_distributed=True,
@@ -1597,6 +1628,14 @@ class SuperXTFT(XTFT):
             use_batch_norm=use_batch_norm
         )
         
+        self.grn_memory_attention= GatedResidualNetwork(
+            units=attention_units,
+            dropout_rate=dropout_rate,
+            use_time_distributed=False,
+            activation=activation,
+            use_batch_norm=use_batch_norm
+        )
+        
         # Initialize Gate -> Add & Norm -> GRN pipeline for decoder outputs
         self.grn_decoder = GatedResidualNetwork(
             units=output_dim,
@@ -1605,9 +1644,11 @@ class SuperXTFT(XTFT):
             activation=activation,
             use_batch_norm=use_batch_norm
         )
+        
         # Override attention layers to include Gate -> Add & Norm -> GRN pipeline
         # hierarchical_attention and cross_attention are defined in XTFT
-        # We will wrap their outputs with GRNs after adding residuals and normalization
+        # We will wrap their outputs with GRNs after adding residuals 
+        # and normalization
         
     def call(self, inputs, training=False):
         static_input, dynamic_input, future_covariate_input = self.validate_xtft_inputs(
@@ -1617,15 +1658,19 @@ class SuperXTFT(XTFT):
             future_covariate_dim=self.future_covariate_dim, 
         )
         
-        # Variable Selection for static and dynamic inputs
+        # Variable Selection for static, dynamic inputs and future covariate
         selected_static = self.variable_selection_static(static_input, training=training)
         selected_dynamic = self.variable_selection_dynamic(dynamic_input, training=training)
+        selected_future = self.variable_selection_future(future_covariate_input, training=training)
         
         self.logger.debug(
             f"Selected Static Features Shape: {selected_static.shape}"
         )
         self.logger.debug(
             f"Selected Dynamic Features Shape: {selected_dynamic.shape}"
+        )
+        self.logger.debug(
+            f"Selected Covariate Features Shape: {selected_future.shape}"
         )
         
         # Proceed with the original XTFT forward pass using selected features
@@ -1659,7 +1704,7 @@ class SuperXTFT(XTFT):
         
         # Embeddings for dynamic and future covariates using selected_dynamic
         embeddings = self.multi_modal_embedding(
-            [selected_dynamic, future_covariate_input],
+            [selected_dynamic, selected_future],
             training=training
         )
         self.logger.debug(
@@ -1765,6 +1810,15 @@ class SuperXTFT(XTFT):
             f"{memory_attention_output.shape}"
         )
         
+        # Apply Gate -> Add & Norm -> GRN pipeline to Memory attention
+        memory_attention_grn = self.grn_memory_attention(
+            hierarchical_att_grn,
+            training=training
+        )
+        self.logger.debug(
+            f"Memory Attention after GRN Shape: {memory_attention_grn.shape}"
+        )
+        
         # Combine all features
         static_features_expanded = tf_tile(
             tf_expand_dims(static_features, axis=1),
@@ -1778,8 +1832,9 @@ class SuperXTFT(XTFT):
         combined_features = Concatenate()([
             static_features_expanded,
             lstm_features,
-            memory_attention_output,
-            cross_attention_grn
+            cross_attention_grn,
+            hierarchical_att_grn, 
+            memory_attention_grn,
         ])
         self.logger.debug(
             f"Combined Features Shape: {combined_features.shape}"

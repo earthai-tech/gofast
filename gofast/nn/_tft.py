@@ -342,7 +342,8 @@ class VariableSelectionNetwork(Layer, NNLearner):
     @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
         self,
-        input_dim,
+        #XXXTODO
+        # input_dim,
         num_inputs,
         units,
         dropout_rate=0.0,
@@ -352,7 +353,6 @@ class VariableSelectionNetwork(Layer, NNLearner):
         **kwargs
     ):
         super().__init__(**kwargs)
-        self.input_dim = input_dim
         self.num_inputs = num_inputs
         self.units = units
         self.dropout_rate = dropout_rate
@@ -395,7 +395,6 @@ class VariableSelectionNetwork(Layer, NNLearner):
     def get_config(self):
         config = super().get_config().copy()
         config.update({
-            'input_dim': self.input_dim,
             'num_inputs': self.num_inputs,
             'units': self.units,
             'dropout_rate': self.dropout_rate,
@@ -873,8 +872,6 @@ class TemporalFusionTransformer(Model, NNLearner):
     @validate_params({
         "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
-        "num_static_vars": [Interval(Integral, 1, None, closed='left')], 
-        "num_dynamic_vars": [Interval(Integral, 1, None, closed='left')],
         "hidden_units": [Interval(Integral, 1, None, closed='left')], 
         "num_heads": [Interval(Integral, 1, None, closed='left')],
         "dropout_rate": [Interval(Real, 0, 1, closed="both")],
@@ -883,7 +880,7 @@ class TemporalFusionTransformer(Model, NNLearner):
         "activation": [StrOptions({"elu", "relu", "tanh", "sigmoid", "linear", "gelu"})],
         "use_batch_norm": [bool],
         "num_lstm_layers": [Interval(Integral, 1, None, closed='left')],
-        "lstm_units": [list, Interval(Integral, 1, None, closed='left'), None]
+        "lstm_units": ['array-like', Interval(Integral, 1, None, closed='left'), None]
         },
     )
     @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
@@ -891,8 +888,6 @@ class TemporalFusionTransformer(Model, NNLearner):
         self,
         static_input_dim,
         dynamic_input_dim,
-        num_static_vars,
-        num_dynamic_vars,
         hidden_units,
         num_heads=4,  
         dropout_rate=0.1,
@@ -910,8 +905,6 @@ class TemporalFusionTransformer(Model, NNLearner):
             "Initializing TemporalFusionTransformer with parameters: "
             f"static_input_dim={static_input_dim}, "
             f"dynamic_input_dim={dynamic_input_dim}, "
-            f"num_static_vars={num_static_vars}, "
-            f"num_dynamic_vars={num_dynamic_vars}, "
             f"hidden_units={hidden_units}, "
             f"num_heads={num_heads}, "
             f"dropout_rate={dropout_rate}, "
@@ -925,8 +918,6 @@ class TemporalFusionTransformer(Model, NNLearner):
         
         self.static_input_dim = static_input_dim
         self.dynamic_input_dim = dynamic_input_dim
-        self.num_static_vars = num_static_vars
-        self.num_dynamic_vars = num_dynamic_vars
         self.hidden_units = hidden_units
         self.num_heads = num_heads
         self.dropout_rate = dropout_rate
@@ -949,16 +940,14 @@ class TemporalFusionTransformer(Model, NNLearner):
         # Variable Selection Networks
         self.logger.debug("Initializing Variable Selection Networks...")
         self.static_var_sel = VariableSelectionNetwork(
-            input_dim=static_input_dim,
-            num_inputs=num_static_vars,
+            num_inputs=static_input_dim,
             units=hidden_units,
             dropout_rate=dropout_rate,
             activation=self.activation_name,
             use_batch_norm=use_batch_norm
         )
         self.dynamic_var_sel = VariableSelectionNetwork(
-            input_dim=dynamic_input_dim,
-            num_inputs=num_dynamic_vars,
+            num_inputs=dynamic_input_dim,
             units=hidden_units,
             dropout_rate=dropout_rate,
             use_time_distributed=True,
@@ -989,10 +978,10 @@ class TemporalFusionTransformer(Model, NNLearner):
         self.logger.debug("Initializing LSTM Encoder Layers...")
         self.lstm_layers = []
         if self.lstm_units is not None: 
-            lstm_units = is_iterable(self.lstm_units, transform =True)
+            self.lstm_units = is_iterable(self.lstm_units, transform =True)
             
         for i in range(num_lstm_layers):
-            if lstm_units is not None:
+            if self.lstm_units is not None:
                 lstm_units_i = lstm_units[i]
             else:
                 lstm_units_i = hidden_units
@@ -1132,8 +1121,6 @@ class TemporalFusionTransformer(Model, NNLearner):
         config.update({
             'static_input_dim': self.static_input_dim,
             'dynamic_input_dim': self.dynamic_input_dim,
-            'num_static_vars': self.num_static_vars,
-            'num_dynamic_vars': self.num_dynamic_vars,
             'hidden_units': self.hidden_units,
             'num_heads': self.num_heads,
             'dropout_rate': self.dropout_rate,
@@ -1185,17 +1172,6 @@ dynamic_input_dim : int
     dynamic variables are represented using embeddings or multiple features,
     specify the appropriate dimension.
 
-num_static_vars : int
-    The number of static variables. Static variables are features that do
-    not change over time, such as location identifiers, categories, or
-    other constants. This parameter indicates how many static variables are
-    being used in the model.
-
-num_dynamic_vars : int
-    The number of dynamic variables. Dynamic variables are features that
-    change over time, such as historical measurements, external
-    influences, or other time-varying data. This parameter indicates how
-    many dynamic variables are being used at each time step.
 
 {params.base.hidden_units} 
 {params.base.num_heads}
@@ -1256,4 +1232,14 @@ from_config(config)
 
 """.format( params=_param_docs) 
 
+# num_static_vars : int
+#     The number of static variables. Static variables are features that do
+#     not change over time, such as location identifiers, categories, or
+#     other constants. This parameter indicates how many static variables are
+#     being used in the model.
 
+# num_dynamic_vars : int
+#     The number of dynamic variables. Dynamic variables are features that
+#     change over time, such as historical measurements, external
+#     influences, or other time-varying data. This parameter indicates how
+#     many dynamic variables are being used at each time step.
