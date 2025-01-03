@@ -46,16 +46,17 @@ from ...core.checks import (
     is_in_if, is_iterable, 
     validate_feature, exist_features
 )
-from ...core.handlers import get_valid_kwargs 
+from ...core.handlers import get_valid_kwargs, columns_manager
 from ...core.io import is_data_readable
 from ...core.utils import smart_format, contains_delimiter 
 from ...decorators import SmartProcessor, Dataify
 from ..base_utils import select_features
 from ..deps_utils import ensure_pkg
+from ..data_utils import nan_to_na 
 from ..validator import (
     _is_numeric_dtype, _is_arraylike_1d, get_estimator_name, check_array,
     check_consistent_length, is_frame, build_data_if, 
-    check_mixed_data_types, 
+    check_mixed_data_types, validate_strategy,
     validate_numeric 
 )
 from .feature_selection import bi_selector 
@@ -80,6 +81,12 @@ __all__ = [
 ]
 
 @is_data_readable
+@validate_params({
+    'data': ['array-like'], 
+    'target_columns': ['array-like', str, None], 
+    'columns': ['array-like', str, None], 
+    'impute_strategy':[dict, None], 
+    })
 def one_click_prep (
     data: DataFrame, 
     target_columns=None,
@@ -136,7 +143,7 @@ def one_click_prep (
     --------
     >>> import pandas as pd
     >>> import numpy as np 
-    >>> from gofast.tools import one_click_preprocess
+    >>> from gofast.utils import one_click_preprocess
     >>> data = pd.DataFrame({
     ...     'Age': [25, np.nan, 37, 59],
     ...     'City': ['New York', 'Paris', 'Berlin', np.nan],
@@ -173,26 +180,20 @@ def one_click_prep (
     np.random.seed(seed)
 
     # Set default imputation strategies if none are provided.
-    impute_strategy = impute_strategy or {
-        'numeric': 'median', 'categorical': 'constant'}
-
     # Ensure impute_strategy is a dictionary with required keys.
-    if ( not isinstance(impute_strategy, dict) 
-        or 'numeric' not in impute_strategy 
-        or 'categorical' not in impute_strategy
-        ):
-        raise ValueError("impute_strategy must be a dictionary with"
-                         " 'numeric' and 'categorical' keys")
-
+    impute_strategy=validate_strategy(
+        impute_strategy, error ='raise'
+    )
     # Pop keyword arguments or set defaults for handling missing categories,
-    # fill values, and behavior of additional columns not specified in transformers.
+    # fill values, and behavior of additional columns not specified
+    # in transformers.
     handle_unknown = process_kws.pop("handle_unknown", 'ignore')
     fill_value = process_kws.pop("fill_value", 'missing')
     remainder = process_kws.pop("remainder", 'passthrough')
 
     # If specific columns are specified, reduce the DataFrame to these columns only.
+    columns = columns_manager(columns, pattern=r'[@&;#]')
     if columns is not None:
-        columns = list(is_iterable(columns, exclude_string= True, transform =True )) 
         data = data[columns] if isinstance(columns, list) else data[[columns]]
 
     # Convert target_columns to a list if it's a single column passed as string.
@@ -425,10 +426,6 @@ def soft_encoder(
       could appear in future data.
 
     """
-    from .datautils import nan_to_na 
-    
-    # Convert ellipsis inputs to False for get_dummies, parse_cols,
-    # return_cat_codes if not explicitly defined
 
     # Convert input data to DataFrame if not already a DataFrame
     df = build_data_if(data, to_frame=True, force=True, input_name='col',
@@ -439,8 +436,10 @@ def soft_encoder(
     df = nan_to_na(to_numeric_dtypes(df)) 
     # Ensure columns are iterable and parse them if necessary
     if columns is not None:
-        columns = list(is_iterable(columns, exclude_string=True, 
-                                   transform=True, parse_string=parse_cols))
+        columns = columns_manager(
+            columns, pattern=r'[@&,;#]' if parse_cols else r'[@&;#]',
+            to_string=parse_cols
+        )
         # Select only the specified features from the DataFrame
         df = select_features(df, features=columns)
     

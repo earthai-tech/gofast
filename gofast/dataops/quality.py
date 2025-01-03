@@ -1528,7 +1528,7 @@ def data_assistant(data: DataFrame, view: bool=False):
             " to ensure accuracy and consistency, and `gofast.dataops.audit_data`"
             " for auditing your data. Additionally, you can explore further"
             " capabilities by using `gofast.explore('dataops.<module>')`."
-            " Make sure to set `gofast.config.PUBLIC=True` first."
+            " Make sure to set `gofast.config.public=True` first."
         )
 
     assistance_reports =[]

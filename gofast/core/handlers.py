@@ -1876,8 +1876,7 @@ def columns_manager(
     error: str = 'raise',  
 ) -> list:
     """
-    A 
-    function to handle various types of column inputs, convert them 
+    A function to handle various types of column inputs, convert them 
     into a list, and optionally process them based on additional parameters 
     like converting to uppercase, handling empty values, or ensuring all items 
     are strings.

@@ -203,7 +203,7 @@ def assist_me(*tasks: str, on_error='warn'):
 
     if not tasks:
         return ("No valid tasks provided. Unable to proceed. Please provide at"
-                " least one valid task. Available tasks are: {', '.join(valid_tasks)}.")
+                f" least one valid task. Available tasks are: {', '.join(valid_tasks)}.")
 
     task_tool_mapping = {}
     for task in tasks:

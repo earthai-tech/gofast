@@ -11,7 +11,7 @@ ensuring proper data types, and handling various validation scenarios.
 """
 
 from functools import wraps
-from typing import Any, Callable, Optional, Union, List
+from typing import Any, Dict, Callable, Optional, Union, List
 from collections.abc import Iterable
 import re
 import inspect 
@@ -98,11 +98,235 @@ __all__=[
      'validate_positive_integer',
      'validate_sample_weights',
      'validate_sets', 
+     'validate_strategy',
      'validate_scores',
      'validate_square_matrix',
      'validate_weights',
      'validate_yy'
  ]
+
+def validate_strategy(
+    strategy: Optional[Union[str, Dict[str, str]]] = None,
+    error: str = 'raise',
+    ops: str = 'validate',
+    rename_key: bool = False,
+    **kwargs
+) -> Union[Dict[str, str], bool]:
+    """
+    Validate and construct a strategy dictionary for imputing missing data.
+
+    This function processes the input `strategy` to ensure it conforms to 
+    the expected format for imputing missing values in numerical and 
+    categorical features. It provides flexibility in handling different 
+    strategies and error management, making it suitable  for integration 
+    with scikit-learn's imputation tools.
+
+    Parameters
+    ----------
+    strategy : Optional[Union[str, Dict[str, str]]], default=None
+        Defines the imputation strategy for numerical and categorical features.
+        - If a string is provided, it is parsed to construct a dictionary 
+          with keys 'numeric' and 'categorical'.
+        - If a dictionary is provided, it should map feature types to their 
+          respective strategies.
+        - If `None`, the default strategy is used.
+
+    error : str, default='raise'
+        Specifies the error handling behavior when encountering invalid 
+        strategy tokens.
+        Options are:
+        - ``'raise'``: Raise a `ValueError` for invalid tokens.
+        - ``'warn'``: Issue a warning for invalid tokens.
+        - ``'ignore'``: Silently ignore invalid tokens.
+
+    ops: str, default='validate'
+        Determines the operation mode of the validator.
+        - ``'passthrough'``: Returns the input strategy as-is if it is a
+          dictionary.
+        - ``'check_only'``: Validates the provided strategy dictionary without 
+          modifying it.
+        - ``'validate'``: Validates and constructs the strategy dictionary 
+          based on the input.
+
+    rename_key : bool, default=False
+        If `True`, renames keys in the input dictionary to standard keys:
+        - Keys like 'num', 'numeric', or 'numerical' are renamed to 'numeric'.
+        - Keys like 'cat', 'categorical', or 'categoric' are renamed to 'categorical'.
+        - Other keys remain unchanged.
+
+    **kwargs
+        Additional keyword arguments for future extensions.
+
+    Returns
+    -------
+    Union[Dict[str, str], bool]
+        - If ``ops='passthrough'``, returns the input strategy dictionary.
+        - If ``ops='check_only'``, returns `True` if the strategy is valid, 
+          else `False`.
+        - If ``ops='validate'``, returns the validated and possibly modified 
+          strategy dictionary.
+
+    Raises
+    ------
+    ValueError
+        If an invalid `error` or `ops` parameter is provided, or if the 
+        strategy tokens are invalid and `error` is set to `'raise'`.
+
+    Notes
+    -----
+    The function ensures that numerical strategies are limited to ``'median'`` 
+    and ``'mean'``, while categorical strategies are set to ``'constant'``. 
+    It also handles aliasing of keys to maintain consistency expressed as:
+    
+    .. math::
+        \text{strategy\_dict} = 
+        \begin{cases}
+            \{\text{'numeric'}: \text{'median'}, \text{'categorical'}:\\
+              \text{'constant'}\} & \text{if } \text{strategy is None} \\
+            \text{parsed\_dict} & \text{if } \text{strategy is provided}
+        \end{cases}
+
+    Examples
+    --------
+    >>> from gofast.utils.validator import validate_strategy
+    >>> validate_strategy('mean constant')
+    {'numeric': 'mean', 'categorical': 'constant'}
+
+    >>> validate_strategy({'num': 'mean', 'cat': 'constant'}, rename_key=True)
+    {'numeric': 'mean', 'categorical': 'constant'}
+
+    >>> validate_strategy('numeric categorical', ops='check_only')
+    False
+
+    >>> validate_strategy('invalid_strategy', error='warn')
+    {'numeric': 'median', 'categorical': 'constant'}
+
+    See Also
+    --------
+    sklearn.impute.SimpleImputer :
+        Imputation transformer for completing missing values.
+
+    References
+    ----------
+    .. [1] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B.,
+           Grisel, O., ... & Duchesnay, E. (2011). Scikit-learn: Machine learning
+           in Python. Journal of Machine Learning Research, 12, 2825-2830.
+    """
+
+    numeric_strategies = {'median', 'mean'}
+    categorical_strategies = {'constant'}
+    default_strategy = {'numeric': 'median', 'categorical': 'constant'}
+    
+    numeric_aliases = {'num', 'numeric', 'numerical'}
+    categorical_aliases = {'cat', 'categorical', 'categoric'}
+    
+    valid_errors = {'raise', 'warn', 'ignore'}
+    valid_ops = {'passthrough', 'check_only', 'validate'}
+    
+    if error not in valid_errors:
+        raise ValueError(
+            f"Invalid error handling option: '{error}'."
+            f" Choose from {valid_errors}.")
+    
+    if ops not in valid_ops:
+        raise ValueError(
+            f"Invalid ops option: '{ops}'. Choose from {valid_ops}.")
+
+    def rename_keys(input_dict: Dict[str, Any]) -> Dict[str, Any]:
+        renamed = {}
+        for key, value in input_dict.items():
+            key_lower = key.lower()
+            if key_lower in numeric_aliases:
+                renamed['numeric'] = value
+            elif key_lower in categorical_aliases:
+                renamed['categorical'] = value
+            else:
+                renamed[key] = value
+        return renamed
+
+    def parse_strategy_str(strategy_str: str) -> Dict[str, str]:
+        tokens = strategy_str.lower().split()
+        strategy_dict = {}
+        for token in tokens:
+            if token in numeric_strategies:
+                strategy_dict['numeric'] = token
+            elif token in numeric_aliases:
+                strategy_dict['numeric'] = 'median'
+            elif token in categorical_strategies:
+                strategy_dict['categorical'] = token
+            elif token in categorical_aliases:
+                strategy_dict['categorical'] = 'constant'
+            elif token == 'constant':
+                strategy_dict['categorical'] = 'constant'
+            else:
+                message = f"Unknown strategy token: '{token}'"
+                if error == 'raise':
+                    raise ValueError(message)
+                elif error == 'warn':
+                    warnings.warn(message)
+                # 'ignore' does nothing
+        # Fill defaults where necessary
+        for key, val in default_strategy.items():
+            strategy_dict.setdefault(key, val)
+        return strategy_dict
+
+    def validate_strategy_dict(strategy_dict: Dict[str, str]) -> bool:
+        valid = True
+        # Validate numeric strategy
+        numeric = strategy_dict.get('numeric')
+        if numeric not in numeric_strategies:
+            valid = False
+        # Validate categorical strategy
+        categorical = strategy_dict.get('categorical')
+        if categorical not in categorical_strategies:
+            valid = False
+        return valid
+
+    if rename_key and isinstance(strategy, dict):
+        strategy = rename_keys(strategy)
+
+    if ops == 'passthrough':
+        if isinstance(strategy, dict):
+            return strategy
+        else:
+            return parse_strategy_str(
+                strategy) if strategy else default_strategy.copy()
+    
+    elif ops == 'check_only':
+        if not isinstance(strategy, dict):
+            return False
+        return validate_strategy_dict(strategy)
+    
+    elif ops == 'validate':
+        if isinstance(strategy, dict):
+            is_valid = validate_strategy_dict(strategy)
+            if not is_valid:
+                message = "Invalid strategy dictionary."
+                if error == 'raise':
+                    raise ValueError(message)
+                elif error == 'warn':
+                    warnings.warn(message)
+                # 'ignore' does nothing
+            return strategy if is_valid else default_strategy.copy()
+        elif isinstance(strategy, str):
+            try:
+                parsed = parse_strategy_str(strategy)
+                if not validate_strategy_dict(parsed):
+                    raise ValueError("Parsed strategy is invalid.")
+                return parsed
+            except ValueError as ve:
+                if error == 'raise':
+                    raise ve
+                elif error == 'warn':
+                    warnings.warn(str(ve))
+                    return default_strategy.copy()
+                else:
+                    return default_strategy.copy()
+        else:
+            return default_strategy.copy()
+
+    # Fallback to default if ops is somehow not handled
+    return default_strategy.copy()
 
 def has_methods(
     models,

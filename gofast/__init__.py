@@ -62,17 +62,47 @@ if _missing_dependencies:
     warnings.warn("Some dependencies are missing. GOFast may not function correctly:\n" +
                   "\n".join(_missing_dependencies), ImportWarning)
 
-# Suppress FutureWarnings if desired, but allow users to re-enable them
-_warnings_state = {"FutureWarning": "ignore"}
-def suppress_warnings(suppress=True):
-    """Function to suppress or re-enable future/syntax warnings."""
-    for warning, action in _warnings_state.items():
-        if suppress:
-            #warnings.filterwarnings(action, category=FutureWarning)
-            warnings.filterwarnings(action, category=SyntaxWarning)
-        else:
-            warnings.filterwarnings("default", category=FutureWarning)
+# Suppress FutureWarnings or SyntaxWarning if desired, but allow users
+# to re-enable them
+# Define the warning categories and their corresponding actions
+_WARNING_CATEGORIES = {
+    "FutureWarning": FutureWarning,
+    "SyntaxWarning": SyntaxWarning
+}
 
+# Default actions for each warning category
+_WARNINGS_STATE = {
+   # "FutureWarning": "ignore",
+    "SyntaxWarning": "ignore"
+}
+
+def suppress_warnings(suppress: bool = True):
+    """
+    Suppress or re-enable FutureWarnings and SyntaxWarnings.
+
+    Function allows users to suppress specific warnings globally within
+    the package. By default, it suppresses both `FutureWarning` and 
+    `SyntaxWarning`. Users can re-enable these warnings by setting 
+    `suppress=False`.
+
+    Parameters
+    ----------
+    suppress : bool, default=True
+        - If `True`, suppresses `FutureWarning` and `SyntaxWarning` by setting 
+          their filter to the action specified in `_WARNINGS_STATE`.
+        - If `False`, re-enables the warnings by resetting their filter to 
+          the default behavior.
+    """
+    for warning_name, action in _WARNINGS_STATE.items():
+        category = _WARNING_CATEGORIES.get(warning_name, Warning)
+        if suppress:
+            # Suppress the warning by applying the specified action
+            warnings.filterwarnings(action, category=category)
+        else:
+            # Re-enable the warning by resetting to default behavior
+            warnings.filterwarnings("default", category=category)
+
+# Suppress warnings by default when the package is initialized
 suppress_warnings()
 
 # Disable oneDNN custom operations
@@ -148,23 +178,26 @@ class GoFastConfig:
         from .assistance import assist_me, explore
         from .core.io import read_data, export_data
         from .datasets import fetch_data 
+        from . import _public as go 
 
         globals().update({
             'assist_me': assist_me,
             'explore': explore,
             'read_data': read_data, 
             'export_data':export_data, 
-            'fetch_data':fetch_data
+            'fetch_data':fetch_data,
+            'go':go
         })
 
         __all__.extend(['assist_me', 'explore', 'read_data',
-                        'export_data', 'fetch_data'])
+                        'export_data', 'fetch_data', 'go'])
 
         warnings.warn("Public API has been enabled.", UserWarning)
 
     def disable_public_api(self):
         """Hide public API components."""
-        for name in ['assist_me', 'explore', 'read_data']:
+        for name in ['assist_me', 'explore', 'read_data', 'export_data',
+                     'fetch_data', 'go']:
             globals().pop(name, None)
             if name in __all__:
                 __all__.remove(name)
@@ -211,22 +244,32 @@ def __getattr__(name):
         gf.assist_me()  # raises warning
     """
     public_attributes = ['assist_me', 'explore', 'read_data',
-                         'export_data', 'fetch_data']
-    if config.public:
-        if name in public_attributes:
-            from .assistance import assist_me, explore
-            from .core.io import read_data, export_data
-            from .datasets import fetch_data 
-            
-            mapping = {
-                'assist_me': assist_me,
-                'explore': explore,
-                'read_data': read_data, 
-                'export_data': export_data, 
-                'fetch_data':fetch_data
-            }
-            return mapping[name]
-
+                         'export_data', 'fetch_data', 'go']
+    if name in public_attributes:
+        if config.public:
+            if name in public_attributes:
+                from .assistance import assist_me, explore
+                from .core.io import read_data, export_data
+                from .datasets import fetch_data 
+                from . import _public  as go 
+                
+                mapping = {
+                    'assist_me': assist_me,
+                    'explore': explore,
+                    'read_data': read_data, 
+                    'export_data': export_data, 
+                    'fetch_data':fetch_data,
+                    'go':go
+                }
+                return mapping[name]
+        else:
+            # Public API is disabled; raise a descriptive AttributeError
+            raise AttributeError(
+                f"The attribute '{name}' is not available because the public"
+                f" API is disabled. Please enable it by setting "
+                "``gofast.config.public = True`` "
+                f"before accessing public API methods."
+            )
     # If we reach here, either 'public' is False, or the 
     # attribute is not in public attributes.
     hint = (
@@ -238,7 +281,9 @@ def __getattr__(name):
         " 'explore', 'read_data', 'export_data' ..."
     )
     warnings.warn(hint.format(attr=name))
-
+    # For any other attributes, follow the default behavior
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+    
 # Update the module to use the new property
 __builtins__['PUBLIC'] = config.public
 
