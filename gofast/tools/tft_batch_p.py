@@ -63,8 +63,8 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 import gofast as gf
 from gofast.nn.transformers import TemporalFusionTransformer
-from gofast.utils.spatialutils import spatial_sampling, batch_spatial_sampling
-from gofast.utils.datautils import pop_labels_in
+from gofast.utils.spatial_utils import spatial_sampling, batch_spatial_sampling
+from gofast.utils.data_utils import pop_labels_in
 
 # =============================================================================
 # Suppress warnings for clarity

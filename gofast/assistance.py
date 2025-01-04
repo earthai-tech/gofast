@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# License: BSD-3-Clause
+# Author: LKouadio <etanoyau@gmail.com>
 
 """Provides tools for assisting users with navigating and utilizing the features
  of the `gofast` library, including direct support and exploration functions."""
@@ -360,25 +362,25 @@ def explore(package_path, /,  exclude_names=None):
 
 def _get_gofast_package_descriptions(include_private=False):
     descriptions = {
-        "_build": "Contains build scripts and configurations for the package.",
+        # "_build": "Contains build scripts and configurations for the package.",
         "analysis": "Includes modules for data analysis and statistical computations.",
         "api": "Provides API interfaces and methods for external integration.",
         "backends": "Houses different backend implementations for various operations.",
         "callbacks": "Callbacks for data operations and model training.",
-        "cli": "Command-line interface tools and scripts.",
+        # "cli": "Command-line interface tools and scripts.",
         "compat": "Ensures compatibility with different versions and dependencies.",
         "dataops": "Data operations and management utilities.",
         "datasets": "Contains datasets and data loading utilities.",
         "estimators": "Machine learning estimators and related utilities.",
         "experimental": "Experimental features and modules under development.",
-        "externals": "External dependencies and third-party integrations.",
+        # "externals": "External dependencies and third-party integrations.",
         "geo": "Geospatial data processing and analysis tools.",
-        "gflogs": "Logging utilities specific to the gofast framework.",
+        # "gflogs": "Logging utilities specific to the gofast framework.",
         "mlops": "Tools and modules for Machine Learning Operations",
         "models": "Defines various machine learning models.",
         "nn": "Neural network models, data processing, training, and hyperparameter tuning tools.",
         "plot": "Plotting and visualization tools.",
-        "pyx": "Python extension modules for performance enhancement.",
+        # "pyx": "Python extension modules for performance enhancement.",
         "stats": "Statistical functions and analysis tools.",
         "transformers": "Transformers and preprocessing modules for data transformation.",
         "utils": "Miscellaneous tools and utilities for the package.",
@@ -392,7 +394,7 @@ def _get_gofast_package_descriptions(include_private=False):
         "benchmark[m]": "Performance benchmarking utilities and stress tests for algorithms.",
         "boosting[m]": "Implements boosting tree-based algorithms.",
         "cluster_based[m]": "Clustering algorithms and data partitioning techniques.",
-        "config[m]": "Configuration settings and utilities.",
+        # "config[m]": "Configuration settings and utilities.",
         "decorators[m]": "Decorators for various functionalities within the package.",
         "decomposition[m]": "Methods for matrix decomposition, such as PCA, SVD, and factor analysis.",
         "dimensionality[m]": "Dimensionality reduction techniques for high-dimensional datasets.",
@@ -406,6 +408,7 @@ def _get_gofast_package_descriptions(include_private=False):
         "perceptron[m]": "Perceptron-based algorithms and linear classification and regression methods.",
         "preprocessing[m]": "Tools for quick preprocesssing  data and processor built.",
         "query[m]": "Query utilities for data retrieval and manipulation.",
+        "tools": "Miscellaneous tools and utilities for the package.",
         "tree[m]": "Decision tree-based methods for classification, regression, and ensemble approaches."
     }
 

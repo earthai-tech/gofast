@@ -7,9 +7,9 @@ from tqdm import tqdm
 from scipy.sparse import issparse
 
 from sklearn.base import BaseEstimator
-from sklearn.utils._param_validation import Interval, StrOptions
 
 from ..api.property import LearnerMeta 
+from ..compat.sklearn import Interval, StrOptions
 from ..utils.validator import check_array, check_is_fitted
 from .util  import validate_fit_weights, validate_positive_integer
 

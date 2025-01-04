@@ -77,16 +77,14 @@ PACKAGE_DATA = {
 
 # List of specific files to compile
 pyx_files_to_build = [
-    'coreutils.py',
     'validator.py',
-    'mlutils.py',
     'descriptive.py',
-    'mathex.py',
+    'mathext.py',
     'optimize.py',
     'cluster_based.py',
     '_cluster_based.py',
-    'funcutils.py',
-    'baseutils.py',
+    'func_utils.py',
+    'base_utils.py',
     'feature_engineering.py'
 ]
 

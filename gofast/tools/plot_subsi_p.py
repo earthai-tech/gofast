@@ -58,9 +58,9 @@ from gofast.plot.utils import (
     plot_categorical_feature,
     plot_spatial_distribution,
 )
-from gofast.utils.baseutils import remove_outliers, handle_outliers
-from gofast.utils.spatialutils import spatial_sampling, batch_spatial_sampling
-from gofast.utils.datautils import (
+from gofast.utils.base_utils import remove_outliers, handle_outliers
+from gofast.utils.spatial_utils import spatial_sampling, batch_spatial_sampling
+from gofast.utils.data_utils import (
     long_to_wide,
     wide_to_long,
     merge_datasets,

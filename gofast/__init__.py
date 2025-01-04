@@ -11,6 +11,7 @@ data science workflow, enhancing productivity, ease of use, and community-driven
 improvements.
 """
 import os
+import sys 
 import logging
 import warnings
 import importlib
@@ -178,26 +179,35 @@ class GoFastConfig:
         from .assistance import assist_me, explore
         from .core.io import read_data, export_data
         from .datasets import fetch_data 
-        from . import _public as go 
-
+        from ._public_api import attach_go_methods
+        from ._public_api import wrap_public_functions
+        
+        attach_go_methods()
+        wrap_public_functions(error ='ignore') 
+        
         globals().update({
             'assist_me': assist_me,
             'explore': explore,
             'read_data': read_data, 
             'export_data':export_data, 
             'fetch_data':fetch_data,
-            'go':go
         })
 
         __all__.extend(['assist_me', 'explore', 'read_data',
-                        'export_data', 'fetch_data', 'go'])
+                        'export_data', 'fetch_data', ])
 
         warnings.warn("Public API has been enabled.", UserWarning)
 
     def disable_public_api(self):
         """Hide public API components."""
+        # Remove 'go_' methods from DataFrame
+        from ._public_api import remove_go_methods  
+        from ._public_api import unwrap_public_functions 
+        remove_go_methods()
+        unwrap_public_functions(error ='ignore') 
+        
         for name in ['assist_me', 'explore', 'read_data', 'export_data',
-                     'fetch_data', 'go']:
+                     'fetch_data',]:
             globals().pop(name, None)
             if name in __all__:
                 __all__.remove(name)
@@ -225,10 +235,20 @@ class GoFastConfig:
 # Instantiate the configuration object
 config = GoFastConfig()
 
+# Add this at the top, after other imports
+class PublicAPIError(AttributeError):
+    """Custom exception for public API access errors."""
+    pass
+
 def __getattr__(name):
     """
     Dynamically provide access to public API components based on the 'public' flag.
 
+    Function intercepts attribute access to the `gofast` module. Depending 
+    on the attribute being accessed and the state of the `public` flag, it either 
+    provides access to public API functions, exposes internal modules, or raises 
+    appropriate errors and warnings.
+    
     If the public API is enabled (config.public = True), attributes
     'assist_me', 'explore', and 'read_data' become available. If the public API
     is disabled, attempting to access these attributes will result in an
@@ -242,49 +262,98 @@ def __getattr__(name):
     Disabling public API:
         gf.config.public = False
         gf.assist_me()  # raises warning
+        
+    Parameters
+    ----------
+    name : str
+        The name of the attribute being accessed.
+
+    Returns
+    -------
+    Any
+        The requested attribute if available.
+
+    Raises
+    ------
+    PublicAPIError
+        If attempting to access a public API function when the public API is disabled.
+    AttributeError
+        If the attribute does not exist within the public API or internal modules.
     """
-    public_attributes = ['assist_me', 'explore', 'read_data',
-                         'export_data', 'fetch_data', 'go']
+    from ._public_api import _PUBLIC_MODULES 
+    
+    # Define the list of attributes that are part of the public API
+    public_attributes = [
+        'assist_me', 'explore', 'read_data',
+        'export_data', 'fetch_data',
+        # Add other public functions as needed
+    ]
+
+    # Handle access to public API attributes
     if name in public_attributes:
         if config.public:
-            if name in public_attributes:
-                from .assistance import assist_me, explore
-                from .core.io import read_data, export_data
-                from .datasets import fetch_data 
-                from . import _public  as go 
-                
-                mapping = {
-                    'assist_me': assist_me,
-                    'explore': explore,
-                    'read_data': read_data, 
-                    'export_data': export_data, 
-                    'fetch_data':fetch_data,
-                    'go':go
-                }
-                return mapping[name]
+            # Public API is enabled; retrieve and return the attribute
+            from .assistance import assist_me, explore
+            from .core.io import read_data, export_data
+            from .datasets import fetch_data 
+            
+            mapping = {
+                'assist_me': assist_me,
+                'explore': explore,
+                'read_data': read_data, 
+                'export_data': export_data, 
+                'fetch_data': fetch_data,
+            }
+            # Cache the function in globals() for future accesses
+            globals()[name] = mapping[name]
+            return mapping[name]
         else:
-            # Public API is disabled; raise a descriptive AttributeError
-            raise AttributeError(
-                f"The attribute '{name}' is not available because the public"
-                f" API is disabled. Please enable it by setting "
-                "``gofast.config.public = True`` "
-                f"before accessing public API methods."
+            # Public API is disabled; raise a descriptive PublicAPIError
+            raise PublicAPIError(
+                f"The attribute '{name}' is not available because the public "
+                f"API is disabled. Please enable it by setting "
+                f"``gofast.config.public = True`` before accessing public API methods."
             )
-    # If we reach here, either 'public' is False, or the 
-    # attribute is not in public attributes.
+
+    # Handle access to internal public modules
+    if name in _PUBLIC_MODULES:
+        # Check if the module is already in globals()
+        module = globals().get(name)
+        if module is not None:
+            return module
+        try:
+            # Dynamically import the internal module
+            module = importlib.import_module(f".{name}", __name__)
+        except ImportError:
+            # If dynamic import fails, attempt to retrieve from sys.modules
+            module = sys.modules.get(f"{__name__}.{name}")
+       
+        if module is not None:
+            # Cache the module in the global namespace for future accesses
+            globals()[name] = module
+            return module
+        
+        # If the module is still not found, issue a warning 
+        # and Attribute error will raise. 
+    
+    # If the attribute is neither a public API function nor an internal module,
+    # issue a warning and raise an AttributeError
     hint = (
         "The requested attribute '{attr}' is not available. "
         "If you intend to access the public API, please ensure that:\n\n"
         "    >>> import gofast as gf\n"
         "    >>> gf.config.public = True\n\n"
-        "Once the public API is enabled, you can access 'assist_me',"
-        " 'explore', 'read_data', 'export_data' ..."
+        "Once the public API is enabled, you can access functions like "
+        "'assist_me', 'explore', 'read_data', 'export_data', 'fetch_data', etc."
     )
+    # Issue a warning to guide the user
     warnings.warn(hint.format(attr=name))
-    # For any other attributes, follow the default behavior
+    # Raise an AttributeError indicating the attribute does not exist
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
-    
-# Update the module to use the new property
-__builtins__['PUBLIC'] = config.public
 
+
+# Append the version information to the module's docstring
 __doc__ += f"\nVersion: {__version__}\n"
+
+
+

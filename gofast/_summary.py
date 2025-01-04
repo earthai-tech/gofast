@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
+# License: BSD-3-Clause
+# Author: LKouadio <etanoyau@gmail.com>
 
 import numpy as np 
 import pandas as pd 
 
-import gofast.stats.descriptive # noqa 
 from gofast.api.formatter import MultiFrameFormatter 
 from gofast.api.util import escape_dataframe_elements
 from gofast.compat.pandas import describe_dataframe 
@@ -14,7 +15,7 @@ __all__= ["summary" ]
 @DynamicMethod (expected_type="both", prefixer ="exclude" )
 def summary(
     df, 
-    include_correlation=False, 
+    include_corr=False, 
     numeric_only=True, 
    ):
     """
@@ -24,7 +25,7 @@ def summary(
     ----------
     df : pandas.DataFrame
         The DataFrame for which the summary is generated.
-    include_correlation : bool, optional
+    include_corr : bool, optional
         If True, include the correlation matrix for numerical features in the
         summary. Default is False.
     numeric_only : bool, optional
@@ -102,7 +103,7 @@ def summary(
     #                        datetime_is_numeric=True )
     dfs.append(df_descr)
 
-    if include_correlation: 
+    if include_corr: 
         if numeric_only is False: 
             df = _encode_categorical_data(df)
         df_corr = df.corr()
