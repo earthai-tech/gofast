@@ -181,7 +181,7 @@ class GoFastConfig:
         from .datasets import fetch_data 
         from ._public_api import attach_go_methods
         from ._public_api import wrap_public_functions
-        
+
         attach_go_methods()
         wrap_public_functions(error ='ignore') 
         

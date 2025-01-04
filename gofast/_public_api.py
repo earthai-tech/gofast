@@ -7,6 +7,7 @@ import importlib
 import pandas as pd
 import inspect
 import pkgutil
+from functools import wraps 
 from types import FunctionType
 from typing import List
 # -------------------------------------------------------------------------
@@ -17,18 +18,46 @@ from typing import List
 # functions for displaying their signatures in an interactive environment.
 # -------------------------------------------------------------------------
 
-# Explicit list of methods to attach to pandas.DataFrame that 
-# do not start with 'go_'
-_EXPLICIT_GO_METHODS = [
-    'summary',
-    # Add other non-go_ methods as needed
-]
-
 # Define the import paths for explicitly listed methods
 _EXPLICIT_GO_METHODS_IMPORT_PATH = {
     'summary': 'gofast._summary.summary',
-    # Add other non-go_ methods as needed
+    'go_corr': 'gofast.stats.descriptive.corr',
+    'go_describe': 'gofast.stats.descriptive.describe',
+    'go_get_range': 'gofast.stats.descriptive.get_range',
+    'go_gini_coeffs': 'gofast.stats.descriptive.gini_coeffs',
+    'go_hmean': 'gofast.stats.descriptive.hmean',
+    'go_iqr': 'gofast.stats.descriptive.iqr',
+    'go_kurtosis': 'gofast.stats.descriptive.kurtosis',
+    'go_mean': 'gofast.stats.descriptive.mean',
+    'go_median': 'gofast.stats.descriptive.median',
+    'go_mode': 'gofast.stats.descriptive.mode',
+    'go_quantile': 'gofast.stats.descriptive.quantile',
+    'go_quartiles': 'gofast.stats.descriptive.quartiles',
+    'go_skew': 'gofast.stats.descriptive.skew',
+    'go_std': 'gofast.stats.descriptive.std',
+    'go_var': 'gofast.stats.descriptive.var',
+    'go_wmedian': 'gofast.stats.descriptive.wmedian',
+    'go_z_scores': 'gofast.stats.descriptive.z_scores',
+    'cumulative_ops':'gofast.stats.utils.cumulative_ops', 
+    "anova_test": 'gofast.stats.inferential.anova_test',
+    "bootstrap": 'gofast.stats.inferential.bootstrap',
+    "chi2_test": 'gofast.stats.inferential.chi2_test',
+    "mixed_effects_model": 'gofast.stats.inferential.mixed_effects_model',
+    "check_anova_assumptions": 'gofast.stats.inferential.check_anova_assumptions',
+    "go_transform":'gofast.dataops.preprocessing.transform'
+
 }
+
+# Explicit list of methods to attach to pandas.DataFrame that 
+# do not start with 'go_'
+
+_EXPLICIT_GO_METHODS = [
+    'summary',
+    # non-go_ methods as needed
+]
+_EXPLICIT_GO_METHODS= list(_EXPLICIT_GO_METHODS_IMPORT_PATH.keys())
+
+
 _PUBLIC_MODULES =[
     'analysis',
     'api',
@@ -116,45 +145,92 @@ class FunctionWrapper:
             f"{self.func.__name__}{sig}>"
         )
 
-def attach_go_methods(error ='warn'):
+
+def attach_go_methods(error='warn'):
     """
     Attach explicitly listed methods to pandas.DataFrame.
     
-    This function iterates through the ``EXPLICIT_GO_METHODS`` list,
-    imports each function, and then attaches it to 
-    ``pandas.DataFrame`` as a method. Additionally, it ensures 
-    that any automatically detected `go_` methods from 
-    gofast.stats.descriptive (or other modules) are recognized 
-    in the system. However, since these `go_` methods are 
-    typically injected by decorators (e.g., @make_data_dynamic), 
-    there's no need to manually attach them here.
-    """
-    # Force load of gofast.stats.descriptive to register possible 
-    # go_ methods. The actual attachment is handled by the 
-    # decorator logic.
-    import gofast.stats.descriptive  # noqa
+    This function iterates through the ``_EXPLICIT_GO_METHODS`` list,
+    imports each function, and attaches it to ``pandas.DataFrame`` 
+    as a method. Additionally, it forces a load of certain modules 
+    (e.g., gofast.stats.descriptive) so that any decorator-injected 
+    methods (prefixed with `go_`) are also recognized at runtime.
 
-    # Attach explicitly listed methods that don't follow 'go_' 
-    # naming convention.
+    If a discovered function's *first parameter* is annotated 
+    (or clearly named) as a DataFrame, a small wrapper is created 
+    so that users can call:
+
+        df.some_method(...)
+
+    without needing to pass the DataFrame explicitly.
+    """
+    # Force load of gofast.stats.descriptive to register possible
+    # go_ methods automatically injected by decorators.
+    import gofast.stats.descriptive  # noqa
+    
+    # Attach all explicitly listed methods that don't follow 'go_' naming
     for method_name in _EXPLICIT_GO_METHODS:
-        if not hasattr(pd.DataFrame, method_name):
-            import_path = _EXPLICIT_GO_METHODS_IMPORT_PATH.get(method_name)
-            if not import_path:
-                if error =='warn':
-                    warnings.warn(
-                        "No import path provided for explicit method "
-                        f"'{method_name}'. Skipping."
-                    )
+        # Skip if DataFrame already has this method
+        if hasattr(pd.DataFrame, method_name):
+            continue
+        
+        import_path = _EXPLICIT_GO_METHODS_IMPORT_PATH.get(method_name)
+        if not import_path:
+            if error == 'warn':
+                warnings.warn(
+                    "No import path provided for explicit method "
+                    f"'{method_name}'. Skipping."
+                )
+            continue
+
+        try:
+            module_path, func_name = import_path.rsplit('.', 1)
+            module = importlib.import_module(module_path)
+            func = getattr(module, func_name)
+            
+            # Only proceed if we have a callable function
+            if not callable(func):
                 continue
-            try:
-                module_path, func_name = import_path.rsplit('.', 1)
-                module = importlib.import_module(module_path)
-                func = getattr(module, func_name)
-                if callable(func):
-                    setattr(pd.DataFrame, method_name, func)
-            except (ImportError, AttributeError) as e:
-                if error =='warn': 
-                    warnings.warn(f"Could not attach method '{method_name}': {e}")
+
+            # 1. Inspect the function's signature
+            sig = inspect.signature(func)
+            params = list(sig.parameters.values())
+
+            # 2. Check if the first parameter is (or likely is) a DataFrame
+            #    We'll check either annotation or a name heuristic.
+            if params:
+                first_param = params[0]
+                # Example checks:
+                #  - If user used type hints: first_param.annotation == pd.DataFrame
+                #  - Or if the param is named "df" or "dataframe"
+                # You can adjust as needed, e.g.:
+                if (
+                    first_param.annotation == pd.DataFrame
+                    or first_param.name.lower() in ['df', 'data', 'dataframe']
+                ):
+                    # 3. Create a simple wrapper that calls `func(self, *args, **kwargs)`
+                    #    effectively removing the need for the user to pass a DF.
+                    @wraps(func)
+                    def wrapper(self, *args, **kwargs):
+                        # The DataFrame instance is `self`, so pass it as
+                        # the first argument to `func`.
+                        return func(self, *args, **kwargs)
+                    # Preserve metadata for introspection for consistency
+                    wrapper.__name__ = func.__name__
+                    wrapper.__doc__ = func.__doc__
+                    wrapper.__annotations__ = func.__annotations__
+
+                    # Attach the wrapper
+                    setattr(pd.DataFrame, method_name, wrapper)
+                    continue
+            
+            # If we reach here, no wrapper is needed -> attach function directly
+            setattr(pd.DataFrame, method_name, func)
+
+        except (ImportError, AttributeError) as e:
+            if error == 'warn':
+                warnings.warn(f"Could not attach method '{method_name}': {e}")
+
 
 def remove_go_methods():
     """
