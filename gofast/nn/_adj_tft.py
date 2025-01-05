@@ -8,30 +8,12 @@ architecture for multi-horizon time-series forecasting.
 from textwrap import dedent 
 from numbers import Real, Integral  
 
-from gofast._gofastlog import gofastlog 
-from gofast.api.property import  NNLearner 
-from gofast.decorators import Appender 
-from gofast.utils.deps_utils import ensure_pkg 
-from gofast.compat.tf import HAS_TF
-from gofast.compat.sklearn import validate_params, Interval, StrOptions
-from gofast.nn import KERAS_DEPS, KERAS_BACKEND, dependency_message 
-from gofast.nn._tft import TemporalFusionTransformer 
-from gofast.nn._tensor_validation import validate_xtft_inputs
-from gofast.nn.losses import combined_quantile_loss 
-from gofast.nn.utils import set_default_params
-
-try:
-    import tensorflow as tf
-except ImportError:
-    import warnings
-    warnings.warn(
-        "TensorFlow is not installed. Please install TensorFlow to use "
-        "this module.",
-        ImportWarning
-    )
-
-if HAS_TF: 
-    import tensorflow as tf # Noqa 
+from .._gofastlog import gofastlog 
+from ..api.property import NNLearner 
+from ..decorators import Appender 
+from ..utils.deps_utils import ensure_pkg 
+from ..compat.sklearn import validate_params, Interval, StrOptions
+from . import KERAS_DEPS, KERAS_BACKEND, dependency_message 
 
 if KERAS_BACKEND:
     LSTM = KERAS_DEPS.LSTM
@@ -50,15 +32,28 @@ if KERAS_BACKEND:
     Concatenate=KERAS_DEPS.Concatenate 
     Layer = KERAS_DEPS.Layer 
     register_keras_serializable=KERAS_DEPS.register_keras_serializable
-    tf_reduce_sum = KERAS_DEPS.reduce_sum
-    tf_stack = KERAS_DEPS.stack
-    tf_expand_dims = KERAS_DEPS.expand_dims
-    tf_tile = KERAS_DEPS.tile
-    tf_range=KERAS_DEPS.range 
-    tf_concat = KERAS_DEPS.concat
-    tf_shape = KERAS_DEPS.shape
     
-    from gofast.nn import Activation 
+    tf_reduce_sum =KERAS_DEPS.reduce_sum
+    tf_stack =KERAS_DEPS.stack
+    tf_expand_dims =KERAS_DEPS.expand_dims
+    tf_tile =KERAS_DEPS.tile
+    tf_range =KERAS_DEPS.range 
+    tf_concat =KERAS_DEPS.concat
+    tf_shape =KERAS_DEPS.shape
+    tf_zeros=KERAS_DEPS.zeros
+    tf_float32=KERAS_DEPS.float32
+    tf_reshape=KERAS_DEPS.reshape
+    tf_autograph=KERAS_DEPS.autograph
+    tf_multiply=KERAS_DEPS.multiply
+    tf_reduce_mean = KERAS_DEPS.reduce_mean
+    tf_get_static_value=KERAS_DEPS.get_static_value
+    
+    from . import Activation 
+    from ._tensor_validation import validate_tft_inputs
+    from ._tft import TemporalFusionTransformer
+    from .losses import combined_quantile_loss 
+    from .utils import set_default_params
+
     
 DEP_MSG = dependency_message('transformers.tft') 
 
@@ -84,14 +79,16 @@ class TFT(Model, NNLearner):
             callable],
         "use_batch_norm": [bool],
         "output_dim": [Interval(Integral, 1, None, closed='left')],
-        "lstm_units": [list, Interval(Integral, 1, None, closed='left'), None]
+        "lstm_units": ['array-like', Interval(Integral, 1, None, closed='left'), None]
         },
     )
     @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
         self,
         dynamic_input_dim,      
-        hidden_units,          
+        future_input_dim=None,    
+        static_input_dim=None,  
+        hidden_units=32, 
         num_heads=4,            
         dropout_rate=0.1,       
         forecast_horizon=1,     
@@ -100,12 +97,13 @@ class TFT(Model, NNLearner):
         use_batch_norm=False,   
         lstm_units=None,        
         output_dim=1,           
-        static_input_dim=None,  
-        future_input_dim=None,  
         **kwargs
     ):
         super().__init__(**kwargs)
+        self.dynamic_input_dim = dynamic_input_dim
         self.hidden_units = hidden_units
+        self.future_input_dim = future_input_dim
+        self.static_input_dim = static_input_dim
         self.num_heads = num_heads
         self.dropout_rate = dropout_rate
         self.forecast_horizon = forecast_horizon
@@ -113,9 +111,7 @@ class TFT(Model, NNLearner):
         self.use_batch_norm = use_batch_norm
         self.lstm_units = lstm_units if lstm_units is not None else hidden_units
         self.output_dim = output_dim
-        self.static_input_dim = static_input_dim
-        self.future_input_dim = future_input_dim
-        
+
         # Initialize logger
         self.logger = gofastlog().get_gofast_logger(__name__)
         self.logger.debug(
@@ -233,35 +229,34 @@ class TFT(Model, NNLearner):
     
     def call(self, inputs, training=None):
         # Unpack inputs
-        # past_inputs, future_inputs, static_inputs=validate_xtft_inputs(
-        #     inputs =inputs,
-        #     static_input_dim=self.static_input_dim, 
-        #     dynamic_input_dim= self.dynamic_input_dim, 
-        #     future_covariate_dim= self.future_input_dim, 
-        #     transformer ='tft'
-        # )
-        if isinstance(inputs, (list, tuple)):
-            if len(inputs) == 3:
-                past_inputs, future_inputs, static_inputs = inputs
-            elif len(inputs) == 2:
-                past_inputs, future_inputs = inputs
-                static_inputs = None
-            else:
-                raise ValueError(
-                    "Inputs should be a list or tuple containing "
-                    "(past_inputs, future_inputs, static_inputs) or "
-                    "(past_inputs, future_inputs)."
-                )
-        else:
-            raise ValueError(
-                "Inputs should be a list or tuple containing "
-                "(past_inputs, future_inputs, static_inputs) or "
-                "(past_inputs, future_inputs)."
-            )
+        past_inputs, future_inputs, static_inputs=validate_tft_inputs(
+            inputs =inputs,
+            static_input_dim=self.static_input_dim, 
+            dynamic_input_dim= self.dynamic_input_dim, 
+            future_covariate_dim= self.future_input_dim, 
+        )
+        # if isinstance(inputs, (list, tuple)):
+        #     if len(inputs) == 3:
+        #         past_inputs, future_inputs, static_inputs = inputs
+        #     elif len(inputs) == 2:
+        #         past_inputs, future_inputs = inputs
+        #         static_inputs = None
+        #     else:
+        #         raise ValueError(
+        #             "Inputs should be a list or tuple containing "
+        #             "(past_inputs, future_inputs, static_inputs) or "
+        #             "(past_inputs, future_inputs)."
+        #         )
+        # else:
+        #     raise ValueError(
+        #         "Inputs should be a list or tuple containing "
+        #         "(past_inputs, future_inputs, static_inputs) or "
+        #         "(past_inputs, future_inputs)."
+        #     )
         
         # 1) Embed past inputs
         # ---> (batch_size, past_steps, dynamic_input_dim, 1)
-        past_inputs_expanded = tf.expand_dims(past_inputs, axis=-1)  
+        past_inputs_expanded = tf_expand_dims(past_inputs, axis=-1)  
         # ---> (batch_size, past_steps, dynamic_input_dim, hidden_units)
         past_embedded = self.past_embedding(past_inputs_expanded) 
         
@@ -285,7 +280,7 @@ class TFT(Model, NNLearner):
         # 4) Embed future inputs if provided
         if self.future_varsel is not None:
             # ---> (batch_size, forecast_horizon, future_input_dim, 1)
-            future_inputs_expanded = tf.expand_dims(future_inputs, axis=-1)  
+            future_inputs_expanded = tf_expand_dims(future_inputs, axis=-1)  
             # ---> (batch_size, forecast_horizon, future_input_dim, hidden_units)
             future_embedded = self.future_embedding(future_inputs_expanded)  
             
@@ -300,9 +295,9 @@ class TFT(Model, NNLearner):
             self.logger.debug(f"Future selected shape: {future_selected.shape}")
         else:
             # Placeholder for no future inputs
-            future_selected = tf.zeros(
-                shape=(tf.shape(past_inputs)[0], self.forecast_horizon, self.hidden_units),
-                dtype=tf.float32
+            future_selected = tf_zeros(
+                shape=(tf_shape(past_inputs)[0], self.forecast_horizon, self.hidden_units),
+                dtype=tf_float32
             )
             self.logger.info("No future inputs provided; using zero placeholder.")
         
@@ -317,7 +312,7 @@ class TFT(Model, NNLearner):
         # 6) Embed and Variable Selection for static inputs if provided
         if self.static_varsel is not None:
             #  ---> (batch_size, static_input_dim, 1)
-            static_inputs_expanded = tf.expand_dims(static_inputs, axis=-1)  
+            static_inputs_expanded = tf_expand_dims(static_inputs, axis=-1)  
             # ---> (batch_size, static_input_dim, hidden_units)
             static_embedded = self.static_embedding(static_inputs_expanded)  
             
@@ -349,7 +344,7 @@ class TFT(Model, NNLearner):
         
         # Reshape if quantiles are provided
         if self.quantiles is not None:
-            outputs = tf.reshape(
+            outputs = tf_reshape(
                 outputs, 
                 (-1, self.forecast_horizon, self.num_quantiles, self.output_dim)
             )
@@ -392,6 +387,9 @@ class TFT(Model, NNLearner):
         """
         config = super().get_config().copy()
         config.update({
+            'dynamic_input_dim': self.dynamic_input_dim, 
+            'static_input_dim' : self.static_input_dim,
+            'future_input_dim' : self.future_input_dim,
             'hidden_units'     : self.hidden_units,
             'num_heads'        : self.num_heads,
             'dropout_rate'     : self.dropout_rate,
@@ -401,8 +399,6 @@ class TFT(Model, NNLearner):
             'use_batch_norm'   : self.use_batch_norm,
             'lstm_units'       : self.lstm_units,
             'output_dim'       : self.output_dim,
-            'static_input_dim' : self.static_input_dim,
-            'future_input_dim' : self.future_input_dim,
         })
         return config
     
@@ -414,7 +410,6 @@ class TFT(Model, NNLearner):
         return cls(**config)
 
 # -------------------------------------- TFT components -----------------------
-
 # LSTM Encoder 
 class LSTMEncoder(Layer):
     def __init__(self, lstm_units, dropout_rate=0.0):
@@ -427,7 +422,7 @@ class LSTMEncoder(Layer):
             dropout=dropout_rate
         )
     
-    @tf.autograph.experimental.do_not_convert
+    @tf_autograph.experimental.do_not_convert
     def call(self, x, initial_state=None, training=None):
         # x shape = (batch_size, timesteps, hidden_units)
         whole_seq_output, state_h, state_c = self.lstm(
@@ -445,7 +440,7 @@ class LSTMDecoder(Layer):
             dropout=dropout_rate
         )
     
-    @tf.autograph.experimental.do_not_convert
+    @tf_autograph.experimental.do_not_convert
     def call(self, x, initial_state, training=None):
         # x shape = (batch_size, timesteps, hidden_units)
         outputs = []
@@ -460,7 +455,7 @@ class LSTMDecoder(Layer):
             outputs.append(out)
         
         # Stack outputs: (batch_size, timesteps, lstm_units)
-        outputs = tf.stack(outputs, axis=1)
+        outputs = tf_stack(outputs, axis=1)
         return outputs, (state_h, state_c)
 
 # Temporal Self-Attention
@@ -479,7 +474,7 @@ class TemporalSelfAttention(Layer):
             dropout_rate=dropout_rate
         )
 
-    @tf.autograph.experimental.do_not_convert
+    @tf_autograph.experimental.do_not_convert
     def call(self, x, mask=None, training=None):
         # Multi-Head Attention
         attn_output = self.mha(
@@ -532,14 +527,14 @@ class TemporalFusionDecoder(Layer):
             use_batch_norm=use_batch_norm
         )
 
-    @tf.autograph.experimental.do_not_convert
+    @tf_autograph.experimental.do_not_convert
     def call(self, decoder_seq, static_context=None, training=None):
         # Static enrichment: Incorporate static context into decoder sequence
         if static_context is not None:
             # Broadcast static context across time dimension
-            time_steps = tf.shape(decoder_seq)[1]
-            static_context_expanded = tf.tile(
-                tf.expand_dims(static_context, axis=1), 
+            time_steps = tf_shape(decoder_seq)[1]
+            static_context_expanded = tf_tile(
+                tf_expand_dims(static_context, axis=1), 
                 [1, time_steps, 1]
             )
             enriched_seq = self.static_enrichment(
@@ -598,10 +593,10 @@ class GatedResidualNetwork(Layer):
         # Layer Normalization for residual connection
         self.layer_norm = LayerNormalization(epsilon=1e-6)
 
-    @tf.autograph.experimental.do_not_convert
+    @tf_autograph.experimental.do_not_convert
     def call(self, x, context=None, training=None):
         # Concatenate context if provided
-        x_in = tf.concat([x, context], axis=-1) if context is not None else x
+        x_in = tf_concat([x, context], axis=-1) if context is not None else x
         
         # First Dense layer
         x_fc1 = self.fc1(x_in)
@@ -621,7 +616,7 @@ class GatedResidualNetwork(Layer):
         
         # Gating mechanism
         gating = self.gate_dense(x_in)
-        x_gated = tf.multiply(x_fc2, gating)
+        x_gated = tf_multiply(x_fc2, gating)
         
         # Adjust skip connection if output dimensions differ
         x_skip = self.skip_dense(x) if self.skip_dense else x
@@ -631,7 +626,6 @@ class GatedResidualNetwork(Layer):
         
         # Layer Normalization
         return self.layer_norm(x_res)
-
 
 class VariableSelectionNetwork(Layer):
     def __init__(
@@ -663,7 +657,7 @@ class VariableSelectionNetwork(Layer):
         # Softmax layer to compute variable weights
         self.softmax = Softmax(axis=-1)
     
-    @tf.autograph.experimental.do_not_convert
+    @tf_autograph.experimental.do_not_convert
     def call(self, x, training=None):
         """
         Handles both time-varying and static inputs by adjusting input dimensions.
@@ -685,19 +679,19 @@ class VariableSelectionNetwork(Layer):
                 for i in range(self.num_inputs)
             ]  # List of (batch_size, timesteps, hidden_units)
             # ---->  (batch_size, timesteps, num_inputs, hidden_units)
-            grn_outputs = tf.stack(grn_outputs, axis=2) 
+            grn_outputs = tf_stack(grn_outputs, axis=2) 
             
             # Compute weights across hidden units
                  # (batch_size, timesteps, num_inputs)
-            flattened = tf.reduce_mean(grn_outputs, axis=-1) 
+            flattened = tf_reduce_mean(grn_outputs, axis=-1) 
                  # (batch_size, timesteps, num_inputs)
             weights    = self.softmax(flattened)               
             
             # Weighted sum of GRN outputs
                   # (batch_size, timesteps, num_inputs, 1)
-            w_expanded   = tf.expand_dims(weights, axis=-1)     
+            w_expanded   = tf_expand_dims(weights, axis=-1)     
                   # (batch_size, timesteps, hidden_units)
-            weighted_sum = tf.reduce_sum(grn_outputs * w_expanded, axis=2)  
+            weighted_sum = tf_reduce_sum(grn_outputs * w_expanded, axis=2)  
             return weighted_sum, weights
         
         elif len(x.shape) == 3:
@@ -707,19 +701,19 @@ class VariableSelectionNetwork(Layer):
                 for i in range(self.num_inputs)
             ]  # List of (batch_size, hidden_units)
                        # (batch_size, num_inputs, hidden_units)
-            grn_outputs = tf.stack(grn_outputs, axis=1)  
+            grn_outputs = tf_stack(grn_outputs, axis=1)  
             
             # Compute weights
                  # (batch_size, num_inputs)
-            flattened = tf.reduce_mean(grn_outputs, axis=-1)  
+            flattened = tf_reduce_mean(grn_outputs, axis=-1)  
                  # (batch_size, num_inputs)
             weights    = self.softmax(flattened)               
             
             # Weighted sum of GRN outputs
                    # (batch_size, num_inputs, 1)
-            w_expanded   = tf.expand_dims(weights, axis=-1)    
+            w_expanded   = tf_expand_dims(weights, axis=-1)    
                    # (batch_size, hidden_units)
-            weighted_sum = tf.reduce_sum(grn_outputs * w_expanded, axis=1)  
+            weighted_sum = tf_reduce_sum(grn_outputs * w_expanded, axis=1)  
             return weighted_sum, weights
         
         else:
@@ -741,7 +735,7 @@ class VariableSelectionNetwork(Layer):
             # We'll attempt a best guess approach by checking 
             # if num_inputs=1 or embed_dim=1.
 
-            bsz, dim2 = tf.shape(x)[0], tf.shape(x)[1]
+            bsz, dim2 = tf_shape(x)[0], tf_shape(x)[1]
 
             # If user has declared num_inputs=1, treat dim2 as the embedding dimension
             # => reshape x to (batch_size, num_inputs, embed_dim) => (bsz, 1, dim2)
@@ -754,7 +748,7 @@ class VariableSelectionNetwork(Layer):
 
             num_inputs = self.num_inputs  # from constructor
             # Convert dims to actual python ints for logic
-            dim2_py = tf.get_static_value(dim2)
+            dim2_py = tf_get_static_value(dim2)
 
             # If we can't get a static value from dim2, we forcibly 
             # raise an error or attempt dynamic approach
@@ -769,14 +763,14 @@ class VariableSelectionNetwork(Layer):
             if num_inputs == dim2_py:
                 # shape => (batch_size, num_inputs)
                 # interpret embed_dim=1
-                x_reshaped = tf.reshape(x, (bsz, num_inputs, 1))
+                x_reshaped = tf_reshape(x, (bsz, num_inputs, 1))
                 # Now shape => (batch_size, num_inputs, 1)
                 # Reuse the 3D path
                 return self.call(x_reshaped, training=training)
             elif num_inputs == 1:
                 # shape => (batch_size, embed_dim)
                 # interpret that as only 1 feature => embed_dim=dim2
-                x_reshaped = tf.reshape(x, (bsz, 1, dim2_py))
+                x_reshaped = tf_reshape(x, (bsz, 1, dim2_py))
                 # Now shape => (batch_size, 1, embed_dim)
                 return self.call(x_reshaped, training=training)
             else:
@@ -787,75 +781,75 @@ class VariableSelectionNetwork(Layer):
                 )
        
 
-if __name__=='__main__': 
+# if __name__=='__main__': 
+#     import tensorflow as tf 
+#     import numpy as np
     
-    import numpy as np
+#     # Define model parameters
+#     batch_size       = 2
+#     past_steps       = 4
+#     forecast_horizon  = 3
+#     dynamic_input_dim = 5      # Number of dynamic (past) input features
+#     static_input_dim  = 6      # Number of static (metadata) input features
+#     future_input_dim  = 4      # Number of future (covariate) input features
+#     hidden_units      = 16     # Embedding and hidden layer size
+#     num_heads         = 4       # Number of attention heads
+#     dropout_rate      = 0.1     # Dropout rate
+#     quantiles         = [0.1, 0.5, 0.9]  # Quantiles for probabilistic forecasting
+#     activation        = 'elu'   # Activation function for GRNs
+#     use_batch_norm    = False   # Whether to use Batch Normalization in GRNs
+#     lstm_units        = None    # Number of units in LSTM layers (defaults to hidden_units)
+#     output_dim        = 1       # Number of output variables
     
-    # Define model parameters
-    batch_size       = 2
-    past_steps       = 4
-    forecast_horizon  = 3
-    dynamic_input_dim = 5      # Number of dynamic (past) input features
-    static_input_dim  = 6      # Number of static (metadata) input features
-    future_input_dim  = 4      # Number of future (covariate) input features
-    hidden_units      = 16     # Embedding and hidden layer size
-    num_heads         = 4       # Number of attention heads
-    dropout_rate      = 0.1     # Dropout rate
-    quantiles         = [0.1, 0.5, 0.9]  # Quantiles for probabilistic forecasting
-    activation        = 'elu'   # Activation function for GRNs
-    use_batch_norm    = False   # Whether to use Batch Normalization in GRNs
-    lstm_units        = None    # Number of units in LSTM layers (defaults to hidden_units)
-    output_dim        = 1       # Number of output variables
+#     # Instantiate the model
+#     model = TFT(
+#         dynamic_input_dim=dynamic_input_dim,
+#         hidden_units=hidden_units,
+#         num_heads=num_heads,
+#         dropout_rate=dropout_rate,
+#         forecast_horizon=forecast_horizon,
+#         quantiles=quantiles,          # Set to None for deterministic predictions
+#         activation=activation,
+#         use_batch_norm=use_batch_norm,
+#         lstm_units=lstm_units,
+#         output_dim=output_dim,
+#         static_input_dim=static_input_dim,
+#         future_input_dim=future_input_dim
+#     )
     
-    # Instantiate the model
-    model = TFT(
-        dynamic_input_dim=dynamic_input_dim,
-        hidden_units=hidden_units,
-        num_heads=num_heads,
-        dropout_rate=dropout_rate,
-        forecast_horizon=forecast_horizon,
-        quantiles=quantiles,          # Set to None for deterministic predictions
-        activation=activation,
-        use_batch_norm=use_batch_norm,
-        lstm_units=lstm_units,
-        output_dim=output_dim,
-        static_input_dim=static_input_dim,
-        future_input_dim=future_input_dim
-    )
+#     # Compile the model with Mean Squared Error loss for deterministic predictions
+#     optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+#     model.compile(
+#         optimizer=optimizer,
+#         loss='mse'
+#     )
     
-    # Compile the model with Mean Squared Error loss for deterministic predictions
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
-    model.compile(
-        optimizer=optimizer,
-        loss='mse'
-    )
+#     # Generate dummy data
+#     num_samples = 100
     
-    # Generate dummy data
-    num_samples = 100
+#     # Past inputs: (batch_size, past_steps, dynamic_input_dim)
+#     past_in = np.random.randn(num_samples, past_steps, dynamic_input_dim).astype(np.float32)
     
-    # Past inputs: (batch_size, past_steps, dynamic_input_dim)
-    past_in = np.random.randn(num_samples, past_steps, dynamic_input_dim).astype(np.float32)
+#     # Future inputs: (batch_size, forecast_horizon, future_input_dim)
+#     future_in = np.random.randn(num_samples, forecast_horizon, future_input_dim).astype(np.float32)
     
-    # Future inputs: (batch_size, forecast_horizon, future_input_dim)
-    future_in = np.random.randn(num_samples, forecast_horizon, future_input_dim).astype(np.float32)
+#     # Static inputs: (batch_size, static_input_dim)
+#     static_in = np.random.randn(num_samples, static_input_dim).astype(np.float32)
     
-    # Static inputs: (batch_size, static_input_dim)
-    static_in = np.random.randn(num_samples, static_input_dim).astype(np.float32)
+#     # Targets: (batch_size, forecast_horizon, output_dim)
+#     y_true = np.random.randn(num_samples, forecast_horizon, output_dim).astype(np.float32)
     
-    # Targets: (batch_size, forecast_horizon, output_dim)
-    y_true = np.random.randn(num_samples, forecast_horizon, output_dim).astype(np.float32)
+#     # Fit the model
+#     history = model.fit(
+#         x=(past_in, future_in, static_in),
+#         y=y_true,
+#         epochs=5,
+#         batch_size=16
+#     )
     
-    # Fit the model
-    history = model.fit(
-        x=(past_in, future_in, static_in),
-        y=y_true,
-        epochs=5,
-        batch_size=16
-    )
+#     # Display training history
+#     print(history.history)
     
-    # Display training history
-    print(history.history)
-    
-    # Predict using the model
-    y_pred = model.predict((past_in, future_in, static_in))
-    print(y_pred.shape)  # Expected: (batch_size, forecast_horizon, num_quantiles, output_dim) or (batch_size, forecast_horizon, output_dim)
+#     # Predict using the model
+#     y_pred = model.predict((past_in, future_in, static_in))
+#     print(y_pred.shape)  # Expected: (batch_size, forecast_horizon, num_quantiles, output_dim) or (batch_size, forecast_horizon, output_dim)

@@ -55,28 +55,30 @@ _EXPLICIT_GO_METHODS = [
     'summary',
     # non-go_ methods as needed
 ]
-_EXPLICIT_GO_METHODS= list(_EXPLICIT_GO_METHODS_IMPORT_PATH.keys())
+_EXPLICIT_GO_METHODS= set(_EXPLICIT_GO_METHODS_IMPORT_PATH.keys())
 
-
+# A pre-defined list of submodules that are part of the public API
+# and can be quickly discovered without performing expensive
+# walk-based introspection.
 _PUBLIC_MODULES =[
     'analysis',
     'api',
     'backends',
     'callbacks',
-    'cli',
+    #'cli',
     'compat',
     'dataops',
     'datasets',
     'estimators',
     'experimental',
-    'externals',
+    #'externals',
     'geo',
-    'gflogs',
+    #'gflogs',
     'mlops',
     'models',
-    'nn',
+    #'nn',
     'plot',
-    'pyx',
+    #'pyx',
     'stats',
     'transformers',
     'utils',
@@ -104,6 +106,10 @@ _PUBLIC_MODULES =[
 # Store original functions to allow unwrapping
 _original_functions = {}
 
+__all__=["attach_go_methods", "remove_go_methods", "wrap_public_functions", 
+         "unwrap_public_functions", "discover_submodules", 
+         "fast_discover_submodules"
+]
 
 class FunctionWrapper:
     """
@@ -144,7 +150,6 @@ class FunctionWrapper:
             f"<function {self.func.__module__}."
             f"{self.func.__name__}{sig}>"
         )
-
 
 def attach_go_methods(error='warn'):
     """
@@ -338,7 +343,7 @@ def _unwrap_public_functions(module):
             original = _unwrap_function(attr.func)
             setattr(module, attr_name, original)
 
-def _discover_submodules(package: str, error ='warn') -> List[str]:
+def discover_submodules(package: str, error ='warn') -> List[str]:
     """
     Discover all submodules within a given package, excluding those that 
     start with an underscore.
@@ -404,11 +409,90 @@ def _discover_submodules(package: str, error ='warn') -> List[str]:
             'tests' not in module_path and
             'tools' not in module_path and 
             'config' not in module_path and 
+            'nn' not in module_path and 
+            'cli' not in module_path and 
+            'externals' not in module_path and 
+            'gflogs' not in module_path and 
             module_basename  != 'setup'
             
         ):
             submodules.append(name)
     
+    return submodules
+
+def fast_discover_submodules(
+    package: str,
+    error: str = 'warn'
+) -> List[str]:
+    """
+    Quickly discover public submodules for the given ``package`` 
+    without performing expensive introspection via `pkgutil.walk_packages`.
+
+    Instead of dynamically walking the entire package tree, this function
+    relies on a pre-defined list (``_PUBLIC_MODULES``) specifying which
+    submodules are publicly exposed. It also optionally checks whether
+    the top-level ``package`` can be imported.
+
+    Parameters
+    ----------
+    ``package`` : str
+        The name of the top-level package, e.g. ``'gofast'``.
+
+    ``error`` : str, default='warn'
+        Determines how to handle import failures of the top-level package.
+        - ``'raise'`` : Raise a `ValueError` if the top-level package 
+          fails to import.
+        - ``'warn'`` : Issue a warning but return an empty list if import fails.
+        - ``'ignore'`` : Silently return an empty list if import fails.
+
+    Returns
+    -------
+    List[str]
+        A list of submodule import paths in the form 
+        ``package.module_name`` for each module specified in 
+        ``_PUBLIC_MODULES``.
+
+    Notes
+    -----
+    This approach is far less expensive than using 
+    :func:`pkgutil.walk_packages`, because it doesn't recurse into
+    the package structure. It merely appends each known module name
+    in the ``_PUBLIC_MODULES`` list to the top-level ``package`` 
+    name, e.g. creating strings like ``'gofast.datasets'``, 
+    ``'gofast.models'``, etc.
+
+    Examples
+    --------
+    >>> from gofast._public_api import fast_discover_submodules
+    >>> submods = fast_discover_submodules('gofast')
+    >>> print(submods)
+    ['gofast.analysis', 'gofast.api', 'gofast.backends', ...]
+
+    See Also
+    --------
+    pkgutil.walk_packages : The more extensive approach to walk all 
+                            submodules dynamically.
+
+    """
+    submodules = []
+
+    # Attempt to import the top-level package to ensure it exists
+    try:
+        importlib.import_module(package)
+    except ImportError as exc:
+        msg = (f"Could not import package '{package}': {exc}. "
+               "No submodules will be discovered.")
+        if error == 'raise':
+            raise ValueError(msg)
+        elif error == 'warn':
+            warnings.warn(msg, ImportWarning)
+        # if error == 'ignore', do nothing
+        return submodules
+
+    # The package is importable, so build submodule paths quickly
+    for mod in _PUBLIC_MODULES:
+        submodules.append(f"{package}.{mod}")
+
     return submodules
 
 def wrap_public_functions (error ='warn'):
@@ -425,7 +509,7 @@ def wrap_public_functions (error ='warn'):
         raise a warnings if submodule not found or  simply ignore it.
     """
     # Discover all submodules within 'gofast'
-    submodules = _discover_submodules('gofast', error=error)
+    submodules = fast_discover_submodules('gofast', error=error)
     
     # Dynamically wrap public functions in each submodule
     for submodule_path in submodules:
@@ -451,7 +535,7 @@ def unwrap_public_functions(error ='warn'):
         
     """     
     # Discover all submodules within 'gofast'
-    submodules = _discover_submodules('gofast', error=error )
+    submodules = fast_discover_submodules('gofast', error=error )
     
     # Dynamically unwrap public functions in each submodule
     for submodule_path in submodules:

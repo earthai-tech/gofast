@@ -92,7 +92,10 @@ class KerasDependencies:
             'Tensor': ('tensorflow', 'Tensor'), 
             'cast': ('tensforflow', 'cast'), 
             'float32': ('tensorflow', 'float32'), 
-            'autograph': ('tensorflow', 'autograph')
+            'autograph': ('tensorflow', 'autograph'), 
+            # 'zeros': ('tensorflow', 'zeros'),
+            'multiply': ('tensorflow', 'multiply'), 
+            'get_static_value':('tensorflow', 'get_static_value'),
             # 'constant': ('tensorflow', 'constant')
         }
 

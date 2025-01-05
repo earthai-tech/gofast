@@ -21,11 +21,6 @@ from ..utils.validator import check_consistent_length
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 from ._nn_docs import _shared_docs 
-from ._tensor_validation import validate_anomaly_scores, validate_xtft_inputs 
-from ._tft import VariableSelectionNetwork, GatedResidualNetwork
-from .losses import combined_quantile_loss
-from .utils import set_default_params, set_anomaly_config 
-
 
 if KERAS_BACKEND:
     LSTM = KERAS_DEPS.LSTM
@@ -59,6 +54,11 @@ if KERAS_BACKEND:
     tf_autograph=KERAS_DEPS.autograph
     
     from . import Activation 
+    from ._tensor_validation import validate_anomaly_scores, validate_xtft_inputs 
+    from ._tft import VariableSelectionNetwork, GatedResidualNetwork
+    from .losses import combined_quantile_loss
+    from .utils import set_default_params, set_anomaly_config 
+    
 
 DEP_MSG = dependency_message('transformers.xtft') 
 
@@ -627,7 +627,7 @@ class XTFT(Model, NNLearner):
     @validate_params({
         "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
-        "future_covariate_dim": [Interval(Integral, 1, None, closed='left')], 
+        "future_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "embed_dim": [Interval(Integral, 1, None, closed='left')],
         "forecast_horizons": [Interval(Integral, 1, None, closed='left')], 
         "quantiles": ['array-like', StrOptions({'auto'}),  None],
@@ -669,7 +669,7 @@ class XTFT(Model, NNLearner):
         self,
         static_input_dim: int,
         dynamic_input_dim: int,
-        future_covariate_dim: int,
+        future_input_dim: int,
         embed_dim: int = 32,
         forecast_horizons: int = 1,
         quantiles: Union[str, List[float], None] = None,
@@ -702,7 +702,7 @@ class XTFT(Model, NNLearner):
             "Initializing XTFT with parameters: "
             f"static_input_dim={static_input_dim}, "
             f"dynamic_input_dim={dynamic_input_dim}, "
-            f"future_covariate_dim={future_covariate_dim}, "
+            f"future_input_dim={future_input_dim}, "
             f"embed_dim={embed_dim}, "
             f"forecast_horizons={forecast_horizons}, "
             f"quantiles={quantiles}, "
@@ -725,7 +725,7 @@ class XTFT(Model, NNLearner):
         
         self.static_input_dim = static_input_dim
         self.dynamic_input_dim = dynamic_input_dim
-        self.future_covariate_dim = future_covariate_dim
+        self.future_input_dim = future_input_dim
         self.embed_dim = embed_dim
         self.forecast_horizons = forecast_horizons
         self.quantiles = quantiles
@@ -825,11 +825,11 @@ class XTFT(Model, NNLearner):
         
 
     def call(self, inputs, training=False):
-        static_input, dynamic_input, future_covariate_input = validate_xtft_inputs (
+        static_input, dynamic_input, future_input = validate_xtft_inputs (
             inputs =inputs,
             static_input_dim=self.static_input_dim, 
             dynamic_input_dim= self.dynamic_input_dim, 
-            future_covariate_dim= self.future_covariate_dim, 
+            future_covariate_dim= self.future_input_dim, 
         )
     
         # Normalize and process static features
@@ -867,7 +867,7 @@ class XTFT(Model, NNLearner):
         
         # Embeddings for dynamic and future covariates
         embeddings = self.multi_modal_embedding(
-            [dynamic_input, future_covariate_input],
+            [dynamic_input, future_input],
             training=training
         )
         self.logger.debug(
@@ -947,7 +947,7 @@ class XTFT(Model, NNLearner):
     
         # Attention mechanisms
         hierarchical_att = self.hierarchical_attention(
-            [dynamic_input, future_covariate_input],
+            [dynamic_input, future_input],
             training=training
         )
         self.logger.debug(
@@ -1136,7 +1136,7 @@ class XTFT(Model, NNLearner):
         config.update({
             'static_input_dim': self.static_input_dim,
             'dynamic_input_dim': self.dynamic_input_dim,
-            'future_covariate_dim': self.future_covariate_dim,
+            'future_input_dim': self.future_input_dim,
             'embed_dim': self.embed_dim,
             'forecast_horizons': self.forecast_horizons,
             'quantiles': self.quantiles,
@@ -1210,11 +1210,11 @@ dynamic_input_dim : int
     features help the model understand seasonality, trends, and
     evolving conditions over time.
 
-future_covariate_dim : int
+future_input_dim : int
     Dimensionality of future known covariates. These are features
     known ahead of time for future predictions (e.g., holidays,
     promotions, scheduled events, or future weather forecasts).
-    Increasing `future_covariate_dim` enhances the model’s ability
+    Increasing `future_input_dim` enhances the model’s ability
     to leverage external information about the future, improving
     the accuracy and stability of multi-horizon forecasts.
 
@@ -1310,7 +1310,7 @@ anomaly_config : dict, optional
             model = XTFT(
                 static_input_dim=10,
                 dynamic_input_dim=45,
-                future_covariate_dim=5,
+                future_input_dim=5,
                 anomaly_config=None,
                 ...
             )
@@ -1333,7 +1333,7 @@ anomaly_config : dict, optional
             model = XTFT(
                 static_input_dim=10,
                 dynamic_input_dim=45,
-                future_covariate_dim=5,
+                future_input_dim=5,
                 anomaly_config=anomaly_config,
                 ...
             )
@@ -1429,7 +1429,7 @@ Examples
 >>> model = XTFT(
 ...     static_input_dim=10,
 ...     dynamic_input_dim=45,
-...     future_covariate_dim=5,
+...     future_input_dim=5,
 ...     forecast_horizons=3,
 ...     quantiles=None# [0.1, 0.5, 0.9],
 
@@ -1494,7 +1494,7 @@ class SuperXTFT(XTFT):
         self,
         static_input_dim: int,
         dynamic_input_dim: int,
-        future_covariate_dim: int,
+        future_input_dim: int,
         embed_dim: int = 32,
         forecast_horizons: int = 1,
         quantiles: Union[str, List[float], None] = None,
@@ -1518,7 +1518,7 @@ class SuperXTFT(XTFT):
         super().__init__(
             static_input_dim=static_input_dim,
             dynamic_input_dim=dynamic_input_dim,
-            future_covariate_dim=future_covariate_dim,
+            future_input_dim=future_input_dim,
             embed_dim=embed_dim,
             forecast_horizons=forecast_horizons,
             quantiles=quantiles,
@@ -1562,7 +1562,7 @@ class SuperXTFT(XTFT):
         )
         
         self.variable_future_covariate = VariableSelectionNetwork(
-            num_inputs=future_covariate_dim,  
+            num_inputs=future_input_dim,  
             units=hidden_units,
             dropout_rate=dropout_rate,
             use_time_distributed=True,
@@ -1610,17 +1610,17 @@ class SuperXTFT(XTFT):
         # and normalization
         
     def call(self, inputs, training=False):
-        static_input, dynamic_input, future_covariate_input = self.validate_xtft_inputs(
+        static_input, dynamic_input, future_input = self.validate_xtft_inputs(
             inputs=inputs,
             static_input_dim=self.static_input_dim, 
             dynamic_input_dim=self.dynamic_input_dim, 
-            future_covariate_dim=self.future_covariate_dim, 
+            future_covariate_dim=self.future_input_dim, 
         )
         
         # Variable Selection for static, dynamic inputs and future covariate
         selected_static = self.variable_selection_static(static_input, training=training)
         selected_dynamic = self.variable_selection_dynamic(dynamic_input, training=training)
-        selected_future = self.variable_selection_future(future_covariate_input, training=training)
+        selected_future = self.variable_selection_future(future_input, training=training)
         
         self.logger.debug(
             f"Selected Static Features Shape: {selected_static.shape}"
@@ -1727,7 +1727,7 @@ class SuperXTFT(XTFT):
         
         # Attention mechanisms with integrated GRNs
         hierarchical_att = self.hierarchical_attention(
-            [selected_dynamic, future_covariate_input],
+            [selected_dynamic, future_input],
             training=training
         )
         self.logger.debug(

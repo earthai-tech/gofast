@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# gofast.nn._tensor_validation.py 
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
 
 from typing import List, Tuple, Optional, Union, Dict, Any
 from ..utils.deps_utils import ensure_pkg 
@@ -107,13 +108,265 @@ def validate_anomaly_scores(
         anomaly_config['anomaly_scores'] = None
         return anomaly_scores
 
+#XXXTODO
+@optional_tf_function
+def validate_tft_inputs(
+    inputs : Union[List[Any], Tuple[Any, ...]],
+    dynamic_input_dim : int,
+    static_input_dim : Optional[int] = None,
+    future_covariate_dim : Optional[int] = None,
+    error: str = 'raise'
+) -> Tuple[tf.Tensor, Optional[tf.Tensor], Optional[tf.Tensor]]:
+    """
+    Validate and process the input tensors for TFT (Temporal Fusion
+    Transformer) models in a consistent manner.
+
+    The function enforces that ``dynamic_input_dim`` (past inputs)
+    is always provided, while ``static_input_dim`` and 
+    ``future_covariate_dim`` can be `None`. Depending on how many 
+    items are in `inputs`, this function decides which item 
+    corresponds to which tensor (past, static, or future). It also 
+    converts each valid item to a :math:`\\text{tf.float32}` tensor, 
+    verifying shapes and optionally raising or warning if invalid 
+    conditions occur.
+
+    Parameters
+    ----------
+    inputs : 
+        list or tuple of input items. 
+        - If length is 1, interpret as only dynamic inputs.
+        - If length is 2, interpret second item either as static 
+          or future inputs, depending on whether 
+          ``static_input_dim`` or ``future_covariate_dim`` is set.
+        - If length is 3, interpret them as 
+          (past_inputs, future_inputs, static_inputs) in order.
+    dynamic_input_dim : int
+        Dimensionality of the dynamic (past) inputs. This is 
+        mandatory for the TFT model.
+    static_input_dim : int, optional
+        Dimensionality of static inputs. If not `None`, expects 
+        a second or third item in ``inputs`` to be assigned 
+        as static inputs.
+    future_covariate_dim : int, optional
+        Dimensionality of future covariates. If not `None`, 
+        expects a second or third item in ``inputs`` to be 
+        assigned as future inputs.
+    error : str, default='raise'
+        Error-handling strategy if invalid conditions arise.
+        - `'raise'` : Raise a `ValueError` upon invalid usage.
+        - `'warn'`  : Issue a warning and proceed.
+        - `'ignore'`: Silence the issue and proceed (not 
+          recommended).
+
+    Returns
+    -------
+    tuple of tf.Tensor
+        Returns a three-element tuple 
+        (past_inputs, future_inputs, static_inputs). 
+        - `past_inputs` is always present.
+        - `future_inputs` or `static_inputs` may be `None` if 
+          not provided or `None` in shape.
+
+    Notes
+    -----
+    If the length of `inputs` is three but one of 
+    ``static_input_dim`` or ``future_covariate_dim`` is `None`, 
+    then based on ``error`` parameter, a `ValueError` is raised, 
+    a warning is issued, or the issue is silently ignored.
+    
+    .. math::
+        \\text{past\\_inputs} \\in 
+            \\mathbb{R}^{B \\times T \\times \\text{dynamic\\_input\\_dim}}
+        \\quad
+        \\text{future\\_inputs} \\in 
+            \\mathbb{R}^{B \\times T' \\times \\text{future\\_covariate\\_dim}}
+        \\quad
+        \\text{static\\_inputs} \\in 
+            \\mathbb{R}^{B \\times \\text{static\\_input\\_dim}}
+            
+    Examples
+    --------
+    >>> from gofast.nn._tensor_validation import validate_tft_inputs
+    >>> import tensorflow as tf
+    >>> # Example with only past (dynamic) inputs
+    >>> single_input = tf.random.normal([8, 24, 10])  # batch=8, time=24
+    >>> past, fut, stat = validate_tft_inputs(
+    ...     [single_input], dynamic_input_dim=10
+    ... )
+    >>> print(past.shape)
+    (8, 24, 10)
+    >>> print(fut, stat)  # None, None
+
+    >>> # Example with two inputs: dynamic past and static
+    >>> dynamic_in = tf.random.normal([8, 24, 20])
+    >>> static_in  = tf.random.normal([8, 5])
+    >>> past, fut, stat = validate_tft_inputs(
+    ...     [dynamic_in, static_in],
+    ...     dynamic_input_dim=20,
+    ...     static_input_dim=5
+    ... )
+    >>> print(past.shape, stat.shape)
+    (8, 24, 20) (8, 5)
+    >>> print(fut)  # None
+
+    See Also
+    --------
+    Other internal functions that manipulate or validate 
+    TFT inputs.
+
+    References
+    ----------
+    .. [1] Lim, B., Arık, S. Ö., Loeff, N., & Pfister, T. (2019).
+           Temporal Fusion Transformers for Interpretable
+           Multi-horizon Time Series Forecasting.
+    """
+
+    # 1) Basic checks and shape verifications.
+    if not isinstance(inputs, (list, tuple)):
+        inputs= [inputs] # When single input is provided
+        msg = ("`inputs` must be a list or tuple, got "
+               f"{type(inputs)} instead.")
+        if error == 'raise':
+            raise ValueError(msg)
+        elif error == 'warn':
+            warnings.warn(msg)
+        # if error=='ignore', do nothing
+
+    num_inputs = len(inputs)
+
+    # 2) Convert each item to tf.float32 and gather shapes
+    def to_float32_tensor(x: Any) -> tf.Tensor:
+        """Convert x to tf.float32 tensor."""
+        tensor = tf.convert_to_tensor(x)
+        if tensor.dtype != tf.float32:
+            tensor = tf.cast(tensor, tf.float32)
+        return tensor
+
+    # Initialize placeholders
+    past_inputs: Optional[tf.Tensor] = None
+    future_inputs : Optional[tf.Tensor] = None
+    static_inputs : Optional[tf.Tensor] = None
+
+    # 3) Assign based on how many items are in `inputs`
+    if num_inputs == 1:
+        # Only dynamic/past inputs
+        past_inputs = to_float32_tensor(inputs[0])
+
+    elif num_inputs == 2:
+        # We have past + either static or future
+        # Decide based on static_input_dim / future_covariate_dim
+        past_inputs = to_float32_tensor(inputs[0])
+        second_data = to_float32_tensor(inputs[1])
+
+        if static_input_dim is not None and future_covariate_dim is None:
+            # second_data is static
+            static_inputs = second_data
+        elif static_input_dim is None and future_covariate_dim is not None:
+            # second_data is future
+            future_inputs = second_data
+        else:
+            # ambiguous or invalid
+            msg = ("With two inputs, must have either "
+                   "`static_input_dim` or `future_covariate_dim` "
+                   "set, but not both or neither.")
+            if error == 'raise':
+                raise ValueError(msg)
+            elif error == 'warn':
+                warnings.warn(msg)
+            # if error == 'ignore', do nothing
+
+    elif num_inputs == 3:
+        # We have past + future + static
+        # Check if both static_input_dim and future_covariate_dim
+        # are defined
+        if (static_input_dim is None or future_covariate_dim is None):
+            msg = ("Expect three inputs for past, future, "
+                   "and static. But one of `static_input_dim` "
+                   "or `future_covariate_dim` is None.")
+            if error == 'raise':
+                raise ValueError(msg)
+            elif error == 'warn':
+                warnings.warn(msg)
+            # if error == 'ignore', do nothing
+
+        past_inputs   = to_float32_tensor(inputs[0])
+        future_inputs = to_float32_tensor(inputs[1])
+        static_inputs = to_float32_tensor(inputs[2])
+
+    else:
+        # Invalid length
+        msg = (f"`inputs` has length {num_inputs}, but only 1, 2, or 3 "
+               "items are supported.")
+        if error == 'raise':
+            raise ValueError(msg)
+        elif error == 'warn':
+            warnings.warn(msg)
+        # if error == 'ignore', do nothing
+
+    # 4) Additional shape checks (e.g., batch size consistency).
+    non_null_tensors = [
+        x for x in [past_inputs, future_inputs, static_inputs] 
+        if x is not None
+    ]
+
+    # If we have at least one non-None tensor, let's define a reference
+    # batch size from the first. We'll do a static shape check if 
+    # possible. If shape[0] is None, we do a dynamic check with tf.shape().
+    if non_null_tensors:
+        # For simplicity, let's define a function to get batch size.
+        # If static shape is None, we fallback to tf.shape(x)[0].
+        def get_batch_size(t: tf.Tensor) -> Union[int, tf.Tensor]:
+            """Return the first-dim batch size, static if available."""
+            if t.shape.rank and t.shape[0] is not None:
+                return t.shape[0]  # static shape
+            return tf.shape(t)[0]  # fallback to dynamic
+
+        # Reference batch size
+        ref_batch_size = get_batch_size(non_null_tensors[0])
+
+        # Check all other non-null items
+        for t in non_null_tensors[1:]:
+            batch_size = get_batch_size(t)
+            # We compare them in a consistent manner. If either
+            # is a Tensor, we rely on tf.equal or a python check 
+            # if both are python ints. We'll do a python approach 
+            # if they're both int, else a tf.cond approach if needed.
+            if (isinstance(ref_batch_size, int) and 
+                isinstance(batch_size, int)):
+                # Both are static
+                if ref_batch_size != batch_size:
+                    msg = (f"Inconsistent batch sizes among inputs. "
+                           f"Got {ref_batch_size} vs {batch_size}.")
+                    if error == 'raise':
+                        raise ValueError(msg)
+                    elif error == 'warn':
+                        warnings.warn(msg)
+                    # if error=='ignore', do nothing
+            else:
+                # At least one is dynamic. We'll do a tf-level check.
+                # In eager mode, we can still evaluate it directly. 
+                # Let's do so carefully.
+                are_equal = tf.reduce_all(
+                    tf.equal(ref_batch_size, batch_size)
+                )
+                if not bool(are_equal.numpy()):
+                    msg = ("Inconsistent batch sizes among inputs. "
+                           "Got a mismatch in dynamic shapes.")
+                    if error == 'raise':
+                        raise ValueError(msg)
+                    elif error == 'warn':
+                        warnings.warn(msg)
+                    # if error=='ignore', do nothing
+
+    # 5) Return the triple (past_inputs, future_inputs, static_inputs)
+    return past_inputs, future_inputs, static_inputs
+
 @optional_tf_function
 def validate_xtft_inputs(
     inputs: Union[List[Any], Tuple[Any, ...]],
     static_input_dim: int,
     dynamic_input_dim: int,
     future_covariate_dim: Optional[int] = None, 
-    transformer='xtft', 
 ) -> Tuple[tf.Tensor, tf.Tensor, Optional[tf.Tensor]]:
     """
     Validates and processes the ``inputs`` for the XTFT model.
@@ -193,27 +446,7 @@ def validate_xtft_inputs(
     >>> print(validated_static.shape, validated_dynamic.shape, validated_future.shape)
     (32, 10) (32, 20, 45) (32, 20, 5)
     """
-    if transformer =='tft': 
-        if isinstance(inputs, (list, tuple)):
-            if len(inputs) == 3:
-                past_inputs, future_inputs, static_inputs = inputs
-            elif len(inputs) == 2:
-                past_inputs, future_inputs = inputs
-                static_inputs = None
-            else:
-                raise ValueError(
-                    "Inputs should be a list or tuple containing "
-                    "(past_inputs, future_inputs, static_inputs) or "
-                    "(past_inputs, future_inputs)."
-                )
-        else:
-            raise ValueError(
-                "Inputs should be a list or tuple containing "
-                "(past_inputs, future_inputs, static_inputs) or "
-                "(past_inputs, future_inputs)."
-            )
-        return past_inputs, future_inputs, static_inputs
-    
+
     # Step 1: Validate the type and length of inputs
     if not isinstance(inputs, (list, tuple)):
         raise ValueError(
