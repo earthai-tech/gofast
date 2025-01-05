@@ -235,7 +235,6 @@ class GoFastConfig:
 # Instantiate the configuration object
 config = GoFastConfig()
 
-# Add this at the top, after other imports
 class PublicAPIError(AttributeError):
     """Custom exception for public API access errors."""
     pass
@@ -276,9 +275,11 @@ def __getattr__(name):
     Raises
     ------
     PublicAPIError
-        If attempting to access a public API function when the public API is disabled.
+        If attempting to access a public API function when the public
+        API is disabled.
     AttributeError
-        If the attribute does not exist within the public API or internal modules.
+        If the attribute does not exist within the public API or internal
+        modules.
     """
     from ._public_api import _PUBLIC_MODULES 
     
@@ -286,7 +287,7 @@ def __getattr__(name):
     public_attributes = [
         'assist_me', 'explore', 'read_data',
         'export_data', 'fetch_data',
-        # Add other public functions as needed
+        # other public functions as needed
     ]
 
     # Handle access to public API attributes
@@ -350,7 +351,6 @@ def __getattr__(name):
     warnings.warn(hint.format(attr=name))
     # Raise an AttributeError indicating the attribute does not exist
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
-
 
 # Append the version information to the module's docstring
 __doc__ += f"\nVersion: {__version__}\n"
