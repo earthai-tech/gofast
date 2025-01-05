@@ -38,12 +38,12 @@ _EXPLICIT_GO_METHODS_IMPORT_PATH = {
     'go_var': 'gofast.stats.descriptive.var',
     'go_wmedian': 'gofast.stats.descriptive.wmedian',
     'go_z_scores': 'gofast.stats.descriptive.z_scores',
-    'cumulative_ops':'gofast.stats.utils.cumulative_ops', 
-    "anova_test": 'gofast.stats.inferential.anova_test',
-    "bootstrap": 'gofast.stats.inferential.bootstrap',
-    "chi2_test": 'gofast.stats.inferential.chi2_test',
-    "mixed_effects_model": 'gofast.stats.inferential.mixed_effects_model',
-    "check_anova_assumptions": 'gofast.stats.inferential.check_anova_assumptions',
+    'go_cumulative_ops':'gofast.stats.utils.cumulative_ops', 
+    "go_anova_test": 'gofast.stats.inferential.anova_test',
+    "go_bootstrap": 'gofast.stats.inferential.bootstrap',
+    "go_chi2_test": 'gofast.stats.inferential.chi2_test',
+    "go_mixed_effects_model": 'gofast.stats.inferential.mixed_effects_model',
+    "go_check_anova_assumptions": 'gofast.stats.inferential.check_anova_assumptions',
     "go_transform":'gofast.dataops.preprocessing.transform'
 
 }
@@ -65,20 +65,21 @@ _PUBLIC_MODULES =[
     'api',
     'backends',
     'callbacks',
-    #'cli',
     'compat',
     'dataops',
     'datasets',
     'estimators',
     'experimental',
-    #'externals',
     'geo',
-    #'gflogs',
     'mlops',
     'models',
-    #'nn',
+    # -----------------------------------------
+    # Dont need to initialize 'nn' subpkg
+    # since it expects keras to be installed. 
+    # -----------------------------------------
+    #'nn', 
+    
     'plot',
-    #'pyx',
     'stats',
     'transformers',
     'utils',
@@ -106,9 +107,13 @@ _PUBLIC_MODULES =[
 # Store original functions to allow unwrapping
 _original_functions = {}
 
-__all__=["attach_go_methods", "remove_go_methods", "wrap_public_functions", 
-         "unwrap_public_functions", "discover_submodules", 
-         "fast_discover_submodules"
+__all__=[
+    "attach_go_methods",
+    "remove_go_methods",
+    "wrap_public_functions", 
+    "unwrap_public_functions",
+    "discover_submodules", 
+    "fast_discover_submodules"
 ]
 
 class FunctionWrapper:
@@ -260,7 +265,6 @@ def remove_go_methods():
     for method_name in _EXPLICIT_GO_METHODS:
         if hasattr(pd.DataFrame, method_name):
             delattr(pd.DataFrame, method_name)
-
 
 def _wrap_function(func: FunctionType) -> FunctionType:
     """

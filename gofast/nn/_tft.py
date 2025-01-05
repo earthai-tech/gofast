@@ -342,7 +342,7 @@ class VariableSelectionNetwork(Layer, NNLearner):
     @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
         self,
-        #XXXTODO
+        # XXX TODO: remove input_dim
         # input_dim,
         num_inputs,
         units,
@@ -1037,7 +1037,11 @@ class TemporalFusionTransformer(Model, NNLearner):
     def call(self, inputs, training=False):
         self.logger.debug("Starting call method with inputs.")
      
-        static_inputs, dynamic_inputs = inputs
+        static_inputs, dynamic_inputs = validate_tft_inputs(
+            inputs,
+            dynamic_input_dim= self.dynamic_input_dim,
+            static_input_dim=self.static_input_dim, 
+          )
 
         # Variable Selection
         self.logger.debug("Applying Variable Selection on Static Inputs...")

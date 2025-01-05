@@ -667,9 +667,9 @@ class XTFT(Model, NNLearner):
     @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
         self,
-        static_input_dim: int,
         dynamic_input_dim: int,
         future_input_dim: int,
+        static_input_dim: int,
         embed_dim: int = 32,
         forecast_horizons: int = 1,
         quantiles: Union[str, List[float], None] = None,
@@ -825,7 +825,7 @@ class XTFT(Model, NNLearner):
         
 
     def call(self, inputs, training=False):
-        static_input, dynamic_input, future_input = validate_xtft_inputs (
+        dynamic_input, future_input, static_input = validate_xtft_inputs (
             inputs =inputs,
             static_input_dim=self.static_input_dim, 
             dynamic_input_dim= self.dynamic_input_dim, 
@@ -1190,16 +1190,6 @@ See more in :ref:`User Guide <user_guide>`.
 
 Parameters
 ----------
-static_input_dim : int
-    Dimensionality of static input features (no time dimension).  
-    These features remain constant over time steps and provide
-    global context or attributes related to the time series. For
-    example, a store ID or geographic location. Increasing this
-    dimension allows the model to utilize more contextual signals
-    that do not vary with time. A larger `static_input_dim` can
-    help the model specialize predictions for different entities
-    or conditions and improve personalized forecasts.
-
 dynamic_input_dim : int
     Dimensionality of dynamic input features. These features vary
     over time steps and typically include historical observations
@@ -1217,7 +1207,17 @@ future_input_dim : int
     Increasing `future_input_dim` enhances the model’s ability
     to leverage external information about the future, improving
     the accuracy and stability of multi-horizon forecasts.
-
+    
+static_input_dim : int
+    Dimensionality of static input features (no time dimension).  
+    These features remain constant over time steps and provide
+    global context or attributes related to the time series. For
+    example, a store ID or geographic location. Increasing this
+    dimension allows the model to utilize more contextual signals
+    that do not vary with time. A larger `static_input_dim` can
+    help the model specialize predictions for different entities
+    or conditions and improve personalized forecasts.
+    
 embed_dim : int, optional
     Dimension of feature embeddings. Default is ``32``. After
     variable transformations, inputs are projected into embeddings

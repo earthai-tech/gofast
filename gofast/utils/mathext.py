@@ -29,6 +29,7 @@ from ..api.types import (
     ArrayLike, DataFrame, Dict, List, Optional, Tuple, Union, NDArray, 
 )
 from ..api.summary import ResultSummary
+from ..compat.pandas import select_dtypes 
 from ..compat.sklearn import validate_params, InvalidParameterError 
 from ..core.array_manager import ( 
     to_numeric_dtypes, concat_array_from_list, extract_array_from
@@ -559,8 +560,8 @@ def compute_coverage(
     def to_array(v):
         if isinstance(v, (pd.DataFrame, pd.Series)):
             if numeric_only:
-                v = v.select_dtypes(
-                    include=[np.number]) if isinstance(v, pd.DataFrame) else v
+                v= select_dtypes(v, 'numeric') if isinstance(
+                    v, pd.DataFrame) else v
             a = v.values if hasattr(v, 'values') else np.array(v)
         elif isinstance(v, np.ndarray):
             a = v
@@ -627,7 +628,6 @@ def compute_coverage(
         print(f"Coverage computed: {coverage:.4f}")
 
     return coverage
-
 
 @is_data_readable 
 def rescale_data(

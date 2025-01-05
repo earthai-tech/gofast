@@ -167,50 +167,39 @@ _shared_docs[
 
 Parameters
 ----------
-static_input_dim : int
-    The dimensionality of each static input feature. This is the number 
-    of features that do not change over time (e.g., static data such as 
-    geographical coordinates, user demographics, etc.). For example, 
-    if there are 2 static features (e.g., country, region), set this to 2.
-
 dynamic_input_dim : int
     The dimensionality of each dynamic input feature. These are the 
     time-varying features (e.g., stock prices, temperature, etc.) that 
     change over time. This should be the number of features in your 
     temporal input data at each time step.
-
-num_static_vars : int
-    The number of static variables included in the input data. Static 
-    variables are the features that do not change over time. For example, 
-    this could be the number of static features such as geographical 
-    attributes, demographic data, etc.
-
-num_dynamic_vars : int
-    The number of dynamic variables in the input data. These variables 
-    change over time and are used to capture temporal patterns. For 
-    example, the number of dynamic variables could be the number of 
-    features such as stock prices, temperature, etc., that change across 
-    different time steps.
-
-hidden_units : int
+    
+static_input_dim : int
+    The dimensionality of each static input feature. This is the number 
+    of features that do not change over time (e.g., static data such as 
+    geographical coordinates, user demographics, etc.). For example, 
+    if there are 2 static features (e.g., country, region), set this to 2.
+    
+hidden_units : int, optional
     The number of hidden units in the layers of the model. This determines 
     the size of the hidden layers in the model architecture. A larger 
     number of hidden units allows the model to capture more complex 
     relationships in the data but may also increase computational cost.
+    The default is ``32``.
 
-num_heads: int
+num_heads: int, optional
     The number of attention heads used in the multi-head attention 
     mechanism. This controls how many separate "attention" operations 
     are run in parallel. More heads typically allow the model to capture 
-    more complex interactions within the input data.
+    more complex interactions within the input data. The default is ``4``.
 
-dropout_rate : float
+dropout_rate : float, optional
     The dropout rate used during training to prevent overfitting. This 
     value controls the fraction of input units to drop during training 
     (i.e., setting it to 0.2 means 20% of input units are randomly 
     set to zero in each forward pass). The value should be between 0 and 1.
+    The default is ``0.1`` i.e 10%. 
 
-forecast_horizon: int
+forecast_horizons: int
     The number of time steps ahead to predict. This defines how far into 
     the future the model will generate predictions. For example, if set 
     to 7, the model will predict 7 future time steps from the current 
@@ -373,8 +362,6 @@ Examples
 >>> model = TemporalFusionTransformer(
 ...     static_input_dim=1,
 ...     dynamic_input_dim=1,
-...     num_static_vars=2,
-...     num_dynamic_vars=5,
 ...     hidden_units=64,
 ...     num_heads=4,
 ...     dropout_rate=0.1,
@@ -469,11 +456,11 @@ dynamic_input_dim : int
     features help the model understand seasonality, trends, and
     evolving conditions over time.
 
-future_covariate_dim : int
+future_input_dim : int
     Dimensionality of future known covariates. These are features
     known ahead of time for future predictions (e.g., holidays,
     promotions, scheduled events, or future weather forecasts).
-    Increasing `future_covariate_dim` enhances the model’s ability
+    Increasing `future_input_dim` enhances the model’s ability
     to leverage external information about the future, improving
     the accuracy and stability of multi-horizon forecasts.
 
@@ -592,7 +579,7 @@ anomaly_config : dict, optional
             model = XTFT(
                 static_input_dim=10,
                 dynamic_input_dim=45,
-                future_covariate_dim=5,
+                future_input_dim=5,
                 anomaly_config=anomaly_config,
                 ...
             )
@@ -683,7 +670,7 @@ _shared_docs [
     dynamic_input_dim : int
         The dimensionality of the dynamic input features.
 
-    future_covariate_dim : int
+    future_input_dim : int
         The dimensionality of the future covariate features.
 
     embed_dim : int, optional, default=32

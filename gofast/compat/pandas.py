@@ -276,7 +276,6 @@ def select_dtypes(
     .. [1] pandas documentation: https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.select_dtypes.html
     """
 
-
     # Ensure that df is a pandas DataFrame
     if not isinstance(df, pd.DataFrame):
         raise TypeError("Expected a pandas DataFrame, but got a {}.".format(type(df).__name__))
@@ -321,7 +320,6 @@ def select_dtypes(
 
     return selected_df
 
-   
 def describe_dataframe(
         df, numeric_only=True, include_all=False, percentiles=None, 
         datetime_is_numeric=True):

@@ -108,7 +108,6 @@ def validate_anomaly_scores(
         anomaly_config['anomaly_scores'] = None
         return anomaly_scores
 
-#XXXTODO
 @optional_tf_function
 def validate_tft_inputs(
     inputs : Union[List[Any], Tuple[Any, ...]],
@@ -364,8 +363,8 @@ def validate_tft_inputs(
 @optional_tf_function
 def validate_xtft_inputs(
     inputs: Union[List[Any], Tuple[Any, ...]],
-    static_input_dim: int,
     dynamic_input_dim: int,
+    static_input_dim: int,
     future_covariate_dim: Optional[int] = None, 
 ) -> Tuple[tf.Tensor, tf.Tensor, Optional[tf.Tensor]]:
     """
@@ -462,9 +461,8 @@ def validate_xtft_inputs(
         )
     
     # Unpack inputs
-    static_input, dynamic_input, future_covariate_input = inputs
+    dynamic_input, future_covariate_input, static_input = inputs
 
-    
     # Step 2: Validate static_input
     if static_input is None:
         raise ValueError("``static_input`` cannot be None.")

@@ -318,7 +318,7 @@ def explore(package_path, /,  exclude_names=None):
     exclude_names = exclude_names or default_exclusion
     exclude_names = [exclude_names] if isinstance (exclude_names, str) else exclude_names
     
-    if str(package_path)=="gofast": 
+    if str(package_path)=="gofast" or str(package_path)=="gf": 
         return _get_gofast_package_descriptions ()
     
     # Exclude 'gofast.' in package path if exists
@@ -363,38 +363,40 @@ def explore(package_path, /,  exclude_names=None):
 def _get_gofast_package_descriptions(include_private=False):
     descriptions = {
         # "_build": "Contains build scripts and configurations for the package.",
+        # "cli": "Command-line interface tools and scripts.",
+        # "externals": "External dependencies and third-party integrations.",
+        # "gflogs": "Logging utilities specific to the gofast framework.",
+        # "pyx": "Python extension modules for performance enhancement.",
+        # "config[m]": "Configuration settings and utilities.",
+        
         "analysis": "Includes modules for data analysis and statistical computations.",
         "api": "Provides API interfaces and methods for external integration.",
         "backends": "Houses different backend implementations for various operations.",
         "callbacks": "Callbacks for data operations and model training.",
-        # "cli": "Command-line interface tools and scripts.",
         "compat": "Ensures compatibility with different versions and dependencies.",
         "dataops": "Data operations and management utilities.",
         "datasets": "Contains datasets and data loading utilities.",
         "estimators": "Machine learning estimators and related utilities.",
         "experimental": "Experimental features and modules under development.",
-        # "externals": "External dependencies and third-party integrations.",
         "geo": "Geospatial data processing and analysis tools.",
-        # "gflogs": "Logging utilities specific to the gofast framework.",
         "mlops": "Tools and modules for Machine Learning Operations",
         "models": "Defines various machine learning models.",
         "nn": "Neural network models, data processing, training, and hyperparameter tuning tools.",
         "plot": "Plotting and visualization tools.",
-        # "pyx": "Python extension modules for performance enhancement.",
         "stats": "Statistical functions and analysis tools.",
+        "tools": "Miscellaneous tools and utilities for the package.",
         "transformers": "Transformers and preprocessing modules for data transformation.",
         "utils": "Miscellaneous tools and utilities for the package.",
         "__init__[m]": "Initialization file for the package.",
         "_dep_config[m]": "Dependency configuration settings.",
         "_distributor_init[m]": "Initialization for distribution setup.",
         "_gofastlog[m]": "Logging configurations and settings for gofast.",
-        "_public[m]": "Public API definitions and exports.",
+        "_public_api[m]": "Public API definitions, Initializations and exports.",
         "adaline[m]": "Implements ADALINE (Adaptive Linear Neuron) -based algorithms.",
         "assistance[m]": "Helper functions and assistance utilities.",
         "benchmark[m]": "Performance benchmarking utilities and stress tests for algorithms.",
         "boosting[m]": "Implements boosting tree-based algorithms.",
         "cluster_based[m]": "Clustering algorithms and data partitioning techniques.",
-        # "config[m]": "Configuration settings and utilities.",
         "decorators[m]": "Decorators for various functionalities within the package.",
         "decomposition[m]": "Methods for matrix decomposition, such as PCA, SVD, and factor analysis.",
         "dimensionality[m]": "Dimensionality reduction techniques for high-dimensional datasets.",
@@ -408,7 +410,6 @@ def _get_gofast_package_descriptions(include_private=False):
         "perceptron[m]": "Perceptron-based algorithms and linear classification and regression methods.",
         "preprocessing[m]": "Tools for quick preprocesssing  data and processor built.",
         "query[m]": "Query utilities for data retrieval and manipulation.",
-        "tools": "Miscellaneous tools and utilities for the package.",
         "tree[m]": "Decision tree-based methods for classification, regression, and ensemble approaches."
     }
 
