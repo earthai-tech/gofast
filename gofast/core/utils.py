@@ -22,7 +22,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from ..api.types import (
-    Any, Callable, Union,Tuple, Optional, Iterable, 
+    Any, Callable, Dict, Union,Tuple, Optional, Iterable, 
     _Sub, _F, List, DataFrame
 )
 from ..compat.scipy import check_scipy_interpolate
@@ -2731,3 +2731,220 @@ def lowertify(
             return tuple(processed_values)
     else:
         return tuple(lowered for lowered, _ in processed_values)
+    
+def fetch_value_in(
+    data: Dict[str, Any],
+    key: str,
+    kind: str = "metric",
+    mode: str = "soft",
+    suffixes: Tuple[str, ...] = ("_score", "_loss", "_error"),
+    strict_suffix: bool = False,
+    error: str = 'raise',
+) -> Any:
+    """
+    Fetch the value from a dictionary based on flexible criteria using regex.
+
+    Parameters
+    ----------
+    data : dict
+        The dictionary to search within.
+
+    key : str
+        The key or partial key to search for in the dictionary.
+
+    kind : str, optional
+        Specifies the type of data (e.g., 'metric'). Default is 'metric'.
+
+    mode : str, {'soft', 'strict'}, optional
+        - If 'soft', attempts a best match with suffixes.
+        - If 'strict', the key must match exactly.
+        Default is 'soft'.
+
+    suffixes : tuple, optional
+        A tuple of suffixes to consider for appending to the search key.
+        Default is ("_score", "_loss", "_error").
+
+    strict_suffix : bool, optional
+        If True, only keys that match with the suffix are considered in
+        'soft' mode. Default is False.
+
+    error : str, {'raise', 'warn', 'ignore'}, optional
+        Specifies the behavior when an ambiguous or no match is found.
+        - 'raise': Raise a ValueError.
+        - 'warn': Issue a warning and use the first match.
+        - 'ignore': Silently use the first match if available.
+
+    Returns
+    -------
+    value : Any
+        The value corresponding to the matching key in the dictionary.
+
+    Raises
+    ------
+    ValueError
+        If the key is ambiguous or cannot be found in the dictionary,
+        depending on the 'error' parameter.
+
+    Examples
+    --------
+    >>> from gofast.core.utils import fetch_value_in
+    >>> metrics = {
+    ...     'accuracy_score': lambda x: x,
+    ...     'balanced_accuracy_score': lambda x: x,
+    ...     'top_k_accuracy_score': lambda x: x,
+    ...     'balanced_accuracy': lambda x: x,
+    ... }
+    >>> fetch_value_in(metrics, 'accuracy')
+    <function <lambda> at 0x...>
+    """
+    if isinstance(key, str): 
+        key = get_full_metric_name(key)
+        
+    if kind != "metric":
+        raise ValueError(
+            f"Unsupported kind '{kind}'. Currently only 'metric' is supported.")
+
+    matches = []
+
+    # Compile regex pattern based on mode
+    if mode == "soft":
+        # Create patterns that start with the key and optionally followed by suffixes
+        patterns = [f"^{re.escape(key)}{re.escape(suffix)}$" for suffix in suffixes]
+        patterns.insert(0, f"^{re.escape(key)}$")  # Exact key match has highest priority
+    elif mode == "strict":
+        patterns = [f"^{re.escape(key)}$"]  # Only exact match
+    else:
+        raise ValueError(f"Unsupported mode '{mode}'. Use 'soft' or 'strict'.")
+
+    # If strict_suffix is True in soft mode, ensure suffixes are present
+    if mode == "soft" and strict_suffix:
+        patterns = [f"^{re.escape(key)}{re.escape(suffix)}$" for suffix in suffixes]
+
+    # Compile all patterns
+    regex_patterns = [re.compile(pattern) for pattern in patterns]
+
+    # Search for matches
+    for k in data.keys():
+        if any(pattern.match(k) for pattern in regex_patterns):
+            matches.append(k)
+
+    if not matches:
+        if error == 'raise':
+            raise ValueError(
+                f"Key '{key}' could not be resolved in the dictionary"
+                f" under mode='{mode}' and kind='{kind}'."
+            )
+        elif error == 'warn':
+            warnings.warn(
+                f"Key '{key}' could not be resolved. Returning None.",
+                UserWarning
+            )
+            return None
+        elif error == 'ignore':
+            return None
+        else:
+            raise ValueError(f"Unsupported error handling option '{error}'."
+                             " Use 'raise', 'warn', or 'ignore'.")
+
+    if len(matches) > 1:
+        if mode == "soft":
+            if error == 'raise':
+                raise ValueError(
+                    f"Ambiguous key '{key}' matched multiple entries: {matches}."
+                )
+            elif error == 'warn':
+                warnings.warn(
+                    f"Ambiguous key '{key}' matched multiple entries: {matches}."
+                    " Using the first match '{matches[0]}'.",
+                    UserWarning
+                )
+                return data[matches[0]]
+            elif error == 'ignore':
+                return data[matches[0]]
+            else:
+                raise ValueError(f"Unsupported error handling option '{error}'."
+                                 " Use 'raise', 'warn', or 'ignore'.")
+        else:
+            # In strict mode, there should be at most one match
+            raise ValueError(
+                f"Ambiguous key '{key}' matched multiple entries"
+                f" in strict mode: {matches}."
+            )
+
+    # Single match found
+    return data[matches[0]]
+
+def get_full_metric_name(metric: str) -> str:
+    """
+    Resolve the complete metric name based on a mapping. If the metric is not found
+    in the mapping or the special 'gofast' metrics, return the metric in lowercase.
+
+    Parameters
+    ----------
+    metric : str
+        The input metric name provided by the user.
+
+    Returns
+    -------
+    str
+        The resolved complete metric name.
+
+    Examples
+    --------
+    >>> get_complete_metric_name('mae')
+    'mean_absolute_error'
+    >>> get_complete_metric_name('MAPE')
+    'mean_absolute_percentage_error'
+    >>> get_complete_metric_name('msle')
+    'mean_squared_log_error'
+    >>> get_complete_metric_name('mean_squared_log_error')
+    'mean_squared_log_error'
+    >>> get_complete_metric_name('unknown_metric')
+    'unknown_metric'
+    """
+    # Define the mapping from shorthand or alternative
+    #  names to full metric names
+    _METRIC_MAPPING= {
+        # Standard Metrics
+        'mae': 'mean_absolute_error',
+        'mape': 'mean_absolute_percentage_error',
+        'mse': 'mean_squared_error',
+        'rmse': 'root_mean_squared_error',
+        'r2': 'r2_score',
+        'accuracy': 'accuracy_score',
+        'f1': 'f1_score',
+        'precision': 'precision_score',
+        'recall': 'recall_score',
+        'auc': 'roc_auc_score',
+        'msle': 'mean_squared_log_error',   # a GOFAST metric
+        'bacc': 'balanced_accuracy',        # GOFAST metric
+        'bacc_score': 'balanced_accuracy_score', # GOFAST metric
+        'iv': 'information_value',          # GOFAST metric
+        'evs': 'explained_variance_score',  # GOFAST metric
+        'mae_dev': 'mean_absolute_deviation',  # GOFAST metric
+        'dsc': 'dice_similarity_score',     # GOFAST metric
+        'gini': 'gini_score',               # GOFAST metric
+        'hloss': 'hamming_loss',            # GOFAST metric
+        'fms': 'fowlkes_mallows_score',     # GOFAST metric
+        'rmsle': 'root_mean_squared_log_error',  # GOFAST metric
+        'mpe': 'mean_percentage_error',     # GOFAST metric
+        'pbias': 'percentage_bias',         # GOFAST metric
+        'sprank': 'spearmans_rank_score',   # GOFAST metric
+        'precision_at_k': 'precision_at_k', # GOFAST metric
+        'ndcg_at_k': 'ndcg_at_k',           # GOFAST metric
+        'mrs': 'mean_reciprocal_score',     # GOFAST metric
+        'adj_r2': 'adjusted_r2_score',      # GOFAST metric
+        'likelihood': 'likelihood_score',   # GOFAST metric
+        'twa': 'twa_score',                  # GOFAST metric
+    }
+    if callable (metric): 
+        metric = metric.__name__ 
+        
+    metric_lower = str(metric).lower()
+
+    # Check if the metric is in the predefined mapping
+    if metric_lower in _METRIC_MAPPING:
+        return _METRIC_MAPPING[metric_lower]
+
+    # If not found, return the metric in lowercase
+    return metric_lower

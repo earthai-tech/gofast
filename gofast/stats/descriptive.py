@@ -173,8 +173,7 @@ def plot_lorenz_curve(data: np.ndarray, fig_size: Tuple[int, int]):
     plt.grid(True)
     plt.show()
     
-
-@DynamicMethod ( expected_type="both", capture_columns=True)
+@DynamicMethod (expected_type="both", capture_columns=True)
 def corr(
     data: Union[ArrayLike, DataFrame],  
     columns: List[str] = None,

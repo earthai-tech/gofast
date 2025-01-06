@@ -38,7 +38,7 @@ _EXPLICIT_GO_METHODS_IMPORT_PATH = {
     'go_var': 'gofast.stats.descriptive.var',
     'go_wmedian': 'gofast.stats.descriptive.wmedian',
     'go_z_scores': 'gofast.stats.descriptive.z_scores',
-    'go_cumulative_ops':'gofast.stats.utils.cumulative_ops', 
+    #'go_cumulative_ops':'gofast.stats.utils.cumulative_ops', 
     "go_anova_test": 'gofast.stats.inferential.anova_test',
     "go_bootstrap": 'gofast.stats.inferential.bootstrap',
     "go_chi2_test": 'gofast.stats.inferential.chi2_test',

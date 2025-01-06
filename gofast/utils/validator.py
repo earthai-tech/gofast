@@ -4304,23 +4304,19 @@ def validate_keras_model(
     True
     """
     if not is_keras_model(model):
-        if raise_exception: 
-            raise TypeError("Provided object is not a Keras model.")
-        return False 
+        raise TypeError("Provided model is not a Keras model.")
 
     if deep_check and not has_required_attributes(
-            model, ['fit', 'predict', 'compile', 'summary']):
-        if raise_exception: 
-            raise TypeError("Model does not support essential Keras functionalities.")
-        return False
+            model, ['fit', 'predict', 'compile', 'summary']): 
+        raise TypeError("Model does not support essential Keras functionalities.")
 
     if custom_check:
         try:
-            return custom_check(model)
+            custom_check(model)
         except Exception as e:
             raise ValueError(f"Custom check failed: {e}")
    
-    return True
+    return model
 
 def is_installed(module: str ) -> bool:
     """

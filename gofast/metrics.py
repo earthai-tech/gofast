@@ -13,7 +13,6 @@ assessments, opinions, and business strategies.
 from __future__ import annotations
 from numbers import Real
 import warnings
-
 import numpy as np
 
 from sklearn.metrics import (
@@ -28,7 +27,7 @@ from ._gofastlog import gofastlog
 from .api.docs import filter_docs 
 from .api.formatter import MetricFormatter
 from .decorators import Substitution 
-from .core.utils import normalize_string
+from .core.utils import normalize_string, fetch_value_in 
 from .utils.base_utils import (
     convert_array_dimensions, filter_nan_from, standardize_input
 )
@@ -4500,30 +4499,34 @@ def get_scorer(scoring,  include_sklearn=True):
             from sklearn.metrics import get_scorer_names as sklearn_get_scorer_names
             if scorer_name in sklearn_get_scorer_names():
                 return scoring
-        raise ValueError(f"The callable scorer '{scorer_name}' is not recognized"
-                         " among gofast or sklearn scorers.")
+            
+        raise ValueError(
+            f"The callable scorer '{scorer_name}' is not recognized"
+             " among gofast or sklearn scorers.")
 
     # Attempt to fetch scorer from gofast's predefined list
     scorer = SCORERS.get(scoring)
     if scorer is not None:
         return scorer
-
-    # Optionally include sklearn scorers in the search
-    if include_sklearn:
+    
+    # go to search to  scikit-learn metrics 
+    if include_sklearn: 
+        # ignore error to raise all valid_metrics
+        _scorers =fetch_scorer_functions() 
+        scorer = fetch_value_in(_scorers, key= scoring, error ='ignore' )
+        
+        if scorer is not None: 
+            return scorer 
+        # Optionally include sklearn scorers in the search
         from sklearn.metrics import get_scorer as sklearn_get_scorer
         try:
             return sklearn_get_scorer(scoring)
         except ValueError:
             pass
-
+        
     # Compile a list of all valid scorers for error message
-    valid_scorers = list(SCORERS.keys())
-    if include_sklearn:
-        from sklearn.metrics import get_scorer_names as sklearn_get_scorer_names
-        valid_scorers += sklearn_get_scorer_names()
-
     raise ValueError(f"Scorer '{scoring}' is not recognized."
-                     f" Available scorers are: {valid_scorers}.")
+                     f" Available scorers are: {list(_scorers.keys())}.")
 
 
 def get_scorer_names(include_sklearn=True):
@@ -4778,5 +4781,8 @@ def make_scorer(
         **kwargs
     )
   
+
+
+
 
             

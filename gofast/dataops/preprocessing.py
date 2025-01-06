@@ -22,9 +22,10 @@ from ..api.summary import ReportFactory
 from ..api.types import List, DataFrame, Optional, Series
 from ..api.types import Dict, Union, Tuple, ArrayLike
 from ..api.util import get_table_size 
+from ..compat.pandas import select_dtypes 
 from ..core.array_manager import to_numeric_dtypes, reshape, decode_sparse_data 
 from ..core.checks import is_iterable, assert_ratio, exist_features 
-from ..core.checks import is_sparse_matrix
+from ..core.checks import is_sparse_matrix, check_datetime
 from ..core.io import is_data_readable 
 from ..core.utils import format_to_datetime
 from ..utils.deps_utils import ensure_pkg
@@ -2735,6 +2736,8 @@ def transform(
     columns: Optional[str|List[str]] = None, 
     decode_sparse_matrix: bool = True, 
     noise_level: float = None, 
+    accept_datetime: bool=False, 
+    consider_datetime_as=None, 
     error: str = "ignore", 
     seed: int = None, 
     view=None, 
@@ -2763,6 +2766,27 @@ def transform(
     noise_level : float, optional, default=None
         The level of noise (as a fraction between 0 and 1) to introduce into 
         the numeric columns. If None, no noise is added.
+    accept_dt : bool, default=False
+        Whether to accept the presence of datetime columns:
+        - If True and datetime columns are kept or converted if 
+        `consider_dt_as` is set.
+        - If False and no `consider_dt_as` provided warn user, then drop datetime 
+            columns.
+    consider_dt_as : str, optional
+        Indicates how to handle or convert datetime columns when
+        ``ops='validate'``:
+        - `None`: Do not convert; if datetime is not accepted, 
+          handle according to `accept_dt` and `error`.
+        - `'numeric'`: Convert date columns to a numeric format
+          (like timestamps).
+        - `'float'`, `'float32'`, `'float64'`: Convert date columns
+          to float representation.
+        - `'int'`, `'int32'`, `'int64'`: Convert date columns to
+          integer representation.
+        - `'object'`: Convert date columns to Python objects 
+          (strings, etc.). If conversion fails, raise or warn 
+          per `error` policy.
+
     error : str, optional, default='ignore'
         The error handling strategy. Default is 'ignore'. If set to 'raise', 
         an exception is raised if any error occurs during processing.
@@ -2839,12 +2863,17 @@ def transform(
         data = data.drop(columns=target_columns, errors='ignore')
     # get original data columns 
     original_columns = list(data.columns)
+    
+    data = check_datetime(
+        data, ops ='validate', accept_dt= accept_datetime,
+          consider_dt_as = consider_datetime_as, error ='warn',
+    )
     # Identify numeric and categorical features for transformation
-    numeric_features = data.select_dtypes(
-        include=['int64', 'float64']).columns.tolist()
-    categorical_features = data.select_dtypes(
-        include=['object']).columns.tolist()
-
+    numeric_features = select_dtypes(
+        data, dtypes ='numeric', return_columns=True)
+    categorical_features=select_dtypes(
+        data, incl=['object'], return_columns=True)
+    
     # Define transformations for numeric and categorical features
     numeric_transformer = Pipeline(steps=[ 
         ('imputer', SimpleImputer(strategy='median')),

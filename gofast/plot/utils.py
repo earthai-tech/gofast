@@ -30,7 +30,7 @@ from sklearn.utils import resample
 from ..api.types import Optional, Tuple,  Union, List 
 from ..api.types import Dict, ArrayLike, DataFrame
 from ..api.property import BasePlot
-from ..core.array_manager import smart_ts_detector 
+from ..core.array_manager import smart_ts_detector, drop_nan_in 
 from ..core.checks import ( 
     _assert_all_types, is_iterable, str2columns, is_in_if, 
     exist_features, check_features_types, check_spatial_columns, 
@@ -1267,6 +1267,7 @@ def plot_r_squared(
     >>> plot_r_squared(y_true_sample, y_pred_sample, "Sample Regression Model")
 
     """
+    y_true, y_pred = drop_nan_in(y_true, y_pred)
     # Calculate R-squared
     r_squared = r2_score(y_true, y_pred)
     

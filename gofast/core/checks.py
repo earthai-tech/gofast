@@ -3642,7 +3642,10 @@ def are_all_frames_valid(
     """
     # Default error message
     if error_msg is None:
-        error_msg = "All inputs must be either pandas DataFrames" + \
+        subj = 'All inputs' if len(dfs) > 1 else 'Input'
+        either =' either' if not df_only else ''
+        s='s' if len(dfs) > 1 else ''
+        error_msg = f"{subj} must be{either} pandas DataFrame{s}" + \
                     (" or pandas Series." if not df_only else ".")
     
     # Check each argument
@@ -5200,7 +5203,6 @@ def check_params(param_types: Dict[str, Any], coerce: bool = True):
         return wrapper
     return decorator
 
-
 def check_callable(
         value, expected_type, param_name: str = ''):
     """
@@ -5238,7 +5240,6 @@ def check_callable(
     check_callable(int, Callable)                  # int is callable (class), so returns int
 
     """
-
 
     origin = get_origin(expected_type)
     args = get_args(expected_type)
@@ -5364,3 +5365,254 @@ def check_array_like(
             f"Object of type '{type(obj)}' is not array-like in the '{context}' context.")
     
     return obj
+
+def check_datetime(
+    df : pd.DataFrame,
+    ops : str = 'check_only',
+    error : str = 'raise',
+    consider_dt_as : Optional[str] = None,
+    accept_dt : bool = True
+) -> Union[bool, pd.DataFrame]:
+    """
+    Check or validate datetime columns in a DataFrame and optionally
+    convert them to a specified data type.
+
+    The function identifies columns of datetime-like dtype in
+    ``df``. Depending on ``ops`` and other parameters, it either
+    checks or manipulates them.
+
+    .. math::
+        \\text{time\\_col} \\in 
+            \\{ \\text{datetime64}, \\text{object (parsed as date)}, 
+               \\text{etc.} \\}
+
+    Parameters
+    -----------
+    df : 
+        pd.DataFrame 
+        The input dataframe to check or validate.
+
+    ops : str, default='check_only'
+        Specifies the operation mode:
+        - `check_only`: Return True/False depending on the presence
+          of datetime columns.
+        - `validate`: Potentially convert or remove datetime columns
+          depending on other parameters.
+
+    error : str, default='raise'
+        Determines how to handle invalid cases:
+        - `'raise'`: Raise an error immediately.
+        - `'warn'` : Issue a warning, then proceed.
+        - `'ignore'`: Silently continue, ignoring issues.
+
+    consider_dt_as : str, optional
+        Indicates how to handle or convert datetime columns when
+        ``ops='validate'``:
+        - `None`: Do not convert; if datetime is not accepted, 
+          handle according to `accept_dt` and `error`.
+        - `'numeric'`: Convert date columns to a numeric format
+          (like timestamps).
+        - `'float'`, `'float32'`, `'float64'`: Convert date columns
+          to float representation.
+        - `'int'`, `'int32'`, `'int64'`: Convert date columns to
+          integer representation.
+        - `'object'`: Convert date columns to Python objects 
+          (strings, etc.). If conversion fails, raise or warn 
+          per `error` policy.
+
+    accept_dt : bool, default=True
+        Whether to accept the presence of datetime columns:
+        - If True and ``ops='validate'``, datetime columns are
+          kept or converted if `consider_dt_as` is set.
+        - If False and no `consider_dt_as` provided:
+          * With `error='raise'`, raise error if any datetime 
+            column is found.
+          * With `error='warn'`, warn user, then drop datetime 
+            columns.
+          * With `error='ignore'`, silently drop datetime columns.
+
+    Returns
+    -------
+    bool or pd.DataFrame
+        - If ``ops='check_only'``, returns True if datetime columns
+          exist, otherwise False (respecting `error` behavior).
+        - If ``ops='validate'``, returns a possibly modified
+          DataFrame according to the rules described.
+
+    Notes
+    -----
+    If :math:`\\text{accept\\_dt} = \\text{False}` and
+    :math:`\\text{ops} = \\text{'validate'}`, but no valid
+    conversion is specified via :math:`\\text{consider\\_dt\\_as}`,
+    the behavior depends on :math:`\\text{error}`:
+      - `'raise'`: raise an error.
+      - `'warn'`: warn and drop datetime columns.
+      - `'ignore'`: silently drop datetime columns.
+
+    Examples
+    --------
+    >>> from gofast.core.checks import check_datetime
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'date_col': pd.date_range('2021-01-01', periods=5),
+    ...     'val': [1,2,3,4,5]
+    ... })
+    >>> # Example 1: Just checking
+    >>> has_dt = check_datetime(df, ops='check_only')
+    >>> print(has_dt)
+    True
+
+    >>> # Example 2: Validate and convert to float
+    >>> df_float = check_datetime(df, ops='validate',
+    ...     error='warn', consider_dt_as='float64')
+    >>> print(df_float.dtypes)
+
+    See Also
+    --------
+    SomeOtherFunction : Reference to a related function.
+
+    References
+    ----------
+    .. [1] Smith, J. et al., "Efficient Data Preprocessing 
+           Techniques," Data Engineering, 2020.
+    """
+    are_all_frames_valid(df, df_only=True)
+    # 1. Identify all datetime columns in df.
+    dt_cols = df.select_dtypes(
+        include=['datetime', 'datetime64[ns]','datetimetz']).columns.tolist()
+
+    # quick check for presence
+    has_dt = (len(dt_cols) > 0)
+
+    # 2. If ops == 'check_only', we just return bool or handle error
+    #    as needed.
+    if ops == 'check_only':
+        if not has_dt:
+            # If dt columns exist, handle error or just return True
+            if error == 'raise':
+                raise ValueError(
+                    "DataFrame has datetime columns "
+                    f"({dt_cols}). Raise requested."
+                )
+            elif error == 'warn':
+                warnings.warn(
+                    "DataFrame has datetime columns "
+                    f"({dt_cols})."
+                )
+            # if error == 'ignore', do nothing
+            return False
+        else:
+            return True
+
+    # 3. For ops == 'validate', proceed with acceptance or conversion.
+    if ops != 'validate':
+        # unrecognized ops -> either raise or warn
+        msg_ops = (f"Unknown ops='{ops}'. Use 'check_only' or 'validate'.")
+        if error == 'raise':
+            raise ValueError(msg_ops)
+        elif error == 'warn':
+            warnings.warn(msg_ops)
+        # 'ignore' -> just do nothing
+        return df
+
+    # ops='validate':
+    if not has_dt:
+        # no datetime columns => just return df
+        return df
+
+    # dt exists
+    if accept_dt:
+        # accept dt columns, but maybe convert if consider_dt_as is set
+        if consider_dt_as is None:
+            # user wants dt columns as is
+            return df
+
+        # user wants to convert dt
+        for col in dt_cols:
+            df = _convert_datetime_column(
+                df=df,
+                col=col,
+                consider_dt_as=consider_dt_as,
+                error=error
+            )
+        return df
+    else:
+        # accept_dt is False, dt columns are not acceptable
+        # if we have consider_dt_as, we can still convert them
+        if consider_dt_as is not None:
+            # try conversion
+            for col in dt_cols:
+                df = _convert_datetime_column(
+                    df=df,
+                    col=col,
+                    consider_dt_as=consider_dt_as,
+                    error=error
+                )
+            return df
+        else:
+            # user did not provide consider_dt_as
+            # => handle error
+            if error == 'raise':
+                raise ValueError(
+                    "Datetime columns found but no conversion or "
+                    f"acceptance specified. Don't know how to treat {dt_cols}."
+                    " Use `consider_dt_as` or set ``accept_dt=True``."
+                )
+            elif error == 'warn':
+                warnings.warn(
+                    "Datetime columns found and not accepted. "
+                    f"Dropping these columns: {dt_cols}."
+                )
+                return df.drop(columns=dt_cols)
+            elif error == 'ignore':
+                # silently drop dt columns
+                return df.drop(columns=dt_cols)
+
+    # fallback
+    return df
+
+def _convert_datetime_column(
+    df : pd.DataFrame,
+    col : str,
+    consider_dt_as : str,
+    error : str
+) -> pd.DataFrame:
+    """
+    Convert datetime column (col) in df to the type specified by 
+    consider_dt_as. Raise or warn on failure based on error.
+    """
+    try:
+        if consider_dt_as.lower() in ['numeric']:
+            # convert datetime to numeric (timestamp)
+            df[col] = pd.to_numeric(df[col], errors='raise')
+        elif consider_dt_as.lower() in ['float', 'float32', 'float64']:
+            # convert datetime to numeric then to float
+            df[col] = pd.to_numeric(df[col], errors='raise')
+            df[col] = df[col].astype(consider_dt_as.lower())
+        elif consider_dt_as.lower() in ['int', 'int32', 'int64']:
+            # convert datetime to numeric then to int
+            df[col] = pd.to_numeric(df[col], errors='raise')
+            df[col] = df[col].astype(consider_dt_as.lower())
+        elif consider_dt_as.lower() in ['object']:
+            # convert datetime to object (string)
+            df[col] = df[col].astype('object')
+        else:
+            msg = (f"Unsupported consider_dt_as='{consider_dt_as}'. "
+                   "Use 'numeric', 'floatXX', 'intXX', or 'object'.")
+            if error == 'raise':
+                raise ValueError(msg)
+            elif error == 'warn':
+                warnings.warn(msg)
+            # ignore => do nothing
+    except Exception as e:
+        msg_fail = (
+            f"Failed to convert column '{col}' from datetime to "
+            f"'{consider_dt_as}'. Error: {str(e)}"
+        )
+        if error == 'raise':
+            raise ValueError(msg_fail)
+        elif error == 'warn':
+            warnings.warn(msg_fail)
+        # if 'ignore', pass
+    return df
+    

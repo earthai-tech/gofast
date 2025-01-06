@@ -560,7 +560,7 @@ def compute_coverage(
     def to_array(v):
         if isinstance(v, (pd.DataFrame, pd.Series)):
             if numeric_only:
-                v= select_dtypes(v, 'numeric') if isinstance(
+                v= select_dtypes(v, dtypes='numeric') if isinstance(
                     v, pd.DataFrame) else v
             a = v.values if hasattr(v, 'values') else np.array(v)
         elif isinstance(v, np.ndarray):
@@ -721,13 +721,17 @@ def rescale_data(
         # Handle DataFrame input
         if columns is None:
             # Rescale all numeric columns in the DataFrame
-            numeric_columns = data.select_dtypes(include=np.number).columns
+            numeric_columns = select_dtypes (
+                data, dtypes ='numeric', return_columns=True )
+            
+            # numeric_columns = data.select_dtypes(include=np.number).columns
             if numeric_columns.empty:
                 return handle_empty_columns (
                     data, 'No numeric columns found in the DataFrame.')
 
             if error == 'warn':
-                non_numeric_columns = data.select_dtypes(exclude=np.number).columns
+                non_numeric_columns= select_dtypes(
+                    data, excl=np.number, return_columns=True)
                 if not non_numeric_columns.empty:
                     warnings.warn(
                         f"Non-numeric columns {list(non_numeric_columns)} found. "
@@ -735,7 +739,10 @@ def rescale_data(
                     )
         else:
             # Rescale only the specified columns
-            numeric_columns = data[columns].select_dtypes(include=np.number).columns
+            numeric_columns= select_dtypes(
+                data[columns], incl =[np.number],
+                return_columns=True 
+            )
             if numeric_columns.empty:
                 return handle_empty_columns (
                     data, 'No numeric columns found in the specified list.')
@@ -1100,7 +1107,7 @@ def compute_p_values(
     }
      
     # Select only numeric columns
-    df = df.select_dtypes([np.number])
+    df = select_dtypes(df, incl=[np.number])
     if df.empty:
         raise ValueError("P-value calculations expect numeric data, but"
                          " the DataFrame contains no numeric data.")
@@ -2203,7 +2210,7 @@ def rank_data(data, method='average'):
     """
     if isinstance (data, pd.DataFrame): 
         # check whether there is numerical values 
-        data = data.select_dtypes ( [np.number]) 
+        data = select_dtypes( data, incl=[np.number])
         if data.empty: 
             raise ValueError(
             "Ranking calculus expects numeric data. Got empty"
@@ -3211,7 +3218,7 @@ def infer_sankey_columns(data: DataFrame,
 
     # Heuristic: The source is often the first column, the target is the second,
     # and the value is the third or the one with numeric data
-    numeric_cols = data.select_dtypes([float, int]).columns
+    numeric_cols = select_dtypes(dtypes ='numeric', return_columns=True)
 
     if len(numeric_cols) == 0:
         raise ValueError(

@@ -55,6 +55,7 @@ __all__ = [
     'reduce_dimensions', 
     'smart_ts_detector', 
     'extract_array_from',
+    'drop_nan_in', 
     ]
 
 def smart_ts_detector(
@@ -2264,6 +2265,575 @@ def concat_array_from_list(list_of_array, concat_axis=0):
     ))
 
     return np.concatenate(list_of_array, axis=concat_axis)
+
+def drop_nan_in(
+    *arrays: Union[np.ndarray, pd.DataFrame],
+    ref_array: Optional[Union[np.ndarray, pd.DataFrame]] = None,
+    columns: Optional[List[str]] = None,
+    reset_index: bool = True,
+    axis: Union[int, str] = 0,
+    error: str = 'raise'
+) -> List[Union[np.ndarray, pd.DataFrame]]:
+    """
+    Drop rows or columns containing NaNs across multiple arrays consistently.
+
+    This function ensures that all provided arrays (either NumPy
+    ndarrays or pandas DataFrames) have rows or columns with missing
+    values (`NaN`) removed in a synchronized manner. If a `ref_array` is
+    specified, the function bases the removal of rows or columns on the
+    presence of `NaN` values within the reference array alone. Otherwise,
+    it considers all provided arrays to determine where `NaN` values
+    exist.
+
+    Parameters
+    ----------
+    *arrays : Union[np.ndarray, pd.DataFrame]
+        Multiple arrays to process. Each array must be either a NumPy
+        ndarray or a pandas DataFrame. All arrays must have the same
+        shape along the specified `axis`.
+    
+    ref_array : Union[np.ndarray, pd.DataFrame], optional
+        Reference array to determine which rows or columns to drop based
+        on `NaN` values. If provided, `NaN` values are checked only in
+        this array. All arrays, including `ref_array`, must share the
+        same columns if `axis=1` or the same index if `axis=0`.
+    
+    columns : List[str], optional
+        Specific columns to check for `NaN` values. Applicable only if
+        the arrays are pandas DataFrames. If specified, `NaN` values are
+        checked only within these columns. All specified columns must
+        exist in each DataFrame.
+    
+    reset_index : bool, default=True
+        Whether to reset the index of the DataFrames after dropping rows.
+        This parameter is ignored for NumPy ndarrays. If set to `True`,
+        the resulting DataFrames will have a new integer index.
+    
+    axis : int or str, default=0
+        Axis along which to drop `NaN` values.
+        
+        - `0` or `'rows'`: Drop entire rows that contain `NaN` values.
+        - `1` or `'columns'`: Drop entire columns that contain `NaN` values.
+        
+        .. math::
+            \text{axis} = 
+            \begin{cases}
+                0 & \text{if dropping rows} \\
+                1 & \text{if dropping columns}
+            \end{cases}
+    
+    error : str, default='raise'
+        Specifies how to handle errors when indices or columns to be
+        dropped are not found in some arrays.
+        
+        - `'raise'`: Raise a `ValueError` if an inconsistency is found.
+        - `'warn'`: Issue a warning and skip dropping for arrays where
+          indices or columns are not found.
+        - `'ignore'`: Silently skip dropping without raising errors or
+          issuing warnings.
+        
+        .. math::
+            \text{error} = 
+            \begin{cases}
+                \text{'raise'} & \text{if strict error handling is desired} \\
+                \text{'warn'} & \text{to notify about inconsistencies} \\
+                \text{'ignore'} & \text{to proceed without notifications}
+            \end{cases}
+    
+    Returns
+    -------
+    List[Union[np.ndarray, pd.DataFrame]]
+        A list of cleaned arrays with `NaN` rows or columns removed
+        according to the specified parameters. The returned arrays retain
+        their original data types (NumPy ndarray or pandas DataFrame).
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from gofast.core.array_manager import drop_nan_in
+    >>> 
+    >>> # Sample DataFrames and ndarray
+    >>> df1 = pd.DataFrame({
+    ...     'A': [1, 2, np.nan, 4],
+    ...     'B': [5, np.nan, 7, 8],
+    ...     'C': [9, 10, 11, 12]
+    ... })
+    >>> 
+    >>> df2 = pd.DataFrame({
+    ...     'A': [13, 14, 15, 16],
+    ...     'B': [17, 18, np.nan, 20],
+    ...     'C': [21, 22, 23, 24]
+    ... })
+    >>> 
+    >>> array1 = np.array([
+    ...     [25, 26, 27],
+    ...     [28, np.nan, 30],
+    ...     [31, 32, 33],
+    ...     [34, 35, 36]
+    ... ])
+    >>> 
+    >>> # Drop rows with NaNs in columns 'A' and 'B' across all arrays
+    >>> cleaned_df1, cleaned_df2, cleaned_array1 = drop_nan_in(
+    ...     df1, df2, array1,
+    ...     columns=['A', 'B'],
+    ...     axis=0,
+    ...     error='warn'
+    ... )
+    >>> 
+    >>> print("Cleaned df1:")
+    >>> print(cleaned_df1)
+         A    B   C
+    0  1.0  5.0   9
+    3  4.0  8.0  12
+    >>> 
+    >>> print("\nCleaned df2:")
+    >>> print(cleaned_df2)
+        A     B   C
+    0 13  17.0  21
+    3 16  20.0  24
+    >>> 
+    >>> print("\nCleaned array1:")
+    >>> print(cleaned_array1)
+    [[25. 26. 27.]
+     [34. 35. 36.]]
+    
+    Notes
+    -----
+    - **Consistency Across Arrays**: When multiple arrays are provided,
+      `drop_nan_in` ensures that rows or columns are dropped uniformly
+      across all arrays based on the presence of `NaN` values. This
+      consistency is crucial for maintaining data integrity, especially
+      when the arrays represent related datasets.
+    
+    - **Reference Array Usage**: By specifying a `ref_array`, users can
+      dictate that `NaN` values are only checked within this array.
+      Consequently, only the rows or columns identified as containing
+      `NaN` in the `ref_array` will be removed from all other arrays.
+    
+    - **Selective Column Checking**: The `columns` parameter allows
+      for targeted `NaN` checks within specific columns of DataFrames.
+      This feature is beneficial when only certain variables are
+      critical for analysis, and `NaN` values in other columns can be
+      tolerated.
+    
+    - **Index Resetting**: Setting `reset_index=True` ensures that
+      DataFrames have a clean, sequential index after rows are dropped.
+      This is particularly useful for downstream processing and analysis.
+    
+    - **Error Handling Flexibility**: The `error` parameter provides
+      users with control over how the function responds to potential
+      inconsistencies, such as mismatched indices or missing columns
+      across arrays. This flexibility allows for smoother integration
+      into various data processing pipelines.
+    
+    See Also
+    --------
+    - :func:`pandas.DataFrame.drop` : Drop specified labels from rows or
+      columns.
+    - :func:`numpy.isnan` : Return a boolean array indicating whether
+      each element is `NaN`.
+    
+    References
+    ----------
+    .. [1] McKinney, Wes. "Data Structures for Statistical Computing in
+       Python." Proceedings of the 9th Python in Science Conference, 
+       2010.
+    .. [2] Harris, Charles R., et al. "Array programming with NumPy."
+       Nature, vol. 585, no. 7825, 2020, pp. 357–362.
+    """
+    # Validate and standardize the axis parameter
+    axis = _validate_axis(axis)
+
+    # Validate the error handling parameter
+    _validate_error_parameter(error)
+
+    # Ensure all arrays have the same size along the specified axis
+    _ensure_same_shape(arrays, axis)
+
+    # Process the reference array if provided
+    ref_df, ref_is_df = _process_reference_array(ref_array, axis)
+
+    # Convert all input arrays to DataFrames for uniform processing
+    df_arrays, original_types = _convert_arrays_to_df(arrays)
+
+    # If ref_array is provided and not a DataFrame, convert it to DataFrame
+    if ref_df is not None and not ref_is_df:
+        ref_df = pd.DataFrame(ref_df)
+
+    # Determine which rows or columns contain NaNs based on the criteria
+    na_mask = _determine_na_mask(
+        df_arrays, ref_df, ref_is_df, columns, axis
+    )
+    # Identify the specific labels (indices or columns) to drop
+    labels_to_drop = _get_labels_to_drop(na_mask, axis)
+ 
+    # Drop the identified labels from each DataFrame
+    processed_dfs = [
+        _drop_labels_from_df(
+            df, labels_to_drop, axis, reset_index, ref_df, ref_is_df, error, 
+            df_arrays, 
+        ) for df in df_arrays
+    ]
+
+    # Convert the processed DataFrames back to their original types
+    final_arrays = _convert_back_to_original_types(
+        processed_dfs, original_types
+    )
+
+    return final_arrays
+
+def _validate_axis(axis: Union[int, str]) -> int:
+    """
+    Validate and convert the axis parameter to integer.
+    """
+    if isinstance(axis, str):
+        if axis.lower() == 'rows':
+            return 0
+        elif axis.lower() == 'columns':
+            return 1
+        else:
+            raise ValueError(
+                "axis must be 0, 1, 'rows', or 'columns'"
+            )
+    elif isinstance(axis, int):
+        if axis in [0, 1]:
+            return axis
+        else:
+            raise ValueError("axis must be 0 or 1")
+    else:
+        raise TypeError("axis must be an integer or string")
+
+
+def _validate_error_parameter(error: str) -> None:
+    """
+    Validate the error handling parameter.
+    """
+    if error not in ['raise', 'warn', 'ignore']:
+        raise ValueError(
+            "error parameter must be 'raise', 'warn', or 'ignore'"
+        )
+
+
+def _ensure_same_shape(
+    arrays: Tuple[Union[np.ndarray, pd.DataFrame], ...],
+    axis: int
+) -> None:
+    """
+    Ensure all arrays have the same size along the specified axis.
+    """
+    lengths = [arr.shape[axis] for arr in arrays]
+    if not all(length == lengths[0] for length in lengths):
+        raise ValueError(
+            "All arrays must have the same length along the specified axis"
+        )
+
+
+def _process_reference_array(
+    ref_array: Optional[Union[np.ndarray, pd.DataFrame]],
+    axis: int
+) -> Tuple[Optional[pd.DataFrame], bool]:
+    """
+    Process the reference array and determine its type.
+    """
+    if ref_array is not None:
+        if isinstance(ref_array, pd.DataFrame):
+            return ref_array.copy(), True
+        elif isinstance(ref_array, np.ndarray):
+            flattened = ref_array.flatten() if axis == 0 else ref_array
+            return flattened, False
+        else:
+            raise TypeError(
+                "ref_array must be a pandas DataFrame or a numpy ndarray"
+            )
+    return None, False
+
+
+def _determine_na_mask(
+    df_arrays: List[pd.DataFrame],
+    ref_df: Optional[pd.DataFrame],
+    ref_is_df: bool,
+    columns: Optional[List[str]],
+    axis: int
+) -> pd.Series:
+    """
+    Determine which rows or columns contain NaNs based on the criteria.
+    """
+    # Map the main axis to pandas axis
+    pandas_axis = 1 if axis == 0 else 0
+
+    if ref_df is not None:
+        if ref_is_df:
+            if columns is not None:
+                # Check if all specified columns exist in the reference DataFrame
+                missing_cols = [
+                    col for col in columns if col not in ref_df.columns
+                ]
+                if missing_cols:
+                    raise ValueError(
+                        f"Columns {missing_cols} not found in reference DataFrame"
+                    )
+                # Identify rows or columns with NaNs in specified columns
+                na_mask = ref_df[columns].isna().any(axis=pandas_axis)
+            else:
+                # Identify rows or columns with any NaNs in the reference DataFrame
+                na_mask = ref_df.isna().any(axis=pandas_axis)
+        else:
+            if columns is not None:
+                raise ValueError(
+                    "columns parameter is only applicable when ref_array is a DataFrame"
+                )
+            # Identify rows or columns with NaNs in the reference ndarray
+            na_mask = pd.Series(
+                np.isnan(ref_df) if axis == 0 else np.isnan(ref_df).any(axis=0)
+            )
+    else:
+        # Combine NaN masks from all arrays
+        na_masks = []
+        for df in df_arrays:
+            if columns is not None:
+                # Check if all specified columns exist in the current DataFrame
+                missing_cols = [
+                    col for col in columns if col not in df.columns
+                ]
+                if missing_cols:
+                    raise ValueError(
+                        f"Columns {missing_cols} not found in one of the DataFrames"
+                    )
+                # Identify rows or columns with NaNs in specified columns
+                na_masks.append(df[columns].isna().any(axis=pandas_axis))
+            else:
+                # Identify rows or columns with any NaNs in the current DataFrame
+                na_masks.append(df.isna().any(axis=pandas_axis))
+        # Combine all masks using logical OR to identify overall NaNs
+        na_mask = pd.concat(na_masks, axis=1).any(axis=0 if axis == 1 else 1)
+    return na_mask
+
+
+def _get_labels_to_drop(na_mask: pd.Series, axis: int) -> pd.Index:
+    """
+    Get the labels (indices or columns) to drop based on the NaN mask.
+    """
+    return na_mask[na_mask].index
+
+
+def _drop_labels_from_df(
+    df: pd.DataFrame,
+    labels_to_drop: pd.Index,
+    axis: int,
+    reset_index: bool,
+    ref_df: Optional[pd.DataFrame],
+    ref_is_df: bool,
+    error: str,
+    df_arrays:List[pd.DataFrame]
+) -> pd.DataFrame:
+    """
+    Drop the specified labels from the DataFrame based on the axis.
+    """
+    try:
+        if axis == 0:
+            # Dropping rows
+            if reset_index:
+                # Drop rows and reset index
+                return df.drop(labels=labels_to_drop, axis=0).reset_index(drop=True)
+ 
+            if ref_df is not None:
+                # Define the expected index based on the reference
+                expected_index = ref_df.index if ref_is_df else pd.RangeIndex(
+                    start=0, stop=len(df), step=1
+                )
+                if not df.index.equals(expected_index):
+                    if error == 'raise':
+                        raise ValueError(
+                            "Indices of all arrays must match when "
+                            "reset_index is False and ref_array is provided"
+                        )
+                    elif error == 'warn':
+                        warnings.warn(
+                            "Indices do not match. Skipping drop for this array.",
+                            UserWarning
+                        )
+                        return df.copy()
+                    elif error == 'ignore':
+                        return df.copy()
+                # Drop rows based on labels_to_drop
+                return df.drop(labels=labels_to_drop, axis=0)
+            else:
+                # Without ref_array, assume all DataFrames have the same index
+                if not df.index.equals(df_arrays[0].index):
+                    if error == 'raise':
+                        raise ValueError(
+                            "All arrays must have the same index when reset_index is False"
+                        )
+                    elif error == 'warn':
+                        warnings.warn(
+                            "Indices do not match. Skipping drop for this array.",
+                            UserWarning
+                        )
+                        return df.copy()
+                    elif error == 'ignore':
+                        return df.copy()
+                # Drop rows based on labels_to_drop
+                return df.drop(labels=labels_to_drop, axis=0)
+        else:
+            # Dropping columns
+            if reset_index:
+                # Drop columns and reset index
+                return df.drop(labels=labels_to_drop, axis=1).reset_index(drop=True)
+     
+            if ref_df is not None:
+                # Ensure columns to drop exist in the current DataFrame
+                existing_cols = labels_to_drop.intersection(df.columns)
+                missing_cols = labels_to_drop.difference(df.columns)
+                if missing_cols:
+                    if error == 'raise':
+                        raise ValueError(
+                            "Columns to drop not found in one of the "
+                            "DataFrames when reset_index is False"
+                        )
+                    elif error == 'warn':
+                        warnings.warn(
+                            f"Some columns to drop not found: {missing_cols}. "
+                            f"Dropping existing columns: {existing_cols}",
+                            UserWarning
+                        )
+                # Drop existing columns based on labels_to_drop
+                return df.drop(labels=existing_cols, axis=1)
+            else:
+                # Without ref_array, assume all DataFrames have the same columns
+                if not df.columns.equals(df_arrays[0].columns):
+                    if error == 'raise':
+                        raise ValueError(
+                            "All arrays must have the same columns when reset_index is False"
+                        )
+                    elif error == 'warn':
+                        warnings.warn(
+                            "Columns do not match. Skipping drop for this array.",
+                            UserWarning
+                        )
+                        return df.copy()
+                    elif error == 'ignore':
+                        return df.copy()
+                # Drop columns based on labels_to_drop
+                return df.drop(labels=labels_to_drop, axis=1)
+    except KeyError as e:
+        # Handle KeyError based on the error parameter
+        if error == 'raise':
+            raise ValueError(f"Key error while dropping: {e}")
+        elif error == 'warn':
+            warnings.warn(
+                f"Key error while dropping: {e}. Skipping drop for this array.",
+                UserWarning
+            )
+            return df.copy()
+        elif error == 'ignore':
+            return df.copy()
+
+
+def _convert_arrays_to_df(
+    arrays: Tuple[Union[np.ndarray, pd.DataFrame, pd.Series], ...]
+) -> Tuple[List[pd.DataFrame], List[str]]:
+    """
+    Convert all input arrays to DataFrames and track their original types.
+
+    Parameters
+    ----------
+    arrays : Tuple[Union[np.ndarray, pd.DataFrame, pd.Series], ...]
+        A tuple of arrays to be converted. Each array can be a NumPy ndarray,
+        pandas DataFrame, or pandas Series.
+
+    Returns
+    -------
+    Tuple[List[pd.DataFrame], List[str]]
+        A tuple containing:
+        - A list of pandas DataFrames converted from the input arrays.
+        - A list of strings indicating the original type of each array
+          ('df' for DataFrame, 'ndarray' for NumPy ndarray, 'series' for Series).
+    """
+    df_arrays = []
+    original_types = []
+    for arr in arrays:
+        if isinstance(arr, pd.DataFrame):
+            # If the array is already a DataFrame, make a copy to avoid
+            # modifying the original data.
+            df_arrays.append(arr.copy())
+            original_types.append('df')
+        elif isinstance(arr, pd.Series):
+            # Convert Series to DataFrame with the Series name as the column name.
+            df_arrays.append(arr.to_frame())
+            original_types.append('series')
+        elif isinstance(arr, np.ndarray):
+            # Convert NumPy ndarray to DataFrame.
+            df = pd.DataFrame(arr)
+            df_arrays.append(df)
+            original_types.append('ndarray')
+        else:
+            # Raise an error if the array type is unsupported.
+            raise TypeError(
+                "All arrays must be pandas DataFrames,"
+                " Series, or numpy ndarrays"
+            )
+    return df_arrays, original_types
+
+
+def _convert_back_to_original_types(
+    processed_dfs: List[pd.DataFrame],
+    original_types: List[str]
+) -> List[Union[np.ndarray, pd.DataFrame, pd.Series]]:
+    """
+    Convert the processed DataFrames back to their original types.
+
+    Parameters
+    ----------
+    processed_dfs : List[pd.DataFrame]
+        A list of pandas DataFrames after processing (dropping NaNs).
+
+    original_types : List[str]
+        A list indicating the original type of each DataFrame
+        ('df' for DataFrame, 'ndarray' for NumPy ndarray, 'series' for Series).
+
+    Returns
+    -------
+    List[Union[np.ndarray, pd.DataFrame, pd.Series]]
+        A list of arrays converted back to their original types.
+        - DataFrames remain as pandas DataFrames.
+        - NumPy ndarrays are converted back to ndarrays.
+        - Series are converted back to pandas Series.
+
+    Raises
+    ------
+    ValueError
+        If a DataFrame cannot be converted back to a Series due to multiple
+        columns.
+    """
+    final_arrays = []
+    for df, original_type in zip(processed_dfs, original_types):
+        if original_type == 'df':
+            # If original was DataFrame, retain as DataFrame.
+            final_arrays.append(df)
+        elif original_type == 'ndarray':
+            # If original was ndarray, convert DataFrame back to ndarray.
+            final_arrays.append(df.to_numpy())
+        elif original_type == 'series':
+            # If original was Series, convert DataFrame back to Series.
+            if df.shape[1] == 1:
+                # Successfully convert to Series if only one column exists.
+                final_arrays.append(df.iloc[:, 0])
+            elif df.shape[1] == 0:
+                # If all columns were dropped, return an empty Series with the original name.
+                final_arrays.append(pd.Series([], name=df.columns[0] if not df.empty else None))
+            else:
+                # Raise an error if multiple columns exist, cannot convert to Series.
+                raise ValueError(
+                    "Cannot convert DataFrame with multiple columns back to Series."
+                )
+        else:
+            # This condition should not occur; added for safety.
+            raise TypeError(
+                f"Unsupported original type '{original_type}'."
+            )
+    return final_arrays
+
 
 # def _concat_array_from_list (list_of_array , concat_axis = 0) :
 #     """ Concat array from list and set the None value in the list as NaN.

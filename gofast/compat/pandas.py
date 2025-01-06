@@ -149,9 +149,9 @@ assert_series_equal = testing.assert_series_equal
 
 def select_dtypes(
     df: pd.DataFrame, 
-    dtypes: 'str | list[str]', 
-    include: 'str | list[str]' = None, 
-    exclude: 'str | list[str]' = None, 
+    dtypes: 'str | list[str]'=None, 
+    incl: 'str | list[str]' = None, 
+    excl: 'str | list[str]' = None, 
     return_columns: bool = False, 
     return_dtype: bool = False,
     include_nan: bool = False
@@ -177,19 +177,20 @@ def select_dtypes(
         This argument is mandatory, and the function will raise a 
         `TypeError` if the argument is not a valid DataFrame.
 
-    dtypes : `str` or `list[str]`
+    dtypes : `str` or `list[str]`, optional
         The data type(s) to select from the DataFrame. Can be a 
         single type (e.g., `'int64'`) or a list of types 
         (e.g., `['int64', 'float64']`). Special case: If `dtypes` is 
-        'numeric', it automatically includes `['int64', 'float64']`.
+        'numeric', it automatically includes `['int64', 'float64']`. For 
+        non-string arguments, `incl` or `excl` should be used instead.
 
-    include : `str | list[str]`, optional, default: `None`
+    incl : `str | list[str]`, optional, default: `None`
         Specifies the data types to include when selecting columns. 
         If provided, this will override the `dtypes` parameter to filter 
         columns based on the included types. Can be a single type or a 
         list of types.
 
-    exclude : `str | list[str]`, optional, default: `None`
+    excl : `str | list[str]`, optional, default: `None`
         Specifies the data types to exclude from selection. If provided, 
         this will exclude columns matching the types in the list from 
         the selection. Can be a single type or a list of types.
@@ -240,7 +241,7 @@ def select_dtypes(
 
     3. Include only `float64` columns and exclude `int64` columns:
     
-    >>> select_dtypes(df, 'float64', exclude='int64')
+    >>> select_dtypes(df, 'float64', excl='int64')
        b
     0  1.1
     1  2.2
@@ -289,21 +290,26 @@ def select_dtypes(
         dtypes = [dtypes]
 
     # Ensure dtypes is an iterable if not already
-    if not isinstance(dtypes, Iterable):
-        raise TypeError("`dtypes` must be a string or a list of strings.")
+    if dtypes is not None:
+        if not isinstance(dtypes, Iterable):
+            raise TypeError(
+                "`dtypes` must be a string or a list of strings. Use parameters"
+                " `incl` or `excl` for non-string arguments instead."
+            )
     
     # Prepare include/exclude arguments
-    include = include if include is not None else []
-    exclude = exclude if exclude is not None else []
+    include = incl if incl is not None else []
+    exclude = excl if excl is not None else []
 
     # Handle NaN inclusion/exclusion logic for numeric types
     if include_nan and 'float64' in dtypes: 
         dtypes = list(set(dtypes) - {'float64'})  # Remove 'float64' if NaN is included
     
     # Select columns based on specified dtypes
+    selected_df = df.copy() 
     if include:
         selected_df = df.select_dtypes(include=include)
-    else:
+    elif dtypes is not None:
         selected_df = df.select_dtypes(include=dtypes)
 
     # Exclude columns with specified data types

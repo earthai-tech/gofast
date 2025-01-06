@@ -8,6 +8,7 @@ performance analysis.
 
 from __future__ import annotations 
 import warnings 
+from numbers import Integral 
 import numpy as np
 import pandas as pd 
 import seaborn as sns 
@@ -28,8 +29,11 @@ except :
     pass 
 from ..api.types import Optional, Tuple, Any, List, Union, Callable, NDArray 
 from ..api.types import Dict, ArrayLike, DataFrame, Series, SparseMatrix
+from ..compat.sklearn import validate_params, StrOptions
 from ..core.checks import is_iterable 
+from ..core.handlers import param_deprecated_message 
 from ..core.utils import make_obj_consistent_if
+from ..core.plot_manager import default_params_plot 
 from ..utils.deps_utils import ensure_pkg 
 from ..utils.validator import _is_cross_validated, validate_yy, validate_keras_model
 from ..utils.validator import assert_xy_in, get_estimator_name, check_is_fitted
@@ -40,7 +44,7 @@ from ._config import PlotConfig
 
 __all__= [ 
     'plot_confusion_matrices',
-    'plot_confusion_matrix_', 
+    'plot_confusion_matrix_in', 
     'plot_confusion_matrix', 
     'plot_roc_curves',
     'plot_taylor_diagram',
@@ -57,13 +61,27 @@ __all__= [
     'plot_r2'    
     ]
 
+@default_params_plot(
+    savefig ='my_taylor_diagram_plot.png',
+    dpi=300, 
+    fig_size=(12, 10)
+)
+@validate_params ({
+    'reference': ['array-like'], 
+    'names': [str, 'array-like', None ], 
+    'kind': [StrOptions({'default', 'half_circle'})], 
+    'zero_location': [StrOptions({'N','NE','E','S','SW','W','NW'})], 
+    'direction': [Integral]
+    })
 def plot_taylor_diagram(
-    *y_preds: List[ArrayLike], 
+    *y_preds: ArrayLike, 
     reference: ArrayLike, 
     names: Optional[List[str]] = None, 
     kind: str = "default", 
-    fig_size: Optional[tuple] = None
-    ) -> None:
+    zero_location: str = 'W', 
+    direction: int = -1, 
+    fig_size: Optional[Tuple[int, int]] = None
+) -> None:
     """
     Plots a Taylor Diagram, which is used to graphically summarize 
     how closely a set of predictions match observations. The diagram 
@@ -73,41 +91,112 @@ def plot_taylor_diagram(
 
     Parameters
     ----------
-    y_preds : variable number of `np.ndarray`
+    y_preds : variable number of `ArrayLike`
         Each argument is a one-dimensional array containing the 
         predictions from different models. Each prediction array 
         should be the same length as the `reference` data array.
 
-    reference : `np.ndarray`
+    reference : `ArrayLike`
         A one-dimensional array containing the reference data against 
         which the predictions are compared. This should have the same 
         length as each prediction array.
 
     names : list of `str`, optional
         A list of names for each set of predictions. If provided, this 
-        list should be the same length as the number of ``y_preds``. 
-        If not provided, predictions will be labeled as Prediction 1, 
-        Prediction 2, etc.
+        list should be the same length as the number of `y_preds`. 
+        If not provided, predictions will be labeled as "Prediction 1", 
+        "Prediction 2", etc.
 
     kind : `str`, optional
-        Determines the angular coverage of the plot. If "default", the 
-        plot spans 180 degrees. If "half_circle", the plot spans 90 
-        degrees.
+        Determines the angular coverage of the plot.
+        
+        - `"default"`: The plot spans 180 degrees, typically covering
+          from the West (270°) to the East (90°).
+        - `"half_circle"`: The plot spans 90 degrees, which can be 
+          useful for focused comparisons.
+          
+        **Default:** `"default"`
+
+    zero_location : `str`, optional
+        Specifies the location of the zero-degree angle on the polar plot.
+        This determines where the correlation coefficient of 1 (perfect
+        correlation) is placed on the diagram.
+        
+        **Accepted Values:**
+        
+        - `'N'`: North (top of the plot, 0°)
+        - `'NE'`: Northeast (45°)
+        - `'E'`: East (right side, 90°)
+        - `'SE'`: Southeast (135°)
+        - `'S'`: South (bottom, 180°)
+        - `'SW'`: Southwest (225°)
+        - `'W'`: West (left side, 270°)
+        - `'NW'`: Northwest (315°)
+        
+        **Default:** `'W'` (West)
+
+        **Effects:**
+        
+        - **Positioning:** Changes the orientation of the diagram by rotating 
+          the zero-degree line.
+        - **Interpretation:** Influences how the angular coordinates
+          correspond to correlation values.
+        
+        **Example:**
+        
+        - Setting `zero_location='N'` places the zero-degree correlation 
+          at the top of the plot.
+        - Setting `zero_location='E'` places it on the right side.
+
+    direction : `int`, optional
+        Determines the direction in which the angles increase on the polar plot.
+        
+        **Accepted Values:**
+        
+        - `1`: Counter-clockwise direction. Angles increase in the 
+          traditional mathematical sense, moving from the zero location 
+          upwards.
+        - `-1`: Clockwise direction. Angles increase in the opposite 
+          direction, moving from the zero location downwards.
+        
+        **Default:** `-1` (Clockwise)
+
+        **Effects:**
+        
+        - **Angle Progression:** Dictates whether the angles move clockwise or
+          counter-clockwise from the zero location.
+        - **Visual Interpretation:** Affects the layout of the correlations 
+          on the diagram.
+        
+        **Example:**
+        
+        - `direction=1`: Correlation angles increase counter-clockwise, which 
+          might align with standard mathematical conventions.
+        - `direction=-1`: Correlation angles increase clockwise, which might 
+          be preferred for specific visualization standards.
 
     fig_size : `tuple`, optional
-        The size of the figure in inches. If not provided, defaults to 
-        (10, 8).
+        The size of the figure in inches as a tuple `(width, height)`. 
+        If not provided, defaults to `(10, 8)`.
 
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.plot.mlviz import plot_taylor_diagram
-    >>> y_preds = [np.random.normal(loc=0, scale=1, size=100),
-    ...            np.random.normal(loc=0, scale=1.5, size=100)]
+    >>> from gofast.plot.ml_viz import plot_taylor_diagram
+    >>> y_preds = [
+    ...     np.random.normal(loc=0, scale=1, size=100),
+    ...     np.random.normal(loc=0, scale=1.5, size=100)
+    ... ]
     >>> reference = np.random.normal(loc=0, scale=1, size=100)
-    >>> plot_taylor_diagram(*y_preds, reference=reference, 
-    ...                        names=['Model A', 'Model B'], 
-    ...                        kind='half_circle')
+    >>> plot_taylor_diagram(
+    ...     *y_preds, 
+    ...     reference=reference, 
+    ...     names=['Model A', 'Model B'], 
+    ...     kind='half_circle',
+    ...     zero_location='N',
+    ...     direction=1,
+    ...     fig_size=(12, 10)
+    ... )
 
     Notes
     -----
@@ -186,8 +275,15 @@ def plot_taylor_diagram(
     else:  # default kind
         ax1.set_thetamax(180)
 
-    ax1.set_theta_direction(-1)
-    ax1.set_theta_zero_location('W')
+    if direction not in [-1, 1]: 
+        warnings.warn(
+            "Theta direction expects `1` for Counter-clockwise or "
+            f"`1` for clockwise direction. Reset to 1. Got: {direction}"
+            )
+        direction =1
+        
+    ax1.set_theta_direction(direction)
+    ax1.set_theta_zero_location(zero_location)
     ax1.set_rlabel_position(90)
     ax1.set_xlabel('Standard Deviation')
     ax1.set_ylabel('Correlation')
@@ -196,6 +292,8 @@ def plot_taylor_diagram(
     plt.legend()
     plt.show()
     
+
+#XXX
 def plot_cost_vs_epochs(
     regs: Union[Callable, List[Callable]],
     *,
@@ -1339,7 +1437,7 @@ def plot_shap_summary(
     use_conda=PlotConfig.use_conda 
    )
 
-def plot_confusion_matrix_(
+def plot_confusion_matrix_in(
     clf: Any, 
     Xt: Union[np.ndarray, DataFrame], 
     yt: Union[np.ndarray, pd.Series], 
@@ -1638,6 +1736,20 @@ def plot_r2(
         
     return ax 
 
+@param_deprecated_message(
+    conditions_params_mappings=[
+        {
+            'param': 'pkg',
+            'condition': lambda v: v in ('yellowbrick', 'yb'),
+            'message': ( 
+                "Current version only supports scikit-learn plot aspect."
+                " Resetting pkg to None. To visualize with 'yellowbrick',"
+                " Use `plot_confusion_matrix_in` instead. "
+                ),
+            'default': None
+        }
+    ]
+)
 def plot_confusion_matrices (
     clfs: List [BaseEstimator], 
     X: NDArray, 
@@ -1748,13 +1860,14 @@ def plot_confusion_matrices (
             axes[kk].set_title (mname)
             
         elif pkg in ('yellowbrick', 'yb'):
-            plot_confusion_matrix2(
+            plot_confusion_matrix_in(
                 model, X, y, ax=axes[kk], encoder =encoder )
     if savefig is not None:
         plt.savefig(savefig, dpi = 300 )
         
     plt.close () if savefig is not None else plt.show() 
     
+
 def plot_confusion_matrix(
     y_true: Union[ArrayLike, Series],
     y_pred: Union[ArrayLike, Series],
