@@ -30,6 +30,7 @@ except :
 from ..api.types import Optional, Tuple, Any, List, Union, Callable, NDArray 
 from ..api.types import Dict, ArrayLike, DataFrame, Series, SparseMatrix
 from ..compat.sklearn import validate_params, StrOptions
+from ..core.array_manager import drop_nan_in 
 from ..core.checks import is_iterable 
 from ..core.handlers import param_deprecated_message 
 from ..core.utils import make_obj_consistent_if
@@ -40,7 +41,6 @@ from ..utils.validator import assert_xy_in, get_estimator_name, check_is_fitted
 from .utils import _set_sns_style, _make_axe_multiple
 from .utils import make_plot_colors  
 from ._config import PlotConfig 
-
 
 __all__= [ 
     'plot_confusion_matrices',
@@ -74,14 +74,20 @@ __all__= [
     'direction': [Integral]
     })
 def plot_taylor_diagram(
-    *y_preds: ArrayLike, 
-    reference: ArrayLike, 
-    names: Optional[List[str]] = None, 
-    kind: str = "default", 
-    zero_location: str = 'W', 
-    direction: int = -1, 
-    fig_size: Optional[Tuple[int, int]] = None
-) -> None:
+    *y_preds: ArrayLike,
+    reference: ArrayLike,
+    names: Optional[List[str]] = None,
+    acov: str = "default",
+    zero_location: str = 'W',
+    direction: int = -1,
+    only_points: bool = False,
+    ref_color: str = 'red',
+    draw_ref_arc: bool = ...,
+    angle_to_corr: bool = ..., 
+    marker='o', 
+    corr_steps=6,
+   fig_size: Optional[Tuple[int, int]] = None,
+):
     """
     Plots a Taylor Diagram, which is used to graphically summarize 
     how closely a set of predictions match observations. The diagram 
@@ -107,7 +113,7 @@ def plot_taylor_diagram(
         If not provided, predictions will be labeled as "Prediction 1", 
         "Prediction 2", etc.
 
-    kind : `str`, optional
+    acov : `str`, optional
         Determines the angular coverage of the plot.
         
         - `"default"`: The plot spans 180 degrees, typically covering
@@ -178,6 +184,37 @@ def plot_taylor_diagram(
     fig_size : `tuple`, optional
         The size of the figure in inches as a tuple `(width, height)`. 
         If not provided, defaults to `(10, 8)`.
+        
+    only_points : :class:`bool`, optional
+        If `only_points` is ``True``, only the markers for each prediction
+        are  drawn; the radial line from the origin to the marker is omitted.
+        Default is ``False``.
+
+    ref_color : :class:`str`, optional
+        Color to use for the reference arc or line. Default is ``'red'``.
+
+    draw_ref_arc : :class:`bool`, optional
+        If `draw_ref_arc` is ``True``, the  reference standard deviation 
+        is shown as an arc in the diagram. If ``False``, a radial line is 
+        drawn in its place. Default is ``True``.
+
+    angle_to_corr : :class:`bool`, optional
+        If `angle_to_corr` is ``True``, the angular ticks are replaced with 
+        correlation values from ``0.0`` to ``1.0``. If ``False``, angles in 
+        degrees are displayed. Default is ``True``.
+
+    marker : :class:`str`, optional
+        Marker style (e.g. ``'o'`` for circles, ``'s'`` for squares). 
+        Default is ``'o'``.
+
+    corr_steps : :class:`int`, optional
+        Number of ticks between 0 and 1 when `angle_to_corr` is ``True``. 
+        Default is ``6``.
+
+    set_corr_angle : :class:`bool`, optional
+        If `set_corr_angle` is ``True``, the correlation approach is used 
+        to set angle ticks automatically. This is typically used along with
+        `angle_to_corr`. Default is ``True``.
 
     Examples
     --------
@@ -192,7 +229,7 @@ def plot_taylor_diagram(
     ...     *y_preds, 
     ...     reference=reference, 
     ...     names=['Model A', 'Model B'], 
-    ...     kind='half_circle',
+    ...     acov='half_circle',
     ...     zero_location='N',
     ...     direction=1,
     ...     fig_size=(12, 10)
@@ -225,11 +262,6 @@ def plot_taylor_diagram(
     .. math::
         \sigma = \sqrt{\frac{1}{n} \sum_{i=1}^n (y_i - \bar{y})^2}
 
-    See Also
-    --------
-    - [1] K. P. Taylor, "Summarizing multiple aspects of model performance 
-      in a single diagram," Journal of Geophysical Research, vol. 106, 
-      no. D7, pp. 7183-7192, 2001.
 
     References
     ----------
@@ -238,62 +270,105 @@ def plot_taylor_diagram(
        no. D7, pp. 7183-7192, 2001.
     """
     
-    # Ensure all prediction arrays are numpy arrays and one-dimensional
+    # Convert inputs to 1D numpy arrays
     y_preds = [np.asarray(pred).flatten() for pred in y_preds]
-    
-    reference = np.asarray ( reference).flatten() 
-    # Verify that all predictions and the reference are of consistent length
-    assert all(pred.size == reference.size for pred in y_preds), \
-        "All predictions and the reference must be of the same length"
+    reference = np.asarray(reference).flatten()
 
-    # Calculate statistics for each prediction
+    # Check consistency of lengths
+    assert all(pred.size == reference.size for pred in y_preds), (
+        "All predictions and the reference must be of the same length."
+    )
+
+    # Compute correlation and std dev for each prediction
     correlations = [np.corrcoef(pred, reference)[0, 1] for pred in y_preds]
     standard_deviations = [np.std(pred) for pred in y_preds]
     reference_std = np.std(reference)
 
-    # Create polar plot
+    # Create figure and polar subplot
     fig = plt.figure(figsize=fig_size or (10, 8))
-    ax1 = fig.add_subplot(111, polar=True)
+    ax = fig.add_subplot(111, polar=True)
 
-    # Convert correlations to angular coordinates in radians
+    # Convert correlation to angles (in radians)
+    # angle = arccos(corr), so perfect correlation = 0 rad,
+    # zero correlation = pi/2 rad, negative correlation = > pi/2, etc.
     angles = np.arccos(correlations)
     radii = standard_deviations
 
     # Plot each prediction
-    for i, angle in enumerate(angles):
-        ax1.plot([angle, angle], [0, radii[i]], 
-                 label=f'{names[i]}' if names and i < len(names) else f'Prediction {i+1}')
-        ax1.plot(angle, radii[i], 'o')
+    # Use a color cycle so lines/points are more distinguishable
+    colors = plt.cm.Set1(np.linspace(0, 1, len(y_preds)))
+    for i, (angle, radius) in enumerate(zip(angles, radii)):
+        label = names[i] if (names and i < len(names)) else f'Prediction {i+1}'
+        if not only_points:
+            # Draw the radial line from origin to the point
+            ax.plot([angle, angle], [0, radius], color=colors[i], lw=2, alpha=0.8)
+        ax.plot(angle, radius, marker, color=colors[i], label=label)
 
-    # Add reference standard deviation
-    ax1.plot([0, 0], [0, reference_std], label='Reference')
-    ax1.plot(0, reference_std, 'o')
+    # Draw the reference as a red arc if requested
+    # This arc will have radius = reference_std
+    if draw_ref_arc:
+        if acov == "half_circle":
+            theta_arc = np.linspace(0, np.pi/2, 300)
+        else:
+            theta_arc = np.linspace(0, np.pi, 300)
 
-    # Configure the plot according to 'kind'
-    if kind == "half_circle":
-        ax1.set_thetamax(90)
-    else:  # default kind
-        ax1.set_thetamax(180)
+        ax.plot(theta_arc, [reference_std]*len(theta_arc),
+                color=ref_color, lw=2, label='Reference')
+    else:
+        # If not drawing the arc, revert to a radial line as fallback
+        ax.plot([0, 0], [0, reference_std], color=ref_color, lw=2, label='Reference')
+        ax.plot(0, reference_std, marker, color=ref_color)
 
-    if direction not in [-1, 1]: 
+    # Set coverage (max angle)
+    if acov == "half_circle":
+        ax.set_thetamax(90)  # degrees
+    else:
+        ax.set_thetamax(180) # degrees (default)
+
+    # Set direction (1=counterclockwise, -1=clockwise)
+    if direction not in [-1, 1]:
         warnings.warn(
-            "Theta direction expects `1` for Counter-clockwise or "
-            f"`1` for clockwise direction. Reset to 1. Got: {direction}"
-            )
-        direction =1
-        
-    ax1.set_theta_direction(direction)
-    ax1.set_theta_zero_location(zero_location)
-    ax1.set_rlabel_position(90)
-    ax1.set_xlabel('Standard Deviation')
-    ax1.set_ylabel('Correlation')
-    ax1.set_title('Taylor Diagram')
+            "direction should be either 1 (CCW) or -1 (CW). "
+            f"Got {direction}. Resetting to 1 (CCW)."
+        )
+        direction = 1
+    ax.set_theta_direction(direction)
+    ax.set_theta_zero_location(zero_location)
 
-    plt.legend()
+    # Replace angle ticks with correlation values if requested
+    if angle_to_corr:
+        # We'll map correlation ticks [0..1] -> angle via arccos
+        # e.g. 1 -> 0 rad, 0 -> pi/2 or pi, depending on coverage
+        # Just pick some correlation tick steps
+        corr_ticks = np.linspace(0, 1, corr_steps)  # 0, 0.2, 0.4, 0.6, 0.8, 1
+        angle_ticks = np.degrees(np.arccos(corr_ticks))
+        # In half-circle mode, correlation from 0..1 fits in 0..pi/2,
+        # in default mode, 0..1 fits in 0..pi. This still works generally.
+        ax.set_thetagrids(angle_ticks, labels=[f"{ct:.2f}" for ct in corr_ticks])
+        # We can label this dimension as 'Correlation'
+        ax.set_ylabel('')  # remove default 0.5, 1.06
+        # XXX TODO. Create dict to map the location of for each acov 
+        # rather to use fix 1. 
+        ax.text(0.5, 1., 'Correlation', ha='center', va='center', 
+                transform=ax.transAxes)
+    else:
+        # Keep angle as degrees
+        ax.set_ylabel('')  # remove default
+        ax.text(0.5, 1.06, 'Angle (degrees)', ha='center', va='center',
+                transform=ax.transAxes)
+
+    # Adjust radial label (std dev)
+    # This tries to reduce label overlap
+    ax.set_rlabel_position(22.5)
+    ax.set_title('Taylor Diagram', pad=40) #50
+    ax.set_xlabel('Standard Deviation', labelpad=15)
+
+    plt.legend(loc='upper right', bbox_to_anchor=(1.25, 1.05))
+    # plt.subplots_adjust(top=0.8)
+
+    plt.tight_layout()
     plt.show()
-    
 
-#XXX
 def plot_cost_vs_epochs(
     regs: Union[Callable, List[Callable]],
     *,
@@ -1577,164 +1652,307 @@ def plot_confusion_matrix_in(
 
 def plot_r2(
     y_true: ArrayLike, 
-    y_pred: ArrayLike,
-    *, 
-    title: Optional[str] = None,  
+    *y_preds: ArrayLike, 
+    titles: Optional[str] = None,  
     xlabel: Optional[str] = None, 
     ylabel: Optional[str] = None,  
-    fig_size: Tuple[int, int] = (8, 8),
-    scatter_color: str = 'blue', 
-    line_color: str = 'red', 
-    line_style: str = '--', 
+    fig_size: Optional[Tuple[int, int]] = None,
+    scatter_colors: Optional[List[str]] = None, 
+    line_colors: Optional[List[str]] = None, 
+    line_styles: Optional[List[str]] = None, 
     annotate: bool = True, 
-    ax: Optional[plt.Axes] = None, 
+    show_grid: bool = True, 
+    max_cols: int = 3,
     **r2_score_kws: Any
-) -> plt.Axes:
+) -> plt.Figure:
     """
-    Plot a scatter plot of actual vs. predicted values and annotate 
-    the R-squared value to visualize the model's performance.
-
-    This function uses the actual and predicted values to plot a scatter 
-    diagram, illustrating how close the predictions are to the actual values.
-    It can also plot a line representing perfect predictions for reference 
-    and annotate the plot with the R-squared value, providing a visual metric 
-    of the model's accuracy.
-
-    Parameters
-    ----------
-    y_true : `ArrayLike`
-        The true target values. This can be an array-like structure such as 
-        a list, numpy array, or pandas Series.
-
-    y_pred : `ArrayLike`
-        The predicted target values. This can be an array-like structure such 
-        as a list, numpy array, or pandas Series.
-
-    title : `Optional[str]`, optional
-        The title of the plot. If `None`, defaults to 'Model Performance: 
-        Actual vs Predicted'.
-
-    xlabel : `Optional[str]`, optional
-        The label for the x-axis. If `None`, defaults to 'Actual Values'.
-
-    ylabel : `Optional[str]`, optional
-        The label for the y-axis. If `None`, defaults to 'Predicted Values'.
-
-    fig_size : `Tuple[int, int]`, optional
-        The size of the figure in inches. Defaults to (8, 8).
-
-    scatter_color : `str`, optional
-        The color of the scatter plot points. Defaults to 'blue'.
-
-    line_color : `str`, optional
-        The color of the line representing perfect predictions. Defaults to 'red'.
-
-    line_style : `str`, optional
-        The style of the line representing perfect predictions. Defaults to '--'.
-
-    annotate : `bool`, optional
-        If `True`, annotates the plot with the R-squared value. Defaults to True.
-
-    ax : `Optional[plt.Axes]`, optional
-        The axes upon which to draw the plot. If `None`, a new figure and axes 
-        are created.
-
-    **r2_score_kws : `Any`, optional
-        Additional keyword arguments to be passed to `sklearn.metrics.r2_score`.
-
-    Returns
-    -------
-    `plt.Axes`
-        The matplotlib axes containing the plot.
-
-    Examples
-    --------
-    >>> from sklearn.model_selection import train_test_split
-    >>> from sklearn.linear_model import LinearRegression
-    >>> from sklearn.datasets import make_regression
-    >>> import matplotlib.pyplot as plt
-
-    # Generating synthetic data
-    >>> X, y = make_regression(n_samples=100, n_features=1, noise=10, 
-                               random_state=42)
-    >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,
-                                                            random_state=42)
-
-    # Fitting a linear model
-    >>> model = LinearRegression()
-    >>> model.fit(X_train, y_train)
-    >>> y_pred = model.predict(X_test)
-
-    # Plotting R-squared performance
-    >>> plot_r2(y_test, y_pred, title='Linear Regression Performance',
-                xlabel='Actual', ylabel='Predicted', scatter_color='green',
-                line_color='orange', line_style='-.')
-
-    # Integrating with existing matplotlib figure and axes
-    >>> fig, ax = plt.subplots()
-    >>> plot_r2(y_test, y_pred, ax=ax)
-    >>> plt.show()
-
-    Notes
-    -----
-    The R-squared (coefficient of determination) is a statistical measure 
-    that represents the proportion of the variance for a dependent variable 
-    that's explained by an independent variable or variables in a regression 
-    model. It provides an indication of the goodness of fit and therefore a 
-    measure of how well unseen samples are likely to be predicted by the model.
-
-    The R-squared value is calculated as:
-
+    Plot R-squared scatter plots comparing actual values with 
+    multiple predictions.
+    
+    This function generates a series of scatter plots comparing the true values
+    (`y_true`) with multiple predicted values (`y_pred`). Each prediction is
+    plotted against the true values in its own subplot, arranged in a grid layout
+    based on the `max_cols` parameter. The function calculates and annotates the
+    R-squared value for each prediction to assess model performance.
+    
     .. math::
         R^2 = 1 - \\frac{SS_{res}}{SS_{tot}}
-
-    where :math:`SS_{res}` is the sum of squares of residuals and :math:`SS_{tot}` 
-    is the total sum of squares.
-
+    
+    where :math:`SS_{res}` is the sum of squares of residuals and
+    :math:`SS_{tot}` is the total sum of squares.
+    
+    Parameters
+    ----------
+    y_true : ArrayLike
+        The true target values. Should be an array-like structure such as 
+        a list, NumPy array, or pandas Series.
+    
+    *y_preds : ArrayLike
+        One or more predicted target values. Each should be an array-like 
+        structure corresponding to `y_true`.
+    
+    titles : Optional[str], default=None
+        The overall titles for the each figure. If ``None``, no overarching
+         title is set.
+    
+    xlabel : Optional[str], default=None
+        The label for the x-axis of each subplot. Defaults to ``'Actual Values'``
+        if ``None``.
+    
+    ylabel : Optional[str], default=None
+        The label for the y-axis of each subplot. Defaults to ``'Predicted Values'``
+        if ``None``.
+    
+    fig_size : Optional[Tuple[int, int]], default=None
+        The size of the entire figure in inches. If ``None``, the figure size is
+        automatically determined based on the number of subplots to ensure an
+        aesthetically pleasing layout.
+    
+    scatter_colors : Optional[List[str]], default=None
+        A list of colors for the scatter points in each subplot. If ``None``,
+        defaults to ``'blue'`` for all scatter plots. If fewer colors are provided
+        than the number of predictions, the last color is repeated.
+    
+    line_colors : Optional[List[str]], default=None
+        A list of colors for the perfect fit lines in each subplot. If ``None``,
+        defaults to ``'red'`` for all lines. If fewer colors are provided
+        than the number of predictions, the last color is repeated.
+    
+    line_styles : Optional[List[str]], default=None
+        A list of line styles for the perfect fit lines in each subplot. If ``None``,
+        defaults to dashed lines (``'--'``) for all lines. If fewer styles are
+        provided than the number of predictions, the last style is repeated.
+    
+    annotate : bool, default=True
+        Whether to annotate each subplot with its corresponding R-squared value.
+        Annotations are positioned at the bottom right corner of each subplot to
+        avoid overlapping with the legend.
+    
+    show_grid : bool, default=True
+        Whether to display grid lines on each subplot.
+    
+    max_cols : int, default=3
+        The maximum number of columns in the subplot grid. Determines how many
+        subplots are placed in each row before moving to a new row.
+    
+    **r2_score_kws : Any
+        Additional keyword arguments to pass to the ``sklearn.metrics.r2_score``
+        function.
+    
+    Returns
+    -------
+    plt.Figure
+        The matplotlib figure object containing all the subplots.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.plot.ml_viz import plot_r2
+    >>> import matplotlib.pyplot as plt
+    >>> 
+    >>> # Generate synthetic true values and predictions
+    >>> y_true = np.linspace(0, 100, 50)
+    >>> y_pred1 = y_true + np.random.normal(0, 10, 50)
+    >>> y_pred2 = y_true + np.random.normal(0, 20, 50)
+    >>> y_pred3 = y_true + np.random.normal(0, 5, 50)
+    >>> y_pred4 = y_true + np.random.normal(0, 15, 50)
+    >>> 
+    >>> # Plot R-squared for multiple predictions
+    >>> plot_r2(
+    ...     y_true, y_pred1, y_pred2, y_pred3, y_pred4,
+    ...     title='Model Performance Comparison',
+    ...     xlabel='Actual Values',
+    ...     ylabel='Predicted Values',
+    ...     scatter_colors=['green', 'orange', 'purple', 'cyan'],
+    ...     line_colors=['black', 'black', 'black', 'black'],
+    ...     line_styles=['-', '-', '-', '-'],
+    ...     annotate=True,
+    ...     show_grid=True,
+    ...     max_cols=2
+    ... )
+    >>> plt.show()
+    
+    Notes
+    -----
+    - **Multiple Predictions Visualization**: This function allows for the 
+      simultaneous visualization of multiple model predictions against actual 
+      values, facilitating comparative analysis of different models or 
+      configurations.
+    
+    - **Dynamic Layout Adjustment**: By specifying the ``max_cols`` parameter,
+      users can control the number of columns in the subplot grid, ensuring 
+      that the plots are organized neatly irrespective of the number of 
+      predictions.
+    
+    - **Customization Flexibility**: The ability to customize scatter colors, 
+      line colors, and line styles for each subplot allows for clear 
+      differentiation between multiple predictions, especially when dealing 
+      with a large number of plots.
+    
     See Also
     --------
-    sklearn.metrics.r2_score : Function to compute the R-squared, or coefficient 
-                               of determination.
+    - :func:`sklearn.metrics.r2_score` : 
+        Function to compute the R-squared, or
+      coefficient of determination.
+    - :func:`matplotlib.pyplot.subplots` : 
+        Function to create multiple subplots.
+    - :func:`gofast.plot.utils.plot_r_squared` : 
+        Utility function to plot R-squared in multiple kind format.
 
     References
     ----------
-    .. [1] Pedregosa et al., "Scikit-learn: Machine Learning in Python", JMLR 12, 
-           pp. 2825-2830, 2011.
+    .. [1] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O.,
+           Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A.,
+           Cournapeau, D., Brucher, M., Perrot, M., & Duchesnay, E. (2011). Scikit-learn: 
+           Machine Learning in Python. *Journal of Machine Learning Research*, 12, 2825-2830.
+    
+    .. [2] Hunter, J. D. (2007). Matplotlib: A 2D Graphics Environment. 
+           *Computing in Science & Engineering*, 9(3), 90-95.
     """
-    y_true, y_pred= validate_yy(y_true, y_pred, "continuous")
-    if ax is None: 
-        fig, ax = plt.subplots(figsize=fig_size)
+
+    # Remove NaN values from y_true and all y_pred arrays
+    y_true, *y_preds = drop_nan_in(y_true, *y_preds, error='raise')
     
-    # Calculate R-squared value
-    r_squared = r2_score(y_true, y_pred, **r2_score_kws)
+    # Validate y_true and each y_pred to ensure consistency and continuity
+    y_preds = [
+        validate_yy(y_true, pred, expected_type="continuous")[1] 
+        for pred in y_preds
+    ]
     
-    # Plot actual vs predicted values
-    ax.scatter(y_true, y_pred, color=scatter_color, 
-               label='Predictions vs Actual data')
+    # Determine the number of predictions to plot
+    num_preds = len(y_preds)
+
+    # Calculate the number of columns and rows based on max_cols and num_preds
+    ncols = min(max_cols, num_preds) if num_preds > 0 else 1
+    nrows = int(np.ceil(num_preds / ncols)) if num_preds > 0 else 1
+
+    # Set default scatter colors if not provided
+    if scatter_colors is None:
+        scatter_colors = ['blue'] * num_preds
+    else:
+        # If fewer colors are provided than predictions, repeat the last color
+        scatter_colors= is_iterable(scatter_colors, exclude_string=True, transform=True)
+        if len(scatter_colors) < num_preds:
+            scatter_colors += [scatter_colors[-1]] * (num_preds - len(scatter_colors))
     
-    # Plot a line representing perfect predictions
-    perfect_preds = [min(y_true.min(), y_pred.min()),
-                     max(y_true.max(), y_pred.max())]
-    ax.plot(perfect_preds, perfect_preds, color=line_color,
-            linestyle=line_style, label='Perfect fit')
+    # Set default line colors if not provided
+    if line_colors is None:
+        line_colors = ['red'] * num_preds
+    else:
+        line_colors= is_iterable(line_colors, exclude_string=True, transform=True)
+        # If fewer colors are provided than predictions, repeat the last color
+        if len(line_colors) < num_preds:
+            line_colors += [line_colors[-1]] * (num_preds - len(line_colors))
     
-    # Annotate the R-squared value on the plot if requested
-    if annotate:
-        ax.text(0.05, 0.95, f'$R^2 = {r_squared:.2f}$', 
-                fontsize=12, ha='left', va='top', transform=ax.transAxes)
+    # Set default line styles if not provided
+    if line_styles is None:
+        line_styles = ['--'] * num_preds
+    else:
+        # If fewer styles are provided than predictions, repeat the last style
+        if len(line_styles) < num_preds:
+            line_styles += [line_styles[-1]] * (num_preds - len(line_styles))
     
-    # Enhancing the plot
-    ax.set_xlabel(xlabel or 'Actual Values')
-    ax.set_ylabel(ylabel or 'Predicted Values')
-    ax.set_title(title or 'Model Performance: Actual vs Predicted')
-    ax.legend(loc='upper left')
-    ax.grid(True)
+    # Determine figure size if not provided
+    if fig_size is None:
+        # Define base size for each subplot
+        base_width = 5  # inches per subplot width
+        base_height = 4  # inches per subplot height
+        # Calculate total figure size based on number of rows and cols
+        fig_width = base_width * ncols
+        fig_height = base_height * nrows
+        fig_size = (fig_width, fig_height)
     
-    # Show the plot only if `ax` was not provided
-    if ax is None:
-        plt.show()
+    # Create subplots with the calculated number of rows and columns
+    fig, axes = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=fig_size,
+        # Automatically adjust subplot params for a neat layout
+        constrained_layout=True, 
+        # Ensures axes is always a 2D array for consistent indexing
+        squeeze=False  
+    )
+ 
+    # Flatten the axes array for easy iteration
+    axes_flat = axes.flatten()
+
+    # list the titles if not None: 
+    if titles is not None: 
+        titles = is_iterable(titles, exclude_string= True, transform=True )
         
-    return ax 
+    for idx, pred in enumerate(y_preds):
+        # Determine the current subplot's row and column
+        ax = axes_flat[idx]
+        
+        # Calculate R-squared value for the current prediction
+        r_squared = r2_score(y_true, pred, **r2_score_kws)
+        
+        # Plot actual vs predicted values as a scatter plot
+        ax.scatter(
+            y_true, pred, 
+            color=scatter_colors[idx], 
+            label='Predictions vs Actual data'
+        )
+        
+        # Determine the range for the perfect fit line
+        perfect_min = min(y_true.min(), pred.min())
+        perfect_max = max(y_true.max(), pred.max())
+        perfect_line = [perfect_min, perfect_max]
+        
+        # Plot the perfect fit line (diagonal line)
+        ax.plot(
+            perfect_line, 
+            perfect_line, 
+            color=line_colors[idx],
+            linestyle=line_styles[idx],
+            label='Perfect fit'
+        )
+        
+        # Annotate the R-squared value on the plot if requested
+        if annotate:
+            # Position the annotation at the bottom 
+            # right to avoid overlapping with the legend
+            ax.text(
+                0.95, 0.05, f'$R^2 = {r_squared:.2f}$', 
+                fontsize=12, ha='right', va='bottom', 
+                transform=ax.transAxes
+            )
+        
+        # Set axis labels; use provided labels or default ones
+        ax.set_xlabel(xlabel or 'Actual Values')
+        ax.set_ylabel(ylabel or 'Predicted Values')
+        
+        # Set subplot title, optionally including the overall title
+        try: 
+            subplot_title = ( 
+                f"{titles[idx]}" if titles else f"Prediction {idx + 1}"
+                )
+            ax.set_title(subplot_title)
+        except : 
+            # when title is less than numberpred 
+            ax.set_title('Prediction {idx + 1}')
+        
+        # Enable grid lines if requested
+        ax.grid(show_grid)
+        
+        # Add legend to the subplot
+        ax.legend(loc='upper left')
+    
+    # Hide Any Unused Subplots
+    # If the number of predictions is less than total
+    # subplots, hide the unused axes
+    for idx in range(num_preds, len(axes_flat)):
+        axes_flat[idx].axis('off')
+    
+    # Adjust layout to prevent overlapping elements
+    fig.tight_layout()
+    
+    # Display the plot
+    plt.show()
+    
+    # Return the figure object 
+    # for further manipulation if needed
+    return fig
 
 @param_deprecated_message(
     conditions_params_mappings=[

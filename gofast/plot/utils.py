@@ -23,8 +23,10 @@ import matplotlib.colors as mcolors
 from matplotlib.patches import Ellipse
 import matplotlib.transforms as transforms 
 from scipy.interpolate import griddata
+from scipy.stats import probplot
 
-from sklearn.metrics import r2_score 
+from sklearn.metrics import r2_score, mean_squared_error 
+from sklearn.metrics import precision_recall_curve
 from sklearn.utils import resample
 
 from ..api.types import Optional, Tuple,  Union, List 
@@ -36,12 +38,14 @@ from ..core.checks import (
     exist_features, check_features_types, check_spatial_columns, 
 )
 from ..core.handlers import columns_manager,  param_deprecated_message 
+from ..core.io import is_data_readable 
 from ..core.plot_manager import default_params_plot 
 from ..compat.sklearn import validate_params, StrOptions, Interval 
 from ..decorators import isdf
 from ..utils.validator import  ( 
     assert_xy_in, build_data_if, validate_positive_integer, 
-    validate_quantiles, is_frame, check_consistent_length 
+    validate_quantiles, is_frame, check_consistent_length, 
+    validate_yy, 
 )
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
@@ -57,7 +61,9 @@ __all__=[
     'plot_quantile_distributions', 
     'plot_uncertainty', 
     'plot_prediction_intervals',
-    'plot_temporal_trends'
+    'plot_temporal_trends', 
+    'plot_relationship', 
+    'plot_fit', 
 ]
 
 class PlotUtils(BasePlot):
@@ -457,6 +463,7 @@ def plot_sensitivity(
     plt.tight_layout()
     plt.show()
 
+@is_data_readable 
 @isdf 
 def plot_spatial_features(
     data,
@@ -844,6 +851,7 @@ def plot_spatial_features(
     plt.tight_layout()
     plt.show()
 
+@is_data_readable 
 @isdf 
 def plot_categorical_feature(
     data,
@@ -1107,7 +1115,8 @@ def plot_categorical_feature(
 
     plt.tight_layout()
     plt.show()
-
+    
+@is_data_readable 
 def boxplot(
     data: ArrayLike | DataFrame, 
     labels: list[str],
@@ -1209,6 +1218,856 @@ def boxplot(
     plt.show()
     return bplot
 
+@default_params_plot(savefig='my_fit_plot.png', fig_size=(8, 6))
+@validate_params({
+    "y_true": ['array-like'], 
+    "y_pred": ['array-like'], 
+    "kind": [StrOptions({ 
+        'scatter', 'residual', 'residual_hist', 'density',
+        'hexbin', 'cumulative_gain', 'lift_curve', 'precision_recall',
+        'pred_histogram', 'qq_plot', 'error_heatmap', 'actual_vs_error', 
+        })]
+    })
+def plot_fit(
+    y_true, 
+    y_pred, 
+    *, 
+    kind='scatter',               
+    show_perfect_fit=...,         
+    fit_line_color='red',          
+    color: str='blue', 
+    pred_color: str='orange', 
+    add_reg_line=False,             
+    reg_color='green',             
+    annot_metrics=True,            
+    metrics_position='auto', 
+    plot_dist=False,               
+    alpha=0.3,                     
+    title=None,                    
+    xlabel='True Values',          
+    ylabel='Predicted Values',     
+    figsize=None,                
+    scatter_alpha=0.6,             
+    bins=30,                       
+    cmap='viridis',                
+    hexbin_gridsize=50,            
+    hexbin_cmap='Blues',           
+    ci=95,                         
+    residual_trendline=...,       
+    trendline_color='orange',      
+    show_grid=...,
+    savefig=None,                  
+    **kwargs                       
+) -> plt.Figure:
+    """
+    Plot various fit analyses between true and predicted values.
+
+    The `plot_fit` function offers a range of visualizations to
+    analyze the relationship between `y_true` and `y_pred`, including
+    scatter plots, residual plots, density plots, precision-recall
+    curves, and more. Additionally, it can annotate plots with
+    performance metrics like R², RMSE, and MAE.
+
+    Parameters
+    ----------
+    y_true : array-like
+        The true values. Must be 1-dimensional and numeric.
+
+    y_pred : array-like
+        The predicted values. Must match the shape of `y_true`.
+
+    kind : str, default='scatter'
+        The type of plot to produce. Options include:
+        - ``'scatter'``: Scatter plot of true vs. predicted values.
+        - ``'residual'``: Residual plot.
+        - ``'residual_hist'``: Histogram of residuals.
+        - ``'density'``: Density plot of true vs. predicted values.
+        - ``'hexbin'``: Hexbin plot of true vs. predicted values.
+        - ``'cumulative_gain'``: Cumulative gain curve.
+        - ``'lift_curve'``: Lift curve.
+        - ``'precision_recall'``: Precision-recall curve.
+        - ``'pred_histogram'``: Histogram of predicted values.
+        - ``'qq_plot'``: QQ plot for residual normality.
+        - ``'error_heatmap'``: Heatmap of prediction errors.
+        - ``'actual_vs_error'``: Scatter plot of actual values vs. errors.
+
+    show_perfect_fit : bool, default=True
+        Whether to include a ``y = x`` perfect fit line in relevant
+        plots.
+
+    fit_line_color : str, default='red'
+        Color for the perfect fit line.
+
+    color : str, default='blue'
+        Color for the main data points in the plots.
+
+    pred_color : str, default='orange'
+        Color for the predicted value distribution overlays.
+
+    add_reg_line : bool, default=False
+        Whether to add a regression line to scatter plots.
+
+    reg_color : str, default='green'
+        Color for the regression line.
+
+    annot_metrics : bool, default=True
+        Whether to annotate the plot with performance metrics
+        like R², RMSE, and MAE.
+
+    metrics_position : tuple or 'auto', default='auto'
+        The position of metrics annotation. If set to ``'auto'``,
+        defaults to ``(0.85, 0.05)`` in axes fraction coordinates.
+
+    plot_dist : bool, default=False
+        Whether to overlay histograms or density plots of
+        `y_true` and `y_pred`.
+
+    alpha : float, default=0.3
+        Transparency for distribution overlays.
+
+    title : str, optional
+        Custom title for the plot. Defaults to a title based on
+        the `kind` parameter.
+
+    xlabel : str, default='True Values'
+        Label for the x-axis.
+
+    ylabel : str, default='Predicted Values'
+        Label for the y-axis.
+
+    figsize : tuple of float, default=(8, 6)
+        Figure size in inches.
+
+    scatter_alpha : float, default=0.6
+        Transparency for scatter points.
+
+    bins : int, default=30
+        Number of bins for histogram-based plots.
+
+    cmap : str, default='viridis'
+        Colormap for density plots.
+
+    hexbin_gridsize : int, default=50
+        Grid size for hexbin plots.
+
+    hexbin_cmap : str, default='Blues'
+        Colormap for hexbin plots.
+
+    ci : int, default=95
+        Confidence interval for regression lines.
+
+    residual_trendline : bool, default=False
+        Whether to add a trendline to residual plots.
+
+    trendline_color : str, default='orange'
+        Color for residual trendlines.
+
+    show_grid : bool, default=False
+        Whether to display a grid on the plot.
+
+    savefig : str or None, optional
+        Path to save the plot as an image. If ``None``, the plot
+        is not saved.
+
+    **kwargs : dict
+        Additional arguments passed to plotting functions.
+
+    Returns
+    -------
+    plt.Figure
+        The Matplotlib figure object for the plot.
+
+    Notes
+    -----
+    This function supports several types of plots for analyzing
+    regression or classification model performance. The `kind`
+    parameter controls the type of visualization produced.
+
+    .. math::
+        R^2 = 1 - \\frac{\\sum{(y_{true} - y_{pred})^2}}
+                         {\\sum{(y_{true} - \\bar{y}_{true})^2}}
+
+    Root Mean Squared Error (RMSE):
+
+    .. math::
+        RMSE = \\sqrt{\\frac{1}{n} \\sum{(y_{true} - y_{pred})^2}}
+
+    Mean Absolute Error (MAE):
+
+    .. math::
+        MAE = \\frac{1}{n} \\sum{|y_{true} - y_{pred}|}
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_fit
+    >>> import numpy as np
+
+    Create sample data:
+    >>> y_true = np.random.rand(100)
+    >>> y_pred = y_true + np.random.normal(scale=0.1, size=100)
+
+    Scatter plot:
+    >>> plot_fit(y_true, y_pred, kind='scatter')
+
+    Residual plot:
+    >>> plot_fit(y_true, y_pred, kind='residual')
+
+    Density plot:
+    >>> plot_fit(y_true, y_pred, kind='density', cmap='plasma')
+
+    See Also
+    --------
+    sklearn.metrics.r2_score : R² score calculation.
+    sklearn.metrics.mean_squared_error : RMSE calculation.
+    sklearn.metrics.mean_absolute_error : MAE calculation.
+
+    References
+    ----------
+    .. [1] Seaborn Documentation: https://seaborn.pydata.org
+    .. [2] Matplotlib Documentation: https://matplotlib.org
+    .. [3] Regression Analysis: https://en.wikipedia.org/wiki/Regression_analysis
+    """
+
+    # Remove NaN values from y_true and y_pred arrays
+    y_true, y_pred = drop_nan_in(y_true, y_pred, error='raise')
+    
+    # Validate y_true and y_pred to ensure consistency and continuity
+    y_true, y_pred = validate_yy(y_true, y_pred, expected_type="continuous")
+    
+    if metrics_position =='auto': 
+        metrics_position =(0.85, 0.05) 
+    # Create a figure and axis with specified figure size
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Scatter plot analysis
+    if kind == 'scatter':
+        # Plot actual vs predicted values as scatter points
+        ax.scatter(
+            y_true, y_pred, 
+            alpha=scatter_alpha,
+            color=color, 
+            **kwargs
+        )
+        
+        # Optionally plot the perfect fit line (y = x)
+        if show_perfect_fit:
+            ax.plot(
+                [min(y_true), max(y_true)], 
+                [min(y_true), max(y_true)], 
+                color=fit_line_color, 
+                linestyle='--', 
+                label="Perfect Fit"
+            )
+        
+        # Optionally add a regression line to the scatter plot
+        if add_reg_line:
+            coeffs = np.polyfit(y_true, y_pred, 1)  # Fit a linear regression
+            ax.plot(
+                y_true, 
+                np.polyval(coeffs, y_true), 
+                color=reg_color, 
+                linestyle='-', 
+                label="Regression Line"
+            )
+        
+        # Optionally plot distributions of true and predicted values
+        if plot_dist:
+            sns.histplot(
+                y_true, 
+                kde=True, 
+                alpha=alpha, 
+                color=color, 
+                ax=ax, 
+                label="True Dist"
+            )
+            sns.histplot(
+                y_pred, 
+                kde=True, 
+                alpha=alpha, 
+                color=pred_color, 
+                ax=ax, 
+                label="Pred Dist"
+            )
+    
+    # Residual analysis
+    elif kind == 'residual':
+        residuals = y_true - y_pred  # Calculate residuals
+        
+        # Plot residuals against predicted values
+        ax.scatter(
+            y_pred, residuals, 
+            alpha=scatter_alpha, 
+            color= color, 
+            **kwargs
+        )
+        
+        # Plot a horizontal line at zero residual
+        ax.axhline(
+            0, 
+            color=fit_line_color, 
+            linestyle='--', 
+            label="Zero Error"
+        )
+        
+        # Optionally add a trendline to the residual plot
+        if residual_trendline:
+            sns.regplot(
+                x=y_pred, 
+                y=residuals, 
+                lowess=True, 
+                ax=ax, 
+                scatter=False, 
+                line_kws={"color": trendline_color, "label": "Residual Trend"}
+            )
+    
+    # Residual histogram analysis
+    elif kind == 'residual_hist':
+        residuals = y_true - y_pred  # Calculate residuals
+        
+        # Plot histogram of residuals
+        ax.hist(
+            residuals, 
+            bins=bins, 
+            alpha=scatter_alpha, 
+            color=color, 
+            **kwargs
+        )
+        ax.set_ylabel('Frequency')  # Set y-axis label
+        ax.set_xlabel('Residuals')  # Set x-axis label
+    
+    # Density plot analysis
+    elif kind == 'density':
+        # Plot density contours of true vs predicted values
+        sns.kdeplot(
+            x=y_true, 
+            y=y_pred, 
+            cmap=cmap, 
+            fill=True, 
+            ax=ax, 
+            **kwargs
+        )
+        
+        # Optionally plot the perfect fit line
+        if show_perfect_fit:
+            ax.plot(
+                [min(y_true), max(y_true)], 
+                [min(y_true), max(y_true)], 
+                color=fit_line_color, 
+                linestyle='--', 
+                label="Perfect Fit"
+            )
+    
+    # Hexbin plot analysis
+    elif kind == 'hexbin':
+        # Create a hexbin plot to show density
+        hb = ax.hexbin(
+            y_true, y_pred, 
+            gridsize=hexbin_gridsize, 
+            cmap=hexbin_cmap, 
+            **kwargs
+        )
+        # Add a color bar to indicate frequency
+        cbar = fig.colorbar(hb, ax=ax)
+        cbar.set_label('Frequency')
+    
+    # Cumulative Gain Curve analysis
+    elif kind == 'cumulative_gain':
+        sorted_indices = np.argsort(y_pred)[::-1]  # Sort predictions descending
+        y_true_sorted = np.array(y_true)[sorted_indices]  # Sort true values accordingly
+        gains = np.cumsum(y_true_sorted) / np.sum(y_true)  # Cumulative gain
+        gains = np.insert(gains, 0, 0)  # Add zero point for the curve start
+        
+        # Plot the cumulative gain curve
+        ax.plot(
+            np.linspace(0, 1, len(gains)), 
+            gains, 
+            color = color, 
+            label="Cumulative Gain"
+        )
+        
+        # Plot a baseline for random guessing
+        ax.plot(
+            [0, 1], 
+            [0, 1], 
+            linestyle='--', 
+            color=fit_line_color, 
+            label="Random Guess"
+        )
+        ax.set_xlabel(xlabel or "Fraction of Samples")  # Set x-axis label
+        ax.set_ylabel(ylabel or "Cumulative Gain")      # Set y-axis label
+    
+    # Lift Curve analysis
+    elif kind == 'lift_curve':
+        sorted_indices = np.argsort(y_pred)[::-1]  # Sort predictions descending
+        y_true_sorted = np.array(y_true)[sorted_indices]  # Sort true values accordingly
+        cumulative_pos = np.cumsum(y_true_sorted)  # Cumulative positives
+        total_pos = np.sum(y_true_sorted)          # Total positives
+        lift = (
+            (cumulative_pos / np.arange(1, len(y_true) + 1)) / 
+            (total_pos / len(y_true))
+        )  # Calculate lift
+        
+        # Plot the lift curve
+        ax.plot(lift, label="Lift Curve", color = color )
+        
+        # Plot a baseline for random guessing
+        ax.axhline(
+            1, 
+            color=fit_line_color, 
+            linestyle='--', 
+            label="Random Guess"
+        )
+        ax.set_xlabel(xlabel or "Number of Samples")  # Set x-axis label
+        ax.set_ylabel(ylabel or "Lift")               # Set y-axis label
+    
+    # Precision-Recall Curve analysis
+    elif kind == 'precision_recall':
+        precision, recall, _ = precision_recall_curve(y_true, y_pred)  # Compute precision-recall
+        ax.plot(
+            recall, 
+            precision, 
+            label="Precision-Recall Curve", 
+            color=color, 
+        )
+        ax.set_xlabel(xlabel or "Recall")      # Set x-axis label
+        ax.set_ylabel(ylabel or "Precision")  # Set y-axis label
+    
+    # Histogram of Predictions analysis
+    elif kind == 'pred_histogram':
+        # Plot histogram of predicted values
+        ax.hist(
+            y_pred, 
+            bins=bins, 
+            alpha=scatter_alpha, 
+            color=color, 
+            **kwargs
+        )
+        ax.set_xlabel(xlabel or "Predicted Values")  # Set x-axis label
+        ax.set_ylabel(ylabel or "Frequency")          # Set y-axis label
+    
+    # QQ Plot analysis
+    elif kind == 'qq_plot':
+        residuals = y_true - y_pred  # Calculate residuals
+        
+        # Generate a QQ plot to assess normality of residuals
+        probplot(
+            residuals, 
+            dist="norm", 
+            plot=ax
+        )
+        ax.set_xlabel(xlabel or "Theoretical Quantiles")  # Set x-axis label
+        ax.set_ylabel(ylabel or "Sample Quantiles")      # Set y-axis label
+    
+    # Error Heatmap analysis
+    elif kind == 'error_heatmap':
+        errors = np.abs(y_true - y_pred)  # Calculate absolute errors
+        
+        # Plot histogram of errors with density
+        sns.histplot(
+            errors, 
+            bins=bins, 
+            kde=True, 
+            cmap=cmap, 
+            ax=ax, 
+            **kwargs
+        )
+        ax.set_xlabel(xlabel or "Errors")      # Set x-axis label
+        ax.set_ylabel(ylabel or "Frequency")   # Set y-axis label
+    
+    # Actual vs. Error Scatter analysis
+    elif kind == 'actual_vs_error':
+        errors = y_true - y_pred  # Calculate residuals
+        
+        # Plot residuals against actual values
+        ax.scatter(
+            y_true, errors, 
+            alpha=scatter_alpha, 
+            color=color, 
+            **kwargs
+        )
+        
+        # Plot a horizontal line at zero residual
+        ax.axhline(
+            0, 
+            color=fit_line_color, 
+            linestyle='--', 
+            label="Zero Error"
+        )
+        ax.set_xlabel(xlabel or "True Values")  # Set x-axis label
+        ax.set_ylabel(ylabel or "Errors")       # Set y-axis label
+    
+    # Metrics calculation and annotation
+    if annot_metrics and kind not in [
+        'cumulative_gain', 
+        'lift_curve', 
+        'precision_recall'
+    ]:
+        r2 = r2_score(y_true, y_pred)  # Calculate R-squared
+        rmse = np.sqrt(mean_squared_error(y_true, y_pred))  # Calculate RMSE
+        mae = np.mean(np.abs(y_true - y_pred))  # Calculate MAE
+        
+        # Prepare metrics text
+        metrics_text = f"$R^2$={r2:.2f}\nRMSE={rmse:.2f}\nMAE={mae:.2f}"
+        
+        # Annotate metrics on the plot at the specified position
+        ax.annotate(
+            metrics_text, 
+            xy=metrics_position, 
+            xycoords='axes fraction',
+            fontsize=10, 
+            color='black', 
+            bbox=dict(
+                boxstyle="round,pad=0.3", 
+                edgecolor="black", 
+                facecolor="white"
+            )
+        )
+        
+        # Set plot title, axis labels, and legend
+        ax.set_title(
+            title or f"{kind.replace('_', ' ').capitalize()} Analysis"
+        )
+        ax.set_xlabel(xlabel or "X-axis")  # Default to 'X-axis' if not provided
+        ax.set_ylabel(ylabel or "Y-axis")  # Default to 'Y-axis' if not provided
+        ax.legend(loc='best', frameon=True)  # Add legend in the best location
+        plt.tight_layout()  # Adjust layout to prevent overlap
+        
+        # Display the plot
+        plt.show()
+    
+    else:
+        # Calculate metrics if annotation is not requested for specific analysis types
+        r2 = r2_score(y_true, y_pred)  # Calculate R-squared
+        rmse = np.sqrt(mean_squared_error(y_true, y_pred))  # Calculate RMSE
+        mae = np.mean(np.abs(y_true - y_pred))  # Calculate MAE
+        
+        # Prepare metrics text
+        metrics_text = f"$R^2$={r2:.2f}\nRMSE={rmse:.2f}\nMAE={mae:.2f}"
+        
+        # Annotate metrics on the plot at the specified position
+        ax.annotate(
+            metrics_text, 
+            xy=metrics_position, 
+            xycoords='axes fraction',
+            fontsize=10, 
+            color='black', 
+            bbox=dict(
+                boxstyle="round,pad=0.3", 
+                edgecolor="black", 
+                facecolor="white"
+            )
+        )
+        
+        # Set plot title, axis labels, and legend
+        ax.set_title(
+            title or f"{kind.capitalize()} Analysis"
+        )
+        ax.set_xlabel(xlabel)  # Set x-axis label
+        ax.set_ylabel(ylabel)  # Set y-axis label
+        ax.legend(loc='best', frameon=True)  # Add legend in the best location
+        plt.tight_layout()  # Adjust layout to prevent overlap
+    
+    ax.grid(show_grid)
+        
+    # Save the plot to the specified path if provided
+    if savefig:
+        plt.savefig(
+            savefig, 
+            dpi=300, 
+            bbox_inches='tight'
+        )
+    
+    # Display the plot
+    plt.show()
+    
+    # Return the figure object for further manipulation if needed
+    return fig
+
+def plot_relationship(
+    y_true, *y_preds, 
+    names=None, 
+    title=None,  
+    theta_offset=0,  
+    theta_scale='proportional',  
+    acov='default',  
+    figsize=(8, 8), 
+    cmap='viridis',  
+    point_size=50,  
+    alpha=0.7,  
+    legend=True,  
+    show_grid=True,  
+    color_palette=None,  
+    xlabel=None,  
+    ylabel=None,  
+    z_values=None,  
+    z_label=None  
+):
+    """
+    Visualize the relationship between `y_true` and multiple `y_preds`
+    using a circular or polar plot. The function allows flexible
+    configurations such as angular coverage, z-values for replacing
+    angle labels, and customizable axis labels.
+
+    Parameters
+    ----------
+    y_true : array-like
+        The true values. Must be numeric, one-dimensional, and of the
+        same length as the values in `y_preds`.
+
+    y_preds : array-like (one or more)
+        Predicted values from one or more models. Each `y_pred` must
+        have the same length as `y_true`.
+
+    names : list of str, optional
+        A list of model names corresponding to each `y_pred`. If not
+        provided or if fewer names than predictions are given, the
+        function assigns default names as ``"Model_1"``, ``"Model_2"``,
+        etc. For instance, if `y_preds` has three predictions and
+        `names` is `["SVC", "RF"]`, the names will be updated to
+        `["SVC", "RF", "Model_3"]`.
+
+    title : str, optional
+        The title of the plot. If `None`, the title defaults to
+        `"Relationship Visualization"`.
+
+    theta_offset : float, default=0
+        Angular offset in radians to rotate the plot. This allows
+        customization of the orientation of the plot.
+
+    theta_scale : {'proportional', 'uniform'}, default='proportional'
+        Determines how `y_true` values are mapped to angular
+        coordinates (`theta`):
+        - ``'proportional'``: Maps `y_true` proportionally to the
+          angular range (e.g., 0 to 360° or a subset defined by
+          `acov`).
+        - ``'uniform'``: Distributes `y_true` values uniformly around
+          the angular range.
+
+    acov : {'default', 'half_circle', 'quarter_circle', 'eighth_circle'}, 
+           default='default'
+        Specifies the angular coverage of the plot:
+        - ``'default'``: Full circle (360°).
+        - ``'half_circle'``: Half circle (180°).
+        - ``'quarter_circle'``: Quarter circle (90°).
+        - ``'eighth_circle'``: Eighth circle (45°).
+        The angular span is automatically restricted to the selected
+        portion of the circle.
+
+    figsize : tuple of float, default=(8, 8)
+        The dimensions of the figure in inches.
+
+    cmap : str, default='viridis'
+        Colormap for the scatter points. Refer to Matplotlib
+        documentation for a list of supported colormaps.
+
+    point_size : float, default=50
+        Size of scatter points representing predictions.
+
+    alpha : float, default=0.7
+        Transparency level for scatter points. Valid values range
+        from 0 (completely transparent) to 1 (fully opaque).
+
+    legend : bool, default=True
+        Whether to display a legend indicating the model names.
+
+    show_grid : bool, default=True
+        Whether to display a grid on the polar plot.
+
+    color_palette : list of str, optional
+        A list of colors to use for the scatter points. If not
+        provided, the default Matplotlib color palette (`tab10`) is
+        used.
+
+    xlabel : str, optional
+        Label for the radial axis (distance from the center). Defaults
+        to `"Normalized Predictions (r)"`.
+
+    ylabel : str, optional
+        Label for the angular axis (theta values). Defaults to
+        `"Angular Mapping (θ)"`.
+
+    z_values : array-like, optional
+        Optional values to replace the angular labels. The length of
+        `z_values` must match the length of `y_true`. If provided, the
+        angular labels are replaced by the scaled `z_values`.
+
+    z_label : str, optional
+        Label for the `z_values`, if provided. Defaults to `None`.
+
+    Returns
+    -------
+    None
+        Displays the polar plot. Does not return any value.
+
+    Notes
+    -----
+    The function dynamically maps `y_true` to angular coordinates
+    based on the `theta_scale` and `acov` parameters. The `y_preds`
+    are normalized to radial coordinates between 0 and 1. Optionally,
+    `z_values` can replace angular labels with custom values.
+
+    .. math::
+        \theta = 
+        \begin{cases} 
+        \text{Proportional mapping: } \theta_i = 
+        \frac{y_{\text{true}_i} - \min(y_{\text{true}})}
+        {\max(y_{\text{true}}) - \min(y_{\text{true}})} 
+        \cdot \text{angular_range} \\
+        \text{Uniform mapping: } \theta_i = 
+        \frac{i}{N-1} \cdot \text{angular_range}
+        \end{cases}
+
+    Radial normalization:
+
+    .. math::
+        r_i = \frac{y_{\text{pred}_i} - \min(y_{\text{pred}})}
+        {\max(y_{\text{pred}}) - \min(y_{\text{pred}})}
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_relationship
+    >>> import numpy as np
+
+    # Create sample data
+    >>> y_true = np.random.rand(100)
+    >>> y_pred1 = y_true + np.random.normal(0, 0.1, size=100)
+    >>> y_pred2 = y_true + np.random.normal(0, 0.2, size=100)
+
+    # Full circle visualization
+    >>> plot_relationship(
+    ...     y_true, y_pred1, y_pred2,
+    ...     names=["Model A", "Model B"],
+    ...     acov="default",
+    ...     title="Full Circle Visualization"
+    ... )
+
+    # Half-circle visualization with z-values
+    >>> z_values = np.linspace(0, 100, len(y_true))
+    >>> plot_relationship(
+    ...     y_true, y_pred1, 
+    ...     names=["Model A"],
+    ...     acov="half_circle",
+    ...     z_values=z_values,
+    ...     xlabel="Predicted Values",
+    ...     ylabel="Custom Angles"
+    ... )
+
+    See Also
+    --------
+    matplotlib.pyplot.polar : Polar plotting in Matplotlib.
+    numpy.linspace : Uniformly spaced numbers.
+
+    References
+    ----------
+    .. [1] Hunter, J. D. (2007). Matplotlib: A 2D graphics environment.
+           Computing in Science & Engineering, 9(3), 90-95.
+    .. [2] NumPy Documentation: https://numpy.org/doc/stable/
+    .. [3] Matplotlib Documentation: https://matplotlib.org/stable/
+    """
+
+    # Remove NaN values from y_true and all y_pred arrays
+    y_true, *y_preds = drop_nan_in(y_true, *y_preds, error='raise')
+
+    # Validate y_true and each y_pred to ensure consistency and continuity
+    y_preds = [
+        validate_yy(y_true, pred, expected_type="continuous", flatten=True)[1] 
+        for pred in y_preds
+    ]
+
+    # Generate default model names if none are provided
+    if names is None:
+        names = [f"Model_{i+1}" for i in range(len(y_preds))]
+    else:
+        # Ensure the length of names matches y_preds
+        if len(names) < len(y_preds):
+            names += [f"Model_{i+1}" for i in range(len(names), len(y_preds))]
+
+    # Create default color palette if none is provided
+    if color_palette is None:
+        color_palette = plt.cm.tab10.colors
+
+    # Determine the angular range based on `acov`
+    if acov == 'default':  # Full circle (360 degrees)
+        angular_range = 2 * np.pi
+    elif acov == 'half_circle':  # Half-circle (180 degrees)
+        angular_range = np.pi
+    elif acov == 'quarter_circle':  # Quarter-circle (90 degrees)
+        angular_range = np.pi / 2
+    elif acov == 'eighth_circle':  # Eighth-circle (45 degrees)
+        angular_range = np.pi / 4
+    else:
+        raise ValueError(
+            "Invalid value for `acov`. Choose from 'default',"
+            " 'half_circle', 'quarter_circle', or 'eighth_circle'.")
+
+    # Create the polar plot
+    fig, ax = plt.subplots(figsize=figsize, subplot_kw={'projection': 'polar'})
+
+    # Limit the visible angular range
+    ax.set_thetamin(0)  # Start angle (in degrees)
+    ax.set_thetamax(np.degrees(angular_range))  # End angle (in degrees)
+
+    # Map `y_true` to angular coordinates (theta)
+    if theta_scale == 'proportional':
+        theta = angular_range * (
+            y_true - np.min(y_true)) / (np.max(y_true) - np.min(y_true))
+    elif theta_scale == 'uniform':
+        theta = np.linspace(0, angular_range, len(y_true))
+    else:
+        raise ValueError(
+            "`theta_scale` must be either 'proportional' or 'uniform'.")
+
+    # Apply theta offset
+    theta += theta_offset
+
+    # Plot each model's predictions
+    for i, y_pred in enumerate(y_preds):
+        # Ensure `y_pred` is a numpy array
+        y_pred = np.array(y_pred)
+
+        # Normalize `y_pred` for radial coordinates
+        r = (y_pred - np.min(y_pred)) / (np.max(y_pred) - np.min(y_pred))
+
+        # Plot on the polar axis
+        ax.scatter(
+            theta, r, 
+            label=names[i], 
+            c=color_palette[i % len(color_palette)], 
+            s=point_size, alpha=alpha, edgecolor='black'
+        )
+
+    # If z_values are provided, replace angle labels with z_values
+    if z_values is not None:
+        # Validate z_values length
+        if len(z_values) != len(y_true):
+            raise ValueError("Length of `z_values` must match the length of `y_true`.")
+
+        # Map z_values to the same angular range
+        z_mapped = angular_range * (
+            z_values - np.min(z_values)) / (np.max(z_values) - np.min(z_values))
+
+        # Set custom z_labels
+        ax.set_xticks(np.linspace(0, angular_range, len(z_mapped), endpoint=False))
+        ax.set_xticklabels([f"{z:.2f}" for z in z_values])
+
+    # Add labels for radial and angular axes
+    ax.set_xlabel(xlabel or "Normalized Predictions (r)")
+    ax.set_ylabel(ylabel or "Angular Mapping (θ)")
+
+    # Add title
+    ax.set_title(title or "Relationship Visualization", va='bottom')
+
+    # Add grid
+    ax.grid(show_grid)
+
+    # Add legend
+    if legend:
+        ax.legend(loc='upper right', bbox_to_anchor=(1.1, 1.1))
+
+    # Show the plot
+    plt.show()
+
+
 def plot_r_squared(
     y_true, y_pred, 
     model_name="Regression Model",
@@ -1302,8 +2161,10 @@ def plot_r_squared(
 
 def make_plot_colors(
     d , / , 
-    colors:str | list[str]=None , axis:int = 0, 
-    seed:int  =None, chunk:bool =... 
+    colors:str | list[str]=None , 
+    axis:int = 0, 
+    seed:int  =None, 
+    chunk:bool =... 
     ): 
     """ Select colors according to the data size along axis 
     
@@ -1376,7 +2237,8 @@ def make_plot_colors(
     
      #manage colors 
     # we assume the first columns is dedicated for 
-    if colors ==...: colors =None 
+    # if colors ==...: 
+    #     colors =None 
     if ( 
             isinstance (colors, str) and 
             ( 
@@ -1426,8 +2288,7 @@ def make_plot_colors(
             colors = colors[ cs4_start:]
     
     if colors is not None: 
-        if not is_iterable(colors): 
-            colors =[colors]
+        colors =is_iterable(colors, exclude_string =True, transform =True )
         colors += m_cs 
     else :
         colors = m_cs 

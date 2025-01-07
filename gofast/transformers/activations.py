@@ -326,9 +326,7 @@ class ReLUTransformer(BaseEstimator, TransformerMixin):
         self.batch_size = batch_size
         self.backend = backend
         self.verbose = verbose
-        self.backend_name_ = None
-        self.backend_ = None
-
+ 
     @Appender(
         _activation_doc['fit'].format(fmt='ReLUTransformer'), 
         join="\n"
@@ -390,6 +388,7 @@ class ReLUTransformer(BaseEstimator, TransformerMixin):
         return self._concatenate_batches(transformed_batches)
 
     def _get_relu_function(self):
+
         if self.backend_name_ == 'numpy':
             return self._relu_numpy
         elif self.backend_name_ == 'tensorflow':

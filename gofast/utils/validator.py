@@ -3796,16 +3796,27 @@ def validate_yy(
         The validated y_true and y_pred arrays, potentially flattened.
     """
     from ..core.utils import type_of_target
-    
+
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
-
+    
+    if str(flatten) =='auto': 
+        # check whether is two and the second dimension is 1
+        if y_pred.ndim ==2 and y_pred.shape [1] ==1: 
+            y_pred = y_pred.ravel()
+        if y_true.ndim ==2 and y_true.shape [1] ==1: 
+            y_true = y_true.ravel() 
+            
     if flatten:
         y_true = y_true.ravel()
         y_pred = y_pred.ravel()
 
     if y_true.ndim != 1 or y_pred.ndim != 1:
-        msg = "Both y_true and y_pred must be one-dimensional arrays after optional flattening."
+        msg = ("Both y_true and y_pred must be one-dimensional arrays."
+               f" Got {y_true.shape} and {y_pred.shape}. Set ``flatten=True``"
+               " to raveling arrays back to one-dimensional."
+               )
+        
         raise ValueError(msg)
 
     check_consistent_length(y_true, y_pred)

@@ -58,7 +58,7 @@ from .inspection  import (
   )  
 from .ml_viz import ( 
     plot_confusion_matrices, 
-    plot_confusion_matrix_, 
+    plot_confusion_matrix_in, 
     plot_confusion_matrix, 
     plot_roc_curves, 
     plot_taylor_diagram, 
@@ -88,7 +88,9 @@ from .utils import (
     plot_quantile_distributions, 
     plot_uncertainty, 
     plot_prediction_intervals, 
-    plot_temporal_trends
+    plot_temporal_trends, 
+    plot_relationship, 
+    plot_fit, 
     )
 
 __all__= [
@@ -146,7 +148,7 @@ __all__= [
     'plot_l_curve', 
     
     'plot_confusion_matrices',
-    'plot_confusion_matrix_', 
+    'plot_confusion_matrix_in', 
     'plot_confusion_matrix', 
     'plot_roc_curves',
     'plot_taylor_diagram',
@@ -174,7 +176,9 @@ __all__= [
     "plot_quantile_distributions" , 
     'plot_uncertainty', 
     'plot_prediction_intervals',
-    "plot_temporal_trends"
+    "plot_temporal_trends", 
+    'plot_relationship', 
+    'plot_fit', 
                
     ]
 

@@ -15,6 +15,8 @@ from pathlib import Path
 from importlib import resources
 from collections import namedtuple
 from typing import Union, List, Optional, Tuple, Any
+from urllib.parse import urljoin
+from gofast.utils.base_utils import check_file_exists, fancier_downloader
 
 import numpy as np 
 import pandas as pd 
@@ -34,8 +36,12 @@ __all__=[
 DMODULE = "gofast.datasets.data" ; DESCR = "gofast.datasets.descr"
 
 # create a namedtuple for remote data and url 
-RemoteMetadata = namedtuple("RemoteMetadata", ["file", "url", "checksum"])
+RemoteMetadata = namedtuple("RemoteMetadata", ["file", "url", "checksum", "descr", "module"])
 RemoteDataURL ='https://raw.githubusercontent.com/earthai-tech/gofast/master/gofast/datasets/data/'
+
+RemoteMetadata.descr =DESCR 
+RemoteMetadata.url= RemoteDataURL 
+RemoteMetadata.module = DMODULE 
 
 def get_data(data =None) -> str: 
     if data is None:
@@ -76,6 +82,114 @@ def remove_data(data=None): #clear
     data = get_data(data)
     shutil.rmtree(data)
 
+def download_file_if(
+    metadata: Optional[RemoteMetadata],
+    package_name: str = DMODULE,
+    error: str = 'raise',
+    verbose: bool = True
+) -> None:
+    """
+    Download a file from a remote URL if it does not exist in the specified package.
+
+    Parameters
+    ----------
+    metadata : Optional[RemoteMetadata]
+        Metadata of the remote file. If a string is provided instead of a 
+        `RemoteMetadata` instance, it is treated as the filename, and other 
+        attributes are set to default values.
+    
+    package_name : str, default=DMODULE
+        The name of the package where the file should be stored.
+    
+    error : str, default='raise'
+        Determines the behavior when a download fails. 
+        - `'warn'`: Emit a warning and continue.
+        - `'raise'`: Raise an exception.
+    
+    verbose : bool, default=True
+        If `True`, prints messages about the download status.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If the `error` parameter is not set to `'warn'` or `'raise'`.
+    RuntimeError
+        If the download fails and `error` is set to `'raise'`.
+    """
+    # Validate the 'error' parameter
+    if error not in ['warn', 'raise', 'ignore']:
+        raise ValueError("`error` parameter must be either 'warn' or 'raise'.")
+
+    # If metadata is a string, convert it to a RemoteMetadata instance with default values
+    if isinstance(metadata, str):
+        metadata = RemoteMetadata(
+            file=metadata,            # Set 'file' to the provided string
+            url=RemoteDataURL,        # Use the default remote data URL
+            checksum='',              # Default checksum (can be updated as needed)
+            descr=DESCR,              # Default description
+            module=DMODULE            # Default module path
+        )
+    
+    # Ensure metadata is now a RemoteMetadata instance
+    if not isinstance(metadata, RemoteMetadata):
+        raise TypeError("`metadata` must be a string or a RemoteMetadata instance.")
+    
+    # Check if the specified file already exists within the given package
+    file_exists = check_file_exists(package_name, metadata.file)
+    
+    if not file_exists:
+        try:
+            # Construct the full path to the file within the package using importlib.resources
+            package_path = str(resources.files(package_name).joinpath(metadata.file))
+            
+            # Determine the directory where the file should be saved
+            destination_dir = os.path.dirname(package_path)
+            
+            # Ensure the destination directory exists to prevent errors during download
+            os.makedirs(destination_dir, exist_ok=True)
+            
+            # Construct the full URL to download the file by joining the base URL and filename
+            file_url = urljoin(metadata.url, metadata.file)
+            
+            # Download the file using the fancier_downloader utility
+            fancier_downloader(
+                url=file_url,               # URL from which to download the file
+                filename=metadata.file,     # Name of the file to save
+                dstpath=destination_dir,     # Destination directory path
+                check_size=True, 
+                verbose=False, 
+            )
+            
+            # Inform the user about the successful download if verbose is True
+            if verbose:
+                print(
+                    f"\nSuccessfully downloaded '{metadata.file}' "
+                    f"to '{destination_dir}'."
+                )
+        except Exception as e:
+            # Handle errors based on the 'error' parameter
+            if error == 'warn':
+                # Emit a warning without stopping the program
+                warnings.warn(
+                    f"\nFailed to download '{metadata.file}'. Error: {e}"
+                )
+            elif error == 'raise':
+                # Raise a RuntimeError with the original exception as context
+                raise RuntimeError(
+                    f"Failed to download '{metadata.file}'. Check your "
+                    "connection and retry."
+                ) from e
+    else:
+        # Inform the user that the file already exists and skip the download
+        if verbose:
+            warnings.warn(
+                f"File '{metadata.file}' already exists in package '{package_name}'. "
+                "Skipping download."
+            )
 
 def to_dataframe(data, target_names=None, feature_names=None, target=None):
     """
@@ -505,10 +619,10 @@ def csv_data_loader(
 ):
     feature_names= None # expect to extract features as the head columns 
     cat_feature_exist = False # for homogeneous feature control
-    #with resources.files(data_module).joinpath(
-    #        data_file).open('r', encoding='utf-8') as csv_file: #python >3.8
-    with resources.open_text(data_module, data_file, 
-                             encoding='utf-8') as csv_file: # Python 3.8
+    with resources.files(data_module).joinpath(
+            data_file).open('r', encoding='utf-8') as csv_file: #python >3.8
+    # with resources.open_text(data_module, data_file, 
+    #                          encoding='utf-8') as csv_file: # Python 3.8
         data_file = csv.reader(csv_file)
         temp = next(data_file)
         n_samples = int(temp[0]) ; n_features = int(temp[1])

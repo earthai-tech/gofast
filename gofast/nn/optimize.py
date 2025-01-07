@@ -98,7 +98,6 @@ class QPSOOptimizer(NNLearner):
         batch_size=32,
         epochs=10,
         factor=0.2,
-        user_callbacks=None,
         random_seed=None,
         verbose=1,
     ):
@@ -133,8 +132,6 @@ class QPSOOptimizer(NNLearner):
         self.batch_size        = batch_size
         self.epochs            = epochs
 
-        # Optional user-provided callbacks
-        self.user_callbacks    = user_callbacks
 
         # Seed fix for reproducibility if set
         if self.random_seed is not None:
@@ -212,6 +209,7 @@ class QPSOOptimizer(NNLearner):
         # already (batch_size, 40, 1) or similar.
         # If the user needs further pre-processing, they'd do it outside
         # or do it here.
+        callbacks=None
         if fit_params: 
             callbacks, fit_params = extract_callbacks_from(
                 fit_params, return_fit_params=True
@@ -235,9 +233,9 @@ class QPSOOptimizer(NNLearner):
             default_cbs= callbacks 
             
         # Merge user callbacks if provided
-        if self.user_callbacks:
+        if callbacks:
             # then take priority 
-            default_cbs.extend(self.user_callbacks)
+            default_cbs.extend(callbacks)
 
         # Fit the model
         self.model.fit(
@@ -353,6 +351,71 @@ class QPSOOptimizer(NNLearner):
         plt.show()
 
     def fit(self, X, y, **fit_params):
+        """
+        Fit the QPSOOptimizer to the training data.
+
+        This method executes the main QPSO loop, which includes initializing
+        the swarm, evaluating fitness, updating personal and global bests,
+        and adjusting particle positions. The optimization process seeks to
+        identify the best set of hyperparameters that minimize the specified
+        scoring metric.
+
+        Parameters
+        ----------
+        X : array-like
+            Training input samples. Expected to be in a format compatible
+            with the neural network model (e.g., NumPy ndarray or pandas DataFrame).
+
+        y : array-like
+            Target values. Must correspond in length to `X`.
+
+        fit_params : dict, optional
+            Additional parameters to pass to the neural network's `fit` method.
+            This can include callbacks, validation split, etc.
+
+        Returns
+        -------
+        self : QPSOOptimizer
+            Fitted optimizer instance with the best hyperparameters found.
+
+        Raises
+        ------
+        ValueError
+            If `max_bound` or `min_bound` are not provided and no defaults
+            are set within the method. Also raised if `min_bound` and
+            `max_bound` have inconsistent lengths.
+
+        See Also
+        --------
+        :meth:`plot_results` : Plot the optimization results.
+        :meth:`_compute_fitness` : Compute the fitness of the swarm.
+
+        Notes
+        -----
+        - **Swarm Initialization**: The swarm is initialized uniformly within
+          the bounds specified by `min_bound` and `max_bound`.
+        
+        - **Fitness Evaluation**: Each particle's fitness is evaluated by
+          building and training a neural network model with its hyperparameters
+          and scoring its performance based on the `scoring` metric.
+        
+        - **Early Stopping**: The optimization process can terminate early
+          if the improvement in the best fitness score falls below `stopping_tol`.
+        
+        - **Reproducibility**: Setting the `random_seed` ensures that the
+          optimization process is reproducible by fixing the random number
+          generators' states.
+        
+        References
+        ----------
+        .. [1] Kennedy, J., & Eberhart, R. (1995). Particle swarm optimization.
+           In *Proceedings of IEEE International Conference on Neural Networks*,
+           pp. 1942-1948.
+        
+        .. [2] Shi, Y., & Eberhart, R. (1998). A modified particle swarm optimizer.
+           In *Proceedings of the IEEE International Conference on Evolutionary
+           Computation*, pp. 69-73.
+        """
         # Main QPSO loop: init swarm, track pbest, gbest, do updates,
         # store best, etc.
         if self.max_bound is None: 
@@ -417,6 +480,273 @@ class QPSOOptimizer(NNLearner):
 
         self.best_params_ = gbest
         return self
+
+QPSOOptimizer.__doc__="""\
+Quantum-behaved Particle Swarm Optimization (QPSO) Optimizer 
+for Neural Networks.
+
+The `QPSOOptimizer` class implements the Quantum-behaved Particle Swarm
+Optimization algorithm tailored for optimizing neural network hyperparameters.
+It leverages swarm intelligence to efficiently explore the hyperparameter space,
+aiming to enhance the performance of neural network models.
+
+.. math::
+    \text{QPSO} \text{ is an extension of the traditional PSO that incorporates
+    quantum mechanics principles to improve convergence and diversity.}
+
+Parameters
+----------
+model : object
+    The neural network model to be optimized. This can be a pre-defined
+    Keras model or a callable that returns a Keras model instance.
+
+n_particles : int
+    Number of particles in the swarm. Each particle represents a potential
+    solution in the hyperparameter space.
+    
+    .. math::
+        \text{n\_particles} \geq 1
+
+n_features : int
+    Dimensionality of the hyperparameter space. This corresponds to the
+    number of hyperparameters being optimized.
+    
+    .. math::
+        \text{n\_features} \geq 1
+
+alpha : float, default=0.6
+    Cognitive coefficient that influences the particle's tendency to return
+    to its personal best position.
+    
+    .. math::
+        0 < \alpha \leq 1
+
+max_iter : int, default=50
+    Maximum number of iterations (generations) the optimizer will execute.
+    
+    .. math::
+        \text{max\_iter} \geq 1
+
+max_bound : array-like or None, default=None
+    Upper bounds for each dimension in the hyperparameter space. If ``None``,
+    default bounds are assumed based on the problem context.
+    
+    .. math::
+        \text{max\_bound} = [b_1, b_2, \dots, b_d]
+
+min_bound : array-like or None, default=None
+    Lower bounds for each dimension in the hyperparameter space. If ``None``,
+    default bounds are assumed based on the problem context.
+    
+    .. math::
+        \text{min\_bound} = [a_1, a_2, \dots, a_d]
+
+scoring : str, default='mape'
+    Scoring metric to evaluate the performance of the neural network.
+    Common metrics include Mean Absolute Percentage Error (`mape`),
+    Mean Squared Error (`mse`), etc.
+
+stopping_tol : float, default=1e-4
+    Tolerance for early stopping. If the improvement in fitness is below
+    this threshold, the optimization process will terminate early.
+    
+    .. math::
+        0 < \text{stopping\_tol} < 1
+
+head_size : int, default=16
+    Number of units in the attention heads of the transformer architecture.
+
+num_heads : int, default=4
+    Number of attention heads in the transformer architecture.
+
+ff_dim : int, default=64
+    Dimension of the feed-forward network in the transformer architecture.
+
+ff_dim1 : int, default=32
+    Dimension of the first feed-forward network layer.
+
+ff_dim2 : int, default=32
+    Dimension of the second feed-forward network layer.
+
+num_trans_blocks : int, default=1
+    Number of transformer blocks in the neural network model.
+
+mlp_units : tuple, default=(64,)
+    Number of units in each layer of the Multi-Layer Perceptron (MLP).
+
+dropout : float, default=0.1
+    Dropout rate for regularization in the neural network layers.
+    
+    .. math::
+        0 \leq \text{dropout} \leq 1
+
+optimizer : str, default='adam'
+    Optimization algorithm to compile the Keras model. Options include
+    ``'adam'``, ``'sgd'``, etc.
+
+learning_rate : float, default=1e-3
+    Learning rate for the optimizer.
+    
+    .. math::
+        0 < \text{learning\_rate} < 1
+
+batch_size : int, default=32
+    Number of samples per gradient update during training.
+    
+    .. math::
+        \text{batch\_size} \geq 1
+
+epochs : int, default=10
+    Number of epochs to train the neural network model.
+    
+    .. math::
+        \text{epochs} \geq 1
+
+factor : float, default=0.2
+    Factor by which the learning rate will be reduced. ``new_lr = lr * factor``.
+    
+    .. math::
+        0 < \text{factor} < 1
+
+use_time_distributed : bool, default=False
+    Whether to apply TimeDistributed layers in the neural network architecture.
+
+
+callbacks : list or None, default=None
+    List of user-defined Keras callbacks to be applied during training.
+
+random_seed : int or None, default=None
+    Seed for random number generators to ensure reproducibility. If ``None``,
+    randomness is not fixed.
+
+verbose : bool or int, default=True
+    Verbosity mode for training. If ``True`` or ``1``, progress messages are
+    printed. If ``0``, no messages are printed. If ``2``, one line per epoch
+    is printed.
+    
+Attributes
+----------
+model : object
+    The neural network model being optimized.
+
+best_params_ : list
+    Best set of hyperparameters found during optimization.
+
+results_ : list
+    History of the best fitness values across iterations.
+
+best_fitness_ : float
+    Best fitness score achieved during optimization.
+
+Methods
+-------
+fit(X, y, **fit_params)
+    Fit the optimizer to the training data.
+
+plot_results()
+    Plot the optimization results over iterations.
+
+See Also
+--------
+- :class:`gofast.nn.optimize.NNLearner` : Base class for neural network learners.
+- :func:`keras.models.Model.compile` : Configures the model for training.
+- :func:`keras.models.Model.fit` : Trains the model for a fixed number of epochs.
+
+References
+----------
+.. [1] Kennedy, J., & Eberhart, R. (1995). Particle swarm optimization.
+   In *Proceedings of IEEE International Conference on Neural Networks*,
+   pp. 1942-1948.
+
+.. [2] Shi, Y., & Eberhart, R. (1998). A modified particle swarm optimizer.
+   In *Proceedings of the IEEE International Conference on Evolutionary
+   Computation*, pp. 69-73.
+
+Examples
+--------
+>>> import numpy as np
+>>> import pandas as pd
+>>> from gofast.nn.optimize import QPSOOptimizer
+>>> 
+>>> # Define a simple Keras model or use a pre-defined one
+>>> def create_model(head_size, num_heads, ff_dim, num_trans_blocks, mlp_units,
+...                 ff_dim1, ff_dim2):
+...     # Model building logic goes here
+...     pass
+>>> 
+>>> # Initialize the optimizer
+>>> optimizer = QPSOOptimizer(
+...     model=None,
+...     n_particles=30,
+...     n_features=9,
+...     alpha=0.6,
+...     max_iter=100,
+...     max_bound=[128, 6, 64, 64, 64, 4, 100, 200, 200],
+...     min_bound=[4, 2, 8, 8, 8, 2, 8, 25, 50],
+...     scoring='mape',
+...     stopping_tol=1e-4,
+...     head_size=16,
+...     num_heads=4,
+...     ff_dim=64,
+...     ff_dim1=32,
+...     ff_dim2=32,
+...     num_trans_blocks=1,
+...     mlp_units=(64,),
+...     dropout=0.1,
+...     optimizer="adam",
+...     learning_rate=1e-3,
+...     batch_size=32,
+...     epochs=10,
+...     factor=0.2,
+...     user_callbacks=None,
+...     random_seed=42,
+...     verbose=1,
+... )
+>>> 
+>>> # Prepare training data
+>>> X_train = np.random.rand(100, 40, 1)
+>>> y_train = np.random.rand(100, 1)
+>>> 
+>>> # Fit the optimizer to the data
+>>> optimizer.fit(X_train, y_train)
+>>> 
+>>> # Plot optimization results
+>>> optimizer.plot_results()
+
+Notes
+-----
+- **Swarm Intelligence**: QPSO leverages multiple particles (solutions)
+  that move through the hyperparameter space influenced by their own
+  experience and the swarm's collective experience.
+
+- **Quantum Behavior**: Incorporates quantum mechanics principles to enhance
+  the diversity and exploration capabilities of the swarm, potentially avoiding
+  local minima more effectively than traditional PSO.
+
+- **Model Training**: For each particle, a neural network model is built
+  and trained using the specified hyperparameters. The fitness of each particle
+  is evaluated based on the chosen scoring metric.
+
+- **Reproducibility**: Setting the `random_seed` ensures that the
+  optimization process is reproducible by fixing the random number
+  generators' states.
+
+See Also
+--------
+- :class:`gofast.nn.optimize.NNLearner` : Base class for neural network learners.
+- :func:`keras.models.Model.compile` : Configures the model for training.
+- :func:`keras.models.Model.fit` : Trains the model for a fixed number of epochs.
+
+References
+----------
+.. [1] Kennedy, J., & Eberhart, R. (1995). Particle swarm optimization.
+   In *Proceedings of IEEE International Conference on Neural Networks*,
+   pp. 1942-1948.
+
+.. [2] Shi, Y., & Eberhart, R. (1998). A modified particle swarm optimizer.
+   In *Proceedings of the IEEE International Conference on Evolutionary
+   Computation*, pp. 69-73.
+"""
 
 # For demonstration, we define a simple MAPE and a build_transformer
 # function. In a real scenario, these would be imported from the user's

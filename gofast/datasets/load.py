@@ -9,11 +9,9 @@ validating data, and converting to dataframes. Inspired by popular dataset
 loading functions in machine learning libraries.
 """
 
-import os
 import random
 import warnings
 from importlib import resources
-from importlib.resources import files
 
 import joblib
 import numpy as np
@@ -25,20 +23,191 @@ from ..core.array_manager import to_numeric_dtypes, convert_to_structured_format
 from ..core.array_manager import split_train_test_by_id 
 from ..core.checks import assert_ratio, is_in_if, validate_feature 
 from ..core.utils import smart_format, format_to_datetime, type_of_target
-from ..utils.base_utils import check_file_exists, fancier_downloader 
 from ..utils.io_utils import get_valid_key, key_checker
-from .io import DMODULE, RemoteDataURL, _to_dataframe, csv_data_loader
-from .io import DESCR, description_loader
+from .io import DMODULE, _to_dataframe, csv_data_loader
+from .io import DESCR, description_loader, download_file_if
 from .util import _format_feature_descriptions 
 
 
 __all__= [ "load_iris",  "load_hlogs",  "load_nansha", "load_forensic", 
           "load_jrs_bet", "load_statlog", "load_hydro_metrics", "load_mxs", 
-          "load_bagoue", "load_dyspnea"]
+          "load_bagoue", "load_dyspnea", "load_toc"
+         ]
 
+def load_toc(
+    *, 
+    return_X_y=False,
+    as_frame=False, 
+    tag=None, 
+    data_names=None,
+    samples=None, 
+    seed =None, 
+    shuffle=False, 
+    **kws
+):
+    """
+    Load and return the TOC (Total Organic Carbon) dataset.
 
-def load_hydro_metrics(*, return_X_y=False, as_frame=False, tag=None, 
-                       data_names=None,  **kws):
+    The dataset includes measurements related to Total Organic Carbon (TOC)
+    across various environmental and geophysical features. It encompasses 
+    attributes such as acoustic properties (ac), calcium content (cal), 
+    C:N ratio (cnl), density (den), grain size (gr), permeability (pe), and 
+    resistivity logs times at different intervals(rt10, rt20, rt30, rt60, rt90).
+    This dataset is vital for studies in geophysics, environmental science, 
+    and hydrology, enabling the analysis and modeling of TOC based on the
+    provided features.
+
+    Parameters
+    ----------
+    return_X_y : bool, default=False
+        If True, returns `(data, target)` instead of a Boxspace object. Here, 
+        `data` includes all features except the target variable(s), and 
+        `target` is typically the TOC measurement considered for predictive 
+        modeling tasks.
+    
+    as_frame : bool, default=False
+        If True, returns a pandas DataFrame for `data` and a pandas Series for
+        `target`, facilitating direct interaction with pandas functionalities 
+        for data manipulation and analysis.
+    
+    tag : str, optional
+        A tag to add to the dataset loading for user-defined categorization or 
+        filtering, not used in this function but maintained for API compatibility.
+    
+    data_names : list of str, optional
+        Custom names for the data columns if needed to override the default 
+        names derived from the dataset; not utilized in this function but
+        preserved for future extension or API consistency.
+    
+    samples : int or str, optional
+        Specifies the number or method of samples to retrieve from the dataset.
+        If an integer, selects that number of samples. If a string, uses predefined
+        sampling strategies (e.g., '*' for all samples).
+    
+    seed : int, optional
+        Random seed for reproducibility when `shuffle` is True and sampling
+        involves randomness.
+    
+    shuffle : bool, default=False
+        If True, shuffles the dataset before sampling, ensuring random selection
+        of samples.
+    
+    **kws : dict, optional
+        Additional keyword arguments allowing for future enhancements without 
+        affecting the current function signature.
+    
+    Returns
+    -------
+    data : ndarray or DataFrame
+        The dataset's features, excluding the target variable. If `as_frame=True`,
+        `data` is a pandas DataFrame.
+    
+    target : ndarray or Series
+        The target variable(s), typically representing the TOC measurements.
+        If `as_frame=True`, 
+        `target` is a pandas Series.
+    
+    Boxspace : Bunch object
+        A container holding the dataset details. Returned when `return_X_y` is
+        False and `as_frame` is False. 
+        It includes:
+        - `data`: ndarray, shape (n_samples, n_features) for the feature matrix.
+        - `target`: ndarray, shape (n_samples,) for the target variable.
+        - `frame`: DataFrame, combining `data` and `target` if `as_frame=True`.
+        - `DESCR`: str, a detailed description of the dataset and its context.
+        - `feature_names`: list, the names of the feature columns.
+        - `target_names`: list, the names of the target column(s).
+    
+    Examples
+    --------
+    To load the dataset as a (data, target) tuple for custom analysis:
+
+    >>> from gofast.datasets import load_toc
+    >>> data, target = load_toc(return_X_y=True)
+    >>> print(data.shape)
+    (100, 11)  # Assuming 100 instances and 11 features.
+    >>> print(target.shape)
+    (100,)  # Assuming 100 instances of the target variable.
+    
+    To load the dataset as a pandas DataFrame for easier data manipulation
+    and exploration:
+
+    >>> df, target = load_toc(return_X_y=True, as_frame=True)
+    >>> print(df.head())
+    # Displays the first five rows of the feature data.
+    >>> print(target.head())
+    # Displays the first five rows of the target data.
+    
+    Notes
+    -----
+    The function is designed with flexibility in mind, accommodating various 
+    forms of data analysis and machine learning tasks. By providing options to 
+    return the data as arrays or a DataFrame, it enables users to leverage the 
+    full power of numpy and pandas for data processing and analysis, respectively.
+    """
+
+    from ..utils.data_utils import random_sampling 
+    data_file = "toc.csv"
+    with resources.path (DMODULE, data_file) as p : 
+        file = str(p)
+    target_columns = ["toc"]
+    feature_names =[
+         'ac',
+         'cal',
+         'cnl',
+         'den',
+         'gr',
+         'pe',
+         'rt10',
+         'rt20',
+         'rt30',
+         'rt60',
+         'rt90',
+    ]
+    target_columns =['toc']
+    
+    frame, _, _ = _to_dataframe(
+        file, feature_names=feature_names,
+         target_names=target_columns
+    )
+    samples = samples or "*"
+    frame = random_sampling(
+        frame, samples = samples, random_state= seed, shuffle= shuffle
+    ) 
+    # set date column index 
+    if kws.get("split_X_y", False): 
+        return _split_X_y(frame,target_columns, as_frame=as_frame, 
+            test_ratio=kws.pop("test_ratio", None),
+        )
+    target= frame[target_columns]
+    data = frame.drop(columns = target_columns )
+    
+    if return_X_y : 
+        return _return_X_y(data, target, as_frame) 
+    
+    if as_frame: 
+        return to_numeric_dtypes(frame)
+    
+    fdescr = description_loader(descr_module=DESCR, descr_file="toc.rst")
+    
+    return Boxspace(
+        data=np.array(data),
+        target=np.array(target),
+        frame=frame,
+        target_names=target_columns,
+        DESCR=fdescr,
+        feature_names=feature_names,
+        filename=data_file,
+        data_module=DMODULE,
+    )
+
+def load_hydro_metrics(
+    *, return_X_y=False, 
+    as_frame=False, 
+    tag=None, 
+    data_names=None, 
+    **kws
+    ):
     """
     Load and return the Hydro-Meteorological dataset collected in Yobouakro, 
     S-P Agnibilekro, Cote d'Ivoire(West-Africa).
@@ -462,10 +631,11 @@ def _ensure_data_file(data_file):
     """
     Checks if data file exists locally, downloads if not.
     """
-    if not check_file_exists(DMODULE, data_file):
-        package_path = str(files(DMODULE).joinpath(data_file))
-        URL = os.path.join(RemoteDataURL, data_file)
-        fancier_downloader(URL, data_file, dstpath=os.path.dirname(package_path))
+    download_file_if(data_file, error ='raise')
+    # if not check_file_exists(DMODULE, data_file):
+    #     package_path = str(files(DMODULE).joinpath(data_file))
+    #     URL = os.path.join(RemoteDataURL, data_file)
+    #     fancier_downloader(URL, data_file, dstpath=os.path.dirname(package_path))
 
 def _load_data(data_file, key, available_sets):
     """
@@ -642,13 +812,15 @@ def load_nansha (
     else: data_file = "n.npz"
     
     #-----------------------------------------------------------
-    if not check_file_exists(DMODULE, data_file): 
-        # If file does not exist download it from the remote and 
-        # save it to the path 
-        package_path = str(files(DMODULE).joinpath(data_file))
-        URL= os.path.join( RemoteDataURL, data_file) 
-        fancier_downloader (URL,data_file, dstpath = os.path.dirname (package_path)
-                       )
+    download_file_if(data_file, verbose =False, error ='raise')
+    # if not check_file_exists(DMODULE, data_file): 
+        
+    #     # If file does not exist download it from the remote and 
+    #     # save it to the path 
+    #     package_path = str(files(DMODULE).joinpath(data_file))
+    #     URL= os.path.join( RemoteDataURL, data_file) 
+    #     fancier_downloader (URL,data_file, dstpath = os.path.dirname (package_path)
+    #     )
     #-------------------------------------------------------------- 
     with resources.path (DMODULE, data_file) as p : 
         data_file = str(p)
@@ -2228,8 +2400,10 @@ def _return_X_y (data, target, as_frame):
     """
     if as_frame:
         if isinstance (target, pd.DataFrame ) and len(target.columns)==1: 
-             try : target= pd.Series (data = np.squeeze(target), 
-                                      name =target.columns[0])
+             try : 
+                 target= pd.Series (
+                     data= np.squeeze(target), name =target.columns[0]
+                )
              except: pass # do nothing
              
         return data, target
