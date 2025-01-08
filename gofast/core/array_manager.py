@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 from ..api.types import (
-    Any, Union, Series, Tuple, Optional, Set,
+    Any, Dict, Union, Series, Tuple, Optional, Set,
     _T,  _F, ArrayLike, List, DataFrame, NDArray
 )
 from .utils import ( 
@@ -56,8 +56,753 @@ __all__ = [
     'smart_ts_detector', 
     'extract_array_from',
     'drop_nan_in', 
+    'to_array', 
+    'to_arrays', 
+    'array_preserver'
     ]
 
+def to_array(
+    arr: Any,
+    accept: Optional[str] = None,
+    error: str = 'raise',
+    force_conversion: bool = False,
+    axis: int = 0,
+    ops_mode: str = "keep_origin",
+    as_frame: bool=False, 
+    verbose: int = 0,
+    **kwargs
+) -> Union[np.ndarray, pd.Series, pd.DataFrame]:
+    """
+    Convert various array-like objects to the desired dimensionality.
+
+    The ``to_array`` function standardizes different array-like inputs 
+    (such as lists, tuples, NumPy arrays, Pandas Series, and DataFrames) 
+    by converting them to a specified dimensionality. It provides flexibility 
+    through parameters like ``accept``, ``force_conversion``, and 
+    ``ops_mode`` to ensure the output meets the user's requirements. Additionally, 
+    the ``verbose`` parameter allows users to control the level of informational 
+    messages during the conversion process.
+
+    Parameters
+    ----------
+    arr : Any
+        The input array-like object to be converted. Supported types include 
+        lists, tuples, NumPy arrays, Pandas Series, and Pandas DataFrames.
+    
+    accept : str, optional
+        Specifies the desired dimensionality of the output array. Accepted 
+        values include:
+        
+        - ``'1d'``: Ensure the output is a 1-dimensional array.
+        - ``'2d'``: Ensure the output is a 2-dimensional array.
+        - ``'3d'``: Ensure the output is a 3-dimensional array.
+        - ``'only_1d'``: Only accept 1-dimensional arrays without conversion.
+        - ``'only_2d'``: Only accept 2-dimensional arrays without conversion.
+        - ``'only_3d'``: Only accept 3-dimensional arrays without conversion.
+        - ``'>3d'``: Accept arrays with more than 3 dimensions.
+        - ``'only_>3d'``: Only accept arrays with more than 3 dimensions without conversion.
+        
+        If ``accept`` is ``None``, the function returns the input as-is 
+        without any dimensionality enforcement.
+    
+    error : str, default='raise'
+        Defines the behavior when the input array does not meet the 
+        specified ``accept`` criteria. Options include:
+        
+        - ``'raise'``: Raise a ``ValueError`` when the input does not match 
+          the expected dimensionality.
+        - ``'warn'``: Issue a warning but return the input array as-is.
+        - ``'ignore'``: Silently return the input array without any checks 
+          or modifications.
+    
+    force_conversion : bool, default=False
+        If ``True``, the function will attempt to automatically convert the 
+        input array to match the desired dimensionality specified by 
+        ``accept``. This includes reshaping, flattening, or expanding 
+        dimensions as necessary.
+    
+    axis : int, default=0
+        Specifies the axis along which to reshape the array when converting 
+        to higher dimensions. For example, when converting a 1D array to a 
+        2D array, ``axis=0`` will reshape it to ``(x, 1)`` and 
+        ``axis=1`` will reshape it to ``(1, x)``.
+    
+    ops_mode : str, default="keep_origin"
+        Determines the operation mode for handling original data types. 
+        Accepted values include:
+        
+        - ``"keep_origin"``: Retains the original data types (e.g., 
+          keeps a Pandas DataFrame as is when converting to 2D).
+        - ``"numpy_only"``: Forces all conversions to NumPy arrays, 
+          disregarding original data types.
+        
+        When ``accept`` is ``'2d'`` or ``'only_2d'`` and a Pandas DataFrame 
+        is passed, it will not be converted to a NumPy array if ``ops_mode`` 
+        is set to ``"keep_origin"``. Similarly, a Pandas Series will not be 
+        converted to a NumPy array when ``accept`` is ``'1d'`` or 
+        ``'only_1d'`` and ``ops_mode`` is ``"keep_origin"``.
+    
+    as_frame : bool, default=False
+        If ``True``, attempts to convert the array back to a Pandas 
+        DataFrame or Series after reshaping. This is useful when the 
+        user prefers to work with Pandas objects instead of NumPy arrays.
+    
+    verbose : int, default=0
+        Controls the verbosity level of informational messages:
+        
+        - ``0``: No messages.
+        - ``1``: Basic messages about conversion steps.
+        - ``2``: Detailed messages including successful conversions.
+        - ``3``: Debug-level messages with extensive details.
+    
+    **kwargs : dict
+        Additional keyword arguments for future flexibility and to handle 
+        specific cases as needed.
+    
+    Returns
+    -------
+    Union[np.ndarray, pd.Series, pd.DataFrame]
+        The converted array-like object adhering to the specified 
+        dimensionality constraints. The output type depends on the 
+        ``ops_mode`` and the nature of the input.
+    
+    Examples
+    --------
+    >>> from gofast.core.array_manager import to_array
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> # Convert a list to a 2D NumPy array
+    >>> list_input = [1, 2, 3]
+    >>> array_2d = to_array(
+    ...     list_input, 
+    ...     accept='2d', 
+    ...     force_conversion=True, 
+    ...     axis=0, 
+    ...     verbose=1
+    ... )
+    >>> print(array_2d)
+    [[1]
+     [2]
+     [3]]
+    
+    >>> # Convert a Pandas Series to a 1D NumPy array
+    >>> series_input = pd.Series([4, 5, 6])
+    >>> array_1d = to_array(
+    ...     series_input, 
+    ...     accept='1d', 
+    ...     ops_mode='numpy_only', 
+    ...     verbose=2
+    ... )
+    >>> print(array_1d)
+    [4 5 6]
+    
+    >>> # Attempt to convert a 3D NumPy array to 2D without forcing conversion
+    >>> np_array_3d = np.random.rand(2, 3, 4)
+    >>> try:
+    ...     array_2d_fail = to_array(
+    ...         np_array_3d, 
+    ...         accept='2d', 
+    ...         force_conversion=False, 
+    ...         error='warn', 
+    ...         verbose=3
+    ...     )
+    ... except ValueError as e:
+    ...     print(e)
+    Input array has 3 dimensions, but at least 2 dimensions are required.
+    
+    >>> # Force conversion of a 3D array to 2D
+    >>> array_2d_force = to_array(
+    ...     np_array_3d, 
+    ...     accept='2d', 
+    ...     force_conversion=True, 
+    ...     axis=1, 
+    ...     verbose=1
+    ... )
+    >>> print(array_2d_force.shape)
+    (2, 12)
+    
+    >>> # Convert a 1D NumPy array to a Pandas Series with as_frame=True
+    >>> np_array_1d = np.array([7, 8, 9])
+    >>> series_output = to_array(
+    ...     np_array_1d, 
+    ...     accept='1d', 
+    ...     ops_mode='keep_origin', 
+    ...     as_frame=True, 
+    ...     verbose=2
+    ... )
+    >>> print(series_output)
+    0    7
+    1    8
+    2    9
+    dtype: int64
+    
+    Notes
+    -----
+    The ``to_array`` function is essential for standardizing data structures 
+    before analysis or modeling. By accommodating various input types and 
+    providing flexible conversion options, it ensures that downstream processes 
+    receive data in the expected format. The ``force_conversion`` parameter 
+    allows users to override default behaviors, enabling customized data handling 
+    strategies. Additionally, the ``ops_mode`` parameter offers control over 
+    whether to preserve original data types or enforce conversions to NumPy arrays, 
+    enhancing the function's adaptability to different use cases.
+    
+    When ``as_frame`` is set to ``True``, the function attempts to convert 
+    NumPy arrays back to Pandas DataFrames or Series, facilitating seamless 
+    integration with Pandas-centric workflows. Users should be cautious when 
+    forcing conversions, as automatic reshaping may lead to unintended data 
+    transformations.
+    
+    The ``verbose`` parameter is instrumental for debugging and monitoring 
+    the conversion process. Higher verbosity levels provide more granular 
+    insights, which can be invaluable when troubleshooting complex data structures.
+    
+
+    .. math::
+        \text{Converted Array} = 
+        \begin{cases}
+            \text{arr.flatten()} & \text{if converting to 1D} \\
+            \text{arr.reshape(-1, 1)} & \text{if converting to 2D along axis 0} \\
+            \text{arr.reshape(1, -1)} & \text{if converting to 2D along axis 1} \\
+            \text{arr.reshape(arr.shape[0], -1, 1)} & \text{if converting to 3D} \\
+            \text{arr.reshape(*arr.shape, 1, \dots)} & \text{if converting to } >3\text{D}
+        \end{cases}
+        
+    See Also
+    --------
+    ``to_arrays`` : Converts multiple array-like objects to desired dimensionality 
+                   using ``to_array``.
+    ``PandasDataHandlers`` : Manages Pandas-based data parsing and writing functions.
+    
+    References
+    ----------
+    .. [1] McKinney, W. (2010). Data Structures for Statistical Computing in 
+           Python. In *Proceedings of the 9th Python in Science Conference*, 
+           51-56.
+    .. [2] Harris, C. R., Millman, K. J., van der Walt, S. J., et al. (2020). 
+           Array programming with NumPy. *Nature*, 585(7825), 357-362.
+    .. [3] Pandas Development Team. (2023). *pandas documentation*. 
+           https://pandas.pydata.org/pandas-docs/stable/
+    """
+    # Helper function to determine the number of dimensions
+    def _get_ndim(obj: Any) -> int:
+        """Return the number of dimensions of the input object."""
+        if isinstance(obj, pd.DataFrame):
+            return 2
+        elif isinstance(obj, pd.Series):
+            return 1
+        elif isinstance(obj, np.ndarray):
+            return obj.ndim
+        else:
+            return 1  # Default to 1 for list, tuple, etc.
+
+    # Helper function to print messages based on verbosity level
+    def _verbose_print(message: str, level: int = 1):
+        """Print messages based on the verbosity level."""
+        if verbose >= level:
+            print(message)
+
+    # Helper function to handle errors
+    def _handle_error(message: str):
+        """Handle errors based on the 'error' parameter."""
+        if error == 'raise':
+            raise ValueError(message)
+        elif error == 'warn':
+            warnings.warn(message)
+        elif error == 'ignore':
+            pass
+        else:
+            raise ValueError(
+                f"Invalid error handling mode: '{error}'. "
+                "Choose from 'raise', 'warn', or 'ignore'."
+            )
+
+    # Helper function to convert to numpy array
+    def _convert_to_numpy(obj: Any) -> np.ndarray:
+        """Convert list or tuple to NumPy array."""
+        if isinstance(obj, (list, tuple)):
+            _verbose_print("Converting list/tuple to NumPy array.", level=1)
+            return np.array(obj)
+        return obj
+
+    # Helper function to reshape NumPy array
+    def _reshape_numpy(arr_np: np.ndarray, target_dim: int) -> np.ndarray:
+        """Reshape NumPy array to the target dimension."""
+        try:
+            if target_dim == 1:
+                return arr_np.flatten()
+            elif target_dim == 2:
+                return arr_np.reshape(-1, 1) if axis == 0 else arr_np.reshape(1, -1)
+            elif target_dim == 3:
+                return arr_np.reshape(arr_np.shape[0], -1, 1)
+            elif target_dim > 3:
+                extra_dims = target_dim - arr_np.ndim
+                return arr_np.reshape(*arr_np.shape, *(1,) * extra_dims)
+        except Exception as e:
+            _handle_error(f"Failed to reshape array to {target_dim}D. Error: {e}")
+        return arr_np
+
+    # Convert list or tuple to NumPy array if necessary
+    arr = _convert_to_numpy(arr)
+    
+    # keep original types for futher conversion 
+    collected = array_preserver(arr, action='collect')
+   
+    # Handle 'keep_origin' operation mode
+    if ops_mode == "keep_origin":
+        if accept in ['2d', 'only_2d'] and isinstance(arr, pd.DataFrame):
+            _verbose_print("Keeping original Pandas DataFrame as it is 2D.", level=2)
+            return arr
+        elif accept in ['1d', 'only_1d'] and isinstance(arr, pd.Series):
+            _verbose_print("Keeping original Pandas Series as it is 1D.", level=2)
+            return arr
+
+    # Determine current number of dimensions
+    current_ndim = _get_ndim(arr)
+    _verbose_print(f"Current number of dimensions: {current_ndim}", level=3)
+
+    # Define acceptable dimensions based on 'accept' parameter
+    if accept:
+        # Mapping for 'accept' values to desired dimensions
+        dim_map = {
+            '1d': 1,
+            '2d': 2,
+            '3d': 3,
+            '>3d': 4  # Any dimension greater than 3
+        }
+
+        # Check for 'only_' prefix to enforce strict acceptance
+        only = False
+        if accept.startswith('only_'):
+            only = True
+            accept_dim = accept.split('_', 1)[1]
+        elif accept.startswith('>only_'):
+            # Handle cases like 'only_>3d'
+            only = True
+            accept_dim = accept.split('_', 1)[1]
+        else:
+            accept_dim = accept
+
+        # Determine the required dimension
+        min_dim = dim_map.get(accept_dim, None)
+
+        # Handle cases where 'accept' specifies dimensions greater than a threshold
+        if accept_dim.startswith('>'):
+            min_dim = int(accept_dim.strip('>d'))
+            condition = current_ndim > min_dim
+            if only and not condition:
+                message = (
+                    f"Input array has {current_ndim} dimensions, but only arrays "
+                    f"with more than {min_dim} dimensions are accepted."
+                )
+                _handle_error(message)
+        else:
+            condition = current_ndim == min_dim
+            if only:
+                if not condition:
+                    message = (
+                        f"Input array has {current_ndim} dimensions, but only "
+                        f"{min_dim}-dimensional arrays are accepted."
+                    )
+                    _handle_error(message)
+            else:
+                # When 'only_' is not specified, allow greater or equal dimensions
+                if min_dim and current_ndim < min_dim:
+                    if force_conversion:
+                        _verbose_print(
+                            f"Attempting to reshape array to {accept_dim}D.", level=2
+                        )
+                        arr = _reshape_numpy(arr, dim_map[accept_dim])
+                        current_ndim = _get_ndim(arr)
+                    else:
+                        message = (
+                            f"Input array has {current_ndim} dimensions, but at least "
+                            f"{min_dim} dimensions are required."
+                        )
+                        _handle_error(message)
+
+    # Handle conversion based on 'accept' parameter
+    if accept:
+        # Convert Pandas DataFrame to NumPy array if needed
+        if isinstance(arr, pd.DataFrame):
+            arr = arr.values
+            _verbose_print("Converted Pandas DataFrame to NumPy array.", level=2)
+
+        # Convert Pandas Series to NumPy array if needed
+        elif isinstance(arr, pd.Series):
+            arr = arr.values
+            _verbose_print("Converted Pandas Series to NumPy array.", level=2)
+
+        # Handle NumPy array dimensionality adjustments
+        if isinstance(arr, np.ndarray):
+            target_dim = dim_map.get(accept.split('_')[0], None)
+            if target_dim:
+                if accept in ['1d', 'only_1d']:
+                    if arr.ndim == 2:
+                        if arr.shape[0] == 1 or arr.shape[1] == 1:
+                            arr = arr.flatten()
+                            _verbose_print("Flattened 2D NumPy array to 1D.", 
+                                           level=3)
+                        elif force_conversion:
+                            arr = arr.ravel()
+                            _verbose_print("Raveled NumPy array to 1D.", 
+                                           level=3)
+                    elif arr.ndim > 1 and force_conversion:
+                        arr = arr.flatten()
+                        _verbose_print(
+                            "Flattened higher-dimensional NumPy array to 1D.",
+                            level=3)
+
+                elif accept in ['2d', 'only_2d']:
+                    if arr.ndim == 1 and force_conversion:
+                        arr = arr.reshape(-1, 1) if axis == 0 else arr.reshape(1, -1)
+                        _verbose_print(
+                            f"Reshaped 1D NumPy array to 2D with shape {arr.shape}.",
+                            level=3
+                        )
+
+                elif accept in ['3d', 'only_3d']:
+                    if arr.ndim < 3 and force_conversion:
+                        arr = _reshape_numpy(arr, 3)
+                        _verbose_print(
+                            f"Reshaped array to 3D with shape {arr.shape}.",
+                            level=3)
+
+                elif accept.startswith('>'):
+                    # Handle greater than dimensions
+                    required_dim = int(accept.strip('>d'))
+                    if arr.ndim <= required_dim and force_conversion:
+                        arr = _reshape_numpy(arr, required_dim + 1)
+                        _verbose_print(
+                            f"Reshaped array to exceed {required_dim}"
+                            f" dimensions with shape {arr.shape}.",
+                            level=3
+                        )
+
+    # Final validation of dimensions
+    if accept:
+        final_ndim = _get_ndim(arr)
+        expected_dim = dim_map.get(accept.split('_')[0], None)
+        if accept.startswith('>'):
+            min_dim = int(accept.strip('>d'))
+            if not final_ndim > min_dim:
+                message = (
+                    f"Final array has {final_ndim} dimensions, which does not exceed "
+                    f"{min_dim} dimensions as required by `accept='{accept}'`."
+                )
+                _handle_error(message)
+        else:
+            if 'only_' in accept:
+                if final_ndim != expected_dim:
+                    message = (
+                        f"Final array has {final_ndim} dimensions, expected exactly "
+                        f"{expected_dim} dimensions as specified by `accept='{accept}'`."
+                    )
+                    _handle_error(message)
+            else:
+                if final_ndim < expected_dim:
+                    message = (
+                        f"Final array has {final_ndim} dimensions, which is less than "
+                        f"the required {expected_dim} dimensions."
+                    )
+                    _handle_error(message)
+
+    # Maintain original type if ops_mode is 'keep_origin' and no conversion was done
+    if ops_mode == "keep_origin":
+        collected['processed'] = [arr]
+        arr = array_preserver(collected, action='restore')[0]
+    
+    if isinstance(arr, np.ndarray) and as_frame: 
+        # Then try to convert array to frame 
+        if accept in ['2d', 'only_2d'] and arr.ndim == 2:
+            # Attempt to keep as DataFrame if possible
+            try:
+                arr = pd.DataFrame(arr)
+                _verbose_print("Converted NumPy array back to Pandas DataFrame.", 
+                               level=2)
+            except Exception as e:
+                _handle_error(
+                    f"Failed to convert NumPy array to DataFrame. Error: {e}")
+        elif accept in ['1d', 'only_1d'] and arr.ndim == 1:
+            # Attempt to keep as Series if possible
+            try:
+                arr = pd.Series(arr)
+                _verbose_print(
+                    "Converted NumPy array back to Pandas Series.", level=2)
+            except Exception as e:
+                _handle_error(
+                    f"Failed to convert NumPy array to Series. Error: {e}")
+
+    return arr
+
+def to_arrays(
+    *arrays: Any,
+    accept: Optional[str] = None,
+    error: str = 'raise',
+    force_conversion: bool = False,
+    axis: int = 0,
+    verbose: int = 0,
+    ops_mode: str = "keep_origin",
+    as_frame: bool=False, 
+    **kwargs
+) -> Tuple[Union[np.ndarray, pd.Series, pd.DataFrame], ...]:
+    """
+    Convert multiple array-like objects to desired dimensionality 
+    using ``to_array``.
+
+    The `to_arrays` function processes each input array using the 
+    ``to_array`` function, ensuring that all arrays conform to the 
+    specified dimensionality requirements. This approach promotes 
+    consistency and efficiency when handling batches of data, making 
+    it a versatile tool for data preprocessing within the Gofast package.
+
+    Parameters
+    ----------
+    *arrays : Any
+        Variable number of array-like objects to be converted. Supported 
+        types include lists, tuples, NumPy arrays, Pandas Series, and 
+        Pandas DataFrames. Each array is processed individually to 
+        match the specified dimensionality.
+    
+    accept : str, optional
+        Specifies the desired dimensionality of the output arrays. 
+        Accepted values include:
+        
+        - ``'1d'``: Ensure the output is a 1-dimensional array.
+        - ``'2d'``: Ensure the output is a 2-dimensional array.
+        - ``'3d'``: Ensure the output is a 3-dimensional array.
+        - ``'only_1d'``: Only accept 1-dimensional arrays without conversion.
+        - ``'only_2d'``: Only accept 2-dimensional arrays without conversion.
+        - ``'only_3d'``: Only accept 3-dimensional arrays without conversion.
+        - ``'>3d'``: Accept arrays with more than 3 dimensions.
+        - ``'only_>3d'``: Only accept arrays with more than 3 dimensions without 
+          conversion.
+        
+        If ``accept`` is ``None``, the function returns the inputs as-is 
+        without any dimensionality enforcement.
+    
+    error : str, default='raise'
+        Defines the behavior when an input array does not meet the 
+        specified ``accept`` criteria. Options include:
+        
+        - ``'raise'``: Raise a `ValueError` when the input does not match the 
+          expected dimensionality.
+        - ``'warn'``: Issue a warning but append the original array without 
+          conversion.
+        - ``'ignore'``: Silently append the original array without any checks 
+          or modifications.
+    
+    force_conversion : bool, default=False
+        If ``True``, the function will attempt to automatically convert the 
+        input arrays to match the desired dimensionality specified by 
+        ``accept``. This includes reshaping, flattening, or expanding 
+        dimensions as necessary.
+    
+    axis : int, default=0
+        Specifies the axis along which to reshape the array when converting 
+        to higher dimensions. For example, when converting a 1D array to a 
+        2D array, ``axis=0`` will reshape it to ``(x, 1)`` and 
+        ``axis=1`` will reshape it to ``(1, x)``.
+    
+    verbose : int, default=0
+        Controls the verbosity level of the function's output. Accepts integer 
+        values from 1 to 3, where:
+        
+        - ``1``: Minimal output, only essential messages.
+        - ``2``: Moderate output, including warnings and important information.
+        - ``3``: High verbosity, detailed debugging information.
+        
+        Setting ``verbose`` to a higher value can aid in debugging by providing 
+        step-by-step insights into the conversion process.
+    
+    ops_mode : str, default="keep_origin"
+        Determines the operation mode for handling original data types during 
+        conversion. Accepted values include:
+        
+        - ``"keep_origin"``: Retains the original data types (e.g., 
+          Pandas DataFrame remains a DataFrame). Conversion to NumPy arrays 
+          is avoided unless absolutely necessary.
+        - ``"numpy_only"``: Forces all inputs to be converted to NumPy arrays, 
+          regardless of their original types.
+        
+        **Behavior Details:**
+        
+        - If ``accept`` is ``'2d'`` or ``'only_2d'`` and ``ops_mode`` is 
+          ``"keep_origin"``, Pandas DataFrames remain as DataFrames without 
+          conversion to NumPy arrays.
+        - If ``accept`` is ``'1d'`` or ``'only_1d'`` and a Pandas Series is 
+          passed, it remains a Series without conversion to a NumPy array.
+        - When ``ops_mode`` is ``"keep_origin"`` and ``force_conversion`` 
+          is enabled, the function attempts conversions without altering the 
+          original data types unless necessary. If conversion isn't possible 
+          without changing the type, it handles the situation based on the 
+          ``error`` parameter.
+    
+    **kwargs : dict
+        Additional keyword arguments passed to the underlying ``to_array`` 
+        function. This allows for extended flexibility and handling of 
+        specific cases as needed.
+
+    Returns
+    -------
+    Tuple[Union[np.ndarray, pd.Series, pd.DataFrame], ...]
+        A tuple containing the converted array-like objects, each adhering 
+        to the specified dimensionality constraints. The order of the 
+        returned arrays corresponds to the order of the input arrays.
+
+    .. math::
+        \text{Converted Arrays} =\\
+            \left( \text{to\_array}(arr_1), \text{to\_array}(arr_2),\\
+                  \ldots, \text{to\_array}(arr_n) \right)
+
+    Examples
+    --------
+    >>> from gofast.core.array_manager import to_arrays
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> # Define multiple array-like inputs
+    >>> list_input = [1, 2, 3]
+    >>> tuple_input = (4, 5, 6)
+    >>> np_array = np.array([7, 8, 9])
+    >>> pd_series = pd.Series([10, 11, 12])
+    >>> # Convert all inputs to 2D arrays
+    >>> converted = to_arrays(
+    ...     list_input, tuple_input, np_array, pd_series,
+    ...     accept='2d', force_conversion=True, axis=0, verbose=2, ops_mode='numpy_only'
+    ... )
+    Converted list/tuple to NumPy array.
+    Reshaped 1D NumPy array to 2D with shape (3, 1).
+    Reshaped 1D NumPy array to 2D with shape (3, 1).
+    Reshaped 1D NumPy array to 2D with shape (3, 1).
+    >>> for arr in converted:
+    ...     print(arr)
+    [[1]
+     [2]
+     [3]]
+    [[4]
+     [5]
+     [6]]
+    [[7]
+     [8]
+     [9]]
+    [[10]
+     [11]
+     [12]]
+    
+    >>> # Convert multiple arrays to 1D, raising errors for mismatches
+    >>> converted_1d = to_arrays(
+    ...     np_array, pd_series, list_input,
+    ...     accept='1d', error='raise', verbose=1, ops_mode='keep_origin'
+    ... )
+    >>> for arr in converted_1d:
+    ...     print(arr)
+    [7 8 9]
+    0    10
+    1    11
+    2    12
+    dtype: int64
+    [1, 2, 3]
+    
+    >>> # Attempt to convert arrays to 3D without forcing conversion
+    >>> converted_3d = to_arrays(
+    ...     np_array, list_input,
+    ...     accept='3d', error='warn', verbose=3, ops_mode='keep_origin'
+    ... )
+    Converted list/tuple to NumPy array.
+    Input array has 1 dimensions, but at least 3 dimensions are required.
+    >>> print(converted_3d)
+    [7 8 9]
+    [1 2 3]
+
+    Notes
+    -----
+    The `to_arrays` function ensures that all input arrays are processed 
+    uniformly, adhering to the specified dimensionality rules. By leveraging 
+    the ``to_array`` function, it maintains consistency and reduces redundancy 
+    when handling multiple arrays. This function is particularly useful in 
+    scenarios where batch processing of data is required, such as in machine 
+    learning pipelines or data preprocessing workflows.
+
+    When using the ``force_conversion`` parameter, the function attempts to 
+    reshape or flatten arrays to meet the desired dimensionality. However, 
+    this automatic adjustment may lead to unintended data transformations 
+    if not used cautiously. It is recommended to verify the shape of the 
+    output arrays, especially when working with complex data structures.
+
+    The ``error`` parameter provides flexibility in how the function responds 
+    to mismatched dimensions. Using ``'raise'`` ensures strict adherence 
+    to the specified ``accept`` criteria, while ``'warn'`` and ``'ignore'`` 
+    offer more lenient handling, allowing the processing to continue even 
+    when some arrays do not meet the requirements.
+
+    The ``ops_mode`` parameter adds an additional layer of control over 
+    how original data types are handled during conversion. By setting 
+    ``ops_mode`` to ``"keep_origin"``, the function preserves the original 
+    types of inputs like Pandas DataFrames and Series, avoiding unnecessary 
+    conversions to NumPy arrays. Conversely, setting it to ``"numpy_only"`` 
+    enforces conversion to NumPy arrays, providing uniformity across all 
+    processed arrays.
+
+    See Also
+    --------
+    ``to_array`` : Converts a single array-like object to the desired dimensionality.
+    ``PandasDataHandlers`` : Manages Pandas-based data parsing and writing functions.
+    
+    References
+    ----------
+    .. [1] McKinney, W. (2010). Data Structures for Statistical Computing in 
+           Python. In *Proceedings of the 9th Python in Science Conference*, 
+           51-56.
+    .. [2] Harris, C. R., Millman, K. J., van der Walt, S. J., et al. (2020). 
+           Array programming with NumPy. *Nature*, 585(7825), 357-362.
+    .. [3] Pandas Development Team. (2023). *pandas documentation*. 
+           https://pandas.pydata.org/pandas-docs/stable/
+    """
+
+    # Initialize a list to store the converted arrays
+    converted_arrays = []
+    
+    # Iterate over each input array
+    for idx, arr in enumerate(arrays):
+        try:
+            # Convert the current array using the to_array function
+            converted = to_array(
+                arr,
+                accept=accept,
+                error=error,
+                force_conversion=force_conversion,
+                axis=axis,
+                ops_mode=ops_mode,
+                **kwargs
+            )
+            # Append the converted array to the list
+            converted_arrays.append(converted)
+        except Exception as e:
+            # Handle exceptions based on the 'error' parameter
+            if error == 'raise':
+                # Raise the exception to halt execution
+                raise ValueError(
+                    f"Error converting array at position {idx}: {e}"
+                ) from e
+            elif error == 'warn':
+                # Issue a warning and append the original array
+                warnings.warn(
+                    f"Warning converting array at position {idx}: {e}. "
+                    "Appending the original array without conversion."
+                )
+                converted_arrays.append(arr)
+            elif error == 'ignore':
+                # Silently append the original array without conversion
+                converted_arrays.append(arr)
+            else:
+                # If an unknown error mode is specified, raise a ValueError
+                raise ValueError(
+                    f"Invalid error handling mode: '{error}'. "
+                    "Choose from 'raise', 'warn', or 'ignore'."
+                )
+    
+    # Return the converted arrays as a tuple to maintain immutability
+    return tuple(converted_arrays)
 def smart_ts_detector(
     df,
     date_col,
@@ -510,7 +1255,6 @@ def extract_array_from(
            in Python." Proceedings of the 9th Python in Science Conf.
            (2010): 51–56.
     """
-    
     # handle scenario:
     # names could be single col names or lists of col names or arrays
     # if name is a string, must exist in df or handle_unknown scenario
@@ -518,7 +1262,6 @@ def extract_array_from(
     # if name is array-like (not string), just pass through if allowed by handle_unknown
     # ravel='1d', '2d', 'all', None means how to reshape arrays if asarray=True
     # check_size means ensure all extracted have same length
-
     # check the dataframe 
     are_all_frames_valid(df)
     
@@ -670,6 +1413,10 @@ def extract_array_from(
 
     return extracted if len(extracted)>1 else extracted[0] if extracted else None
 
+# Check if something is array-like but not a string
+def is_array_like(x):
+    """Check if object `x` is array-like but not a string."""
+    return hasattr(x, '__iter__') and not isinstance(x, str)
 
 def reduce_dimensions(
     arr: np.ndarray,
@@ -2775,7 +3522,6 @@ def _convert_arrays_to_df(
             )
     return df_arrays, original_types
 
-
 def _convert_back_to_original_types(
     processed_dfs: List[pd.DataFrame],
     original_types: List[str]
@@ -2833,6 +3579,326 @@ def _convert_back_to_original_types(
                 f"Unsupported original type '{original_type}'."
             )
     return final_arrays
+
+def array_preserver(
+    *arrays: Any,
+    action: str = 'collect',
+    error: str = 'warn',
+    deep_restore: bool = False
+) -> Union[Dict[str, List[Any]], List[Any]]:
+    """
+    Collect and restore array-like objects while preserving their 
+    original properties.
+
+    The ``array_preserver`` function facilitates the management of multiple 
+    array-like objects by enabling their collection and restoration. This 
+    ensures that the original data types and properties are maintained 
+    throughout processing workflows.
+
+    .. math::
+        \text{Collected Data} = \text{array\_preserver}\\
+            (\text{arrays}, \text{action}='collect')
+
+    .. math::
+        \text{Restored Data} = \text{array\_preserver}\\
+            (\text{Collected Data}, \text{action}='restore')
+
+    Parameters
+    ----------
+    *arrays : Any
+        Variable length argument list of array-like objects to be collected 
+        or restored. Supported types include lists, tuples, NumPy 
+        arrays, Pandas Series, and Pandas DataFrames.
+
+    action : str, default='collect'
+        Specifies the operation mode of the function. Accepted values are:
+        
+        - ``'collect'``: Collects the input arrays, preserving their original 
+          properties and storing associated metadata.
+        - ``'restore'``: Restores the processed arrays back to their original 
+          types using the provided metadata.
+        
+        The ``action`` parameter dictates whether the function is in collection 
+        mode or restoration mode.
+
+    error : str, default='warn'
+        Defines the behavior when restoration fails or encounters inconsistencies. 
+        Options include:
+        
+        - ``'raise'``: Raise a ``ValueError`` when restoration fails.
+        - ``'warn'``: Issue a warning but continue execution, returning the 
+          partially restored data.
+        - ``'ignore'``: Silently ignore errors and proceed without raising or 
+          warning.
+        
+        This parameter allows users to control the strictness of error handling 
+        during the restoration process.
+
+    deep_restore : bool, default=False
+        Applicable only when ``action='restore'``. If ``True``, the function 
+        attempts to restore additional properties such as indices and column 
+        names for Pandas DataFrames and Series. This ensures a more comprehensive 
+        restoration of the original objects.
+        
+        When ``deep_restore`` is enabled, the restored DataFrames and Series 
+        will retain their original indices and column names, providing a 
+        faithful reconstruction of the original data structures.
+
+    Returns
+    -------
+    Union[Dict[str, List[Any]], List[Any]]
+        - When ``action='collect'``: Returns a dictionary containing two keys:
+        
+            - ``'processed'``: A list of the original array-like objects.
+            - ``'metadata'``: A list of metadata dictionaries corresponding 
+              to each processed object, preserving original properties.
+        
+        - When ``action='restore'``: Returns a list of restored array-like 
+          objects in their original types and with their original properties.
+
+    .. math::
+        \text{Restored Array} = f(\text{Processed Array}, \text{Metadata})
+
+    Examples
+    --------
+    >>> from gofast.core.array_manager import array_preserver
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> 
+    >>> # Collect multiple array-like objects
+    >>> df = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
+    >>> series = pd.Series([5, 6], name='C')
+    >>> list_input = [7, 8, 9]
+    >>> collected = array_preserver(df, series, list_input, action='collect')
+    >>> 
+    >>> # External processing (e.g., converting DataFrame to NumPy array)
+    >>> processed_df = collected['processed'][0].values * 2  # Example processing
+    >>> processed_series = collected['processed'][1].values + 1
+    >>> processed_list = [x * 3 for x in collected['processed'][2]]
+    >>> collected['processed'] = [processed_df, processed_series, processed_list]
+    >>> 
+    >>> # Restore the original array-like objects
+    >>> restored = array_preserver(collected, action='restore', deep_restore=True)
+    >>> 
+    >>> print(restored[0])  # Restored DataFrame
+       A  B
+    0  2  6
+    1  4  8
+    >>> print(restored[1])  # Restored Series
+    0    6
+    1    7
+    Name: C, dtype: int64
+    >>> print(restored[2])  # Restored list
+    [21, 24, 27]
+    
+    >>> # Handling restoration errors with 'raise'
+    >>> try:
+    ...     invalid_collected = {'processed': [np.array([10, 11])], 'metadata': [{'type': 'Unknown'}]}
+    ...     restored_invalid = array_preserver(invalid_collected, action='restore', error='raise')
+    ... except ValueError as e:
+    ...     print(e)
+    Failed to restore Unknown: Cannot restore to original type 'Unknown'.
+    
+    Notes
+    -----
+    The ``array_preserver`` function is designed to streamline the management of 
+    array-like data structures in data processing workflows. By separating the 
+    collection and restoration phases, it ensures that the original data types 
+    and properties are maintained, facilitating seamless integration with 
+    various data manipulation and analysis tasks.
+    
+    - **Collection Phase**:
+        - Gathers multiple array-like objects and records their essential 
+          metadata, such as type, columns, indices, and shapes.
+        - Stores the original arrays without altering their structure or content.
+    
+    - **Restoration Phase**:
+        - Utilizes the stored metadata to accurately reconstruct the original 
+          array-like objects.
+        - Supports deep restoration to retain complex properties like indices 
+          and column names for Pandas DataFrames and Series.
+    
+    This function is particularly useful in scenarios where data undergoes 
+    transformations or processing steps that may alter its original structure. 
+    By preserving the original properties, ``array_preserver`` ensures that 
+    data can be accurately reverted to its initial state post-processing.
+
+    See Also
+    --------
+    ``to_array`` : Converts a single array-like object to the desired dimensionality.
+    ``PandasDataHandlers`` : Manages Pandas-based data parsing and writing functions.
+    
+    References
+    ----------
+    .. [1] McKinney, W. (2010). Data Structures for Statistical Computing in 
+           Python. In *Proceedings of the 9th Python in Science Conference*, 
+           51-56.
+    .. [2] Harris, C. R., Millman, K. J., van der Walt, S. J., et al. (2020). 
+           Array programming with NumPy. *Nature*, 585(7825), 357-362.
+    .. [3] Pandas Development Team. (2023). *pandas documentation*. 
+           https://pandas.pydata.org/pandas-docs/stable/
+    """
+    pass
+
+    # Validate the 'action' parameter
+    if action not in ['collect', 'restore']:
+        raise ValueError("Invalid action. Choose 'collect' or 'restore'.")
+
+    # Define acceptable error handling modes
+    if error not in ['raise', 'warn', 'ignore']:
+        raise ValueError(
+            "Invalid error handling mode. Choose from 'raise', 'warn', or 'ignore'."
+        )
+
+    if action == 'collect':
+        processed: List[Any] = []
+        metadata: List[Dict[str, Any]] = []
+
+        for arr in arrays:
+            meta: Dict[str, Any] = {}
+
+            # Determine the type and capture relevant metadata
+            if isinstance(arr, pd.DataFrame):
+                meta['type'] = 'DataFrame'
+                meta['columns'] = arr.columns.tolist()
+                meta['index'] = arr.index.tolist()
+
+            elif isinstance(arr, pd.Series):
+                meta['type'] = 'Series'
+                meta['name'] = arr.name
+                meta['index'] = arr.index.tolist()
+
+            elif isinstance(arr, list):
+                meta['type'] = 'list'
+
+            elif isinstance(arr, tuple):
+                meta['type'] = 'tuple'
+
+            elif isinstance(arr, np.ndarray):
+                meta['type'] = 'ndarray'
+                meta['shape'] = arr.shape
+
+            else:
+                meta['type'] = type(arr).__name__
+
+            # Store the array as-is
+            processed_arr = arr.copy() if hasattr(arr, 'copy') else arr
+            processed.append(processed_arr)
+            metadata.append(meta)
+
+        return {'processed': processed, 'metadata': metadata}
+
+    elif action == 'restore':
+        # Expect exactly one argument: the container with 'processed' and 'metadata'
+        if len(arrays) != 1:
+            raise ValueError(
+                "For 'restore' action, provide a single container"
+                " with 'processed' data and 'metadata'."
+            )
+        container = arrays[0]
+
+        # Validate the container structure
+        if not isinstance(container, dict):
+            raise ValueError(
+                "For 'restore' action, the container must be a dictionary"
+                " with 'processed' and 'metadata' keys."
+            )
+        if 'processed' not in container or 'metadata' not in container:
+            raise ValueError(
+                "The container must have 'processed' and 'metadata' keys.")
+
+        processed: List[Any] = container['processed']
+        metadata: List[Dict[str, Any]] = container['metadata']
+
+        if not isinstance(processed, list) or not isinstance(metadata, list):
+            raise ValueError(
+                "'processed' and 'metadata' must be lists within the container.")
+
+        restored: List[Any] = []
+
+        for proc_arr, meta in zip(processed, metadata):
+            orig_type = meta.get('type')
+
+            try:
+                if orig_type == 'DataFrame':
+                    # Restore Pandas DataFrame
+                    columns = meta.get('columns')
+                    index = meta.get('index') if deep_restore else None
+                    df = pd.DataFrame(proc_arr, columns=columns)
+                    if deep_restore and index is not None:
+                        df.index = index
+                    restored.append(df)
+
+                elif orig_type == 'Series':
+                    # Restore Pandas Series
+                    name = meta.get('name')
+                    index = meta.get('index') if deep_restore else None
+
+                    if isinstance(proc_arr, pd.DataFrame) and proc_arr.shape[1] == 1:
+                        # Convert single-column DataFrame back to Series
+                        s = proc_arr.iloc[:, 0]
+                        if deep_restore and index is not None:
+                            s.index = index
+                        s.name = name
+                        restored.append(s)
+
+                    elif isinstance(proc_arr, pd.Series):
+                        # Directly copy Series
+                        s = proc_arr.copy()
+                        if deep_restore and index is not None:
+                            s.index = index
+                        s.name = name
+                        restored.append(s)
+
+                    elif isinstance(proc_arr, np.ndarray):
+                        # Convert NumPy array to Series
+                        s = pd.Series(proc_arr, name=name)
+                        if deep_restore and index is not None:
+                            s.index = index
+                        restored.append(s)
+
+                    elif isinstance(proc_arr, list):
+                        # Convert list to Series
+                        s = pd.Series(proc_arr, name=name)
+                        if deep_restore and 'index' in meta:
+                            s.index = meta['index']
+                        restored.append(s)
+
+                    else:
+                        # Attempt to convert other types to Series
+                        s = pd.Series(proc_arr, name=name)
+                        if deep_restore and index is not None:
+                            s.index = index
+                        restored.append(s)
+
+                elif orig_type == 'list':
+                    # Restore list
+                    restored.append(list(proc_arr))
+
+                elif orig_type == 'tuple':
+                    # Restore tuple
+                    restored.append(tuple(proc_arr))
+
+                elif orig_type == 'ndarray':
+                    # Restore NumPy ndarray
+                    restored.append(proc_arr)
+
+                else:
+                    # Attempt to restore unknown types as-is
+                    restored.append(proc_arr)
+
+            except Exception as e:
+                message = f"Failed to restore {orig_type}: {e}"
+                if error == 'raise':
+                    raise ValueError(message)
+                elif error == 'warn':
+                    warnings.warn(message)
+                    restored.append(proc_arr)
+                elif error == 'ignore':
+                    restored.append(proc_arr)
+
+        return restored
+
 
 
 # def _concat_array_from_list (list_of_array , concat_axis = 0) :

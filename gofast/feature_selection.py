@@ -23,7 +23,8 @@ from gofast.utils.ml.feature_selection import (
     get_correlated_features,
     select_feature_importances, 
     get_feature_contributions,
-    display_feature_contributions
+    display_feature_contributions, 
+    select_relevant_features
     
     )
 from gofast.utils.base_utils import select_features 
@@ -33,6 +34,7 @@ __all__= [
     'get_correlated_features',
     'select_feature_importances', 
     'get_feature_contributions',
-    'display_feature_contributions'
+    'display_feature_contributions', 
+    'select_relevant_features', 
     
     ]

@@ -26,6 +26,7 @@ from ..api.util import get_table_size
 from ..api.property import PandasDataHandlers
 from .array_manager import to_numeric_dtypes
 from .checks import is_iterable, check_params 
+from .handlers import _get_valid_kwargs 
 from .utils import  ellipsis2false, lowertify, smart_format 
 
 TW = get_table_size()
@@ -455,8 +456,9 @@ class SaveFile:
 
         return wrapper(*args, **kwargs)
 
+
 @EnsureFileExists(action ='ignore')
-def read_data(
+def _read_data(
     f: str | pathlib.PurePath, 
     sanitize: bool = False, 
     reset_index: bool = False, 
@@ -469,8 +471,6 @@ def read_data(
 ) -> DataFrame:
     """
     Read all specific files and URLs allowed by the package.
-
-    Readable files are systematically converted to a DataFrame.
 
     Parameters
     ----------
@@ -629,6 +629,292 @@ def read_data(
         f = min_sanitizer (f)
         
     return f 
+
+
+@EnsureFileExists(action='ignore')
+def read_data(
+    f: str | pathlib.PurePath, 
+    sanitize: bool = False, 
+    reset_index: bool = False, 
+    comments: str = "#", 
+    delimiter: Optional[str] = None, 
+    columns: Optional[List[str]] = None,
+    npz_objkey: Optional[str] = None, 
+    verbose: bool = False, 
+    **read_kws
+) -> DataFrame:
+    """
+    Read and convert various file formats into a Pandas DataFrame.
+
+    The `read_data` function provides a unified interface to read multiple 
+    file formats and URLs, converting them systematically into a Pandas 
+    DataFrame. It leverages the `PandasDataHandlers` class to map file 
+    extensions to appropriate Pandas parsing functions, ensuring flexibility 
+    and ease of data ingestion within the Gofast package.
+
+    Parameters
+    ----------
+    f : str | pathlib.PurePath
+        File path or Path-like object. Must contain a valid file name 
+        and should be a readable file or URL. Supported formats include 
+        common data types such as `.csv`, `.xlsx`, `.json`, `.html`, 
+        `.sql`, `.xml`, `.fwf`, `.pkl`, `.sas`, `.spss`, `.txt`, 
+        `.npy`, and `.npz`.
+    
+    sanitize : bool, default=False
+        Apply minimal sanitization to the data after reading:
+        
+        - Replace non-alphabetic column names with a pattern '`_`'.
+        - Cast data values to numeric types where applicable.
+        - Drop columns and rows that are entirely NaN.
+        
+        Enabling `sanitize` ensures that the resulting DataFrame is 
+        cleaner and more consistent for further analysis.
+    
+    reset_index : bool, default=False
+        Reset the index of the DataFrame if full NaN columns are dropped 
+        during sanitization. This is useful to maintain a continuous 
+        index after removing empty columns or rows.
+    
+    comments : str, default='#'
+        Characters that denote the start of a comment in the file. Lines 
+        starting with any of these characters will be ignored. If `None`, 
+        no lines will be treated as comments. This parameter is particularly 
+        useful for formats like `.csv` and `.txt` where comments might be 
+        present.
+    
+    delimiter : str, optional
+        Delimiter character used to separate values in the file. For example, 
+        a comma `','` for CSV files or a tab `'\t'` for TSV files. If not 
+        specified, the default delimiter for the respective Pandas parser 
+        will be used. This parameter is crucial for correctly parsing 
+        files with non-standard delimiters.
+    
+    columns : list of str, optional
+        List of column names to assign to the DataFrame. If the file contains 
+        a header row, passing `columns` will override the existing column 
+        names. This is useful for ensuring consistency in column naming 
+        across different datasets.
+    
+    npz_objkey : str, optional
+        Key to identify a specific array within a `.npz` file. If the `.npz` 
+        file contains multiple arrays, `npz_objkey` specifies which array 
+        to load. Defaults to `'arr_0'` if not provided. This parameter is 
+        essential when dealing with `.npz` files that store multiple datasets.
+    
+    verbose : bool, default=False
+        If `True`, outputs additional messages to inform the user about 
+        the data reading and sanitization processes. Useful for debugging 
+        or understanding the steps performed by the function.
+    
+    **read_kws : dict
+        Additional keyword arguments passed to the underlying Pandas 
+        reading functions (e.g., `pd.read_csv`, `pd.read_excel`). Only 
+        valid keyword arguments for the specific Pandas parser will be 
+        accepted. Invalid keywords will be ignored with a warning. This 
+        allows for customization of the reading process based on specific 
+        file requirements.
+
+    Returns
+    -------
+    DataFrame
+        A Pandas DataFrame containing the data read from the specified file 
+        or URL. If `sanitize` is enabled, the DataFrame will have cleaned 
+        column names and removed empty columns or rows as specified.
+
+    .. math::
+        \text{DataFrame} = \text{Parser}(f, **\text{valid\_read\_kws}) \\
+        \text{if sanitize:} \\
+        \quad \text{DataFrame} = \text{min\_sanitizer(DataFrame)}
+
+    Examples
+    --------
+    >>> from gofast.core.io import read_data
+    >>> import pathlib
+    >>> # Reading a CSV file with sanitization
+    >>> df_csv = read_data(
+    ...     'data/sample.csv', 
+    ...     sanitize=True, 
+    ...     reset_index=True, 
+    ...     delimiter=',', 
+    ...     columns=['A', 'B', 'C']
+    ... )
+    >>> print(df_csv.head())
+
+    >>> # Reading a NumPy `.npz` file and selecting a specific array
+    >>> npz_path = pathlib.Path('data/sample.npz')
+    >>> df_npz = read_data(
+    ...     npz_path, 
+    ...     npz_objkey='array1', 
+    ...     sanitize=True
+    ... )
+    >>> print(df_npz.describe())
+
+    >>> # Reading from a URL without sanitization
+    >>> url = 'https://example.com/data.json'
+    >>> df_json = read_data(url, comments=None)
+    >>> print(df_json.info())
+
+    Notes
+    -----
+    The `read_data` function centralizes data ingestion by supporting a wide 
+    range of file formats and handling them through Pandas' robust parsing 
+    capabilities. By mapping file extensions to appropriate Pandas functions, 
+    it ensures that users can effortlessly import diverse datasets without 
+    worrying about the underlying parsing mechanics.
+
+    When dealing with `.npz` files, it is crucial to specify the correct 
+    `npz_objkey` if the archive contains multiple arrays. Failing to do so 
+    may result in loading unintended data or errors if the specified key does 
+    not exist.
+
+    Sanitization is an optional step but highly recommended to maintain data 
+    integrity, especially when dealing with inconsistent or messy datasets. 
+    It automates the cleaning process, reducing the need for manual data 
+    preprocessing.
+
+    See Also
+    --------
+    `PandasDataHandlers` : Centralizes Pandas-based data parsing and writing 
+                           functions.
+    `get_valid_kwargs` : Filters and validates keyword arguments for callable 
+                         objects, ensuring only supported parameters are used.
+
+    References
+    ----------
+    .. [1] McKinney, W. (2010). Data Structures for Statistical Computing in 
+           Python. In *Proceedings of the 9th Python in Science Conference*, 
+           51-56.
+    .. [2] Harris, C. R., Millman, K. J., van der Walt, S. J., et al. (2020). 
+           Array programming with NumPy. *Nature*, 585(7825), 357-362.
+    .. [3] Pandas Development Team. (2023). *pandas documentation*. 
+           https://pandas.pydata.org/pandas-docs/stable/
+    """
+ 
+    def min_sanitizer(d: DataFrame) -> DataFrame:
+        """Apply a minimum sanitization to the data `d`."""
+        return to_numeric_dtypes(
+            d, sanitize_columns=True, 
+            drop_nan_columns=True, 
+            reset_index=reset_index, 
+            verbose=verbose, 
+            fill_pattern='_', 
+            drop_index=True
+        )
+    
+    def _check_readable_file(f_path: str) -> str:
+        """Validate the file path or URL and return the cleaned file path."""
+        msg = (
+            f"Expects a Path-like object or URL. Please, check your "
+            f"file: {os.path.basename(f_path)!r}"
+        )
+        if not os.path.isfile(f_path):
+            # Allow URLs starting with http:// or https://
+            if not (f_path.startswith('http://') or f_path.startswith('https://')):
+                raise TypeError(msg)
+        elif not isinstance(f_path, (str, pathlib.PurePath)):
+            raise TypeError(msg)
+        if isinstance(f_path, str):
+            f_path = f_path.strip()  # Remove leading/trailing whitespace
+        return f_path
+    
+    # Handle specific file extensions before using Pandas parsers
+    if isinstance(f, str) and os.path.splitext(f)[1].lower() in (
+            '.txt', '.npy', '.npz'):
+        f = save_or_load(
+            f, 
+            task='load', 
+            comments=comments, 
+            delimiter=delimiter
+        )
+        # If the file is a .npz archive, extract the specified object
+        if isinstance(f, np.lib.npyio.NpzFile):
+            npz_objkey = npz_objkey or "arr_0"
+            if npz_objkey not in f:
+                raise KeyError(
+                    f"Key '{npz_objkey}' not found in the .npz file."
+                )
+            f = f[npz_objkey]
+        
+        # If specific columns are provided, validate and apply them
+        if columns is not None:
+            columns = is_iterable(
+                columns, 
+                exclude_string=True, 
+                transform=True, 
+                parse_string=True
+            )
+            if len(columns) != f.shape[1]:
+                warnings.warn(
+                    f"Columns expect {f.shape[1]} attributes. "
+                    f"Got {len(columns)}."
+                )
+        # Convert the array to a DataFrame with specified columns
+        f = pd.DataFrame(f, columns=columns)
+    
+    # If the input is already a DataFrame or Series,
+    # optionally sanitize and return
+    if isinstance(f, pd.DataFrame):
+        if sanitize:
+            f = min_sanitizer(f)
+        return f
+    elif isinstance(f, pd.Series):
+        return f
+    elif _is_array_like(f):
+        # For array-like objects, return as numpy array
+        return np.asarray(f)
+    
+    # Initialize the PandasDataHandlers to get available parsers
+    data_handlers = PandasDataHandlers()
+    parsers = data_handlers.parsers
+    
+    # Validate the file path or URL
+    f = _check_readable_file(f)
+    
+    # Extract the file extension
+    _, ex = os.path.splitext(f)
+    
+    # Check if the file extension is supported
+    if ex.lower() not in parsers:
+        supported = ', '.join(parsers.keys())
+        raise TypeError(
+            f"Unsupported file extension '{ex}'. Supported"
+            f" extensions are: {supported}."
+        )
+    
+    # Retrieve the appropriate Pandas parser function
+    parser_func = parsers[ex.lower()]
+    
+    # Filter the read_kws to include only valid kwargs for the parser function
+    valid_read_kws = _get_valid_kwargs(parser_func, read_kws)
+    
+    # Warn the user if there are any invalid kwargs
+    if len(valid_read_kws) < len(read_kws):
+        invalid_keys = set(read_kws.keys()) - set(valid_read_kws.keys())
+        warnings.warn(
+            f"Ignoring invalid keyword arguments for {parser_func.__name__}: "
+            f"{', '.join(invalid_keys)}"
+        )
+    
+    try:
+        # Attempt to parse the file using the filtered kwargs
+        f = parser_func(f, **valid_read_kws)
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"No such file in directory: {os.path.basename(f)!r}"
+        )
+    except Exception as e:
+        # Catch all other exceptions and raise a custom error with details
+        raise FileHandlingError(
+            f"Cannot parse the file: {os.path.basename(f)!r}. Error: {str(e)}"
+        )
+    
+    # Apply sanitization if requested
+    if sanitize:
+        f = min_sanitizer(f)
+    
+    return f
+
 
 @check_params(
     {

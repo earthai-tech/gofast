@@ -38,6 +38,7 @@ from ..core.plot_manager import default_params_plot
 from ..utils.deps_utils import ensure_pkg 
 from ..utils.validator import _is_cross_validated, validate_yy, validate_keras_model
 from ..utils.validator import assert_xy_in, get_estimator_name, check_is_fitted
+from ..utils.validator import check_consistent_length
 from .utils import _set_sns_style, _make_axe_multiple
 from .utils import make_plot_colors  
 from ._config import PlotConfig 
@@ -86,7 +87,7 @@ def plot_taylor_diagram(
     angle_to_corr: bool = ..., 
     marker='o', 
     corr_steps=6,
-   fig_size: Optional[Tuple[int, int]] = None,
+    fig_size: Optional[Tuple[int, int]] = None,
 ):
     """
     Plots a Taylor Diagram, which is used to graphically summarize 
@@ -1969,7 +1970,7 @@ def plot_r2(
     ]
 )
 def plot_confusion_matrices (
-    clfs: List [BaseEstimator], 
+    clfs: List[BaseEstimator], 
     X: NDArray, 
     y: ArrayLike, *,  
     annot: bool =True, 
@@ -2089,9 +2090,15 @@ def plot_confusion_matrices (
 def plot_confusion_matrix(
     y_true: Union[ArrayLike, Series],
     y_pred: Union[ArrayLike, Series],
-    view: bool = True,
     ax: Optional[plt.Axes] = None,
-    annot: bool = True,
+    annot: bool = ...,
+    cbar: bool=False, 
+    labels: ArrayLike=None, 
+    sample_weight: ArrayLike=None, 
+    normalize: bool=None,
+    xlabel: str=None, 
+    ylabel: str=None, 
+    title: str =None, 
     **kws: Dict[str, Any]
 ) -> np.ndarray:
     """
@@ -2193,21 +2200,30 @@ def plot_confusion_matrix(
            pp. 2825-2830, 2011.
     """
     # Ensure y_true and y_pred are of consistent length
-    if len(y_true) != len(y_pred):
-        raise ValueError("y_true and y_pred must be of the same length.")
-
+    check_consistent_length (y_true, y_pred )
+    
     # Compute the confusion matrix
-    mat = confusion_matrix(y_true, y_pred, **kws)
+    mat = confusion_matrix(
+        y_true, y_pred, 
+        labels=labels, 
+        sample_weight=sample_weight, 
+        normalize =normalize 
+    )
 
     # Plot the confusion matrix if 'view' is True
-    if view:
-        if ax is None:
-            fig, ax = plt.subplots()
-        sns.heatmap(mat, square=True, annot=annot, cbar=False, fmt="d", ax=ax)
-        ax.set_xlabel('True Labels')
-        ax.set_ylabel('Predicted Labels')
-        ax.set_title('Confusion Matrix')
-        plt.show()
+    if ax is None:
+        fig, ax = plt.subplots()
+    sns.heatmap(
+        mat, square=True,
+        annot=annot,
+        cbar=cbar, fmt="d", 
+        ax=ax,
+        **kws
+   )
+    ax.set_xlabel(xlabel or 'True Labels')
+    ax.set_ylabel(ylabel or 'Predicted Labels')
+    ax.set_title(title or 'Confusion Matrix')
+    plt.show()
 
     return mat
 
