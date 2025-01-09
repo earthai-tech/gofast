@@ -73,6 +73,8 @@ __all__= [
     'validate_spatial_columns', 
     'validate_nested_param', 
     'check_params', 
+    'ensure_same_shape',
+    'validate_axis'
     ]
 
 class ParamsValidator:
@@ -3548,7 +3550,9 @@ def are_all_frames_valid(
     df_only: bool = ...,  
     error_msg: Optional[str] = None, 
     check_size: bool = False,  
-    check_symmetry: bool = False  
+    check_symmetry: bool = False, 
+    to_df: bool=False, 
+    ops='check_only'
 ) -> bool:
     """
     Validates whether all provided inputs are pandas DataFrames or Series 
@@ -3586,13 +3590,23 @@ def are_all_frames_valid(
         not provided, a default message is used that specifies the need 
         for DataFrames or Series, depending on the `df_only` flag.
         
+    ops: str, default='check_only'
+        Expect {``'validate'``, ``'check_only'``}. Return valid dataframes
+        if ``ops='validate'`` otherwise, it checks only whether all frames 
+        are valid and return ``True``.  
+        
+    to_df: bool, default  =False 
+        Convert series to dataframe. This parameter only operates when the 
+        option is `'validate'``
     Returns
     -------
     bool
         Returns `True` if all inputs are either DataFrames (or Series if 
         `df_only=False`), and if applicable, if they pass size and symmetry checks. 
         Otherwise, an error is raised based on the validation rules.
-
+    tuple
+        Returns valid dataframes if ``ops='validate'``. 
+        
     Raises
     ------
     TypeError
@@ -3647,14 +3661,31 @@ def are_all_frames_valid(
         s='s' if len(dfs) > 1 else ''
         error_msg = f"{subj} must be{either} pandas DataFrame{s}" + \
                     (" or pandas Series." if not df_only else ".")
-    
+                    
+    if ops not in {'validate', 'check_only'}: 
+        warnings.warn("Ops parameter expects options: ``'validate'`` or"
+                      " ``'check_only'``. Got '{ops}'. Fallback to"
+                      " 'check_only'"
+                    )
+        ops ='check_only'
+        
+    new_dfs =[] 
     # Check each argument
     for df in dfs:
         # Check if each element is a valid DataFrame or Series
         if not isinstance(df, (pd.DataFrame, pd.Series)):
             raise TypeError(error_msg)
         
-        # If df_only is True, raise error for Series
+        #if option is validate and series must be converted to dataframe 
+        # then convert it. 
+        
+        if ( ops=='validate' 
+            and isinstance (df, pd.Series) 
+            and to_df 
+            ): 
+            df= df.to_frame() 
+            
+        # If df_only is True, raise error for Series    
         if df_only and isinstance(df, pd.Series):
             raise TypeError(f"Expected DataFrame, but found a Series: {df}")
 
@@ -3681,8 +3712,14 @@ def are_all_frames_valid(
             if df.shape[0] != df.shape[1]:
                 raise ValueError(
                     f"DataFrame is not symmetric: {df.shape[0]} != {df.shape[1]}")
-
-    return True
+        
+        if ops =='validate': 
+            new_dfs.append (df)
+            
+    if ops=='validate': 
+        return tuple (new_dfs)
+    
+    return True 
 
 def has_nan(
     data: Union[pd.DataFrame, pd.Series], 
@@ -5615,4 +5652,330 @@ def _convert_datetime_column(
             warnings.warn(msg_fail)
         # if 'ignore', pass
     return df
+
+def ensure_same_shape(
+    *arrays: Union[np.ndarray, pd.DataFrame],
+    axis: Optional[int] = None,
+    ops: str = 'check_only',
+    solo_return: bool = True
+) -> Optional[Union[Tuple[Union[np.ndarray, pd.DataFrame], ...],
+                    Union[np.ndarray, pd.DataFrame]]]:
+    """
+    Check or validate that multiple arrays have the same shape
+    along a specified axis, with an option to return them in
+    a singular format if only one array is provided.
+
+    The ``ensure_same_shape`` function enforces consistent
+    shapes among any number of arrays (NumPy or pandas), based
+    on a specified (or default) axis. When ``axis=None``, the
+    function checks for matching length (i.e., shape[0]). The
+    behavior of the function, whether it only checks or
+    actually returns validated arrays, is governed by
+    ``ops``. Additionally, if ``solo_return=True`` and
+    exactly one array is validated under ``ops='validate'``,
+    the function returns that array directly, rather than
+    wrapping it in a tuple.
+
+    .. math::
+       \\text{Shape Consistency} =
+       \\begin{cases}
+         \\text{same size along axis} & \\text{if axis is not None}\\\\
+         \\text{same length (shape[0])} & \\text{if axis is None}
+       \\end{cases}
+
+    Parameters
+    ----------
+    *arrays : np.ndarray or pandas.DataFrame
+        One or more array-like objects to be checked. Each must be
+        either a NumPy array or a pandas DataFrame. If a single array
+        is passed as the only argument, it is processed accordingly.
+
+    axis : int or None, optional
+        The axis along which to enforce shape consistency. If
+        ``axis=1``, all arrays must have at least two dimensions
+        (i.e., shape[1] must be valid). An informative error is
+        raised if an array is 1D. If ``axis=None``, the function
+        checks that all arrays match in their length (shape[0]).
+
+    ops : {'check_only', 'validate'}, default='check_only'
+        Determines the function's behavior:
+        
+        - ``'check_only'``:
+          Perform checks and raise if any mismatch is found, but
+          do not return anything.
+        - ``'validate'``:
+          Verify shape consistency, then return the arrays if
+          no issues are found.
+
+    solo_return : bool, default=True
+        If ``True`` and exactly one array is passed under
+        ``ops='validate'``, the function returns that array
+        directly rather than as a tuple of length 1. If multiple
+        arrays are provided or ``ops='check_only'``, the function
+        returns a tuple if returning anything.
+
+    Returns
+    -------
+    tuple of np.ndarray or pandas.DataFrame or single object
+        - If ``ops='validate'`` and multiple arrays are given, a
+          tuple of the validated arrays is returned.
+        - If ``ops='validate'`` and only one array is provided,
+          returns that single array directly if ``solo_return=True``;
+          otherwise, returns a tuple with one element.
+        - If ``ops='check_only'``, no value is returned.
+
+    Raises
+    ------
+    ValueError
+        - If ``axis=1`` is given but an array is 1D, making
+          indexing along axis 1 invalid.
+        - If arrays do not match in shape along the specified
+          axis or do not share the same length if ``axis=None``.
+        - If ``ops`` is not in ``{'check_only', 'validate'}``.
+
+    Examples
+    --------
+    >>> from gofast.core.array_manager import ensure_same_shape
+    >>> import numpy as np
     
+    >>> A = np.random.rand(5, 3)
+    >>> B = np.random.rand(5, 3)
+    >>> # Basic check on length: axis=None by default.
+    >>> ensure_same_shape(A, B)  # no error => shapes consistent
+    
+    >>> # Return validated arrays if they are consistent:
+    >>> validated = ensure_same_shape(A, B, ops='validate')
+    >>> print(type(validated), len(validated))
+    <class 'tuple'> 2
+    
+    >>> # If an array is 1D but axis=1 is requested:
+    >>> C = np.random.rand(5)
+    >>> ensure_same_shape(A, C, axis=1)
+    ValueError: An array is 1D, but `axis=1` was requested.
+
+    Notes
+    -----
+    - The function wraps a single array in a list if multiple arrays
+      are not explicitly provided. This allows uniform processing
+      logic.
+    - When ``solo_return=True`` and only one array is validated
+      under ``ops='validate'``, it is returned directly if checks
+      pass, rather than as a tuple with one element.
+    
+    See Also
+    --------
+    AnotherShapeCheck : A related function that cross-checks
+        dimensional alignment.
+
+    References
+    ----------
+    .. [1] NumPy Development Team. (2023). *NumPy documentation*.
+           https://numpy.org/doc/stable/
+    """
+    # Validate `ops` parameter.
+    valid_ops = {'check_only', 'validate'}
+    if ops not in valid_ops:
+        raise ValueError(
+            f"Invalid `ops` value: '{ops}'. Choose from {valid_ops}."
+        )
+
+    # Convert single array to a tuple if needed, so code handles a
+    # uniform collection of arrays.
+    if len(arrays) == 1 and not isinstance(arrays[0], (list, tuple)):
+        arrays = (arrays[0],)
+
+    # If axis=1, all arrays must have at least 2 dims. Check each.
+    if axis == 1:
+        for arr in arrays:
+            if arr.ndim < 2:
+                raise ValueError(
+                    "An array is 1D, but `axis=1` was requested, "
+                    "requiring at least 2 dimensions."
+                )
+
+    # Helper function to determine size based on the axis or default to shape[0].
+    def get_size(arr, ax):
+        return arr.shape[ax] if ax is not None else arr.shape[0]
+
+    # Determine reference size from first array along specified axis (or default).
+    ref_size = get_size(arrays[0], axis)
+
+    # Check consistency of shapes among all arrays.
+    for idx, arr in enumerate(arrays[1:], start=1):
+        current_size = get_size(arr, axis)
+        if current_size != ref_size:
+            axis_str = f"axis={axis}" if axis is not None else "length (axis=None)"
+            raise ValueError(
+                f"Arrays must match size along {axis_str}. Mismatch found "
+                f"at array position {idx} (expected {ref_size}, got {current_size})."
+            )
+
+    # If ops='check_only', no return needed after verifying shapes.
+    if ops == 'check_only':
+        return None
+
+    # ops='validate'. Return arrays in the desired format.
+    if len(arrays) == 1:
+        # Only one array provided
+        if solo_return:
+            # Return that array directly
+            return arrays[0]
+        
+    # If multiple arrays are provided, always return them as a tuple.
+    return arrays
+
+def validate_axis(
+    axis: Optional[Union[int, str, None]] = None,
+    array_base: Optional[Union[np.ndarray, pd.DataFrame]] = None,
+    accept_axis_none: bool = ...
+) -> Optional[int]:
+    """
+    Validate and convert ``axis`` to an integer index, optionally checking it
+    against the dimensionality of ``array_base``. If `accept_axis_none` is True
+    and ``axis`` is None, returns None without further checks.
+
+    The ``validate_axis`` function ensures that ``axis`` is a valid integer
+    or string representation. For instance, `'rows'` maps to axis=0 and
+    `'columns'` maps to axis=1. When ``axis=None`` is allowed, the function
+    simply returns None. If an array-like object is provided via
+    ``array_base``, the final axis must not exceed ``array_base`` dimensions.
+
+    .. math::
+       \\text{Validated Axis} = 
+       \\begin{cases}
+         0, & \\text{if }\\text{axis}\\in\\{0,\\text{'rows'}\\}\\\\
+         1, & \\text{if }\\text{axis}\\in\\{1,\\text{'columns'}\\}\\\\
+         \\text{None}, & \\text{if axis=None and accept\\_axis\\_none=True}\\\\
+         \\text{raise Error}, & \\text{otherwise}
+       \\end{cases}
+
+    Parameters
+    ----------
+    axis : int, str, or None, optional
+        The axis to validate. Accepted values:
+        
+        - ``0``, or `'rows'` for row-wise operations.
+        - ``1``, or `'columns'`` for column-wise operations.
+        - ``None`` if `accept_axis_none` is True.
+
+    array_base : numpy.ndarray or pandas.DataFrame, optional
+        An array-like object. If provided, the function checks that
+        the final axis index does not exceed the dimensionality of
+        ``array_base``. For a 2D object, valid axes are 0 or 1.
+
+    accept_axis_none : bool, default=True
+        Determines if ``None`` is a permissible axis value. If False,
+        a ``ValueError`` is raised if ``axis=None``.
+
+    Returns
+    -------
+    int or None
+        - Integer axis (0 or 1) if string input maps to `'rows'` or
+          `'columns'`, or if an integer is valid.
+        - None if ``axis=None`` and `accept_axis_none=True`.
+    
+    Raises
+    ------
+    ValueError
+        - If ``axis=None`` but `accept_axis_none=False`.
+        - If `axis` is an integer outside the permissible range for
+          the given ``array_base``.
+        - If `axis` is `'rows'` or `'columns'` but does not align
+          with the dimensionality of ``array_base``.
+        - If the string axis is unrecognized.
+
+    TypeError
+        If `axis` is not an int, str, or None.
+
+    Examples
+    --------
+    >>> from gofast.core.array_manager import validate_axis
+    >>> import numpy as np
+
+    >>> arr_2d = np.ones((5, 4))
+    >>> # Validate axis=0 with a 2D array
+    >>> ax0 = validate_axis(0, arr_2d)
+    >>> print(ax0)
+    0
+    
+    >>> # Validate axis='columns' with a 2D array
+    >>> ax1 = validate_axis('columns', arr_2d)
+    >>> print(ax1)
+    1
+    
+    >>> # Allow axis=None
+    >>> ax_none = validate_axis(None, arr_2d, accept_axis_none=True)
+    >>> print(ax_none)
+    None
+    
+    >>> # Disallow axis=None
+    >>> validate_axis(None, arr_2d, accept_axis_none=False)
+    ValueError: Axis is None, but `accept_axis_none` is False.
+
+    .. note::
+       If a 1D array is passed in `array_base` (e.g., shape=(n,)),
+       specifying ``axis=1`` will raise an error.
+
+    See Also
+    --------
+    AnotherFunction : A related function that also checks axis
+        validity for multi-dimensional arrays.
+
+    References
+    ----------
+    .. [1] NumPy Development Team. (2023). *NumPy documentation*. 
+           https://numpy.org/doc/stable/
+    """
+    # 1) If axis is None and `accept_axis_none` is True, return None.
+    if axis is None:
+        if not accept_axis_none:
+            raise ValueError(
+                "Axis is None, but `accept_axis_none` is False."
+            )
+        return None
+
+    # 2) Ensure `axis` is either int or str; if not, raise TypeError.
+    if not isinstance(axis, (int, str)):
+        raise TypeError(
+            "axis must be an integer, string, or None."
+        )
+
+    # 3) Convert string axis to int: 'rows' -> 0, 'columns' -> 1.
+    if isinstance(axis, str):
+        axis_str = axis.lower()
+        if axis_str == 'rows':
+            axis_int = 0
+        elif axis_str == 'columns':
+            axis_int = 1
+        else:
+            raise ValueError(
+                "Invalid string for `axis`. "
+                "Must be 'rows', 'columns', or a valid integer."
+            )
+    else:
+        # axis is an integer
+        axis_int = axis
+
+    # 4) If array_base is provided, check that `axis_int` fits
+    #    within its dimensionality. For a 1D object, valid axis
+    #    is only 0. For 2D, valid axis are 0 or 1, etc.
+    if array_base is not None:
+        # Determine the number of dimensions
+        if hasattr(array_base, 'ndim'):
+            ndims = array_base.ndim
+        else:
+            # If it doesn't have an ndim attribute, fallback
+            # to a standard approach if possible
+            raise TypeError(
+                "Provided `array_base` does not have an `ndim` "
+                "attribute, cannot validate axis."
+            )
+        # Validate axis_int range
+        if not (0 <= axis_int < ndims):
+            raise ValueError(
+                f"Axis {axis_int} is out of bounds for array_base "
+                f"with {ndims} dimension(s)."
+            )
+
+    # Return final integer axis
+    return axis_int

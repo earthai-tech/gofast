@@ -7,7 +7,7 @@ Includes functions for handling missing data, normalizing strings, and
 validating data types and formats.
 """
 
-from __future__ import print_function
+from __future__ import print_function, annotations 
 import os
 import re
 import time
@@ -43,7 +43,9 @@ __all__=[
      'unpack_list_of_dicts',
      'run_return', 
      'format_to_datetime', 
+     'error_policy'
      ]
+
 
 def run_return(
     self, 
@@ -2948,3 +2950,156 @@ def get_full_metric_name(metric: str) -> str:
 
     # If not found, return the metric in lowercase
     return metric_lower
+
+def error_policy(
+    error: str | None,
+    *,
+    policy: str = 'auto',
+    base: str = 'ignore',
+    exception: type[Exception] = None,
+    msg: str | None = None
+) -> str:
+    """
+    Manage error-handling policies like 'warn', 'raise', or 'ignore'.
+
+    The `error_policy` function determines how to handle potential
+    errors by mapping the user-provided ``error`` argument to a valid
+    policy. It helps standardize responses such as warnings, raised
+    exceptions, or silent ignores. The function can adapt to different
+    modes, allowing for strict or flexible behavior depending on the
+    ``policy`` and ``base`` settings.
+
+    .. math::
+       \\text{error\\_policy}:
+       \\begin{cases}
+         \\text{'warn'}, & \\text{issue a warning} \\\\
+         \\text{'raise'}, & \\text{raise an exception} \\\\
+         \\text{'ignore'}, & \\text{do nothing}
+       \\end{cases}
+
+    Parameters
+    ----------
+    error : str or None
+        The user-provided error setting. Can be `'warn'`, `'raise'`,
+        `'ignore'`, or `None`. If `None`, the behavior is resolved
+        based on ``policy`` and ``base``.
+    
+    policy : str, default='auto'
+        Determines how to interpret a `None` error setting. Valid
+        options:
+        
+        - `'auto'`: Resolve `None` to the default `base` policy.
+        - `'strict'`: Disallows `None` for `error`; raises an error
+          if encountered.
+        - `None`: Defers strictly to `base`.
+
+    base : str, default='ignore'
+        The fallback error policy when `None` is encountered and
+        `policy='auto'` or `policy=None`. Must be one of `'warn'`,
+        `'raise'`, or `'ignore'`.
+
+    exception : type of Exception, default=ValueError
+        The exception class to be raised if an invalid policy or
+        error is encountered.
+
+    msg : str, optional
+        A custom message for the raised exception if an invalid
+        `error` or `policy` is detected. If omitted, a default is
+        used.
+
+    Returns
+    -------
+    str
+        A valid error policy: one of `'warn'`, `'raise'`, or
+        `'ignore'`.
+
+    Raises
+    ------
+    ValueError
+        If `policy` is invalid or if `None` is not permitted by
+        `policy='strict'` but is used. Also raised if `error` cannot
+        be resolved to a valid policy or if `base` is invalid when
+        `policy='auto'`.
+
+    Notes
+    -----
+    - If `error` is already a valid policy (`'warn'`, `'raise'`,
+      `'ignore'`), it is returned immediately.
+    - When `error=None`, the behavior depends on the `policy` and
+      `base` parameters. Setting `policy='strict'` disallows `None`
+      for `error`.
+
+    Examples
+    --------
+    >>> from gofast.core.utils import error_policy
+    >>> # Basic usage:
+    >>> resolved_error = error_policy('warn')
+    >>> print(resolved_error)
+    'warn'
+    
+    >>> # Using 'auto' policy with a default base of 'ignore'
+    >>> resolved_error = error_policy(None, policy='auto',
+    ...                                base='warn')
+    >>> print(resolved_error)
+    'warn'
+    
+    >>> # Strict policy disallows None
+    >>> error_policy(None, policy='strict')
+    ValueError: In strict policy, `None` is not acceptable as error.
+
+    See Also
+    --------
+    gofast.utils.validator.validate_nan_policy : A function that
+        validate NaN policies.
+    """  # noqa: E501
+
+    # Predefined valid policies.
+    valid_policies = {'warn', 'raise', 'ignore'}
+
+    # Default message if none is provided.
+    default_msg = (
+        "Invalid error policy: '{error}'. Valid options are "
+        f"{valid_policies}."
+    )
+    if exception is None:
+        exception = ValueError
+
+    # Use custom message or default if not supplied.
+    msg = msg or default_msg
+
+    # Validate the `policy` argument.
+    if policy not in {'auto', 'strict', None}:
+        raise ValueError(
+            f"Invalid policy: '{policy}'. Valid options are "
+            "'auto', 'strict', or None."
+        )
+
+    # Resolve None values for `error` according to `policy`.
+    if error is None:
+        if policy == 'auto':
+            # If policy='auto', fallback to `base` if no override is set.
+            error = base or 'ignore'
+        elif policy == 'strict':
+            # If policy='strict', disallow None for `error`.
+            raise ValueError(
+                "In strict policy, `None` is not acceptable as an "
+                "error. Please set `error` explicitly or switch "
+                "policy to 'auto'."
+            )
+        else:
+            # policy=None means strictly use `base` for resolution.
+            if base not in valid_policies:
+                raise ValueError(
+                    f"Invalid base policy: '{base}'. Must be one of "
+                    f"{valid_policies} when `error` is None and "
+                    "policy is None."
+                )
+            error = base
+
+    # Final check to ensure `error` is valid.
+    if error not in valid_policies:
+        # Raise the specified exception if the policy is invalid.
+        raise exception(msg.format(error=error))
+
+    # Return the resolved error policy.
+    return error

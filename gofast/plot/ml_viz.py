@@ -30,7 +30,7 @@ except :
 from ..api.types import Optional, Tuple, Any, List, Union, Callable, NDArray 
 from ..api.types import Dict, ArrayLike, DataFrame, Series, SparseMatrix
 from ..compat.sklearn import validate_params, StrOptions
-from ..core.array_manager import drop_nan_in 
+from ..core.array_manager import drop_nan_in, to_arrays 
 from ..core.checks import is_iterable 
 from ..core.handlers import param_deprecated_message 
 from ..core.utils import make_obj_consistent_if
@@ -65,7 +65,7 @@ __all__= [
 @default_params_plot(
     savefig ='my_taylor_diagram_plot.png',
     dpi=300, 
-    fig_size=(12, 10)
+    fig_size=(8, 8)
 )
 @validate_params ({
     'reference': ['array-like'], 
@@ -270,10 +270,14 @@ def plot_taylor_diagram(
        in a single diagram," Journal of Geophysical Research, vol. 106, 
        no. D7, pp. 7183-7192, 2001.
     """
-    
+    reference, *y_preds = to_arrays(
+        reference, *y_preds, 
+        accept= 'only_1d', 
+        force_conversion= True 
+    )
     # Convert inputs to 1D numpy arrays
-    y_preds = [np.asarray(pred).flatten() for pred in y_preds]
-    reference = np.asarray(reference).flatten()
+    # y_preds = [np.asarray(pred).flatten() for pred in y_preds]
+    # reference = np.asarray(reference).flatten()
 
     # Check consistency of lengths
     assert all(pred.size == reference.size for pred in y_preds), (
@@ -1812,11 +1816,13 @@ def plot_r2(
     """
 
     # Remove NaN values from y_true and all y_pred arrays
-    y_true, *y_preds = drop_nan_in(y_true, *y_preds, error='raise')
+    y_true, *y_preds = drop_nan_in(
+        y_true, *y_preds, error='raise', reset_index=True)
     
     # Validate y_true and each y_pred to ensure consistency and continuity
     y_preds = [
-        validate_yy(y_true, pred, expected_type="continuous")[1] 
+        validate_yy(y_true, pred, expected_type="continuous",
+                    flatten="auto")[1] 
         for pred in y_preds
     ]
     
@@ -1869,7 +1875,7 @@ def plot_r2(
         ncols=ncols,
         figsize=fig_size,
         # Automatically adjust subplot params for a neat layout
-        constrained_layout=True, 
+        # constrained_layout=True, 
         # Ensures axes is always a 2D array for consistent indexing
         squeeze=False  
     )

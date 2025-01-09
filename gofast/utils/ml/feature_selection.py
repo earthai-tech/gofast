@@ -28,7 +28,8 @@ from ..base_utils import select_features
 from ..deps_utils import ensure_pkg
 from ..validator import ( 
     build_data_if, validate_data_types, check_consistent_length, 
-    )
+    get_estimator_name 
+)
 
 # Logger Configuration
 _logger = gofastlog().get_gofast_logger(__name__)
@@ -62,8 +63,9 @@ def select_relevant_features(
     method: str = 'pearson',
     top_n: Optional[int] = None,
     ascending: bool = False,
-    view: bool = False,
     return_frame: bool = False,
+    view: bool = False,
+    show_grid: bool=True, 
     verbose: int = 1
 ) -> Union[List[str], DataFrame]:
     """
@@ -367,6 +369,8 @@ def select_relevant_features(
                 )
                 plt.xlabel('Variance')
                 plt.title('Relevant Features Based on Variance')
+                
+            plt.grid (show_grid)
             plt.tight_layout()
             plt.show()
     
@@ -482,7 +486,6 @@ def bi_selector(
     ... ['hole_id', 'strata_name', 'rock_name', 'aquifer_group', 
          'pumping_level']
     """
-
     if features is None: 
         data, diff_features, features = to_numeric_dtypes(
             data,  return_feature_types= True ) 
@@ -1048,12 +1051,13 @@ def get_feature_contributions(X, model=None, view=False):
 def display_feature_contributions(
     X, 
     y: Optional[Union[pd.Series, np.ndarray]] = None, 
-    view: bool = False, 
-    pkg: Optional[str] = None,
     estimator: Optional[BaseEstimator] = None,
     threshold: Union[float, str] = 0.1,
     prefit: bool = True,
     return_summary: bool = False,
+    pkg: Optional[str] = None,
+    view: bool = False, 
+    show_grid: bool=True, 
     verbose: int = 0,
     **kwargs
 ) -> Union[Dict[str, float], Tuple[Dict[str, float], Union[
@@ -1271,7 +1275,6 @@ def display_feature_contributions(
     
     # Supervised feature selection
     if y is not None:
-
         if not prefit:
             estimator.fit(X, y)
             if verbose >= 2:
@@ -1292,9 +1295,19 @@ def display_feature_contributions(
             if verbose >= 2:
                 print(f"Feature coefficients: {importances}")
         else:
+            extra_msg =''
+            if ( 
+                estimator is not None and  
+                'RandomForest' in get_estimator_name(estimator)
+                ): 
+                extra_msg = (
+                    "This error occurs because you did not provided a"
+                    " fitted estimator. To use the default estimator,"
+                    " set ``prefit=False``."
+                )
             raise ValueError(
                 f"The estimator {estimator.__class__.__name__} does not have "
-                "`feature_importances_` or `coef_` attributes."
+                f"`feature_importances_` or `coef_` attributes. {extra_msg}"
             )
         
         # Create a dict of feature importances
@@ -1359,7 +1372,7 @@ def display_feature_contributions(
                     plt.text(bar.get_x() + bar.get_width()/2.0, height, 
                              f'{importance:.3f}', 
                              ha='center', va='bottom')
-                
+                plt.grid(show_grid)
                 plt.tight_layout()
                 plt.show()
             else:
@@ -1390,6 +1403,7 @@ def display_feature_contributions(
                              f'{variance:.3f}', 
                              ha='center', va='bottom')
                 
+                plt.grid(show_grid)
                 plt.tight_layout()
                 plt.show()
             else:
@@ -1398,7 +1412,7 @@ def display_feature_contributions(
                     " Supported package is 'matplotlib' for unsupervised"
                     " selection.", UserWarning)
     
-    # Create and print summary using ReportFactory (assumed imported from gofast)
+    # Create and print summary using ReportFactory 
     summary = ReportFactory(title="Feature Contributions Table").add_mixed_types(
         feature_importance_dict)
     summary.feature_importance_dict_=feature_importance_dict
@@ -1410,3 +1424,4 @@ def display_feature_contributions(
     if return_summary:
         return summary 
     
+

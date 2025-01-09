@@ -28,13 +28,16 @@ from .utils import (
     _assert_all_types,
     sanitize_frame_cols, 
     listing_items_format, 
-    smart_format
+    smart_format, 
+    error_policy, 
     )
 from .checks import ( 
     assert_ratio, is_in_if, 
     str2columns, 
     is_numeric_dtype, 
     are_all_frames_valid, 
+    ensure_same_shape, 
+    validate_axis, 
     )
 
 __all__ = [ 
@@ -3052,9 +3055,10 @@ def drop_nan_in(
         exist in each DataFrame.
     
     reset_index : bool, default=True
-        Whether to reset the index of the DataFrames after dropping rows.
-        This parameter is ignored for NumPy ndarrays. If set to `True`,
-        the resulting DataFrames will have a new integer index.
+        Whether to reset the index of the DataFrames before and after dropping
+        rows. This parameter is ignored for NumPy ndarrays after dropping rows.
+        If set to `True`, the resulting DataFrames will have a new integer 
+        index.
     
     axis : int or str, default=0
         Axis along which to drop `NaN` values.
@@ -3123,7 +3127,6 @@ def drop_nan_in(
     >>> # Drop rows with NaNs in columns 'A' and 'B' across all arrays
     >>> cleaned_df1, cleaned_df2, cleaned_array1 = drop_nan_in(
     ...     df1, df2, array1,
-    ...     columns=['A', 'B'],
     ...     axis=0,
     ...     error='warn'
     ... )
@@ -3190,19 +3193,20 @@ def drop_nan_in(
        Nature, vol. 585, no. 7825, 2020, pp. 357–362.
     """
     # Validate and standardize the axis parameter
-    axis = _validate_axis(axis)
+    axis = validate_axis(axis , accept_axis_none= False)
 
     # Validate the error handling parameter
-    _validate_error_parameter(error)
-
+    error = error_policy(error)
+    
     # Ensure all arrays have the same size along the specified axis
-    _ensure_same_shape(arrays, axis)
-
+    arrays = ensure_same_shape(
+        *arrays, axis = axis, ops ='validate', solo_return=False )
+    
     # Process the reference array if provided
-    ref_df, ref_is_df = _process_reference_array(ref_array, axis)
+    ref_df, ref_is_df = _process_reference_array(ref_array, axis, reset_index)
 
     # Convert all input arrays to DataFrames for uniform processing
-    df_arrays, original_types = _convert_arrays_to_df(arrays)
+    df_arrays, original_types = _convert_arrays_to_df(arrays, reset_index)
 
     # If ref_array is provided and not a DataFrame, convert it to DataFrame
     if ref_df is not None and not ref_is_df:
@@ -3213,12 +3217,17 @@ def drop_nan_in(
         df_arrays, ref_df, ref_is_df, columns, axis
     )
     # Identify the specific labels (indices or columns) to drop
-    labels_to_drop = _get_labels_to_drop(na_mask, axis)
- 
+    labels_to_drop = na_mask[na_mask].index 
+
     # Drop the identified labels from each DataFrame
     processed_dfs = [
         _drop_labels_from_df(
-            df, labels_to_drop, axis, reset_index, ref_df, ref_is_df, error, 
+            df, labels_to_drop, 
+            axis, 
+            reset_index, 
+            ref_df, 
+            ref_is_df, 
+            error, 
             df_arrays, 
         ) for df in df_arrays
     ]
@@ -3230,61 +3239,18 @@ def drop_nan_in(
 
     return final_arrays
 
-def _validate_axis(axis: Union[int, str]) -> int:
-    """
-    Validate and convert the axis parameter to integer.
-    """
-    if isinstance(axis, str):
-        if axis.lower() == 'rows':
-            return 0
-        elif axis.lower() == 'columns':
-            return 1
-        else:
-            raise ValueError(
-                "axis must be 0, 1, 'rows', or 'columns'"
-            )
-    elif isinstance(axis, int):
-        if axis in [0, 1]:
-            return axis
-        else:
-            raise ValueError("axis must be 0 or 1")
-    else:
-        raise TypeError("axis must be an integer or string")
-
-
-def _validate_error_parameter(error: str) -> None:
-    """
-    Validate the error handling parameter.
-    """
-    if error not in ['raise', 'warn', 'ignore']:
-        raise ValueError(
-            "error parameter must be 'raise', 'warn', or 'ignore'"
-        )
-
-
-def _ensure_same_shape(
-    arrays: Tuple[Union[np.ndarray, pd.DataFrame], ...],
-    axis: int
-) -> None:
-    """
-    Ensure all arrays have the same size along the specified axis.
-    """
-    lengths = [arr.shape[axis] for arr in arrays]
-    if not all(length == lengths[0] for length in lengths):
-        raise ValueError(
-            "All arrays must have the same length along the specified axis"
-        )
-
-
 def _process_reference_array(
     ref_array: Optional[Union[np.ndarray, pd.DataFrame]],
-    axis: int
+    axis: int, 
+    reset_index : bool, 
 ) -> Tuple[Optional[pd.DataFrame], bool]:
     """
     Process the reference array and determine its type.
     """
     if ref_array is not None:
         if isinstance(ref_array, pd.DataFrame):
+            if reset_index: 
+                ref_array.reset_index(drop=True, inplace =True)
             return ref_array.copy(), True
         elif isinstance(ref_array, np.ndarray):
             flattened = ref_array.flatten() if axis == 0 else ref_array
@@ -3356,14 +3322,6 @@ def _determine_na_mask(
         na_mask = pd.concat(na_masks, axis=1).any(axis=0 if axis == 1 else 1)
     return na_mask
 
-
-def _get_labels_to_drop(na_mask: pd.Series, axis: int) -> pd.Index:
-    """
-    Get the labels (indices or columns) to drop based on the NaN mask.
-    """
-    return na_mask[na_mask].index
-
-
 def _drop_labels_from_df(
     df: pd.DataFrame,
     labels_to_drop: pd.Index,
@@ -3383,7 +3341,7 @@ def _drop_labels_from_df(
             if reset_index:
                 # Drop rows and reset index
                 return df.drop(labels=labels_to_drop, axis=0).reset_index(drop=True)
- 
+     
             if ref_df is not None:
                 # Define the expected index based on the reference
                 expected_index = ref_df.index if ref_is_df else pd.RangeIndex(
@@ -3478,7 +3436,8 @@ def _drop_labels_from_df(
 
 
 def _convert_arrays_to_df(
-    arrays: Tuple[Union[np.ndarray, pd.DataFrame, pd.Series], ...]
+    arrays: Tuple[Union[np.ndarray, pd.DataFrame, pd.Series], ...], 
+    reset_index: bool=True , 
 ) -> Tuple[List[pd.DataFrame], List[str]]:
     """
     Convert all input arrays to DataFrames and track their original types.
@@ -3520,6 +3479,10 @@ def _convert_arrays_to_df(
                 "All arrays must be pandas DataFrames,"
                 " Series, or numpy ndarrays"
             )
+    if reset_index: 
+        # If reset index, reset index to avoid mismatching 
+        df_arrays = [df.reset_index (drop =True ) for df in df_arrays]
+        
     return df_arrays, original_types
 
 def _convert_back_to_original_types(
@@ -3566,8 +3529,10 @@ def _convert_back_to_original_types(
                 # Successfully convert to Series if only one column exists.
                 final_arrays.append(df.iloc[:, 0])
             elif df.shape[1] == 0:
-                # If all columns were dropped, return an empty Series with the original name.
-                final_arrays.append(pd.Series([], name=df.columns[0] if not df.empty else None))
+                # If all columns were dropped, return an empty
+                # Series with the original name.
+                final_arrays.append(
+                    pd.Series([], name=df.columns[0] if not df.empty else None))
             else:
                 # Raise an error if multiple columns exist, cannot convert to Series.
                 raise ValueError(
@@ -3738,7 +3703,6 @@ def array_preserver(
     .. [3] Pandas Development Team. (2023). *pandas documentation*. 
            https://pandas.pydata.org/pandas-docs/stable/
     """
-    pass
 
     # Validate the 'action' parameter
     if action not in ['collect', 'restore']:
@@ -3899,54 +3863,239 @@ def array_preserver(
 
         return restored
 
+def index_based_selector(
+    *dfs,
+    ref_df,
+    reset_index: bool = False,
+    error: str = 'raise',
+    as_series: bool = True,
+    return_ref: bool = False,
+    check_size: bool = False
+):
+    """
+    Align multiple dataframes to the index of a reference dataframe
+    and return the indexed subsets.
 
+    The ``index_based_selector`` function subsets each dataframe in
+    ``*dfs`` based on the index of ``ref_df``. It ensures consistent
+    indexing across multiple dataframes for further aligned analyses.
+    Optionally, it resets indexes before selection and converts
+    single-column dataframes to Series.
 
-# def _concat_array_from_list (list_of_array , concat_axis = 0) :
-#     """ Concat array from list and set the None value in the list as NaN.
+    .. math::
+       \\text{Indexed Subset} = D \\bigl[ I_{ref} \\bigr]
+
+    where:
+    - :math:`D` represents a dataframe from ``*dfs``.
+    - :math:`I_{ref}` is the index of the reference dataframe :math:`R`.
+    - The operation selects rows from :math:`D` whose indices intersect
+      with :math:`I_{ref}`.
+
+    Parameters
+    ----------
+    *dfs : pandas.DataFrame
+        One or more dataframes to be aligned to the index of
+        ``ref_df``. These dataframes must be validated as real
+        DataFrame objects. An error is raised if any is invalid
+        unless otherwise specified by `check_size`.
     
-#     :param list_of_array: List of array elements 
-#     :type list of array: list 
-    
-#     :param concat_axis: axis for concatenation ``0`` or ``1``
-#     :type concat_axis: int 
-    
-#     :returns: Concatenated array with shape np.ndaarry(
-#         len(list_of_array[0]), len(list_of_array))
-#     :rtype: np.ndarray 
-    
-#     :Example: 
+    ref_df : pandas.DataFrame
+        The reference dataframe whose index determines the row
+        selection. Rows in each dataframe from ``*dfs`` are
+        sub-selected to match this index.
+
+    reset_index : bool, default=False
+        If ``True``, reset the index of ``ref_df`` and all dataframes
+        in ``*dfs`` before alignment. Useful when indexes need to
+        start from zero or be standardized.
+
+    error : {'raise', 'warn', 'ignore'}, default='raise'
+        Controls how to handle missing indices. If some reference
+        indices are not found in a dataframe:
         
-#     >>> import numpy as np 
-#     >>> from gofast.core.utils import concat_array_from_list 
-#     >>> np.random.seed(0)
-#     >>> ass=np.random.randn(10)
-#     >>> ass = ass2=np.linspace(0,15,10)
-#     >>> concat_array_from_list ([ass, ass]) 
-    
-#     """
-#     concat_axis =int(_assert_all_types(concat_axis, int, float))
-#     if concat_axis not in (0 , 1): 
-#         raise ValueError(f'Unable to understand axis: {str(concat_axis)!r}')
-    
-#     list_of_array = list(map(lambda e: np.array([np.nan])
-#                              if e is None else np.array(e), list_of_array))
-#     # if the list is composed of one element of array, keep it outside
-#     # reshape accordingly 
-#     if len(list_of_array)==1:
-#         ar = (list_of_array[0].reshape ((1,len(list_of_array[0]))
-#                  ) if concat_axis==0 else list_of_array[0].reshape(
-#                         (len(list_of_array[0]), 1)
-#                  )
-#              ) if list_of_array[0].ndim ==1 else list_of_array[0]
-                     
-#         return ar 
+        - ``'raise'``: Halt and raise a ValueError.
+        - ``'warn'``: Warn the user, skip the missing indices,
+          and continue.
+        - ``'ignore'``: Silently skip missing indices.
 
-#     #if concat_axis ==1: 
-#     list_of_array = list(map(
-#             lambda e:e.reshape(e.shape[0], 1) if e.ndim ==1 else e ,
-#             list_of_array)
-#         ) if concat_axis ==1 else list(map(
-#             lambda e:e.reshape(1, e.shape[0]) if e.ndim ==1 else e ,
-#             list_of_array))
-                
-#     return np.concatenate(list_of_array, axis = concat_axis)
+    as_series : bool, default=True
+        If ``True``, any resulting dataframe with exactly one
+        column is converted to a Series. The Series name is set
+        to the column name, preserving data clarity.
+
+    return_ref : bool, default=False
+        If ``True``, the reference dataframe (potentially with a
+        reset index) is included in the returned tuple. By default,
+        only the aligned subsets of ``*dfs`` are returned.
+
+    check_size : bool, default=False
+        If ``True``, enforces that all dataframes in ``*dfs`` have
+        the same length. An error is raised if any mismatch is
+        detected. If ``False``, no size check is enforced.
+
+    Returns
+    -------
+    pandas.DataFrame or pandas.Series or tuple
+        - If only one dataframe is provided (and ``return_ref=False``),
+          the function returns its indexed subset as a single object.
+          If that subset has one column and ``as_series=True``, a
+          Series is returned.
+        - If multiple dataframes are provided, returns a tuple of
+          their indexed subsets. Each subset is either a DataFrame
+          or Series (if it had one column and ``as_series=True``).
+        - If ``return_ref=True``, the reference dataframe (possibly
+          reset) is appended to the tuple as the last element.
+
+    Raises
+    ------
+    ValueError
+        - If any input in ``*dfs`` is not a valid DataFrame when
+          `check_size=True`.
+        - If the reference index is not fully found in a dataframe
+          under ``error='raise'``.
+        - If a size mismatch is found among dataframes when
+          `check_size=True`.
+
+    Examples
+    --------
+    >>> from gofast.core.array_manager import index_based_selector
+    >>> import pandas as pd
+    >>> df1 = pd.DataFrame(
+    ...     {'A': [1, 2, 3]},
+    ...     index=[10, 11, 12]
+    ... )
+    >>> df2 = pd.DataFrame(
+    ...     {'B': [4, 5, 6]},
+    ...     index=[11, 12, 13]
+    ... )
+    >>> ref_df = pd.DataFrame(
+    ...     {'C': [7, 8]},
+    ...     index=[11, 12]
+    ... )
+    >>> aligned = index_based_selector(
+    ...     df1, df2,
+    ...     ref_df=ref_df,
+    ...     reset_index=False,
+    ...     error='warn',
+    ...     as_series=True,
+    ...     return_ref=True
+    ... )
+    >>> for item in aligned:
+    ...     print(item)
+    A
+    11    2
+    12    3
+    Name: A, dtype: int64
+
+    B
+    11    5
+    12    6
+    Name: B, dtype: int64
+
+       C
+    11  7
+    12  8
+
+    Notes
+    -----
+    - Use `reset_index=True` when dataframes have misaligned or
+      duplicate index values that need standardization.
+    - Converting single-column DataFrames to Series can streamline
+      further processing steps but may remove multi-column structure.
+
+    See Also
+    --------
+    SomeOtherSelector : A related selector function that also
+        works with indexes in Gofast package.
+
+    References
+    ----------
+    .. [1] McKinney, W. "Python for Data Analysis: Data Wrangling with
+           Pandas, NumPy, and IPython." O'Reilly, 2017.
+    """
+    # 1) Check if all provided `dfs` are valid DataFrames.
+    #    Use `are_all_frame_valid` from `gofast.core.checks` to ensure
+    #    they're DataFrames and optionally check if they have the same
+    #    length if `check_size=True`. The `error='raise'` here means
+    #    that any invalid condition immediately raises an error.
+    
+    dfs= are_all_frames_valid(
+        *dfs,
+        df_only=True,
+        check_size=check_size, 
+        to_df =True, 
+        ops='validate', 
+    )
+
+    # 2) If `reset_index` is True, reset the index of `ref_df` and
+    #    all dataframes in `dfs`.
+    #    This step aligns indexes starting from zero before performing
+    #    any index-based subset selection.
+    if reset_index:
+        ref_df = ref_df.reset_index(drop=True)
+        new_dfs = []
+        for df in dfs:
+            new_dfs.append(df.reset_index(drop=True))
+        dfs = tuple(new_dfs)
+
+    # 3) Validate the `error` parameter for the subset selection logic.
+    #    Acceptable values are `'raise'`, `'warn'`, `'ignore'`.
+    error = error_policy(error)
+
+    # 4) Subset each dataframe in `dfs` based on `ref_df`'s index.
+    #    - If `error='raise'`, all indexes in `ref_df`'s index must be
+    #      present in the target dataframe's index. If not, raise.
+    #    - If `error='warn'`, warn user about missing indexes and
+    #      skip them.
+    #    - If `error='ignore'`, silently skip missing indexes.
+    out_dfs = []
+    ref_index = ref_df.index
+
+    for idx, df in enumerate(dfs):
+        df_idx = df.index
+        missing_idx = ref_index.difference(df_idx)
+
+        # If there are missing indexes, handle according to `error`.
+        if not missing_idx.empty:
+            if error == 'raise':
+                raise ValueError(
+                    f"Reference index not fully found in "
+                    f"DataFrame at position {idx}. Missing "
+                    f"indices: {list(missing_idx)}."
+                )
+            elif error == 'warn':
+                warnings.warn(
+                    f"Some indices from reference dataframe not "
+                    f"found in DataFrame at position {idx}. "
+                    f"Missing: {list(missing_idx)}. Those indices "
+                    f"are skipped."
+                )
+
+        # Subset the dataframe by intersection with reference index.
+        valid_index = ref_index.intersection(df_idx)
+        df_subset = df.loc[valid_index]
+
+        # If `as_series=True` and this dataframe has only one column,
+        # convert it to a Series while preserving its name if possible.
+        if as_series and df_subset.shape[1] == 1:
+            col_name = df_subset.columns[0]
+            s = df_subset[col_name]
+            s.name = col_name
+            out_dfs.append(s)
+        else:
+            out_dfs.append(df_subset)
+
+    # 5) If `return_ref` is True, append the (possibly reset) `ref_df`
+    #    to the results. Return it as the last item.
+    if return_ref:
+        out_dfs = tuple(list(out_dfs) + [ref_df])
+    else:
+        out_dfs = tuple(out_dfs)
+
+    # 6) If there's only one dataframe in the input (`dfs` length == 1)
+    #    and `return_ref=False`, return it directly to avoid returning
+    #    a tuple of length one. Otherwise, return the tuple of results.
+    if not return_ref and len(out_dfs) == 1:
+        return out_dfs[0]
+
+    return out_dfs

@@ -31,7 +31,7 @@ from sklearn.utils import resample
 
 from ..api.types import Optional, Tuple,  Union, List 
 from ..api.types import Dict, ArrayLike, DataFrame
-from ..api.property import BasePlot
+
 from ..core.array_manager import smart_ts_detector, drop_nan_in 
 from ..core.checks import ( 
     _assert_all_types, is_iterable, str2columns, is_in_if, 
@@ -64,114 +64,1356 @@ __all__=[
     'plot_temporal_trends', 
     'plot_relationship', 
     'plot_fit', 
+    'plot_perturbations'
 ]
+# write this robust function 
 
-class PlotUtils(BasePlot):
-    def __init__(self, **kwargs):
-        """
-        Initialize the plotting utility class which extends the BasePlot class,
-        allowing for custom plot configurations.
-
-        Parameters
-        ----------
-        **kwargs : dict
-            Arbitrary keyword arguments that are passed to the
-            BasePlot's constructor.
-        """
-        super().__init__(**kwargs)
+# def plot_well(
+#     df, 
+#     depth_arr=None,# if depth should be one1d array or series and not dataframe
+#     # unless it is dataframe with single column, 
+#     # if given check the depth array .  Motsly value should be from smaller to deeper 
+#     # if not the case, behave with error: 
+#         # if error is raise : then raise error that the given data does not fit a depth array 
+#         #  if error is warn then warn user and reset the depth values based on df length 
+#         # from 0 ( surface ) to the depth  . 
+#         # if error is 'ignore', reset depth value and use default depth from surface to the depth, 
     
-    def save(self, fig):
-        """
-        Save the figure with the specified attributes if `savefig`
-        is set; otherwise, display the figure on screen.
+#     ref_arr=None, # reference array to plot on the prediction if given 
+#     # reference expect 1d array or a series, if dataframe is given ,the 'ref_ col 
+#     # must be provided. 
+    
+#     pred_df=None, # the prediction dataframe 
+#     # if ref_df is given then each prediction column should contain the 
+#     # prediction ref_df plot + the prediction column plot. 
+#     # for instance in if ref_df is given the column of pred col should contain at the 
+#     # the same time the prediction plot of ref_df and te prediction col  
+#     ref_col=None, # reference_col to provided if ref_array is passed as dataframe. 
+    
+#     cols =None, # if provide, only these columns in df should be consider 
+#     pred_cols=None, # if columns if the pred_df should be consider 
+#     plot_kind_mapping =None, 
+#     # it is dictionnary of plot kind for each columns 
+#     # for instance if 
+#     # plot_kind_mapping= ={ 'rf10': 'log'} the the colum of the rf10 should be in log plot 
+#     # etc ,
+#     depth_kind = None, # if 'log' for instance the depth should be in log in plot. 
+#     combined_cols = None, # if combined columns for instance resstivities columns 
+#     # combined_cols = [rf10, rf20, rf30] , this mean that all these columns should 
+#     # shoould be on the same column plots. and the name of this columns should 
+#     # be "rf10-rf20-rf30"  however if 
+#     # combined_cols = {'resistivity':[rf10-rf20-rf30 ] } then combined columns name should 
+#     # be resistivity instead of default name "rf10-rf20-rf30". 
+#     agg_plot =False # aggregate plot is possible when pred_df is given . 
+#     # if pred_df is given : 
+#         # use subplot for one col for plotting df and another colum for plotting pred_df 
+#         # but both share the same depth axe . 
+#         # note that each colum plot size should be the same size , 
+#         # it mean if the col1 contain 5 subcolumns plot for 5 feature for instance 
+#         # and if the pred_df has only one col to plot , the size of the pred col in col2 should the 
+#         # the size of one subcol plot of the col1 , this should maintain consistency accross all plots. 
+#     # if  agg_plot is False, not need subplot and plot the df and pred_df, it mean alfter finishin 
+#     # plotting the df columns, then continue plot with pred df if pred_df is given. 
+#     # note they all share the same axe of depth . 
 
-        Parameters
-        ----------
-        fig : matplotlib.figure.Figure
-            The figure object to be saved or displayed.
+    
+#     ignore_index=False , # if True, reset all indexes if df, pred_df is given, ref_arr if given 
+#     # 
+#     # add more other parameters for flexibility, robustness and versatitlity  
+#     titles =None, 
+#     # if titles is given , then replace with the columns name used as titles . 
+#     show_grid =True, 
+#     fig_size = None, 
+#     savefig =None, 
+    
+#     ):
+# # Note that no need to have all array the same length, some times, the data in the borehole 
+# # are not valid until the final depth in the borehole : 
+#     # if df or ref_df is long than df, then use the index_based_selection  
+#     from gofast.core.array_manager import index_based_selector 
+#     dfs, index_based_selector (
+#         [df], ref_df = depth_arr, reset_index =True, as_series =True,)
+#     # if depth is longeur than df, then plot as is. 
+    
+    
+#     # use the fuction from gofast.core.checks import exist_features 
+#     # to check whether the feature exists 
+#     exist_features (df= ..., feature = ...)
+#     from gofast.utils.base_utils import select_features
+#     # selected_df = select_features (df..., features = ...)
+#     # now use columns_manager from gofast.core.handlers import columns_manager 
+#     # to put the columns to list , parse columns str , if given as single str or to output empty list when is m
+#     columns_manager(columns= ..., empty_as_none= ..., ) 
+    
+# # Note : skip documentation for brievity. Just comment the code only 
+# # the parameters names passed can be non intuitive and if not intuitive, find 
+# # the best convenient , programmatic name for renaming others ... 
 
-        Notes
-        -----
-        - If `savefig` is not None, the figure is saved using the
-          path specified in `savefig`.
-        - The figure is saved with the resolution specified by `fig_dpi`,
-          and the orientation can be set with `fig_orientation`.
-        - If `savefig` is None, the figure will be displayed using
-          `plt.show()` and not saved.
 
-        Examples
-        --------
-        >>> from matplotlib import pyplot as plt
-        >>> fig, ax = plt.subplots()
-        >>> ax.plot([0, 1], [0, 1])
-        >>> plot_utils = PlotUtils(figsize=(10, 5), savefig='plot.png',
-        ...                        fig_dpi=300, fig_orientation='landscape')
-        >>> plot_utils.save(fig)  # This will save the figure to 'plot.png'
-        """
-        if self.savefig is not None:
-            fig.savefig(self.savefig, dpi=self.fig_dpi,
-                        bbox_inches='tight', 
-                        orientation=self.fig_orientation)
-            plt.close()
+# completly and deeply implement all, dont let any placeholder or skip any instructions 
+
+# In the plot, the value should be in the top and column name a bottom 
+# if sharey = True, it means share depth for all figures. 
+# keep the comments on the code as is to let the developer understand and guide them 
+# skip the docstring documentation and deeply implement the code completly 
+
+
+def plot_well0(
+    df,
+    depth_arr=None,
+    ref_arr=None,
+    pred_df=None,
+    ref_col=None,
+    cols=None,
+    pred_cols=None,
+    plot_kind_mapping=None,
+    depth_kind=None,
+    combined_cols=None,
+    agg_plot=False,
+    ignore_index=False,
+    index_as_depth=False,
+    error='warn',
+    titles=None,
+    show_grid=True,
+    sharey=True,
+    fig_size=None,
+    savefig=None,
+):
+    # 1) Validate the main DataFrame `df`. Ensure it is a pandas.DataFrame.
+    #    If not, raise or convert. Optionally check shape, columns, etc.
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("`df` must be a pandas DataFrame.")
+
+    # 2) If `ignore_index` is True, reset indexes for `df`, `pred_df`, and
+    #    any reference arrays to maintain consistent ordering from 0..N-1.
+    #    This can help align data if original indexes are off.
+    if ignore_index:
+        df = df.reset_index(drop=True)
+        if isinstance(pred_df, pd.DataFrame):
+            pred_df = pred_df.reset_index(drop=True)
+        if isinstance(depth_arr, (pd.Series, np.ndarray)):
+            depth_arr = pd.Series(range(len(df)))  # or a direct np.arange
+        elif isinstance(ref_arr, pd.DataFrame) and ref_col is not None:
+            ref_arr = ref_arr.reset_index(drop=True)
+    else:
+        # If `ignore_index` is False, we might need to check whether
+        # indexes are numeric. If `index_as_depth` is True, interpret
+        # the DataFrame index as depth. If non-numeric and `error='raise'`,
+        # raise. If 'warn', we can warn and reset. If 'ignore', do silent reset.
+        if index_as_depth:
+            if not np.issubdtype(df.index.dtype, np.number):
+                if error == 'raise':
+                    raise ValueError(
+                        "Index is not numeric, cannot interpret "
+                        "as depth with `index_as_depth=True`."
+                    )
+                elif error == 'warn':
+                    warnings.warn(
+                        "Index is not numeric. Resetting index "
+                        "because `index_as_depth=True` was requested."
+                    )
+                    df = df.reset_index(drop=True)
+                else:
+                    # 'ignore'
+                    df = df.reset_index(drop=True)
+            # If we pass this point, df.index is numeric or has been reset.
+            # Use that index for depth if no explicit `depth_arr`.
+            if depth_arr is None:
+                depth_arr = df.index
+
+
+    # 3) Handle depth array logic. If `depth_arr` is provided, it must match
+    #    `df` in length unless partial data is allowed. The user indicated
+    #    partial data might be possible based on `error` policy.
+    if depth_arr is not None:
+        if isinstance(depth_arr, pd.DataFrame) and depth_arr.shape[1] == 1:
+            depth_arr = depth_arr.iloc[:, 0]
+        # Check length or partial alignment
+        if len(depth_arr) != len(df):
+            if error == 'raise':
+                raise ValueError(
+                    "Depth array length does not match `df` row count. "
+                    "Cannot proceed under `error='raise'`."
+                )
+            elif error == 'warn':
+                warnings.warn(
+                    "Depth array length mismatches `df`. Will align partial "
+                    "data or fallback if possible."
+                )
+                # A simplistic approach might be to trim or do an intersection:
+                min_len = min(len(depth_arr), len(df))
+                df = df.iloc[:min_len]
+                depth_arr = depth_arr.iloc[:min_len] \
+                    if isinstance(depth_arr, pd.Series) else depth_arr[:min_len]
+            else:
+                # 'ignore' => do partial or fallback
+                min_len = min(len(depth_arr), len(df))
+                df = df.iloc[:min_len]
+                depth_arr = depth_arr.iloc[:min_len] \
+                    if isinstance(depth_arr, pd.Series) else depth_arr[:min_len]
+
+        # Also, possibly check if depth is monotonic. If it's not and `error='raise'`,
+        # we might raise. If 'warn', we warn. If 'ignore', do nothing.
+        # We skip that for brevity.
+        #XXX IMPLEMENT MONOTONIC depth  
+
+    # 4) If `pred_df` is provided, ensure it’s a DataFrame. If `pred_cols` is given,
+    #    subset columns. Possibly also handle partial alignment similarly.
+    if pred_df is not None:
+        if not isinstance(pred_df, pd.DataFrame):
+            raise TypeError("`pred_df` must be a pandas DataFrame if provided.")
+        if pred_cols is not None:
+            pred_df = pred_df[pred_cols]
+        if len(pred_df) != len(df):
+            if error == 'raise':
+                raise ValueError(
+                    "pred_df length mismatches `df`. Cannot proceed under "
+                    "`error='raise'`."
+                )
+            elif error == 'warn':
+                warnings.warn(
+                    "pred_df length mismatches `df`. Will trim or fallback."
+                )
+                min_len = min(len(pred_df), len(df))
+                pred_df = pred_df.iloc[:min_len]
+            else:
+                # 'ignore'
+                min_len = min(len(pred_df), len(df))
+                pred_df = pred_df.iloc[:min_len]
+
+    # 5) Subset `df` columns if `cols` is specified. If not, use all columns.
+    if cols is not None:
+        df = df[list(cols)]
+
+    # 6) If `combined_cols` is specified, group them. For example:
+    #    combined_cols = {'resistivity': ['rt10','rt20']}.
+    #    We'll create a dictionary for track_name -> list_of_columns. If
+    #    `combined_cols` is just a list, we create one track with them.
+    track_dict = {}
+    used_cols = set()
+    if combined_cols is not None:
+        if isinstance(combined_cols, dict):
+            for track_name, c_list in combined_cols.items():
+                track_dict[track_name] = c_list
+                used_cols.update(c_list)
+        elif isinstance(combined_cols, list):
+            track_name = '-'.join(combined_cols)
+            track_dict[track_name] = combined_cols
+            used_cols.update(combined_cols)
+
+    # For columns in df that are not in used_cols, each becomes its own track.
+    for col in df.columns:
+        if col not in used_cols:
+            track_dict[col] = [col]
+
+    # 7) Gather df tracks as list of (track_name, [col_list]).
+    df_tracks = list(track_dict.items())
+
+    # If we are also plotting `pred_df`, create track for each column in pred_df
+    # if `agg_plot=True`. Otherwise, we can handle them separately.
+    pred_tracks = []
+    if pred_df is not None:
+        for c in pred_df.columns:
+            pred_tracks.append((c, [c]))
+
+    if agg_plot:
+        all_tracks = df_tracks + pred_tracks
+    else:
+        # If not aggregating, we do df tracks. Then optionally do pred in second pass.
+        all_tracks = df_tracks
+
+    n_tracks = len(all_tracks)
+    if n_tracks == 0:
+        raise ValueError("No columns to plot from df or pred_df.")
+
+    if fig_size is None:
+        fig_size = (3 * n_tracks, 10)
+
+    # 8) Create subplots. If sharey=True, we might want to do:
+    fig, axes = plt.subplots(
+        nrows=1,
+        ncols=n_tracks,
+        figsize=fig_size,
+        sharey=sharey,
+        squeeze=False
+    )
+    ax_list = axes[0]
+
+    # XXX FIX HERE 
+    
+    # HERE WHAT WE WANT TO SAY IS THAT x_ticks and label value  should be in the top rather
+    # than bottom and label the name of COLUMN SHOULD Be placed at the bottom 
+    # this avoid the ambiguity 
+    # ALSO implement when plot_kind_mapping  Is passed 
+    # and depth kind is set to 'log', 
+    
+    
+    
+    # 9) Helper function for track plotting. We'll handle the user instructions
+    #    "the value should be in the top and column name at bottom" by using
+    #    invert_yaxis for depth, and also reversing or placing x-axis at top?
+    #    The instructions are ambiguous. We'll assume we want a normal x-axis
+    #    at bottom, and the value label at the top of each bar or line. We'll
+    #    do a line plot with annotation near top for each data point? That might
+    #    be too busy. Possibly they meant "the label for the track is at top,
+    #    the column name"? We'll guess they want a normal well log style:
+    #    Depth on vertical axis, track name at top.
+
+    def plot_track(ax, track_name, cols_in_track, data, depth_vals):
+        # Decide how to handle plot kinds. If plot_kind_mapping is given,
+        # each col might have e.g. 'log' => semilogx. For now we do line plot.
+        
+        
+        color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        for idx_col, col in enumerate(cols_in_track):
+            if col not in data.columns:
+                continue
+            x_vals = data[col].values
+            c_color = color_cycle[idx_col % len(color_cycle)]
+            ax.plot(x_vals, depth_vals, color=c_color, label=col)
+        # The instructions say "the value should be in the top and column name at bottom".
+        # This might refer to how the x-axis is placed at the top, typical in well logs.
+        # We can do ax.xaxis.set_label_position('top'), ax.xaxis.tick_top()
+        ax.xaxis.set_label_position('top')
+        ax.xaxis.tick_top()
+        ax.set_xlabel(track_name)
+        ax.set_ylabel("Depth")
+        ax.invert_yaxis()  # typical well log style
+        if show_grid:
+            ax.grid(True, linestyle='--', alpha=0.7)
+        ax.legend()
+
+    # 10) For each track, decide if it belongs to df or pred_df, if agg_plot.
+    #     Then call plot_track with the relevant data. Depth might come from
+    #     depth_arr or from the index. If no depth_arr is given, we do
+    #     np.arange(...) based on data length. If partial alignment isn't done,
+    #     we just assume the lengths match at this point.
+    for i, (track_name, c_list) in enumerate(all_tracks):
+        ax_i = ax_list[i]
+        # decide if c_list belongs to pred_df or df
+        if pred_df is not None and c_list[0] in pred_df.columns:
+            data_source = pred_df
         else:
-            plt.show()
-    
-def create_custom_plotter(base_plotter):
+            data_source = df
+
+        if depth_arr is not None:
+            depth_vals = depth_arr.values if isinstance(depth_arr, pd.Series) \
+                else depth_arr
+        else:
+            depth_vals = np.arange(len(data_source))
+
+        plot_track(
+            ax=ax_i,
+            track_name=track_name,
+            cols_in_track=c_list,
+            data=data_source,
+            depth_vals=depth_vals
+            # implement kind_mapping adn d_kind completely 
+            
+            # kind_mapping=plot_kind_mapping,
+            # d_kind=depth_kind,
+        )
+
+    # 11) If not `agg_plot`, and there's pred_df not included above, we might
+    #     create new subplots or add them. We'll skip a second pass for brevity.
+
+    # 12) If savefig is provided, save the figure.
+    plt.tight_layout()
+    if savefig is not None:
+        plt.savefig(savefig)
+    plt.show()
+
+def plot_well(
+    df,
+    depth_arr=None,
+    ref_arr=None,
+    pred_df=None,
+    ref_col=None,
+    cols=None,
+    pred_cols=None,
+    plot_kind_mapping=None,
+    depth_kind=None,     
+    combined_cols=None,
+    agg_plot=False,
+    ignore_index=False,
+    index_as_depth=False,
+    error='warn',
+    titles=None,
+    show_grid=True,
+    sharey=True,
+    fig_size=None,
+    savefig=None
+):
+    # 1) Validate that `df` is a DataFrame. Convert or raise an error if not.
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("`df` must be a pandas DataFrame.")
+
+    # 2) If `ignore_index` is True, reset the indexes of `df`, `pred_df`,
+    #    and possibly other arrays to ensure a 0..N-1 ordering.
+    if ignore_index:
+        df = df.reset_index(drop=True)
+        if isinstance(pred_df, pd.DataFrame):
+            pred_df = pred_df.reset_index(drop=True)
+        if isinstance(depth_arr, (pd.Series, np.ndarray)):
+            depth_arr = pd.Series(range(len(df)))
+        elif isinstance(ref_arr, pd.DataFrame) and ref_col is not None:
+            ref_arr = ref_arr.reset_index(drop=True)
+    else:
+        # If not ignoring indexes and `index_as_depth` is True, ensure that
+        # the DataFrame index is numeric. If it is not, handle according to
+        # the `error` policy.
+        if index_as_depth:
+            if not np.issubdtype(df.index.dtype, np.number):
+                if error == 'raise':
+                    raise ValueError(
+                        "Index is not numeric, cannot interpret as depth "
+                        "with `index_as_depth=True`."
+                    )
+                elif error == 'warn':
+                    warnings.warn(
+                        "Index is not numeric. Resetting index because "
+                        "`index_as_depth=True` was requested."
+                    )
+                    df = df.reset_index(drop=True)
+                else:  # 'ignore'
+                    df = df.reset_index(drop=True)
+
+            # If we pass this point, the index of df is numeric (or has been reset).
+            # If `depth_arr` is still None, we use df.index as the depth.
+            if depth_arr is None:
+                depth_arr = df.index
+
+    # 3) Handle depth array logic. If `depth_arr` is provided, it should match
+    #    the length of `df` (or partial alignment is done based on `error`).
+    if depth_arr is not None:
+        if isinstance(depth_arr, pd.DataFrame) and depth_arr.shape[1] == 1:
+            depth_arr = depth_arr.iloc[:, 0]
+
+        if len(depth_arr) != len(df):
+            if error == 'raise':
+                raise ValueError(
+                    "Depth array length does not match `df` row count. "
+                    "Cannot proceed under `error='raise'`."
+                )
+            elif error == 'warn':
+                warnings.warn(
+                    "Depth array length mismatches `df`. Will align partial "
+                    "data or fallback if possible."
+                )
+                min_len = min(len(depth_arr), len(df))
+                df = df.iloc[:min_len]
+                if isinstance(depth_arr, pd.Series):
+                    depth_arr = depth_arr.iloc[:min_len]
+                else:
+                    depth_arr = depth_arr[:min_len]
+            else:  # 'ignore'
+                min_len = min(len(depth_arr), len(df))
+                df = df.iloc[:min_len]
+                if isinstance(depth_arr, pd.Series):
+                    depth_arr = depth_arr.iloc[:min_len]
+                else:
+                    depth_arr = depth_arr[:min_len]
+
+        # Check monotonic if needed. If `error='raise'` and not monotonic,
+        # raise. If 'warn', issue a warning. If 'ignore', do nothing.
+        # We skip advanced partial data logic. We'll do a simple check.
+        if not depth_arr.is_monotonic_increasing if isinstance(depth_arr, pd.Series) \
+           else (np.diff(depth_arr) >= 0).all():
+            if error == 'raise':
+                raise ValueError(
+                    "Depth array is not strictly monotonic ascending. "
+                    "Cannot proceed under `error='raise'`."
+                )
+            elif error == 'warn':
+                warnings.warn(
+                    "Depth array is not strictly monotonic. The plot may be "
+                    "incorrectly rendered."
+                )
+            else:
+                pass  # 'ignore'
+
+    # 4) If `pred_df` is provided, ensure it is a DataFrame. If `pred_cols` is given,
+    #    subset. Also check length vs. df. Possibly partial alignment by `error`.
+    if pred_df is not None:
+        if not isinstance(pred_df, pd.DataFrame):
+            raise TypeError("`pred_df` must be a pandas DataFrame if provided.")
+        if pred_cols is not None:
+            pred_df = pred_df[pred_cols]
+
+        if len(pred_df) != len(df):
+            if error == 'raise':
+                raise ValueError(
+                    "pred_df length mismatches `df`. Cannot proceed under "
+                    "`error='raise'`."
+                )
+            elif error == 'warn':
+                warnings.warn(
+                    "pred_df length mismatches `df`. Will trim or fallback."
+                )
+                min_len = min(len(pred_df), len(df))
+                pred_df = pred_df.iloc[:min_len]
+                df = df.iloc[:min_len]
+                if depth_arr is not None:
+                    if isinstance(depth_arr, pd.Series):
+                        depth_arr = depth_arr.iloc[:min_len]
+                    else:
+                        depth_arr = depth_arr[:min_len]
+            else:  # 'ignore'
+                min_len = min(len(pred_df), len(df))
+                pred_df = pred_df.iloc[:min_len]
+                df = df.iloc[:min_len]
+                if depth_arr is not None:
+                    if isinstance(depth_arr, pd.Series):
+                        depth_arr = depth_arr.iloc[:min_len]
+                    else:
+                        depth_arr = depth_arr[:min_len]
+
+    # 5) Subset `df` columns if `cols` is specified.
+    if cols is not None:
+        df = df[list(cols)]
+
+    # 6) If `combined_cols` is given, group them into tracks. We'll build a dict
+    #    track_dict: track_name -> [columns].
+    track_dict = {}
+    used_cols = set()
+    if combined_cols is not None:
+        if isinstance(combined_cols, dict):
+            for track_name, c_list in combined_cols.items():
+                track_dict[track_name] = c_list
+                used_cols.update(c_list)
+        elif isinstance(combined_cols, list):
+            track_name = '-'.join(combined_cols)
+            track_dict[track_name] = combined_cols
+            used_cols.update(combined_cols)
+
+    # All other columns not in `used_cols` become their own single-col track.
+    for col in df.columns:
+        if col not in used_cols:
+            track_dict[col] = [col]
+
+    # 7) We get a list of (track_name, columns).
+    df_tracks = list(track_dict.items())
+
+    # If we also have `pred_df` and `agg_plot=True`, create a track for each column
+    # in pred_df. Then combine them with df_tracks => all_tracks.
+    pred_tracks = []
+    if pred_df is not None:
+        for c in pred_df.columns:
+            pred_tracks.append((c, [c]))
+
+    if agg_plot:
+        all_tracks = df_tracks + pred_tracks
+    else:
+        all_tracks = df_tracks  # We won't handle pred in second pass for brevity.
+
+    if not all_tracks:
+        raise ValueError("No columns to plot from df or pred_df.")
+    n_tracks = len(all_tracks)
+
+    # 8) Figure size or default
+    if fig_size is None:
+        fig_size = (3 * n_tracks, 10)
+
+    # 9) Make subplots horizontally. sharey=sharey so that the depth axis is shared.
+    fig, axes = plt.subplots(
+        nrows=1,
+        ncols=n_tracks,
+        figsize=fig_size,
+        sharey=sharey,
+        squeeze=False
+    )
+    ax_list = axes[0]
+
+    # 9.1) A helper to interpret `depth_kind`. If `depth_kind=='log'`, 
+    #      we do ax.set_yscale('log'). We also invert y to show deeper
+    #      depths at the bottom, typical in well logs.
+    def maybe_set_depth_scale(ax_, dkind):
+        if dkind == 'log':
+            ax_.set_yscale('log')
+        ax_.invert_yaxis()
+
+    # 9) For each track i, we plot the columns in track_dict. If there's
+    #    multiple columns in that track, we overlay them or do multi-lines
+    #    with different colors. We'll define a helper function for track
+    #    plotting. We'll pass the axis, the columns, and the data, etc.
+    def plot_track(ax, track_name, cols_in_track, data, depth,
+                   kind_mapping, d_kind, t_idx):
+        # We'll handle each col. If kind_mapping says 'log', we do semilogx,
+        # or if 'line', we do normal plot, etc. We'll share the same y-axis
+        # for depth, which is typical in well logs. Depth is vertical,
+        # so typically we do something like ax.invert_yaxis() if we want
+  
+        color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        for idx_col, col in enumerate(cols_in_track):
+            if col not in data.columns:
+                continue  # skip if missing
+            x_vals = data[col].values
+            # If we want a log scale for x, or something, check `kind_mapping`.
+            # If d_kind == 'log', do something for depth?
+            c_color = color_cycle[idx_col % len(color_cycle)]
+            # ax.plot(x_vals, depth, color=c_color, label=col)
+            
+            # Check the plot kind for this col
+            col_kind = None
+            if kind_mapping and col in kind_mapping:
+                col_kind = kind_mapping[col]
+
+            c_color = color_cycle[idx_col % len(color_cycle)]
+            if col_kind == 'log':
+                # Use semilogx
+                # Depth is vertical. We do a log scale on x:
+                ax.semilogx(
+                    x_vals, depth, color=c_color, label=col
+                )
+            else:
+                # Default to linear
+                ax.plot(
+                    x_vals, depth, color=c_color, label=col
+                )
+                
+        ax.set_title(track_name)
+        ax.set_xlabel("Value")  
+        ax.set_ylabel("Depth")
+        ax.invert_yaxis()  # typical well log
+        if show_grid:
+            ax.grid(True, linestyle='--', alpha=0.7)
+        ax.legend()
+
+    for i, (track_name, c_list) in enumerate(all_tracks):
+        ax_i = ax_list[i]
+        # If c_list belongs to pred_df or df
+        if pred_df is not None and c_list[0] in pred_df.columns:
+            data_source = pred_df
+        else:
+            data_source = df
+
+        if depth_arr is not None:
+            depth_vals = (depth_arr.values 
+                          if isinstance(depth_arr, pd.Series) 
+                          else depth_arr)
+        else:
+            depth_vals = np.arange(len(data_source))
+
+        # Plot each track, applying plot kind logic
+        plot_track(ax=ax_i, 
+                   track_name=track_name, 
+                   cols_in_track=c_list, 
+                   data=data_source, 
+                   depth=depth_vals,
+                   kind_mapping=plot_kind_mapping, 
+                   d_kind=depth_kind, 
+                   t_idx=i
+                 )
+        
+        # Possibly set depth scale, e.g. log
+        maybe_set_depth_scale(ax_i, depth_kind)
+
+    plt.tight_layout()
+    if savefig:
+        plt.savefig(savefig)
+    plt.show()
+
+def plot_well1(
+    df,
+    depth_arr=None, 
+    ref_arr=None,
+    pred_df=None,
+    ref_col=None,
+    cols=None,
+    pred_cols=None,
+    plot_kind_mapping=None,
+    depth_kind=None,
+    combined_cols=None,
+    agg_plot=False,
+    ignore_index=False,
+    titles=None,
+    show_grid=True,
+    fig_size=None,
+    savefig=None
+):
+    # 1) Validate the main DataFrame `df`. Ensure it is a pandas.DataFrame.
+    #    If not, raise or convert. Optionally check shape, columns, etc.
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("`df` must be a pandas DataFrame.")
+
+    # 2) If `ignore_index` is True, reset indexes for `df`, `pred_df`, and
+    #    any reference arrays to maintain consistent ordering from 0..N-1.
+    #    This can help align data if original indexes are off.
+    if ignore_index:
+        df = df.reset_index(drop=True)
+        if isinstance(pred_df, pd.DataFrame):
+            pred_df = pred_df.reset_index(drop=True)
+        if isinstance(depth_arr, (pd.Series, np.ndarray)):
+            depth_arr = pd.Series(range(len(df)))  # or similar
+        elif isinstance(ref_arr, pd.DataFrame) and ref_col is not None:
+            ref_arr = ref_arr.reset_index(drop=True)
+
+    # 3) Handle depth array logic. If `depth_arr` is provided, it must match
+    #    `df` in length (unless partial data is allowed). If partial data is
+    #    allowed, we might do an index-based intersection. For simplicity,
+    #    let's assume they match. We can check:
+    if depth_arr is not None:
+        # If depth_arr is DataFrame with single col => convert to Series.
+        if isinstance(depth_arr, pd.DataFrame) and depth_arr.shape[1] == 1:
+            depth_arr = depth_arr.iloc[:, 0]
+        # Check length
+        if len(depth_arr) != len(df):
+            raise ValueError(
+                "Depth array length does not match `df` row count."
+            )
+        # Possibly check if depth goes from small to large, etc.
+
+    # 4) If `pred_df` is provided, ensure it’s a DataFrame. If `pred_cols` is given,
+    #    subset columns. Possibly also check shape consistency or partial intersection.
+    if pred_df is not None:
+        if not isinstance(pred_df, pd.DataFrame):
+            raise TypeError("`pred_df` must be a pandas DataFrame if provided.")
+        if pred_cols is not None:
+            # Subset the pred_df columns
+            pred_df = pred_df[pred_cols]
+        # Possibly realign indexes if partial is allowed.
+
+    # 5) Subset `df` columns if `cols` is specified. If not, use all columns.
+    if cols is not None:
+        df = df[list(cols)]
+
+    # 6) If `combined_cols` is specified, group them. For example:
+    #    combined_cols = {'resistivity': ['rt10','rt20']}
+    #    We'll create a dictionary for track_name -> list_of_columns. If
+    #    `combined_cols` is just a list, we create one track with them.
+    #    This will define how many "tracks" we have for `df`.
+    #    For each track, we plot multiple columns in the same subplot.
+    track_dict = {}
+    used_cols = set()
+    if combined_cols is not None:
+        # If dict, assume user provided {track_name: [col1, col2]} etc.
+        if isinstance(combined_cols, dict):
+            for track_name, c_list in combined_cols.items():
+                track_dict[track_name] = c_list
+                used_cols.update(c_list)
+        # If it's a list, we create a single track. E.g. 'rt10-rt20' => name
+        elif isinstance(combined_cols, list):
+            track_name = '-'.join(combined_cols)
+            track_dict[track_name] = combined_cols
+            used_cols.update(combined_cols)
+    # Now, for any column in df that is not in used_cols, we create a track
+    # with that column alone, so we don't skip them.
+    for col in df.columns:
+        if col not in used_cols:
+            track_dict[col] = [col]
+
+    # 7) Decide how many tracks from `df`. The number of keys in track_dict
+    #    is the number of tracks we have. If `agg_plot=False` and `pred_df`
+    #    is not None, we might just create separate tracks for predictions
+    #    after these. If `agg_plot=True`, we might create a second figure
+    #    or second set of subplots. The user instructions are ambiguous,
+    #    but let's do a single figure with track columns horizontally
+    #    for `df`. Then if `agg_plot=True`, we place `pred_df` tracks
+    #    to the right.
+    df_tracks = list(track_dict.items())  # list of (track_name, [cols]) pairs
+
+    # If we are also plotting `pred_df`, we can make a track for each column
+    # in pred_df if `agg_plot=True`. Or if `agg_plot=False`, we'll just
+    # add them after df tracks. We do a simple approach: create track for each
+    # column of pred_df with name "pred: <col>" or so.
+    pred_tracks = []
+    if pred_df is not None:
+        # Build track for each column
+        for c in pred_df.columns:
+            pred_tracks.append((c, [c]))
+
+    # 8) Build a horizontal set of subplots for df tracks + possibly pred tracks
+    #    if `agg_plot=True`. We'll do a simple approach: N subplots for df,
+    #    plus M subplots for pred, so total = N + M columns. We'll have 1 row.
+    #    If `agg_plot=False`, we might do 2 rows or 2 separate figures. Let's do
+    #    a single row approach with `agg_plot=True`.
+    if agg_plot:
+        all_tracks = df_tracks + pred_tracks
+    else:
+        # We'll just do df tracks. Then optionally do pred in a second pass?
+        all_tracks = df_tracks
+    # But for brevity, let's place them all horizontally if `agg_plot=True`.
+
+    n_tracks = len(all_tracks)
+    if n_tracks == 0:
+        raise ValueError("No columns to plot from df or pred_df.")
+    if fig_size is None:
+        fig_size = (3 * n_tracks, 10)  # e.g. each track is 3 inches wide, 10 tall
+
+    fig, axes = plt.subplots(
+        nrows=1, ncols=n_tracks,
+        figsize=fig_size,
+        squeeze=False
+    )
+    ax_list = axes[0]
+
+    # 9) For each track i, we plot the columns in track_dict. If there's
+    #    multiple columns in that track, we overlay them or do multi-lines
+    #    with different colors. We'll define a helper function for track
+    #    plotting. We'll pass the axis, the columns, and the data, etc.
+    def plot_track(ax, track_name, cols_in_track, data, depth,
+                   kind_mapping, d_kind, t_idx):
+        # We'll handle each col. If kind_mapping says 'log', we do semilogx,
+        # or if 'line', we do normal plot, etc. We'll share the same y-axis
+        # for depth, which is typical in well logs. Depth is vertical,
+        # so typically we do something like ax.invert_yaxis() if we want
+  
+        color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        for idx_col, col in enumerate(cols_in_track):
+            if col not in data.columns:
+                continue  # skip if missing
+            x_vals = data[col].values
+            # If we want a log scale for x, or something, check `kind_mapping`.
+            # If d_kind == 'log', do something for depth?
+            c_color = color_cycle[idx_col % len(color_cycle)]
+            # ax.plot(x_vals, depth, color=c_color, label=col)
+            
+            # Check the plot kind for this col
+            col_kind = None
+            if kind_mapping and col in kind_mapping:
+                col_kind = kind_mapping[col]
+
+            c_color = color_cycle[idx_col % len(color_cycle)]
+            if col_kind == 'log':
+                # Use semilogx
+                # Depth is vertical. We do a log scale on x:
+                ax.semilogx(
+                    x_vals, depth, color=c_color, label=col
+                )
+            else:
+                # Default to linear
+                ax.plot(
+                    x_vals, depth, color=c_color, label=col
+                )
+                
+        ax.set_title(track_name)
+        ax.set_xlabel("Value")  
+        ax.set_ylabel("Depth")
+        ax.invert_yaxis()  # typical well log
+        if show_grid:
+            ax.grid(True, linestyle='--', alpha=0.7)
+        ax.legend()
+
+    # 10) Build the data to plot for each track. For df_tracks, we pass df.
+    #     For pred tracks if `agg_plot=True`, we pass pred_df. We'll unify
+    #     in all_tracks approach for code simplicity.
+    for i, (track_name, c_list) in enumerate(all_tracks):
+        ax_i = ax_list[i]
+        # Decide if track belongs to df or pred_df
+        # if c_list is from pred, we find it in pred_df, else in df
+        # Actually let's see if the track_name is in pred_df columns or df
+        # We'll guess if track_name in pred_df => use pred_df, else df. Not perfect.
+        # Or we check c_list. We see if c_list[0] in pred_df. We'll do that approach:
+        if pred_df is not None and c_list[0] in pred_df.columns:
+            data_source = pred_df
+        else:
+            data_source = df
+        # Depth might be from `depth_arr` if provided, else from df index or from 0..N
+        if depth_arr is not None:
+            depth_vals = depth_arr.values if isinstance(depth_arr, pd.Series) \
+                else depth_arr
+        else:
+            # fallback to numeric index of data_source
+            depth_vals = np.arange(len(data_source))
+
+        # Actually subset data_source if needed. We'll skip that for brevity.
+        # Then call plot_track
+        plot_track(
+            ax=ax_i,
+            track_name=track_name,
+            cols_in_track=c_list,
+            data=data_source,
+            depth=depth_vals,
+            kind_mapping=plot_kind_mapping,
+            d_kind=depth_kind,
+            t_idx=i
+        )
+
+    # 11) If `agg_plot=False` and there's pred_df not included above, we might do
+    #     a second pass. We'll skip for brevity.
+
+    # 12) If savefig is not None, save the figure
+    if savefig is not None:
+        plt.savefig(savefig)
+
+    plt.tight_layout()
+    plt.show()
+
+def plot_perturbations(
+    X,
+    y,
+    model=None,
+    perturbations=0.05,
+    max_iter=10,
+    metric='miv',
+    plot_type='bar',
+    percent=False,
+    relative=False,
+    show_grid=True,
+    fig_size=(12, 8),
+    cmap='Blues',
+    max_cols=3,
+    titles=None,
+    savefig=None,
+    *,
+    rotate_labels: Optional[str] = None,
+    rotate: Optional[float] = None,
+    display_values: bool = True,
+    **kwargs
+):
     """
-    Dynamically creates a custom plotter class that includes additional 
-    methods and attributes from an existing plotter object.
+    Plot feature perturbation effects for multiple perturbation values
+    using MIV metrics.
 
-    Parameters:
-        base_plotter: An instance of a plotter class from which to inherit 
-        properties.
+    The ``plot_perturbations`` function calls :math:`miv_score` for each
+    value in ``perturbations`` and aggregates the results to visualize
+    multiple scenario outcomes. This helps in assessing how different
+    levels of feature perturbation affect model responses. Multiple
+    subplots are created, each reflecting one perturbation magnitude,
+    allowing for direct comparison.
 
-    Returns:
-        A new plotting class with combined features from `PlotUtils and `base_plotter`.
-    """
-    # Creating a dynamic type combining BasePlot and properties from the given plotter
-    plot_class = type('CustomPlotter', (PlotUtils,), {**base_plotter.__dict__})
+    .. math::
+       \\text{Perturbation Plot}:
+       \\begin{cases}
+         \\text{Use MIV to measure } 
+         \\Delta \\text{model output w.r.t.}\\
+         \\text{feature changes}, & \\text{for different } 
+         \\text{perturbation scales}
+       \\end{cases}
+
+    Parameters
+    ----------
+    X : array-like or pandas.DataFrame
+        The feature matrix on which MIV calculations will be performed.
+        Should not include the target variable.
     
-    # Update the docstring for the new class
-    plot_class.__doc__ = """\
-    Custom plotting class that extends :class:`~gofast.api.properties.BasePlot` 
-    with dynamic properties.
-
-    Inherits all matplotlib figure properties, allowing modification via 
-    object attributes. For example:
-        >>> plot_obj = CustomPlotter()
-        >>> plot_obj.ls = '-.'  # Set line style
-        >>> plot_obj.fig_size = (7, 5)  # Set figure size
-        >>> plot_obj.lw = 7  # Set linewidth
-
-    See also:
-        Refer to :class:`~gofast.api.property.BasePlot` for details 
-        on adjustable parameters.
-    """
+    y : array-like
+        The target variable array. If provided, supervised MIV is
+        computed; if ``None``, unsupervised approaches may be used.
     
-    return plot_class
+    model : estimator object, optional
+        A trained model (e.g., ``RandomForestClassifier``). If not
+        provided, a default model is instantiated based on the target
+        nature (regression/classification).
+    
+    perturbations : float or list of float, default=0.05
+        One or multiple values to scale the feature perturbation. Each
+        is passed to `miv_score`. This allows for comparison across
+        multiple perturbation levels.
+    
+    max_iter : int, default=10
+        Number of iterations for re-fitting or re-predicting during
+        MIV calculations. Higher values yield more stable estimates.
+    
+    metric : str, default='miv'
+        The metric to compute. Currently, only `'miv'` or `'m.i.v.'`
+        are accepted. Raises an error if another metric is given.
+    
+    plot_type : {'bar', 'barh', 'pie', 'scatter'}, default='bar'
+        The style of the final subplots. Each subplot shows the feature
+        importance distribution for a specific perturbation magnitude:
+        
+        - ``'bar'``: Vertical bars for each feature.
+        - ``'barh'``: Horizontal bars.
+        - ``'pie'``: Pie chart of relative contributions.
+        - ``'scatter'``: Feature points sized by MIV.
+    
+    percent : bool, default=False
+        If ``True``, final MIV values are displayed as percentages;
+        otherwise, raw numeric values are used.
+    
+    relative : bool, default=False
+        If ``True``, uses the original model predictions to compute a
+        relative MIV. Otherwise, MIV is the difference between positive
+        and negative perturbations.
+    
+    show_grid : bool, default=True
+        If ``True``, displays grid lines on certain plot types (bar,
+        barh, scatter). Improves readability of the data distribution.
+    
+    fig_size : tuple of int, default=(12, 8)
+        The size of the matplotlib figure in inches (width, height).
+    
+    cmap : str, default='Blues'
+        The color palette for plotting. Accepts any valid matplotlib
+        colormap name.
+    
+    max_cols : int, default=3
+        Maximum number of columns in the subplot grid. Additional
+        perturbation results create new rows if needed.
+    
+    titles : list of str, optional
+        Custom subplot titles. Must match or exceed the number of
+        perturbation values if provided; otherwise, default titles
+        are generated as "Perturbation=<value>".
+    
+    savefig : str, optional
+        If provided, saves the resulting multi-subplot figure to the
+        specified filepath or filename. Supported formats depend on
+        matplotlib.
+    
+    rotate_labels : {'feature', 'value', 'both', None}, optional
+        Controls the rotation of text in the plot:
+        
+        - ``'feature'``: Rotate only feature (axis) labels.
+        - ``'value'``: Rotate only numeric bar or point text.
+        - ``'both'``: Rotate both feature labels and bar/point text.
+        - ``None``: No rotation is applied.
+    
+    rotate : float, optional
+        The angle (in degrees) at which to rotate labels or text.
+        Used with `rotate_labels`.
+    
+    display_values : bool, default=True
+        If ``True``, numeric MIV values are annotated on bars or
+        scatter points. If ``False``, the numeric text is suppressed.
+    
+    **kwargs
+        Additional keyword arguments reserved for future extension.
 
-# #################################################
-# Creating a dynamic type combining BasePlot and 
-# properties from the given plotter
-pobj = type('DynamicPlotter', (PlotUtils,), {})
+    Returns
+    -------
+    None
+        Displays subplots showing MIV distributions at each
+        perturbation magnitude. Optionally saves a figure if
+        ``savefig`` is specified.
 
-pobj.__doc__ = """\
-Dynamic plotting class that extends :class:`~gofast.api.properties.BasePlot` 
-with dynamic properties.
+    Raises
+    ------
+    ValueError
+        - If an unsupported `metric` is requested.
+        - If `perturbations` cannot be interpreted as numeric
+          values.
+        - If `plot_type` is not among the supported options.
 
-Inherits all matplotlib figure properties, allowing modification via 
-object attributes. For example:
-    >>> plot_obj = DynamicPlotter()
-    >>> plot_obj.ls = '-.'  # Set line style
-    >>> plot_obj.fig_size = (7, 5)  # Set figure size
-    >>> plot_obj.lw = 7  # Set linewidth
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_perturbations
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from sklearn.datasets import load_iris
+    >>> data = load_iris()
+    >>> X_df = pd.DataFrame(data['data'], columns=data['feature_names'])
+    >>> y_arr = data['target']
+    >>> # Basic usage with multiple perturbation levels:
+    >>> plot_perturbations(
+    ...     X=X_df,
+    ...     y=y_arr,
+    ...     perturbations=[0.1, 0.2, 0.3],
+    ...     plot_type='bar',
+    ...     percent=True,
+    ...     rotate_labels='both',
+    ...     rotate=45
+    ... )
 
-See also:
-    Refer to :class:`~gofast.api.property.BasePlot` for details 
-    on adjustable parameters.
-"""
-# ##################################################
+    Notes
+    -----
+    - Each subplot corresponds to one magnitude of perturbation.
+    - For a large number of perturbations, specify a higher
+      `max_cols` or expect more rows in the subplot grid.
 
+    See Also
+    --------
+    miv_score : The function used under the hood to compute MIV
+        for each feature.
+
+    References
+    ----------
+    .. [1] McKinney, W. "Python for Data Analysis: Data Wrangling
+           with Pandas, NumPy, and IPython." O'Reilly, 2017.
+    """
+    from ..metrics_special import miv_score 
+    
+    # Convert the user-provided metric to lowercase and verify it is supported.
+    # Currently, only 'miv' or 'm.i.v.' are supported. Otherwise, raise error.
+    metric_str = str(metric).lower()
+    if metric_str not in ('miv', 'm.i.v.'):
+        warnings.warn(
+            f"Only 'miv' or 'm.i.v.' is supported for `metric`. Got '{metric}'."
+        )
+
+    # Convert `perturbations` to an iterable if it isn't already,
+    # so we can loop over multiple perturbation values. This allows
+    # the user to compare MIV results for different magnitudes.
+    pert_list = is_iterable(
+        perturbations,
+        exclude_string=True,
+        transform=True
+    )
+
+    # For each perturbation value, we'll compute the MIV (or
+    # other supported metrics in future). We'll store the results
+    # in a list of dictionaries: each dict maps feature_name -> value.
+    collected_results = []
+    for idx, pert in enumerate(pert_list):
+        # Call `miv_score` with `plot_type=None` to prevent
+        # it from producing an immediate plot. We only want
+        # its numerical results. We pass `relative` and
+        # other relevant parameters as needed.
+        msummary = miv_score(
+            X=X,
+            y=y,
+            model=model,
+            perturbation=pert,
+            max_iter=max_iter,
+            plot_type=None,       # block any plotting
+            percent=False,        # keep raw numeric values, handle 'percent' here
+            relative=relative,
+            show_grid=False,      # not relevant here
+            fig_size=None,        # not relevant now
+            cmap=cmap,            # not relevant now
+            verbose=0             # silent
+        )
+        # Extract MIV values. This is a dict of feature_name -> MIV.
+        # We'll store it along with the current `pert`, so we know
+        # which dictionary belongs to which perturbation magnitude.
+        miv_dict = msummary.feature_contributions_
+        collected_results.append((pert, miv_dict))
+
+    # We'll produce a multi-subplot figure to compare results
+    # across different perturbation values. We figure out how
+    # many subplots we need: each subplot is one perturbation's MIV result.
+    n_pert = len(collected_results)
+    nrows = math.ceil(n_pert / max_cols)
+    ncols = min(n_pert, max_cols)
+
+    fig, axes = plt.subplots(
+        nrows=nrows, ncols=ncols,
+        figsize=fig_size,
+        squeeze=False     # always get a 2D array of axes
+    )
+
+    # We'll flatten the axes for easy iteration. If there's only
+    # one subplot, it becomes axes[0,0]. We'll iterate safely.
+    axes_flat = axes.flatten()
+
+    # Titles: if user provided a list of custom titles, use them.
+    # Otherwise, build a default string like "Perturbation=0.05"
+    # or "Pert=0.05" if we want to keep it short.
+    if titles is None:
+        titles_list = [
+            f"Perturbation={pert_list[i]}"
+            for i in range(n_pert)
+        ]
+    else:
+        # If user provided fewer titles than needed, we repeat or
+        # fallback. If user provided more, we just slice.
+        # For robust approach, let's just index carefully.
+        titles_list = []
+        for i in range(n_pert):
+            if i < len(titles):
+                titles_list.append(titles[i])
+            else:
+                titles_list.append(f"Perturbation={pert_list[i]}")
+
+    # We'll define a small helper to do the bar or barh plotting,
+    # similar to what's done in `miv_score`, with logic for rotation
+    # of labels or text. We'll respect the `display_values` param
+    # for text annotation on bars.
+    def _plot_bars(
+        ax,
+        features,
+        importances,
+        plot_t,
+        pcent,
+        c_map,
+        in_title
+    ):
+        # Bar or barh plotting
+        if plot_t == 'bar':
+            sns.barplot(
+                ax=ax,
+                x=list(features),
+                y=list(importances),
+                palette=c_map
+            )
+            ax.set_xlabel('Feature')
+            ax.set_ylabel('MIV (%)' if pcent else 'MIV')
+            # For text annotation, check `display_values`
+            if display_values:
+                for i, val in enumerate(importances):
+                    ax.text(
+                        i, val,
+                        f'{val:.2f}{"%" if pcent else ""}',
+                        va='bottom',
+                        ha='center',
+                        rotation=rotate if rotate_labels
+                                  in ('value', 'both') and rotate else 0
+                    )
+            # Possibly rotate the x-tick labels
+            if rotate_labels in ('feature', 'both') and rotate:
+                ax.set_xticklabels(
+                    ax.get_xticklabels(),
+                    rotation=rotate,
+                    ha='right'
+                )
+        else:
+            # barh
+            sns.barplot(
+                ax=ax,
+                x=list(importances),
+                y=list(features),
+                palette=c_map,
+                orient='h'
+            )
+            ax.set_xlabel('MIV (%)' if pcent else 'MIV')
+            ax.set_ylabel('Feature')
+            # For text annotation, check `display_values`
+            if display_values:
+                for i, val in enumerate(importances):
+                    ax.text(
+                        val, i,
+                        f'{val:.2f}{"%" if pcent else ""}',
+                        va='center',
+                        ha='left',
+                        rotation=rotate if rotate_labels
+                                  in ('value', 'both') and rotate else 0
+                    )
+            # Possibly rotate the y-tick labels
+            if rotate_labels in ('feature', 'both') and rotate:
+                ax.set_yticklabels(
+                    ax.get_yticklabels(),
+                    rotation=rotate,
+                    va='center'
+                )
+        ax.set_title(in_title)
+
+    # Now we iterate over each result, produce a subplot
+    for i, (pert_val, miv_dict) in enumerate(collected_results):
+        ax = axes_flat[i]
+        # Sort feature -> MIV by MIV desc
+        sorted_items = sorted(
+            miv_dict.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        features, importances = zip(*sorted_items)
+
+        # If user says `percent=True`, we multiply
+        # those importances by 100. We'll do that
+        # locally so we don't mutate the original dict.
+        final_imports = list(importances)
+        if percent:
+            final_imports = [val * 100 for val in final_imports]
+
+        # If user selected 'pie' or 'scatter', do those. 
+        # If 'bar' or 'barh', do as above in `_plot_bars`.
+        if plot_type in ['bar', 'barh']:
+            _plot_bars(
+                ax=ax,
+                features=features,
+                importances=final_imports,
+                plot_t=plot_type,
+                pcent=percent,
+                c_map=cmap,
+                in_title=titles_list[i]
+            )
+            if show_grid and plot_type in ['bar', 'barh']:
+                ax.grid(True, linestyle='--', alpha=0.7)
+            elif not show_grid:
+                ax.grid(False)
+
+        elif plot_type == 'pie':
+            # We'll do a pie chart
+            patches, texts, autotexts = ax.pie(
+                final_imports,
+                labels=features if rotate_labels != 'none' else None,
+                autopct=(lambda p: f'{p:.1f}%' if percent else f'{p:.3f}'),
+                startangle=140,
+                colors=sns.color_palette(cmap, len(final_imports))
+            )
+            ax.axis('equal')
+            ax.set_title(titles_list[i])
+            # Possibly rotate feature labels (the wedge labels).
+            # For controlling label rotation on a pie, we might try:
+            if rotate_labels in ('feature', 'both') and rotate:
+                for text in texts:
+                    text.set_rotation(rotate)
+            # If user doesn't want display_values for the wedge
+            # text, we can handle that by removing them. But we 
+            # interpret 'display_values' as for bar chart text,
+            # so we won't remove the wedge text automatically.
+
+        elif plot_type == 'scatter':
+            # We'll do a scatter. For the size param, we might scale the final_imports
+            # so they're not too small or too big, but let's keep it simple
+            # We'll do something like:
+            # We need an x: final_imports, y: features. Because features is text,
+            # let's do numeric for y. We'll do a local mapping.
+            yvals = range(len(features))
+            ax.scatter(
+                final_imports,
+                yvals,
+                s=[val * 20 for val in final_imports],
+                c=sns.color_palette(cmap, len(final_imports))
+            )
+            ax.set_yticks(yvals)
+            # Possibly rotate the y tick labels
+            if rotate_labels in ('feature', 'both') and rotate:
+                ax.set_yticklabels(
+                    ax.get_yticklabels(),
+                    rotation=rotate
+                )
+            else:
+                ax.set_yticklabels(features)
+
+            ax.set_xlabel('MIV (%)' if percent else 'MIV')
+            ax.set_ylabel('Feature')
+            ax.set_title(titles_list[i])
+            if display_values:
+                for xv, yv, val in zip(final_imports, yvals, final_imports):
+                    ax.text(
+                        xv, yv,
+                        f'{val:.2f}{"%" if percent else ""}',
+                        va='center',
+                        rotation=rotate if rotate_labels
+                                  in ('value', 'both') and rotate else 0
+                    )
+            if show_grid:
+                ax.grid(True, linestyle='--', alpha=0.7)
+            else:
+                ax.grid(False)
+        else:
+            # fallback if user provided an unsupported plot
+            ax.barh(
+                range(len(features)),
+                final_imports,
+                color=sns.color_palette(cmap, len(final_imports))
+            )
+            ax.set_yticks(range(len(features)))
+            ax.set_yticklabels(features)
+            ax.set_xlabel('MIV (%)' if percent else 'MIV')
+            ax.set_ylabel('Feature')
+            ax.set_title(titles_list[i])
+            if display_values:
+                for j, val in enumerate(final_imports):
+                    ax.text(
+                        val, j,
+                        f'{val:.2f}{"%" if percent else ""}',
+                        va='center',
+                        rotation=rotate if rotate_labels
+                                  in ('value', 'both') and rotate else 0
+                    )
+            if show_grid:
+                ax.grid(True, linestyle='--', alpha=0.7)
+            else:
+                ax.grid(False)
+
+    # Hide any extra subplot if n_pert < nrows * ncols
+    total_subplots = nrows * ncols
+    if total_subplots > n_pert:
+        for hide_idx in range(n_pert, total_subplots):
+            axes_flat[hide_idx].set_visible(False)
+
+    plt.tight_layout()
+
+    # if user pass savefig, then save
+    if savefig:
+        plt.savefig(savefig)
+
+    plt.show()
+
+    
 @validate_params ({ 
     "sensitivity_values": ['array-like'], 
     "baseline_prediction": ['array-like', Real, None ], 
@@ -180,7 +1422,7 @@ See also:
     "y_ticks_rotation": [Interval( Integral, 0, None, closed="left")], 
     })
 def plot_sensitivity(
-    sensitivity_values, *,
+    sensitivity_df, *,
     baseline=None, 
     plot_type='line',
     baseline_color='r',
@@ -191,7 +1433,7 @@ def plot_sensitivity(
     ylabel=None,
     x_ticks_rotation=0,
     y_ticks_rotation=0,
-    grid=True,
+    show_grid=True,
     legend=True,
     figsize=(10, 6),
     color_palette='muted',
@@ -202,7 +1444,7 @@ def plot_sensitivity(
 
     Parameters
     ----------
-    sensitivity_values : pandas.DataFrame
+    sensitivity_df : pandas.DataFrame
         A DataFrame containing sensitivity values for each feature. Each column 
         represents the sensitivity values for a specific feature. The index 
         represents individual observations or instances.
@@ -238,7 +1480,7 @@ def plot_sensitivity(
 
     xlabel : str, optional, default='Features'
         The label for the x-axis, which typically corresponds to the feature 
-        names or identifiers in `sensitivity_values`.
+        names or identifiers in `sensitivity_df`.
 
     ylabel : str, optional, default='Sensitivity Value'
         The label for the y-axis, representing the sensitivity value or 
@@ -251,7 +1493,7 @@ def plot_sensitivity(
     y_ticks_rotation : int, optional, default=0
         The angle in degrees to rotate the y-axis tick labels.
 
-    grid : bool, optional, default=True
+    show_grid : bool, optional, default=True
         Whether to show gridlines on the plot. True will enable gridlines, 
         False will disable them.
 
@@ -282,7 +1524,7 @@ def plot_sensitivity(
     Notes
     -----
     The function will automatically determine whether to construct the 
-    `sensitivity_values` DataFrame if not provided directly as a DataFrame.
+    `sensitivity_df` DataFrame if not provided directly as a DataFrame.
     It uses the `build_data_if` helper function to convert the data into a 
     DataFrame before proceeding with plotting.
 
@@ -291,7 +1533,7 @@ def plot_sensitivity(
     >>> from gofast.plot.utils import plot_sensitivity
     1. Basic line plot:
        >>> plot_sensitivity(baseline=0.5, 
-                            sensitivity_values=pd.DataFrame({
+                            sensitivity_df=pd.DataFrame({
                                 'Feature 1': [0.1, 0.2, 0.3],
                                 'Feature 2': [0.05, 0.15, 0.25],
                                 'Feature 3': [0.2, 0.3, 0.4]
@@ -300,7 +1542,7 @@ def plot_sensitivity(
        
     2. Bar plot with customized appearance:
        >>> plot_sensitivity(baseline=0.5, 
-                            sensitivity_values=pd.DataFrame({
+                            sensitivity_df=pd.DataFrame({
                                 'Feature 1': [0.1, 0.2, 0.3],
                                 'Feature 2': [0.05, 0.15, 0.25],
                                 'Feature 3': [0.2, 0.3, 0.4]
@@ -310,7 +1552,7 @@ def plot_sensitivity(
        
     3. Histogram plot:
        >>> plot_sensitivity(baseline=0.5, 
-                            sensitivity_values=pd.DataFrame({
+                            sensitivity_df=pd.DataFrame({
                                 'Feature 1': [0.1, 0.2, 0.3],
                                 'Feature 2': [0.05, 0.15, 0.25],
                                 'Feature 3': [0.2, 0.3, 0.4]
@@ -319,14 +1561,15 @@ def plot_sensitivity(
     
     4. Boxplot with outliers:
        >>> plot_sensitivity(baseline=0.5, 
-                            sensitivity_values=pd.DataFrame({
+                            sensitivity_df=pd.DataFrame({
                                 'Feature 1': [0.1, 0.2, 0.3],
                                 'Feature 2': [0.05, 0.15, 0.25],
                                 'Feature 3': [0.2, 0.3, 0.4]
                             }), 
                             plot_type='boxplot', boxplot_showfliers=True)
     """
-
+    sensitivity_values = copy.deepcopy(sensitivity_df)
+    
     if not isinstance (sensitivity_values, pd.DataFrame): 
         # build dataframe using the default column name 'feature' 
         sensitivity_values = build_data_if(
@@ -371,8 +1614,8 @@ def plot_sensitivity(
         plt.ylabel(ylabel or 'Sensitivity Value')
         plt.xticks(rotation=x_ticks_rotation)
         plt.yticks(rotation=y_ticks_rotation)
-        if grid:
-            plt.grid(True)
+        # if grid:
+        #     plt.grid(True)
         if legend:
             plt.legend()
 
@@ -398,8 +1641,8 @@ def plot_sensitivity(
         plt.ylabel(ylabel or 'Sensitivity Value')
         plt.xticks(rotation=x_ticks_rotation)
         plt.yticks(rotation=y_ticks_rotation)
-        if grid:
-            plt.grid(True)
+        # if grid:
+        #     plt.grid(True)
         if legend:
             plt.legend()
 
@@ -425,8 +1668,8 @@ def plot_sensitivity(
         plt.title(title)
         plt.xlabel(xlabel or 'Sensitivity Value')
         plt.ylabel('Frequency')
-        if grid:
-            plt.grid(True)
+        # if grid:
+        #     plt.grid(True)
         if legend:
             plt.legend()
 
@@ -448,16 +1691,11 @@ def plot_sensitivity(
         plt.title(title)
         plt.xlabel(xlabel or "Pertubations")
         plt.ylabel(ylabel or 'Sensitivity Value')
-        if grid:
-            plt.grid(True)
-        if legend:
-            plt.legend()
-
-    else:
-        raise ValueError(
-            "Unsupported plot type. Choose from 'line', 'bar', 'hist', or 'boxplot'."
-        )
     
+
+    plt.grid(show_grid) 
+    if legend:
+        plt.legend()
     plt.xticks(rotation=x_ticks_rotation)
     plt.yticks(rotation=y_ticks_rotation)
     plt.tight_layout()

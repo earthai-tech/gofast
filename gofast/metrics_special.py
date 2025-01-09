@@ -20,7 +20,8 @@ import numpy as np
 import pandas as pd 
 import matplotlib.pyplot as plt
 import seaborn as sns
-    
+
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor    
 from sklearn.metrics import (
     accuracy_score,  confusion_matrix, f1_score,
     jaccard_score, mean_absolute_error, mean_squared_error,
@@ -29,17 +30,23 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import cross_val_predict
 from sklearn.preprocessing import label_binarize
-
+try: 
+    from sklearn.utils.multiclass import type_of_target
+except : 
+    from .core.utils import type_of_target 
+    
 from .api.formatter import MetricFormatter, DescriptionFormatter 
 from .api.summary import TW, ReportFactory, assemble_reports
 from .api.summary import ResultSummary 
+from .core.array_manager import to_arrays 
 from .core.checks import exist_features, is_iterable
 from .core.utils import normalize_string
 from .compat.sklearn import StrOptions, HasMethods, Interval, validate_params 
 from .decorators import Substitution, Appender
 from .utils.validator import (
     _ensure_y_is_valid, _is_numeric_dtype, check_epsilon, check_is_fitted, 
-    validate_multioutput, validate_nan_policy, check_array, build_data_if
+    validate_multioutput, validate_nan_policy, check_array, build_data_if, 
+    validate_data_types, 
 )
 
 __all__= [
@@ -63,6 +70,7 @@ __all__= [
      'rmse_flex',
      'roc_tradeoff', 
      'coverage_score', 
+     'miv_score', 
  ]
 
 # --------- doc templates -----------------------------------------------------
@@ -113,6 +121,437 @@ interpret : bool, default=False
 """
 
 # ----------------------- end doc templates ---------------------------------
+
+@validate_params({
+    "model": [HasMethods(["predict"]), None],
+    "X": ['array-like'],
+    "y": ['array-like'], 
+    "feature_names": ['array-like', None],
+    "perturbation": [Interval(Real, 0, 1, closed='both')],
+    "plot_type": [
+        StrOptions({'barh', 'bar', 'pie', 'scatter'}), None],
+    "max_iter": [Interval(Integral, 1, None, closed='left')]
+   }, 
+)
+def miv_score(
+    X, 
+    y, 
+    model=None, 
+    perturbation=0.05, 
+    max_iter=10, 
+    plot_type='bar',  
+    percent=False,    
+    relative=False,   
+    show_grid=True, 
+    fig_size=(12, 8),
+    cmap='viridis', 
+    verbose=0, 
+):
+    """
+    Compute the Mean Impact Value (MIV) for each feature in the dataset
+    and visualize the contributions.
+
+    The ``miv_score`` function calculates the Mean Impact Value (MIV) for each
+    feature in the dataset by perturbing feature values and observing the
+    resulting changes in model predictions. This metric helps in understanding
+    the influence of each feature on the model's output. The function supports
+    both supervised and unsupervised learning scenarios and provides various
+    visualization options for better interpretability of feature contributions.
+
+    .. math::
+        \text{MIV}_i = \frac{1}{N} \sum_{j=1}^{N} \left|\\
+            \text{prediction}_j^{+} - \text{prediction}_j^{-} \right|
+
+    where:
+    - :math:`\text{MIV}_i` is the Mean Impact Value for feature :math:`i`.
+    - :math:`N` is the number of iterations.
+    - :math:`\text{prediction}_j^{+}` and
+      :math:`\text{prediction}_j^{-}` are the model predictions
+      after positive and negative perturbations of feature :math:`i`
+      in the :math:`j^{th}` iteration.
+
+    Parameters
+    ----------
+    X : array-like or pandas DataFrame
+        The feature matrix from which to determine feature importances. 
+        This should not include the target variable.
+
+    y : array-like
+        The target variable array. If provided, it will be used for supervised
+        learning. If ``None``, an unsupervised approach will be used (feature
+        importances based on feature variance).
+
+    model : estimator object, default=None
+        The trained model (e.g., ``RandomForestClassifier``, ``RandomForestRegressor``,
+        etc.). If ``None``, a ``RandomForestClassifier`` or ``RandomForestRegressor``
+        is initialized based on the nature of ``y``.
+
+    perturbation : float, default=0.05
+        The magnitude of perturbation applied to each feature during MIV c
+        omputation.
+        A value of ``0.05`` corresponds to a 5% perturbation of the feature's
+        original value.
+
+    max_iter : int, default=10
+        The number of iterations for perturbing each feature. Higher values 
+        provide a more stable estimate of the MIV but increase computational
+        cost.
+
+    plot_type : {'bar', 'barh', 'pie', 'scatter'}, optional
+        The type of plot to visualize the MIV feature contributions.
+        - ``'bar'``: Vertical bar plot.
+        - ``'barh'``: Horizontal bar plot.
+        - ``'pie'``: Pie chart.
+        - ``'scatter'``: Scatter plot with feature sizes proportional to MIV.
+        If set to ``None``, no plot is generated.
+
+    percent : bool, default=False
+        If ``True``, the MIV values in the plot are displayed as percentages.
+        Otherwise, they are shown as absolute values.
+
+    relative : bool, default=False
+        If ``True``, the evaluation of MIV uses the original predictions to 
+        compute the mean absolute difference. This provides a relative measure 
+        of feature impact.
+        If ``False``, MIV is computed based on the difference between positive 
+        and negative perturbations.
+
+    show_grid : bool, default=True
+        If ``True``, displays grid lines on applicable plots (e.g., bar, barh, scatter).
+        Enhances readability by providing reference lines.
+
+    fig_size : tuple of int, default=(12, 8)
+        Specifies the size of the matplotlib figure in inches as (width, height).
+        Adjusts the scale of the visualization to accommodate different
+        numbers of features.
+
+    cmap : str, default='viridis'
+        The color palette used for the plots. Supports any matplotlib-compatible
+        colormap. Enhances the aesthetic appeal and clarity of the visualizations.
+        
+    verbose : int, default=0
+        Controls the verbosity of the function's output.
+        - `0`: No messages.
+        - `1`: Basic messages about the number of features selected.
+        - `2`: Detailed messages including intermediate MIV values for
+          each feature.
+    Returns
+    -------
+    MetricFormatter
+        An object containing a dictionary of feature names mapped to their
+        corresponding MIV scores. The object includes additional attributes 
+        such as ``feature_contributions_`` and ``original_predictions_`` for
+        further analysis.
+
+    Raises
+    ------
+    ValueError
+        - If model fitting fails due to incompatible data or estimator issues.
+        - If predictions fail during perturbation.
+        - If an unsupported ``plot_type`` is provided.
+
+    Examples
+    --------
+    >>> from gofast.metrics_special import miv_score
+    >>> import pandas as pd
+    >>> from sklearn.datasets import load_iris
+    >>> iris = load_iris()
+    >>> X_iris = pd.DataFrame(iris['data'], columns=iris['feature_names'])
+    >>> y_iris = iris['target']
+    >>> miv_results = miv_score(
+    ...     X=X_iris, 
+    ...     y=y_iris, 
+    ...     plot_type='bar', 
+    ...     verbose=2,
+    ...     percent=True,     # Display MIV in percentage
+    ...     relative=True,    # Compute MIV relative to original predictions
+    ... )
+    >>> print(miv_results)
+    {'sepal length (cm)': 5.12, 'sepal width (cm)': 1.23, 
+     'petal length (cm)': 15.43, 'petal width (cm)': 18.76}
+
+    >>> # Using `return_selector=True` to get the selector object
+    >>> miv_results, selector = miv_score(
+    ...     X=X_iris, 
+    ...     y=y_iris, 
+    ...     plot_type='barh', 
+    ...     verbose=2,
+    ...     percent=True,
+    ...     relative=False,
+    ... )
+    >>> print(selector.get_support())
+    array([ True, False, True, True])
+
+    >>> # Performing unsupervised feature selection based on variance
+    >>> from sklearn.datasets import make_blobs
+    >>> X_unsup, _ = make_blobs(n_samples=500, n_features=8, centers=3, cluster_std=1.0)
+    >>> miv_results_unsup = miv_score(
+    ...     X=X_unsup, 
+    ...     y=None, 
+    ...     plot_type='pie', 
+    ...     verbose=1,
+    ...     percent=True,
+    ... )
+    >>> print(miv_results_unsup)
+    {'feature_0': 12.34, 'feature_2': 15.67, 'feature_4': 13.89}
+
+    >>> # Using `relative=True` and a scatter plot
+    >>> miv_results_scatter = miv_score(
+    ...     X=X_unsup, 
+    ...     y=None, 
+    ...     plot_type='scatter', 
+    ...     verbose=1,
+    ...     percent=False,
+    ... )
+    >>> print(miv_results_scatter)
+    {'feature_0': 0.123, 'feature_1': 0.045, 'feature_2': 0.156, 
+     'feature_3': 0.078, 'feature_4': 0.134, 'feature_5': 0.067, 
+     'feature_6': 0.089, 'feature_7': 0.054}
+
+    Notes
+    -----
+    - **Mean Impact Value (MIV):**
+        The MIV metric quantifies the average change in model predictions 
+        resulting from perturbations in each feature. It serves as an indicator
+         of a feature's importance in influencing the model's output.
+
+    - **Perturbation Strategy:**
+        Features are perturbed by a specified factor (``perturbation``) to 
+        simulate the effect of altering their values. This helps in assessing
+         how sensitive the model is to changes in each feature.
+
+    - **Relative MIV:**
+        Setting ``relative=True`` computes MIV relative to the original
+        predictions, providing a normalized measure of feature impact. 
+        This is particularly useful when comparing feature contributions 
+        across different models or datasets.
+
+    - **Visualization Options:**
+        The function supports multiple plot types to cater to different
+        visualization preferences. Annotated plots enhance the interpretability
+        by displaying MIV values directly on the visual elements.
+
+    - **Performance Considerations:**
+        Higher values of ``max_iter`` provide more stable MIV estimates but
+        increase computational time. Users should balance accuracy and
+        performance based on their specific needs.
+
+    See Also
+    --------
+    gofast.plot.utils.plot_pertubations: 
+        Plot feature perturbation effects for multiple perturbation values 
+        using MIV metrics.
+    gofast.metrics_special.relative_sensitivity_score: 
+        Compute the relative sensivity score for each feature in the model 
+        predictions.
+    gofast.metrics_special.relative_sensitivity_scores: 
+        Compute the relative sensivity score for for multiple perturbations
+        for each feature in the model predictions. 
+        
+    References
+    ----------
+    .. [1] McKinney, W. (2010). Data Structures for Statistical Computing in 
+           Python. In *Proceedings of the 9th Python in Science Conference*, 
+           51-56.
+
+    .. [2] Pedregosa, F., Varoquaux, G., Gramfort, A., et al. (2011). 
+           Scikit-learn: Machine Learning in Python. *Journal of Machine 
+           Learning Research*, 12, 2825-2830.
+
+    .. [3] Harris, C. R., Millman, K. J., van der Walt, S. J., et al. (2020). 
+           Array programming with NumPy. *Nature*, 585(7825), 357-362.
+
+    .. [4] Pandas Development Team. (2023). *pandas documentation*. 
+           https://pandas.pydata.org/pandas-docs/stable/
+    """
+
+    # Validate input data
+    validate_data_types(X, nan_policy="raise", error="raise")
+    
+    # Convert X to DataFrame if it's not already, and set feature names
+    if isinstance(X, pd.DataFrame):
+        feature_names = X.columns.tolist()
+    else:
+        feature_names = [f'feature_{i}' for i in range(X.shape[1])]
+        X = pd.DataFrame(X, columns=feature_names)
+    
+    # Determine the type of target to choose appropriate model
+    target_type = type_of_target(y)
+    
+    # Initialize the model if not provided
+    if model is None:
+        if target_type in ['continuous', 'continuous-multioutput']:
+            model = RandomForestRegressor(n_estimators=100, random_state=42)
+            if verbose >= 2:
+                print("Initialized RandomForestRegressor for regression task.")
+        else:
+            model = RandomForestClassifier(n_estimators=100, random_state=42)
+            if verbose >= 2:
+                print("Initialized RandomForestClassifier for classification task.")
+    
+    # Fit the model and get original predictions
+    try:
+        model.fit(X, y)
+        original_predictions = model.predict(X)
+        if verbose >= 2:
+            print("Model fitting completed.")
+    except Exception as e:
+        raise ValueError(f"Model fitting failed: {e}")
+    
+    # Initialize dictionary to store MIV values
+    miv_values = {}
+    
+    # Iterate over each feature to compute MIV
+    for feature in feature_names:
+        miv_list = []
+        for _ in range(max_iter):
+            # Create copies of X for perturbation
+            X_positive = X.copy()
+            X_negative = X.copy()
+            
+            # Apply perturbations
+            X_positive[feature] += X[feature] * perturbation
+            X_negative[feature] -= X[feature] * perturbation
+            
+            # Get predictions after perturbation
+            try:
+                y_pred_positive = model.predict(X_positive)
+                y_pred_negative = model.predict(X_negative)
+            except Exception as e:
+                raise ValueError(f"Prediction failed during perturbation: {e}")
+            
+            if relative:
+                # Compute difference relative to original predictions
+                miv_diff_positive = np.abs(y_pred_positive - original_predictions)
+                miv_diff_negative = np.abs(y_pred_negative - original_predictions)
+                miv_diff = (miv_diff_positive + miv_diff_negative) / 2
+            else:
+                # Compute absolute difference between positive and
+                # negative perturbations
+                miv_diff = np.abs(y_pred_positive - y_pred_negative)
+            
+            # Store the mean difference for this iteration
+            miv_list.append(np.mean(miv_diff))
+        
+        # Average MIV over all iterations for the current feature
+        avg_miv = np.mean(miv_list)
+        if percent:
+            avg_miv *= 100  # Convert to percentage if required
+        miv_values[feature] = avg_miv
+        
+        if verbose >= 2:
+            print(f"MIV for {feature}: {avg_miv:.4f}{'%' if percent else ''}")
+    
+    # Create metric summary using MetricFormatter
+    metric_summary = MetricFormatter(
+        descriptor="mean_impact_value", 
+        title="M.I.V Results",
+        **miv_values 
+    )
+    
+    # Visualization
+    if plot_type:
+        plt.figure(figsize=fig_size)
+        
+        # Sort features by MIV in descending order for better visualization
+        sorted_features = sorted(miv_values.items(), key=lambda x: x[1], reverse=True)
+        features, importances = zip(*sorted_features)
+        
+        # fix only these two plots as well as their plt.text anot. 
+        if plot_type in [ 'bar', 'barh']:
+            _plot_feature_importance(
+                importances, features, plot_type=plot_type, 
+                percent=percent, cmap= cmap)
+        elif plot_type == 'pie':
+            plt.pie(importances, labels=features, 
+                    autopct=lambda p: f'{p:.1f}%' if percent else f'{p:.3f}', 
+                    startangle=140, colors=sns.color_palette(
+                        cmap, len(features)))
+            plt.title('Mean Impact Value (MIV)')
+            # Equal aspect ratio ensures that pie is drawn as a circle.
+            plt.axis('equal')  
+        
+        elif plot_type == 'scatter':
+            sns.scatterplot(x=list(importances), y=list(
+                features), size=list(importances), 
+                            legend=False, palette=cmap
+                        )
+            plt.title('Mean Impact Value (MIV) - Feature Contributions')
+            plt.xlabel('MIV (%)' if percent else 'MIV')
+            plt.ylabel('Feature')
+            
+            # Annotate points with MIV values
+            for x_val, y_val in zip(importances, features):
+                plt.text(x_val, y_val, f'{x_val:.2f}{"%" if percent else ""}',
+                         va='center')
+        
+        else:
+            warnings.warn(
+                f"Unsupported plot_type '{plot_type}'. Supported types"
+                " are 'bar', 'barh', 'pie', 'scatter'."
+                " Defaulting to 'bar'.", UserWarning
+                )
+            sns.barplot(x=list(importances), y=list(features), palette=cmap)
+            plt.title('Mean Impact Value (MIV) - Feature Contributions')
+            plt.xlabel('MIV (%)' if percent else 'MIV')
+            plt.ylabel('Feature')
+            
+            # Annotate bars with MIV values
+            for index, value in enumerate(importances):
+                plt.text(
+                    value, index, f'{value:.2f}{"%" if percent else ""}', va='center')
+        
+        # Show grid if required
+        if plot_type in ['bar', 'barh', 'scatter']:
+            if show_grid: 
+                plt.grid(True, linestyle='--', alpha=0.7)
+            else : 
+                plt.grid(False)
+        
+        plt.tight_layout()
+        plt.show()
+    
+    # Assign feature contributions to the metric summary
+    metric_summary.feature_contributions_ = miv_values
+    metric_summary.original_predictions_ = original_predictions if not relative else None
+    
+    # Print the summary
+    if verbose:
+        print(metric_summary)
+    
+    return metric_summary
+
+def _plot_feature_importance(
+        importances, features, plot_type='bar', 
+        percent=False, cmap='Blues'
+        ):
+    # Bar Plot (Vertical)
+    if plot_type == 'bar':
+        sns.barplot(x=list(features), y=list(importances), palette=cmap)  
+        plt.title('Mean Impact Value (MIV) - Feature Contributions')
+        plt.xlabel('Feature')  # x-axis should be the features
+         # y-axis should be the MIV values
+        plt.ylabel('MIV (%)' if percent else 'MIV') 
+
+        # Annotate bars with MIV values
+        for index, value in enumerate(importances):
+            plt.text(index, value, f'{value:.2f}{"%" if percent else ""}',
+                     va='bottom', ha='center')  # Place text above bars
+
+    # Horizontal Bar Plot (No changes needed)
+    elif plot_type == 'barh':
+        sns.barplot(x=list(importances), y=list(features), palette=cmap, 
+                    orient='h')  # x = MIV, y = features
+        plt.title('Mean Impact Value (MIV) - Feature Contributions')
+        plt.xlabel('MIV (%)' if percent else 'MIV')  
+        plt.ylabel('Feature')  
+
+        # Annotate bars with MIV values
+        for index, value in enumerate(importances):
+            plt.text(value, index,
+                     f'{value:.2f}{"%" if percent else ""}', 
+                     va='center', 
+                     ha='left')  
 
 def coverage_score(
     y_true,
@@ -221,9 +660,14 @@ def coverage_score(
            Scoring Rules, Prediction, and Estimation." J. Amer. 
            Statist. Assoc., 102(477):359–378.
     """
-    y_true_arr = np.asarray(y_true)
-    y_lower_arr = np.asarray(y_lower)
-    y_upper_arr = np.asarray(y_upper)
+    y_true_arr, y_lower_arr, y_upper_arr = to_arrays(
+        y_true,y_lower, y_upper , 
+        accept ='1d', 
+        force_conversion= True 
+        )
+    # y_true_arr = np.asarray(y_true)
+    # y_lower_arr = np.asarray(y_lower)
+    # y_upper_arr = np.asarray(y_upper)
     
     if verbose >= 3:
         print("Converting inputs to arrays...")

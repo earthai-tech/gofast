@@ -26,7 +26,7 @@ from .._gofastlog import gofastlog
 from ..api.types import _F, ArrayLike, NDArray, DataFrame 
 from ..compat.sklearn import validate_params, StrOptions, Interval
 from ..decorators import isdf
-from ..core.array_manager import to_numeric_dtypes 
+from ..core.array_manager import to_numeric_dtypes, index_based_selector 
 from ..core.checks import ( 
     _assert_all_types, validate_name_in, is_in,  
     is_iterable, assert_ratio, are_all_frames_valid , 
@@ -63,6 +63,7 @@ __all__= [
     'pop_labels_in', 
     'truncate_data', 
     'filter_data', 
+    'index_based_selector', 
     ]
 
 @is_data_readable 
