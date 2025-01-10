@@ -33,8 +33,8 @@ from ..utils.spatial_utils import projection_validator
 from ..utils.validator import check_X_y, check_array, validate_square_matrix 
 from ..utils.validator import get_estimator_name, _check_consistency_size 
 from ..utils.validator import parameter_validator, validate_sets
-from ._config import PlotConfig 
-from .utils import _manage_plot_kws, pobj, savefigure
+from ._config import PlotConfig , pobj 
+from .utils import _manage_plot_kws, savefigure
 
 __all__=[
     'plot_learning_inspection',

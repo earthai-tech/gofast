@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.patches import Ellipse
 import matplotlib.transforms as transforms 
+from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from scipy.interpolate import griddata
 from scipy.stats import probplot
 
@@ -35,7 +36,8 @@ from ..api.types import Dict, ArrayLike, DataFrame
 from ..core.array_manager import smart_ts_detector, drop_nan_in 
 from ..core.checks import ( 
     _assert_all_types, is_iterable, str2columns, is_in_if, 
-    exist_features, check_features_types, check_spatial_columns, 
+    exist_features, check_features_types, check_spatial_columns,
+    validate_depth, check_params 
 )
 from ..core.handlers import columns_manager,  param_deprecated_message 
 from ..core.io import is_data_readable 
@@ -64,365 +66,54 @@ __all__=[
     'plot_temporal_trends', 
     'plot_relationship', 
     'plot_fit', 
-    'plot_perturbations'
+    'plot_perturbations', 
+    'plot_well', 
 ]
-# write this robust function 
 
-# def plot_well(
-#     df, 
-#     depth_arr=None,# if depth should be one1d array or series and not dataframe
-#     # unless it is dataframe with single column, 
-#     # if given check the depth array .  Motsly value should be from smaller to deeper 
-#     # if not the case, behave with error: 
-#         # if error is raise : then raise error that the given data does not fit a depth array 
-#         #  if error is warn then warn user and reset the depth values based on df length 
-#         # from 0 ( surface ) to the depth  . 
-#         # if error is 'ignore', reset depth value and use default depth from surface to the depth, 
-    
-#     ref_arr=None, # reference array to plot on the prediction if given 
-#     # reference expect 1d array or a series, if dataframe is given ,the 'ref_ col 
-#     # must be provided. 
-    
-#     pred_df=None, # the prediction dataframe 
-#     # if ref_df is given then each prediction column should contain the 
-#     # prediction ref_df plot + the prediction column plot. 
-#     # for instance in if ref_df is given the column of pred col should contain at the 
-#     # the same time the prediction plot of ref_df and te prediction col  
-#     ref_col=None, # reference_col to provided if ref_array is passed as dataframe. 
-    
-#     cols =None, # if provide, only these columns in df should be consider 
-#     pred_cols=None, # if columns if the pred_df should be consider 
-#     plot_kind_mapping =None, 
-#     # it is dictionnary of plot kind for each columns 
-#     # for instance if 
-#     # plot_kind_mapping= ={ 'rf10': 'log'} the the colum of the rf10 should be in log plot 
-#     # etc ,
-#     depth_kind = None, # if 'log' for instance the depth should be in log in plot. 
-#     combined_cols = None, # if combined columns for instance resstivities columns 
-#     # combined_cols = [rf10, rf20, rf30] , this mean that all these columns should 
-#     # shoould be on the same column plots. and the name of this columns should 
-#     # be "rf10-rf20-rf30"  however if 
-#     # combined_cols = {'resistivity':[rf10-rf20-rf30 ] } then combined columns name should 
-#     # be resistivity instead of default name "rf10-rf20-rf30". 
-#     agg_plot =False # aggregate plot is possible when pred_df is given . 
-#     # if pred_df is given : 
-#         # use subplot for one col for plotting df and another colum for plotting pred_df 
-#         # but both share the same depth axe . 
-#         # note that each colum plot size should be the same size , 
-#         # it mean if the col1 contain 5 subcolumns plot for 5 feature for instance 
-#         # and if the pred_df has only one col to plot , the size of the pred col in col2 should the 
-#         # the size of one subcol plot of the col1 , this should maintain consistency accross all plots. 
-#     # if  agg_plot is False, not need subplot and plot the df and pred_df, it mean alfter finishin 
-#     # plotting the df columns, then continue plot with pred df if pred_df is given. 
-#     # note they all share the same axe of depth . 
+@default_params_plot(
+    savefig='my_well_plot.png', 
+    fig_size=None 
+ )
+@validate_params ({ 
+    'df': ['array-like'], 
+    'cols': ['array-like', None], 
+    'depth_arr': ['array-like', None], 
+    'ref_arr' : ['array-like', None], 
+    'pred_df': ['array-like', None], 
+    'error': [StrOptions({ 'raise', 'warn', 'ignore'})], 
+    'numeric_only': [bool], 
+    })
 
-    
-#     ignore_index=False , # if True, reset all indexes if df, pred_df is given, ref_arr if given 
-#     # 
-#     # add more other parameters for flexibility, robustness and versatitlity  
-#     titles =None, 
-#     # if titles is given , then replace with the columns name used as titles . 
-#     show_grid =True, 
-#     fig_size = None, 
-#     savefig =None, 
-    
-#     ):
-# # Note that no need to have all array the same length, some times, the data in the borehole 
-# # are not valid until the final depth in the borehole : 
-#     # if df or ref_df is long than df, then use the index_based_selection  
-#     from gofast.core.array_manager import index_based_selector 
-#     dfs, index_based_selector (
-#         [df], ref_df = depth_arr, reset_index =True, as_series =True,)
-#     # if depth is longeur than df, then plot as is. 
-    
-    
-#     # use the fuction from gofast.core.checks import exist_features 
-#     # to check whether the feature exists 
-#     exist_features (df= ..., feature = ...)
-#     from gofast.utils.base_utils import select_features
-#     # selected_df = select_features (df..., features = ...)
-#     # now use columns_manager from gofast.core.handlers import columns_manager 
-#     # to put the columns to list , parse columns str , if given as single str or to output empty list when is m
-#     columns_manager(columns= ..., empty_as_none= ..., ) 
-    
-# # Note : skip documentation for brievity. Just comment the code only 
-# # the parameters names passed can be non intuitive and if not intuitive, find 
-# # the best convenient , programmatic name for renaming others ... 
-
-
-# completly and deeply implement all, dont let any placeholder or skip any instructions 
-
-# In the plot, the value should be in the top and column name a bottom 
-# if sharey = True, it means share depth for all figures. 
-# keep the comments on the code as is to let the developer understand and guide them 
-# skip the docstring documentation and deeply implement the code completly 
-
-
-def plot_well0(
-    df,
-    depth_arr=None,
-    ref_arr=None,
-    pred_df=None,
-    ref_col=None,
-    cols=None,
-    pred_cols=None,
-    plot_kind_mapping=None,
-    depth_kind=None,
-    combined_cols=None,
-    agg_plot=False,
-    ignore_index=False,
-    index_as_depth=False,
-    error='warn',
-    titles=None,
-    show_grid=True,
-    sharey=True,
-    fig_size=None,
-    savefig=None,
-):
-    # 1) Validate the main DataFrame `df`. Ensure it is a pandas.DataFrame.
-    #    If not, raise or convert. Optionally check shape, columns, etc.
-    if not isinstance(df, pd.DataFrame):
-        raise TypeError("`df` must be a pandas DataFrame.")
-
-    # 2) If `ignore_index` is True, reset indexes for `df`, `pred_df`, and
-    #    any reference arrays to maintain consistent ordering from 0..N-1.
-    #    This can help align data if original indexes are off.
-    if ignore_index:
-        df = df.reset_index(drop=True)
-        if isinstance(pred_df, pd.DataFrame):
-            pred_df = pred_df.reset_index(drop=True)
-        if isinstance(depth_arr, (pd.Series, np.ndarray)):
-            depth_arr = pd.Series(range(len(df)))  # or a direct np.arange
-        elif isinstance(ref_arr, pd.DataFrame) and ref_col is not None:
-            ref_arr = ref_arr.reset_index(drop=True)
-    else:
-        # If `ignore_index` is False, we might need to check whether
-        # indexes are numeric. If `index_as_depth` is True, interpret
-        # the DataFrame index as depth. If non-numeric and `error='raise'`,
-        # raise. If 'warn', we can warn and reset. If 'ignore', do silent reset.
-        if index_as_depth:
-            if not np.issubdtype(df.index.dtype, np.number):
-                if error == 'raise':
-                    raise ValueError(
-                        "Index is not numeric, cannot interpret "
-                        "as depth with `index_as_depth=True`."
-                    )
-                elif error == 'warn':
-                    warnings.warn(
-                        "Index is not numeric. Resetting index "
-                        "because `index_as_depth=True` was requested."
-                    )
-                    df = df.reset_index(drop=True)
-                else:
-                    # 'ignore'
-                    df = df.reset_index(drop=True)
-            # If we pass this point, df.index is numeric or has been reset.
-            # Use that index for depth if no explicit `depth_arr`.
-            if depth_arr is None:
-                depth_arr = df.index
-
-
-    # 3) Handle depth array logic. If `depth_arr` is provided, it must match
-    #    `df` in length unless partial data is allowed. The user indicated
-    #    partial data might be possible based on `error` policy.
-    if depth_arr is not None:
-        if isinstance(depth_arr, pd.DataFrame) and depth_arr.shape[1] == 1:
-            depth_arr = depth_arr.iloc[:, 0]
-        # Check length or partial alignment
-        if len(depth_arr) != len(df):
-            if error == 'raise':
-                raise ValueError(
-                    "Depth array length does not match `df` row count. "
-                    "Cannot proceed under `error='raise'`."
-                )
-            elif error == 'warn':
-                warnings.warn(
-                    "Depth array length mismatches `df`. Will align partial "
-                    "data or fallback if possible."
-                )
-                # A simplistic approach might be to trim or do an intersection:
-                min_len = min(len(depth_arr), len(df))
-                df = df.iloc[:min_len]
-                depth_arr = depth_arr.iloc[:min_len] \
-                    if isinstance(depth_arr, pd.Series) else depth_arr[:min_len]
-            else:
-                # 'ignore' => do partial or fallback
-                min_len = min(len(depth_arr), len(df))
-                df = df.iloc[:min_len]
-                depth_arr = depth_arr.iloc[:min_len] \
-                    if isinstance(depth_arr, pd.Series) else depth_arr[:min_len]
-
-        # Also, possibly check if depth is monotonic. If it's not and `error='raise'`,
-        # we might raise. If 'warn', we warn. If 'ignore', do nothing.
-        # We skip that for brevity.
-        #XXX IMPLEMENT MONOTONIC depth  
-
-    # 4) If `pred_df` is provided, ensure it’s a DataFrame. If `pred_cols` is given,
-    #    subset columns. Possibly also handle partial alignment similarly.
-    if pred_df is not None:
-        if not isinstance(pred_df, pd.DataFrame):
-            raise TypeError("`pred_df` must be a pandas DataFrame if provided.")
-        if pred_cols is not None:
-            pred_df = pred_df[pred_cols]
-        if len(pred_df) != len(df):
-            if error == 'raise':
-                raise ValueError(
-                    "pred_df length mismatches `df`. Cannot proceed under "
-                    "`error='raise'`."
-                )
-            elif error == 'warn':
-                warnings.warn(
-                    "pred_df length mismatches `df`. Will trim or fallback."
-                )
-                min_len = min(len(pred_df), len(df))
-                pred_df = pred_df.iloc[:min_len]
-            else:
-                # 'ignore'
-                min_len = min(len(pred_df), len(df))
-                pred_df = pred_df.iloc[:min_len]
-
-    # 5) Subset `df` columns if `cols` is specified. If not, use all columns.
-    if cols is not None:
-        df = df[list(cols)]
-
-    # 6) If `combined_cols` is specified, group them. For example:
-    #    combined_cols = {'resistivity': ['rt10','rt20']}.
-    #    We'll create a dictionary for track_name -> list_of_columns. If
-    #    `combined_cols` is just a list, we create one track with them.
-    track_dict = {}
-    used_cols = set()
-    if combined_cols is not None:
-        if isinstance(combined_cols, dict):
-            for track_name, c_list in combined_cols.items():
-                track_dict[track_name] = c_list
-                used_cols.update(c_list)
-        elif isinstance(combined_cols, list):
-            track_name = '-'.join(combined_cols)
-            track_dict[track_name] = combined_cols
-            used_cols.update(combined_cols)
-
-    # For columns in df that are not in used_cols, each becomes its own track.
-    for col in df.columns:
-        if col not in used_cols:
-            track_dict[col] = [col]
-
-    # 7) Gather df tracks as list of (track_name, [col_list]).
-    df_tracks = list(track_dict.items())
-
-    # If we are also plotting `pred_df`, create track for each column in pred_df
-    # if `agg_plot=True`. Otherwise, we can handle them separately.
-    pred_tracks = []
-    if pred_df is not None:
-        for c in pred_df.columns:
-            pred_tracks.append((c, [c]))
-
-    if agg_plot:
-        all_tracks = df_tracks + pred_tracks
-    else:
-        # If not aggregating, we do df tracks. Then optionally do pred in second pass.
-        all_tracks = df_tracks
-
-    n_tracks = len(all_tracks)
-    if n_tracks == 0:
-        raise ValueError("No columns to plot from df or pred_df.")
-
-    if fig_size is None:
-        fig_size = (3 * n_tracks, 10)
-
-    # 8) Create subplots. If sharey=True, we might want to do:
-    fig, axes = plt.subplots(
-        nrows=1,
-        ncols=n_tracks,
-        figsize=fig_size,
-        sharey=sharey,
-        squeeze=False
-    )
-    ax_list = axes[0]
-
-    # XXX FIX HERE 
-    
-    # HERE WHAT WE WANT TO SAY IS THAT x_ticks and label value  should be in the top rather
-    # than bottom and label the name of COLUMN SHOULD Be placed at the bottom 
-    # this avoid the ambiguity 
-    # ALSO implement when plot_kind_mapping  Is passed 
-    # and depth kind is set to 'log', 
-    
-    
-    
-    # 9) Helper function for track plotting. We'll handle the user instructions
-    #    "the value should be in the top and column name at bottom" by using
-    #    invert_yaxis for depth, and also reversing or placing x-axis at top?
-    #    The instructions are ambiguous. We'll assume we want a normal x-axis
-    #    at bottom, and the value label at the top of each bar or line. We'll
-    #    do a line plot with annotation near top for each data point? That might
-    #    be too busy. Possibly they meant "the label for the track is at top,
-    #    the column name"? We'll guess they want a normal well log style:
-    #    Depth on vertical axis, track name at top.
-
-    def plot_track(ax, track_name, cols_in_track, data, depth_vals):
-        # Decide how to handle plot kinds. If plot_kind_mapping is given,
-        # each col might have e.g. 'log' => semilogx. For now we do line plot.
-        
-        
-        color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-        for idx_col, col in enumerate(cols_in_track):
-            if col not in data.columns:
-                continue
-            x_vals = data[col].values
-            c_color = color_cycle[idx_col % len(color_cycle)]
-            ax.plot(x_vals, depth_vals, color=c_color, label=col)
-        # The instructions say "the value should be in the top and column name at bottom".
-        # This might refer to how the x-axis is placed at the top, typical in well logs.
-        # We can do ax.xaxis.set_label_position('top'), ax.xaxis.tick_top()
-        ax.xaxis.set_label_position('top')
-        ax.xaxis.tick_top()
-        ax.set_xlabel(track_name)
-        ax.set_ylabel("Depth")
-        ax.invert_yaxis()  # typical well log style
-        if show_grid:
-            ax.grid(True, linestyle='--', alpha=0.7)
-        ax.legend()
-
-    # 10) For each track, decide if it belongs to df or pred_df, if agg_plot.
-    #     Then call plot_track with the relevant data. Depth might come from
-    #     depth_arr or from the index. If no depth_arr is given, we do
-    #     np.arange(...) based on data length. If partial alignment isn't done,
-    #     we just assume the lengths match at this point.
-    for i, (track_name, c_list) in enumerate(all_tracks):
-        ax_i = ax_list[i]
-        # decide if c_list belongs to pred_df or df
-        if pred_df is not None and c_list[0] in pred_df.columns:
-            data_source = pred_df
-        else:
-            data_source = df
-
-        if depth_arr is not None:
-            depth_vals = depth_arr.values if isinstance(depth_arr, pd.Series) \
-                else depth_arr
-        else:
-            depth_vals = np.arange(len(data_source))
-
-        plot_track(
-            ax=ax_i,
-            track_name=track_name,
-            cols_in_track=c_list,
-            data=data_source,
-            depth_vals=depth_vals
-            # implement kind_mapping adn d_kind completely 
+@isdf 
+@param_deprecated_message(
+    warning_category=UserWarning, 
+    conditions_params_mappings=[
+        {
+            'param': 'depth_kind',
+            'condition': lambda v: v not in { None, 'log'},
+            'message': ( 
+                "Current version only supports ``depth_kind='log'``."
+                " Resetting depth_kind to None"
+                ),
+            'default': None
+        }, 
+        { 
+            'param': 'titles',
+            'condition': lambda v: v is not None,
+            'message': ( 
+                "Title for each subplot is unused."
+                " Track names overshadow it."
+                ),
+            'default': None
             
-            # kind_mapping=plot_kind_mapping,
-            # d_kind=depth_kind,
-        )
-
-    # 11) If not `agg_plot`, and there's pred_df not included above, we might
-    #     create new subplots or add them. We'll skip a second pass for brevity.
-
-    # 12) If savefig is provided, save the figure.
-    plt.tight_layout()
-    if savefig is not None:
-        plt.savefig(savefig)
-    plt.show()
-
+        }
+    ]
+)
+@check_params ({ 
+    'ref_col': str, 
+    'combined_cols':Optional[Dict[str, List[str]]], 
+    'kind_mapping': Optional[Dict[str, str]], 
+    })
 def plot_well(
     df,
     depth_arr=None,
@@ -431,512 +122,599 @@ def plot_well(
     ref_col=None,
     cols=None,
     pred_cols=None,
-    plot_kind_mapping=None,
-    depth_kind=None,     
+    kind_mapping=None,
+    depth_kind=None,
     combined_cols=None,
-    agg_plot=False,
+    agg_plot=False, 
     ignore_index=False,
-    index_as_depth=False,
+    index_as_depth=True,
     error='warn',
     titles=None,
     show_grid=True,
+    grid_alpha=0.7,
+    grid_ls='--',
     sharey=True,
     fig_size=None,
-    savefig=None
+    savefig=None,
+    minorticks_on=True,
+    subplot_kws=None
 ):
-    # 1) Validate that `df` is a DataFrame. Convert or raise an error if not.
-    if not isinstance(df, pd.DataFrame):
-        raise TypeError("`df` must be a pandas DataFrame.")
+    """
+    Plot well logs from a main DataFrame and optional prediction
+    DataFrame with a shared or separate depth axis. The depth can be
+    provided explicitly via ``depth_arr`` or derived from `df` index
+    if `index_as_depth` is True. This function relies on
+    `validate_depth` and can optionally leverage
+    `arrange_tracks_for_plotting` to manage columns.
 
-    # 2) If `ignore_index` is True, reset the indexes of `df`, `pred_df`,
-    #    and possibly other arrays to ensure a 0..N-1 ordering.
-    if ignore_index:
-        df = df.reset_index(drop=True)
-        if isinstance(pred_df, pd.DataFrame):
-            pred_df = pred_df.reset_index(drop=True)
-        if isinstance(depth_arr, (pd.Series, np.ndarray)):
-            depth_arr = pd.Series(range(len(df)))
-        elif isinstance(ref_arr, pd.DataFrame) and ref_col is not None:
-            ref_arr = ref_arr.reset_index(drop=True)
-    else:
-        # If not ignoring indexes and `index_as_depth` is True, ensure that
-        # the DataFrame index is numeric. If it is not, handle according to
-        # the `error` policy.
-        if index_as_depth:
-            if not np.issubdtype(df.index.dtype, np.number):
-                if error == 'raise':
-                    raise ValueError(
-                        "Index is not numeric, cannot interpret as depth "
-                        "with `index_as_depth=True`."
-                    )
-                elif error == 'warn':
-                    warnings.warn(
-                        "Index is not numeric. Resetting index because "
-                        "`index_as_depth=True` was requested."
-                    )
-                    df = df.reset_index(drop=True)
-                else:  # 'ignore'
-                    df = df.reset_index(drop=True)
+    The well logs are typically arranged as vertical tracks, each
+    sharing the same depth axis. This aids in comparing multiple
+    logs or predictions across the same interval. If `agg_plot`
+    is True, the tracks from both data sources are concatenated
+    horizontally with no spacing and only the first track displays
+    the depth axis. Otherwise, separate sets of tracks can be
+    displayed with configurable space in between.
 
-            # If we pass this point, the index of df is numeric (or has been reset).
-            # If `depth_arr` is still None, we use df.index as the depth.
-            if depth_arr is None:
-                depth_arr = df.index
+    .. math::
+       y = \alpha x + \beta
 
-    # 3) Handle depth array logic. If `depth_arr` is provided, it should match
-    #    the length of `df` (or partial alignment is done based on `error`).
-    if depth_arr is not None:
-        if isinstance(depth_arr, pd.DataFrame) and depth_arr.shape[1] == 1:
-            depth_arr = depth_arr.iloc[:, 0]
+    Here, :math:`y` is the log response, and :math:`x` is the
+    measured index (e.g., depth). The constants :math:`\alpha` and
+    :math:`\beta` represent scaling factors in typical well-log
+    transformations [1]_.
 
-        if len(depth_arr) != len(df):
-            if error == 'raise':
-                raise ValueError(
-                    "Depth array length does not match `df` row count. "
-                    "Cannot proceed under `error='raise'`."
-                )
-            elif error == 'warn':
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Main DataFrame containing well-log columns. If `cols` is
+        provided, only those columns in ``df`` are plotted.
+    depth_arr : array-like or pandas.Series, optional
+        Depth values aligned to ``df``. If None and
+        `index_as_depth` is True, the function uses `df`
+        index as depth. Otherwise a simple 0..N range is used.
+    ref_arr : array-like or pandas.Series, optional
+        Reference or ground truth values aligned with
+        predictions in ``pred_df``.
+    pred_df : pandas.DataFrame or pandas.Series, optional
+        Prediction data (e.g., model outputs) to be plotted
+        alongside `df`. If `agg_plot` is True, it is
+        appended to df tracks.
+    ref_col : str, optional
+        Column name in the reference DataFrame if passing
+        ``ref_arr`` as a multi-column object. Specifies which
+        column to plot as reference.
+    cols : list of str, optional
+        Subset of columns from `df` to plot. If None,
+        all columns from `df` are considered.
+    pred_cols : list of str, optional
+        Subset or rename columns from ``pred_df``. If
+        ``pred_df`` is a single Series and exactly one
+        name is given, the Series is renamed accordingly.
+    kind_mapping : dict, optional
+        A mapping dict of columns or track names to their
+        plotting type (e.g. `{'Resistivity': 'log'}`). If a
+        track is marked 'log', it is plotted using a semilogx.
+    depth_kind : {'log', None}, optional
+        If `'log'`, use log-scaling on the depth axis.
+    combined_cols : dict or list of str, optional
+        Group columns in `df` as combined tracks. A dict like
+        ``{'Track1': ['GR','RHOB']}`` merges the columns in
+        one subplot. A list merges them under a generated name.
+    agg_plot : bool, optional
+        If True, merges `df` and ``pred_df`` tracks into one
+        continuous set of subplots. If False, plots them
+        separately with a configurable gap in between.
+    ignore_index : bool, optional
+        Whether to reset index for `df`, ``pred_df``, and
+        others prior to plotting. If True, indices become
+        0..N-1.
+    index_as_depth : bool, optional
+        Whether to treat `df` index as depth if no
+        ``depth_arr`` is given.
+    error : {'warn', 'raise', 'ignore'}, optional
+        Error policy for mismatches or non-monotonic depth.
+    titles : list of str, optional
+        Titles for each subplot (unused if overshadowed by
+        track names).
+    show_grid : bool, default True
+        Toggles the grid overlay on each track.
+    grid_alpha : float, default 0.7
+        Transparency factor for the gridlines.
+    grid_ls : str, default '--'
+        Line style for the grid.
+    sharey : bool, default True
+        Whether y-axes (depth axes) are shared among subplots.
+        Typically True for well logs.
+    fig_size : tuple, optional
+        Size of the figure (width, height). If None, a
+        reasonable default is chosen.
+    savefig : str, optional
+        If provided, path to save the resulting figure.
+    minorticks_on : bool, default True
+        Whether to enable minor ticks for added depth
+        readability.
+    subplot_kws : dict, optional
+        Additional keyword arguments passed to
+        ``plt.subplots`` or GridSpec.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_well
+    >>> import pandas as pd
+    >>> # Suppose df is a DataFrame with columns: GR, RHOB, NPHI
+    >>> df = pd.DataFrame({
+    ...     'GR':   [50, 60, 70],
+    ...     'RHOB': [2.3, 2.4, 2.35],
+    ...     'NPHI': [0.25, 0.22, 0.20]
+    ... })
+    >>> # Plot these logs with depth as df.index:
+    >>> plot_well(df, index_as_depth=True, agg_plot=True)
+
+    Notes
+    -----
+    In the mathematical sense, if :math:`D` is the depth axis
+    and :math:`L_i` are the log values, then:
+
+    .. math::
+       \{(D, L_1), (D, L_2), \dots\} \;\in\; \mathbb{R}^2.
+
+    The function overlays them in vertical subplots
+    for quick visual correlation.
+
+    See Also
+    --------
+    `arrange_tracks_for_plotting` :
+        Organizes (track_name, columns) tuples for df and
+        pred_df.  
+    `validate_depth` :
+        Aligns DataFrames and checks monotonic depth.
+
+    References
+    ----------
+    .. [1] Slatt, R.M. "Stratigraphic reservoir characterization
+       for petroleum geologists, geophysicists, and engineers",
+       2nd Edition, Elsevier, 2013.
+    """
+
+    def arrange_tracks_for_plotting(
+            df_tracks, pred_tracks, agg_plot=False):
+        # If agg_plot is True, combine both sets of tracks into a single list.
+        if agg_plot:
+            return df_tracks + pred_tracks
+        else:
+            # Otherwise, return them separately so the 
+            # caller can handle them independently.
+            return df_tracks, pred_tracks
+    
+    # If subplot_kws is None, define an empty dict; 
+    # we will handle spacing logic ourselves via GridSpec
+    # in this implementation.
+    if subplot_kws is None:
+        subplot_kws = {}
+
+    # Validate depth and align data (not shown; assume
+    # 'validate_depth' is externally defined).
+    df, pred_df, ref_arr, depth_arr = validate_depth(
+        df                  = df,
+        pred_df             = pred_df,
+        reference           = ref_arr,
+        ref_col             = ref_col,
+        depth               = depth_arr,
+        new_name            = 'Depth',
+        rename_depth        = False,
+        reset_index         = ignore_index,
+        check_monotonic     = True,
+        index_as_depth      = index_as_depth,
+        allow_index_mismatch= False,
+        error               = error,
+        as_series           = True,
+        check_size          = False
+    )
+
+    # If pred_cols is specified, subset or rename pred_df if needed.
+    if pred_cols is not None:
+        pred_cols = is_iterable(
+            pred_cols, 
+            exclude_string=True, 
+            transform=True
+    )
+
+    if isinstance(pred_df, pd.Series):
+        if pred_cols and len(pred_cols) == 1:
+            pred_df.name = pred_cols[0]
+        else:
+            if error == 'warn' and pred_cols and len(pred_cols) > 1:
                 warnings.warn(
-                    "Depth array length mismatches `df`. Will align partial "
-                    "data or fallback if possible."
+                    "Multiple pred_cols given, but pred_df is a single Series."
+                    " Ignoring rename."
                 )
-                min_len = min(len(depth_arr), len(df))
-                df = df.iloc[:min_len]
-                if isinstance(depth_arr, pd.Series):
-                    depth_arr = depth_arr.iloc[:min_len]
-                else:
-                    depth_arr = depth_arr[:min_len]
-            else:  # 'ignore'
-                min_len = min(len(depth_arr), len(df))
-                df = df.iloc[:min_len]
-                if isinstance(depth_arr, pd.Series):
-                    depth_arr = depth_arr.iloc[:min_len]
-                else:
-                    depth_arr = depth_arr[:min_len]
-
-        # Check monotonic if needed. If `error='raise'` and not monotonic,
-        # raise. If 'warn', issue a warning. If 'ignore', do nothing.
-        # We skip advanced partial data logic. We'll do a simple check.
-        if not depth_arr.is_monotonic_increasing if isinstance(depth_arr, pd.Series) \
-           else (np.diff(depth_arr) >= 0).all():
-            if error == 'raise':
-                raise ValueError(
-                    "Depth array is not strictly monotonic ascending. "
-                    "Cannot proceed under `error='raise'`."
-                )
-            elif error == 'warn':
-                warnings.warn(
-                    "Depth array is not strictly monotonic. The plot may be "
-                    "incorrectly rendered."
-                )
-            else:
-                pass  # 'ignore'
-
-    # 4) If `pred_df` is provided, ensure it is a DataFrame. If `pred_cols` is given,
-    #    subset. Also check length vs. df. Possibly partial alignment by `error`.
-    if pred_df is not None:
-        if not isinstance(pred_df, pd.DataFrame):
-            raise TypeError("`pred_df` must be a pandas DataFrame if provided.")
+    elif isinstance(pred_df, pd.DataFrame):
         if pred_cols is not None:
             pred_df = pred_df[pred_cols]
 
-        if len(pred_df) != len(df):
-            if error == 'raise':
-                raise ValueError(
-                    "pred_df length mismatches `df`. Cannot proceed under "
-                    "`error='raise'`."
-                )
-            elif error == 'warn':
-                warnings.warn(
-                    "pred_df length mismatches `df`. Will trim or fallback."
-                )
-                min_len = min(len(pred_df), len(df))
-                pred_df = pred_df.iloc[:min_len]
-                df = df.iloc[:min_len]
-                if depth_arr is not None:
-                    if isinstance(depth_arr, pd.Series):
-                        depth_arr = depth_arr.iloc[:min_len]
-                    else:
-                        depth_arr = depth_arr[:min_len]
-            else:  # 'ignore'
-                min_len = min(len(pred_df), len(df))
-                pred_df = pred_df.iloc[:min_len]
-                df = df.iloc[:min_len]
-                if depth_arr is not None:
-                    if isinstance(depth_arr, pd.Series):
-                        depth_arr = depth_arr.iloc[:min_len]
-                    else:
-                        depth_arr = depth_arr[:min_len]
-
-    # 5) Subset `df` columns if `cols` is specified.
+    # If cols is given, subset df columns accordingly.
     if cols is not None:
         df = df[list(cols)]
 
-    # 6) If `combined_cols` is given, group them into tracks. We'll build a dict
-    #    track_dict: track_name -> [columns].
+    # Build a dict grouping columns if combined_cols is used.
     track_dict = {}
-    used_cols = set()
+    used_cols  = set()
+
     if combined_cols is not None:
         if isinstance(combined_cols, dict):
-            for track_name, c_list in combined_cols.items():
-                track_dict[track_name] = c_list
-                used_cols.update(c_list)
+            for track_name, column_list in combined_cols.items():
+                track_dict[track_name] = column_list
+                used_cols.update(column_list)
         elif isinstance(combined_cols, list):
             track_name = '-'.join(combined_cols)
             track_dict[track_name] = combined_cols
             used_cols.update(combined_cols)
 
-    # All other columns not in `used_cols` become their own single-col track.
-    for col in df.columns:
-        if col not in used_cols:
-            track_dict[col] = [col]
+    # Columns in df that aren't in combined_cols become individual tracks.
+    for c in df.columns:
+        if c not in used_cols:
+            track_dict[c] = [c]
 
-    # 7) We get a list of (track_name, columns).
+    # Convert to list of (track_name, [columns]) for df.
     df_tracks = list(track_dict.items())
 
-    # If we also have `pred_df` and `agg_plot=True`, create a track for each column
-    # in pred_df. Then combine them with df_tracks => all_tracks.
+    # Build a list of (track_name, [columns]) for pred_df if provided.
     pred_tracks = []
     if pred_df is not None:
-        for c in pred_df.columns:
-            pred_tracks.append((c, [c]))
+        if isinstance(pred_df, pd.DataFrame):
+            for col_name in pred_df.columns:
+                pred_tracks.append((col_name, [col_name]))
+        elif isinstance(pred_df, pd.Series):
+            pred_tracks.append((pred_df.name, [pred_df.name]))
 
-    if agg_plot:
-        all_tracks = df_tracks + pred_tracks
-    else:
-        all_tracks = df_tracks  # We won't handle pred in second pass for brevity.
-
-    if not all_tracks:
-        raise ValueError("No columns to plot from df or pred_df.")
-    n_tracks = len(all_tracks)
-
-    # 8) Figure size or default
-    if fig_size is None:
-        fig_size = (3 * n_tracks, 10)
-
-    # 9) Make subplots horizontally. sharey=sharey so that the depth axis is shared.
-    fig, axes = plt.subplots(
-        nrows=1,
-        ncols=n_tracks,
-        figsize=fig_size,
-        sharey=sharey,
-        squeeze=False
+    # Use helper to arrange df and pred tracks based on agg_plot.
+    arranged = arrange_tracks_for_plotting(
+        df_tracks   = df_tracks,
+        pred_tracks = pred_tracks,
+        agg_plot    = agg_plot
     )
-    ax_list = axes[0]
 
-    # 9.1) A helper to interpret `depth_kind`. If `depth_kind=='log'`, 
-    #      we do ax.set_yscale('log'). We also invert y to show deeper
-    #      depths at the bottom, typical in well logs.
-    def maybe_set_depth_scale(ax_, dkind):
+    # If agg_plot is True, we get a single list of tracks (df+pred). 
+    # If False, we get a tuple (df_tracks, pred_tracks).
+    if agg_plot:
+        all_tracks = arranged
+        # No spacing between columns when aggregated.
+        # We rely on a single row with wspace=0.0 for all subplots.
+        if "wspace" not in subplot_kws:
+            subplot_kws["wspace"] = 0.0
+        df_total_tracks = len(all_tracks)
+
+        # We'll handle depth labeling by only showing y-label on the 
+        # first track. Mask the y-label on subsequent columns.
+
+        if fig_size is None:
+            fig_size = (3 * df_total_tracks, 10)
+
+        fig = plt.figure(figsize=fig_size)
+        gs  = GridSpec(nrows=1, 
+                       ncols=df_total_tracks,
+                       figure=fig,
+                       **subplot_kws)
+
+        axes = []
+        for i in range(df_total_tracks):
+            ax = fig.add_subplot(gs[0, i])
+            axes.append(ax)
+
+        # Now we have one row of subplots. 
+        # We'll plot them in a single pass below.
+        ax_list = axes
+
+    else:
+        df_tracks_only, pred_tracks_only = arranged
+        # We want some spacing between df and pred subplots. 
+        # For df alone, we might have wspace=0 between its columns,
+        # and for pred alone, also wspace=0, 
+        # but a bigger gap between the last df column and first pred column.
+        # We'll implement that using gridspec with two sub-grids:
+
+        df_total_tracks   = len(df_tracks_only)
+        pred_total_tracks = len(pred_tracks_only)
+        # We'll define a figure with df_total_tracks + pred_total_tracks 
+        # subplots in one row, but a gap (e.g. wspace=0.3) specifically 
+        # between the two sets.
+
+        if fig_size is None:
+            fig_size = (3 * (df_total_tracks + pred_total_tracks), 10)
+
+        fig = plt.figure(figsize=fig_size)
+
+        # We'll manually allocate the columns:
+        #   0..(df_total_tracks-1) for df
+        #   then a gap
+        #   then pred_total_tracks columns for pred
+        # We'll use the width ratios trick to insert some space.
+        # Another approach is two separate subplots calls, 
+        # but let's do it in one figure:
+
+        # Example approach:
+        # total_ncols = df_total_tracks + pred_total_tracks
+        # We define a GridSpec with that many columns. We'll set wspace=0 
+        # for everything.
+        # Then we force a bigger "gap" column or so. But let's do it simpler:
+        # We'll define 2 sub-grids: one for df with wspace=0, 
+        # another for pred with wspace=0, 
+        # plus a big space in between them by adjusting figure margins
+        # or using a big hspace/wspace.
+
+        # We'll do 2 columns in the top-level GridSpec: one for df, one for pred.
+        # Then each sub-GridSpec has as many columns as needed for df or pred.
+        # In between them, we define wspace=some bigger number, e.g. 0.3 or 0.4.
+
+        # Top-level GridSpec
+        top_gs = GridSpec(
+            nrows=1,
+            ncols=2,
+            figure=fig,
+            width_ratios=[df_total_tracks, pred_total_tracks],
+            wspace=0.3  # Space between the two groups
+        )
+        
+        # Nested GridSpec for df
+        gs_df = GridSpecFromSubplotSpec(
+            nrows=1,
+            ncols=df_total_tracks,
+            subplot_spec=top_gs[0, 0],  # Use top-level GridSpec as base
+            wspace=0.0  # No space among df columns
+        )
+        
+        # Nested GridSpec for pred
+        gs_pred = GridSpecFromSubplotSpec(
+            nrows=1,
+            ncols=pred_total_tracks,
+            subplot_spec=top_gs[0, 1],  # Use top-level GridSpec as base
+            wspace=0.0  # No space among pred columns
+        )
+
+        # We'll gather the axes in an array so we can handle
+        # them in a single pass if we want:
+        ax_list = []
+
+        # Create subplots for df tracks
+        df_axes = []
+        for i in range(df_total_tracks):
+            ax = fig.add_subplot(gs_df[0, i])
+            df_axes.append(ax)
+        # Create subplots for pred tracks
+        pred_axes = []
+        for j in range(pred_total_tracks):
+            ax = fig.add_subplot(gs_pred[0, j])
+            pred_axes.append(ax)
+
+        ax_list = df_axes + pred_axes
+
+    # Helper function to set a log scale on depth 
+    # if requested, then invert axis.
+    # since plot_track firstly invert y so no need 
+    # to reinvert y again. 
+    def maybe_set_depth_scale(ax_, dkind, show_ylabel):
         if dkind == 'log':
             ax_.set_yscale('log')
-        ax_.invert_yaxis()
-
-    # 9) For each track i, we plot the columns in track_dict. If there's
-    #    multiple columns in that track, we overlay them or do multi-lines
-    #    with different colors. We'll define a helper function for track
-    #    plotting. We'll pass the axis, the columns, and the data, etc.
-    def plot_track(ax, track_name, cols_in_track, data, depth,
-                   kind_mapping, d_kind, t_idx):
-        # We'll handle each col. If kind_mapping says 'log', we do semilogx,
-        # or if 'line', we do normal plot, etc. We'll share the same y-axis
-        # for depth, which is typical in well logs. Depth is vertical,
-        # so typically we do something like ax.invert_yaxis() if we want
-  
-        color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-        for idx_col, col in enumerate(cols_in_track):
-            if col not in data.columns:
-                continue  # skip if missing
-            x_vals = data[col].values
-            # If we want a log scale for x, or something, check `kind_mapping`.
-            # If d_kind == 'log', do something for depth?
-            c_color = color_cycle[idx_col % len(color_cycle)]
-            # ax.plot(x_vals, depth, color=c_color, label=col)
+        # if show_ylabel:
+        #     ax.set_ylabel("Depth")
+        # else:
+        #     # Hide the y-label if we don't want to see it on this subplot.
+        #     ax.set_yticklabels([])  # Hide y-tick labels
+        #     ax.set_ylabel("")
             
-            # Check the plot kind for this col
-            col_kind = None
-            if kind_mapping and col in kind_mapping:
-                col_kind = kind_mapping[col]
+        # ax_.invert_yaxis () : No Need.
+            
+    # Function to plot columns in a single track. 
+    # We optionally overlay reference data
+    # in red for pred tracks.
+    def plot_track(
+        ax,
+        track_name,
+        cols_in_track,
+        data_source,
+        depth_values,
+        kmapping,
+        dkind,
+        do_grid,
+        show_ylabel,
+        ref_data=None
+    ):
+        color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-            c_color = color_cycle[idx_col % len(color_cycle)]
-            if col_kind == 'log':
-                # Use semilogx
-                # Depth is vertical. We do a log scale on x:
-                ax.semilogx(
-                    x_vals, depth, color=c_color, label=col
-                )
+        for idx_col, col_name in enumerate(cols_in_track):
+            if col_name not in data_source.columns:
+                continue
+
+            x_vals = data_source[col_name].values
+            col_kind = None
+            if kmapping and (col_name in kmapping):
+                col_kind = kmapping[col_name]
             else:
-                # Default to linear
-                ax.plot(
-                    x_vals, depth, color=c_color, label=col
+                # If the combined_cols dict has a single "track_name" = 'Resistivity'
+                # and we put 'log' in kind_mapping for 'Resistivity', we might want
+                # to adopt that for all columns in that track. We'll do a fallback:
+                if kmapping and (track_name in kmapping):
+                    col_kind = kmapping.get(track_name)
+
+            line_color = color_cycle[idx_col % len(color_cycle)]
+            if col_kind == 'log':
+                ax.semilogx(x_vals, depth_values, color=line_color, label=col_name)
+            else:
+                ax.plot(x_vals, depth_values, color=line_color, label=col_name)
+
+        if ref_data is not None:
+            ax.plot(
+                ref_data.values, depth_values, color='red', 
+                label= ref_data.name if isinstance(
+                    ref_data,pd.Series) else 'Reference'
                 )
-                
+
         ax.set_title(track_name)
-        ax.set_xlabel("Value")  
-        ax.set_ylabel("Depth")
-        ax.invert_yaxis()  # typical well log
-        if show_grid:
-            ax.grid(True, linestyle='--', alpha=0.7)
+        ax.set_xlabel("Value")
+        if show_ylabel:
+            ax.set_ylabel("Depth")
+        else:
+            # Hide the y-label if we don't want to see it on this subplot.
+            ax.set_yticklabels([])  # Hide y-tick labels
+            ax.set_ylabel("")
+        ax.invert_yaxis()
+
+        if do_grid:
+            ax.grid(True, linestyle=grid_ls, alpha=grid_alpha)
         ax.legend()
 
-    for i, (track_name, c_list) in enumerate(all_tracks):
-        ax_i = ax_list[i]
-        # If c_list belongs to pred_df or df
-        if pred_df is not None and c_list[0] in pred_df.columns:
-            data_source = pred_df
-        else:
-            data_source = df
+        if minorticks_on:
+            ax.grid(True, which='minor', linestyle=':', alpha=0.5)  
+            ax.minorticks_on()
 
-        if depth_arr is not None:
-            depth_vals = (depth_arr.values 
-                          if isinstance(depth_arr, pd.Series) 
-                          else depth_arr)
-        else:
-            depth_vals = np.arange(len(data_source))
+    # If agg_plot is True, we have all_tracks in a single list. 
+    # We'll mask depth labeling except for the first track.
+    if agg_plot:
+        for i, (track_name, columns_in_track) in enumerate(all_tracks):
+            current_ax = ax_list[i]
 
-        # Plot each track, applying plot kind logic
-        plot_track(ax=ax_i, 
-                   track_name=track_name, 
-                   cols_in_track=c_list, 
-                   data=data_source, 
-                   depth=depth_vals,
-                   kind_mapping=plot_kind_mapping, 
-                   d_kind=depth_kind, 
-                   t_idx=i
-                 )
+            # Decide if the columns belong to pred_df or df
+            if pred_df is not None:
+                if (isinstance(pred_df, pd.DataFrame)
+                    and columns_in_track[0] in pred_df.columns):
+                    data_source = pred_df
+                elif (isinstance(pred_df, pd.Series)
+                      and columns_in_track[0] == pred_df.name):
+                    data_source = pd.DataFrame(pred_df)
+                else:
+                    data_source = df
+            else:
+                data_source = df
+
+            # Determine depth array
+            if depth_arr is not None:
+                depth_vals = depth_arr.values if isinstance(
+                    depth_arr, pd.Series) else depth_arr
+            else:
+                depth_vals = np.arange(len(data_source))
+
+            # Check if we overlay ref_arr
+            if (data_source is not df) and (ref_arr is not None):
+                reference_to_plot = ref_arr
+            else:
+                reference_to_plot = None
+
+            # Only the first column has the y-label for depth 
+            show_ylabel = (i == 0)
+
+            plot_track(
+                ax           = current_ax,
+                track_name   = track_name,
+                cols_in_track= columns_in_track,
+                data_source  = data_source,
+                depth_values = depth_vals,
+                kmapping     = kind_mapping,
+                dkind        = depth_kind,
+                do_grid      = show_grid,
+                show_ylabel  = show_ylabel,
+                ref_data     = reference_to_plot
+            )
+
+            maybe_set_depth_scale(current_ax, depth_kind, show_ylabel )
+
+    else:
+        # agg_plot is False, so we have two sets of tracks: df_tracks_only,
+        # pred_tracks_only.
+        # We'll plot df first, then pred, each in separate sub-GridSpec. 
+        # The first column in df has the depth label, likewise the first
+        # column in pred has it.
+        # No space among df columns or among pred columns, but a bigger
+        # space between the two sets.
         
-        # Possibly set depth scale, e.g. log
-        maybe_set_depth_scale(ax_i, depth_kind)
+        df_tracks_only, pred_tracks_only = arranged
+        # Axes = df_axes + pred_axes in that order
+        df_axes   = ax_list[:len(df_tracks_only)]
+        pred_axes = ax_list[len(df_tracks_only):]
 
+        # Plot df tracks
+        for i, (track_name, columns_in_track) in enumerate(df_tracks_only):
+            current_ax = df_axes[i]
+
+            if depth_arr is not None:
+                depth_vals = depth_arr.values if isinstance(
+                    depth_arr, pd.Series) else depth_arr
+            else:
+                depth_vals = np.arange(len(df))
+
+            # For df, we do not overlay reference data
+            reference_to_plot = None
+
+            # Only first column of df has depth label
+            show_ylabel = (i == 0)
+
+            plot_track(
+                ax           = current_ax,
+                track_name   = track_name,
+                cols_in_track= columns_in_track,
+                data_source  = df,
+                depth_values = depth_vals,
+                kmapping     = kind_mapping,
+                dkind        = depth_kind,
+                do_grid      = show_grid,
+                show_ylabel  = show_ylabel,
+                ref_data     = reference_to_plot
+            )
+            maybe_set_depth_scale(current_ax, depth_kind, show_ylabel)
+
+        # Plot pred tracks
+        if pred_tracks_only:
+            for j, (track_name, columns_in_track) in enumerate(pred_tracks_only):
+                current_ax = pred_axes[j]
+
+                if pred_df is not None:
+                    if (isinstance(pred_df, pd.DataFrame)
+                        and columns_in_track[0] in pred_df.columns):
+                        data_source = pred_df
+                    elif (isinstance(pred_df, pd.Series)
+                          and columns_in_track[0] == pred_df.name):
+                        data_source = pd.DataFrame(pred_df)
+                    else:
+                        data_source = df
+                else:
+                    data_source = df
+
+                if depth_arr is not None:
+                    depth_vals = depth_arr.values if isinstance(
+                        depth_arr, pd.Series) else depth_arr
+                else:
+                    depth_vals = np.arange(len(data_source))
+
+                # If track is from pred_df, we might overlay ref_arr
+                if (data_source is not df) and (ref_arr is not None):
+                    reference_to_plot = ref_arr
+                else:
+                    reference_to_plot = None
+
+                # Only first column of pred has the depth label
+                show_ylabel = (j == 0)
+
+                plot_track(
+                    ax            = current_ax,
+                    track_name    = track_name,
+                    cols_in_track = columns_in_track,
+                    data_source   = data_source,
+                    depth_values  = depth_vals,
+                    kmapping      = kind_mapping,
+                    dkind         = depth_kind,
+                    do_grid       = show_grid,
+                    show_ylabel   = show_ylabel,
+                    ref_data      = reference_to_plot
+                )
+                maybe_set_depth_scale(current_ax, depth_kind, show_ylabel)
+
+    # Final layout and optional save
     plt.tight_layout()
     if savefig:
         plt.savefig(savefig)
-    plt.show()
-
-def plot_well1(
-    df,
-    depth_arr=None, 
-    ref_arr=None,
-    pred_df=None,
-    ref_col=None,
-    cols=None,
-    pred_cols=None,
-    plot_kind_mapping=None,
-    depth_kind=None,
-    combined_cols=None,
-    agg_plot=False,
-    ignore_index=False,
-    titles=None,
-    show_grid=True,
-    fig_size=None,
-    savefig=None
-):
-    # 1) Validate the main DataFrame `df`. Ensure it is a pandas.DataFrame.
-    #    If not, raise or convert. Optionally check shape, columns, etc.
-    if not isinstance(df, pd.DataFrame):
-        raise TypeError("`df` must be a pandas DataFrame.")
-
-    # 2) If `ignore_index` is True, reset indexes for `df`, `pred_df`, and
-    #    any reference arrays to maintain consistent ordering from 0..N-1.
-    #    This can help align data if original indexes are off.
-    if ignore_index:
-        df = df.reset_index(drop=True)
-        if isinstance(pred_df, pd.DataFrame):
-            pred_df = pred_df.reset_index(drop=True)
-        if isinstance(depth_arr, (pd.Series, np.ndarray)):
-            depth_arr = pd.Series(range(len(df)))  # or similar
-        elif isinstance(ref_arr, pd.DataFrame) and ref_col is not None:
-            ref_arr = ref_arr.reset_index(drop=True)
-
-    # 3) Handle depth array logic. If `depth_arr` is provided, it must match
-    #    `df` in length (unless partial data is allowed). If partial data is
-    #    allowed, we might do an index-based intersection. For simplicity,
-    #    let's assume they match. We can check:
-    if depth_arr is not None:
-        # If depth_arr is DataFrame with single col => convert to Series.
-        if isinstance(depth_arr, pd.DataFrame) and depth_arr.shape[1] == 1:
-            depth_arr = depth_arr.iloc[:, 0]
-        # Check length
-        if len(depth_arr) != len(df):
-            raise ValueError(
-                "Depth array length does not match `df` row count."
-            )
-        # Possibly check if depth goes from small to large, etc.
-
-    # 4) If `pred_df` is provided, ensure it’s a DataFrame. If `pred_cols` is given,
-    #    subset columns. Possibly also check shape consistency or partial intersection.
-    if pred_df is not None:
-        if not isinstance(pred_df, pd.DataFrame):
-            raise TypeError("`pred_df` must be a pandas DataFrame if provided.")
-        if pred_cols is not None:
-            # Subset the pred_df columns
-            pred_df = pred_df[pred_cols]
-        # Possibly realign indexes if partial is allowed.
-
-    # 5) Subset `df` columns if `cols` is specified. If not, use all columns.
-    if cols is not None:
-        df = df[list(cols)]
-
-    # 6) If `combined_cols` is specified, group them. For example:
-    #    combined_cols = {'resistivity': ['rt10','rt20']}
-    #    We'll create a dictionary for track_name -> list_of_columns. If
-    #    `combined_cols` is just a list, we create one track with them.
-    #    This will define how many "tracks" we have for `df`.
-    #    For each track, we plot multiple columns in the same subplot.
-    track_dict = {}
-    used_cols = set()
-    if combined_cols is not None:
-        # If dict, assume user provided {track_name: [col1, col2]} etc.
-        if isinstance(combined_cols, dict):
-            for track_name, c_list in combined_cols.items():
-                track_dict[track_name] = c_list
-                used_cols.update(c_list)
-        # If it's a list, we create a single track. E.g. 'rt10-rt20' => name
-        elif isinstance(combined_cols, list):
-            track_name = '-'.join(combined_cols)
-            track_dict[track_name] = combined_cols
-            used_cols.update(combined_cols)
-    # Now, for any column in df that is not in used_cols, we create a track
-    # with that column alone, so we don't skip them.
-    for col in df.columns:
-        if col not in used_cols:
-            track_dict[col] = [col]
-
-    # 7) Decide how many tracks from `df`. The number of keys in track_dict
-    #    is the number of tracks we have. If `agg_plot=False` and `pred_df`
-    #    is not None, we might just create separate tracks for predictions
-    #    after these. If `agg_plot=True`, we might create a second figure
-    #    or second set of subplots. The user instructions are ambiguous,
-    #    but let's do a single figure with track columns horizontally
-    #    for `df`. Then if `agg_plot=True`, we place `pred_df` tracks
-    #    to the right.
-    df_tracks = list(track_dict.items())  # list of (track_name, [cols]) pairs
-
-    # If we are also plotting `pred_df`, we can make a track for each column
-    # in pred_df if `agg_plot=True`. Or if `agg_plot=False`, we'll just
-    # add them after df tracks. We do a simple approach: create track for each
-    # column of pred_df with name "pred: <col>" or so.
-    pred_tracks = []
-    if pred_df is not None:
-        # Build track for each column
-        for c in pred_df.columns:
-            pred_tracks.append((c, [c]))
-
-    # 8) Build a horizontal set of subplots for df tracks + possibly pred tracks
-    #    if `agg_plot=True`. We'll do a simple approach: N subplots for df,
-    #    plus M subplots for pred, so total = N + M columns. We'll have 1 row.
-    #    If `agg_plot=False`, we might do 2 rows or 2 separate figures. Let's do
-    #    a single row approach with `agg_plot=True`.
-    if agg_plot:
-        all_tracks = df_tracks + pred_tracks
-    else:
-        # We'll just do df tracks. Then optionally do pred in a second pass?
-        all_tracks = df_tracks
-    # But for brevity, let's place them all horizontally if `agg_plot=True`.
-
-    n_tracks = len(all_tracks)
-    if n_tracks == 0:
-        raise ValueError("No columns to plot from df or pred_df.")
-    if fig_size is None:
-        fig_size = (3 * n_tracks, 10)  # e.g. each track is 3 inches wide, 10 tall
-
-    fig, axes = plt.subplots(
-        nrows=1, ncols=n_tracks,
-        figsize=fig_size,
-        squeeze=False
-    )
-    ax_list = axes[0]
-
-    # 9) For each track i, we plot the columns in track_dict. If there's
-    #    multiple columns in that track, we overlay them or do multi-lines
-    #    with different colors. We'll define a helper function for track
-    #    plotting. We'll pass the axis, the columns, and the data, etc.
-    def plot_track(ax, track_name, cols_in_track, data, depth,
-                   kind_mapping, d_kind, t_idx):
-        # We'll handle each col. If kind_mapping says 'log', we do semilogx,
-        # or if 'line', we do normal plot, etc. We'll share the same y-axis
-        # for depth, which is typical in well logs. Depth is vertical,
-        # so typically we do something like ax.invert_yaxis() if we want
-  
-        color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-        for idx_col, col in enumerate(cols_in_track):
-            if col not in data.columns:
-                continue  # skip if missing
-            x_vals = data[col].values
-            # If we want a log scale for x, or something, check `kind_mapping`.
-            # If d_kind == 'log', do something for depth?
-            c_color = color_cycle[idx_col % len(color_cycle)]
-            # ax.plot(x_vals, depth, color=c_color, label=col)
-            
-            # Check the plot kind for this col
-            col_kind = None
-            if kind_mapping and col in kind_mapping:
-                col_kind = kind_mapping[col]
-
-            c_color = color_cycle[idx_col % len(color_cycle)]
-            if col_kind == 'log':
-                # Use semilogx
-                # Depth is vertical. We do a log scale on x:
-                ax.semilogx(
-                    x_vals, depth, color=c_color, label=col
-                )
-            else:
-                # Default to linear
-                ax.plot(
-                    x_vals, depth, color=c_color, label=col
-                )
-                
-        ax.set_title(track_name)
-        ax.set_xlabel("Value")  
-        ax.set_ylabel("Depth")
-        ax.invert_yaxis()  # typical well log
-        if show_grid:
-            ax.grid(True, linestyle='--', alpha=0.7)
-        ax.legend()
-
-    # 10) Build the data to plot for each track. For df_tracks, we pass df.
-    #     For pred tracks if `agg_plot=True`, we pass pred_df. We'll unify
-    #     in all_tracks approach for code simplicity.
-    for i, (track_name, c_list) in enumerate(all_tracks):
-        ax_i = ax_list[i]
-        # Decide if track belongs to df or pred_df
-        # if c_list is from pred, we find it in pred_df, else in df
-        # Actually let's see if the track_name is in pred_df columns or df
-        # We'll guess if track_name in pred_df => use pred_df, else df. Not perfect.
-        # Or we check c_list. We see if c_list[0] in pred_df. We'll do that approach:
-        if pred_df is not None and c_list[0] in pred_df.columns:
-            data_source = pred_df
-        else:
-            data_source = df
-        # Depth might be from `depth_arr` if provided, else from df index or from 0..N
-        if depth_arr is not None:
-            depth_vals = depth_arr.values if isinstance(depth_arr, pd.Series) \
-                else depth_arr
-        else:
-            # fallback to numeric index of data_source
-            depth_vals = np.arange(len(data_source))
-
-        # Actually subset data_source if needed. We'll skip that for brevity.
-        # Then call plot_track
-        plot_track(
-            ax=ax_i,
-            track_name=track_name,
-            cols_in_track=c_list,
-            data=data_source,
-            depth=depth_vals,
-            kind_mapping=plot_kind_mapping,
-            d_kind=depth_kind,
-            t_idx=i
-        )
-
-    # 11) If `agg_plot=False` and there's pred_df not included above, we might do
-    #     a second pass. We'll skip for brevity.
-
-    # 12) If savefig is not None, save the figure
-    if savefig is not None:
-        plt.savefig(savefig)
-
-    plt.tight_layout()
     plt.show()
 
 def plot_perturbations(
@@ -2670,7 +2448,10 @@ def plot_fit(
     y_true, y_pred = drop_nan_in(y_true, y_pred, error='raise')
     
     # Validate y_true and y_pred to ensure consistency and continuity
-    y_true, y_pred = validate_yy(y_true, y_pred, expected_type="continuous")
+    y_true, y_pred = validate_yy(
+        y_true, y_pred, expected_type="continuous",
+        flatten=True
+    )
     
     if metrics_position =='auto': 
         metrics_position =(0.85, 0.05) 

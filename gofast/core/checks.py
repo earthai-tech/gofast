@@ -74,7 +74,8 @@ __all__= [
     'validate_nested_param', 
     'check_params', 
     'ensure_same_shape',
-    'validate_axis'
+    'validate_axis', 
+    'validate_depth'
     ]
 
 class ParamsValidator:
@@ -5979,3 +5980,502 @@ def validate_axis(
 
     # Return final integer axis
     return axis_int
+
+def validate_depth(
+    df,
+    pred_df=None,
+    reference=None,
+    ref_col=None,
+    depth=None,
+    new_name='Depth',
+    rename_depth=False,
+    reset_index=False,
+    check_monotonic=True,
+    index_as_depth=True,
+    allow_index_mismatch=False,
+    error='warn',
+    as_series=True,
+    check_size=False
+):
+    """
+    Validate and align depth information across DataFrames and related inputs.
+
+    This function ensures that the depth-related data within a primary DataFrame
+    (`df`) and optional supplementary DataFrames or Series (`pred_df`, `reference`)
+    are consistent, properly aligned, and meet specified criteria. It handles
+    index resetting, alignment enforcement, depth determination, monotonicity
+    checks, and size validations to maintain data integrity for further analysis
+    or processing.
+
+    The validation process can be represented as aligning vectors
+    :math:`D_{df}`, :math:`D_{pred}`, and :math:`D_{ref}` such that:
+
+    .. math::
+        D_{df} = D_{pred} = D_{ref}
+
+    where each :math:`D` represents the depth values corresponding
+    to each DataFrame.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The primary DataFrame containing the main dataset to be validated.
+    
+    pred_df : array-like, pandas.Series, or pandas.DataFrame, optional
+        Optional predictions or supplementary data corresponding to `df`. If provided,
+        it will be aligned with `df` based on the index or reset accordingly.
+    
+    reference : array-like, pandas.Series, or pandas.DataFrame, optional
+        Optional reference data for comparison or validation against `df`. This
+        can be a Series or a single-column DataFrame. If a DataFrame with multiple
+        columns is provided, `ref_col` must specify which column to use.
+    
+    ref_col : str, optional
+        The name of the column in `reference` to use when `reference` is a
+        DataFrame with multiple columns. Required if `reference` has more than one
+        column.
+    
+    depth : str, array-like, pandas.Series, or pandas.DataFrame, optional
+        Specifies the depth information to be validated and aligned. It can be:
+        - A string representing a column name in `df`.
+        - An array-like object providing explicit depth values.
+        - A pandas Series or single-column DataFrame containing depth information.
+        If `None`, depth is inferred from the DataFrame's index or a range based
+        on `df`'s length.
+    
+    new_name : str, default 'Depth'
+        The new name to assign to the depth Series if `rename_depth` is `True`.
+    
+    rename_depth : bool, default False
+        Whether to rename the depth Series to `new_name`. If `False`, the original
+        name is retained.
+    
+    reset_index : bool, default False
+        If `True`, the index of `df`, `pred_df`, and `reference` will be reset to
+        ensure proper alignment.
+    
+    check_monotonic : bool, default True
+        If `True`, the function checks whether the depth values are monotonic.
+        Non-monotonic depth values will trigger sorting or raise an error based
+        on the `error` parameter.
+    
+    index_as_depth : bool, default True
+        If `True`, uses the DataFrame's index as the depth values when `depth` is
+        not explicitly provided.
+    
+    allow_index_mismatch : bool, default False
+        Determines whether mismatches between the indices of `df` and
+        `pred_df`/`reference` are permitted. If `False`, mismatches will trigger
+        alignment actions or errors based on the `error` parameter.
+    
+    error : {'raise', 'warn'}, default 'warn'
+        Specifies the behavior when mismatches or validation failures occur.
+        - `'raise'`: Raises an exception.
+        - `'warn'`: Issues a warning and attempts to correct the issue.
+    
+    as_series : bool, default True
+        If `True`, converts single-column `pred_df` and `reference` back to
+        pandas Series objects after processing.
+    
+    check_size : bool, default False
+        If `True`, enforces that `df`, `pred_df`, `reference`, and `depth` have
+        matching lengths. Discrepancies will trigger alignment actions or errors
+        based on the `error` parameter.
+
+    Returns
+    -------
+    tuple
+        A tuple containing:
+        - df : pandas.DataFrame
+            The validated and potentially modified primary DataFrame.
+        - pred_df : pandas.DataFrame or pandas.Series or None
+            The validated and aligned predictions DataFrame or Series, if provided.
+        - reference : pandas.DataFrame or pandas.Series or None
+            The validated and aligned reference DataFrame or Series, if provided.
+        - depth_vals : pandas.Series
+            The validated and aligned depth values.
+
+    Raises
+    ------
+    TypeError
+        If `df` is not a pandas DataFrame, or if `pred_df`/`reference`/`depth`
+        are of incorrect types.
+    
+    ValueError
+        If `depth` specifications are invalid, or if lengths/indexes do not
+        align and `allow_index_mismatch` is `False`.
+
+    Examples
+    --------
+    >>> from gofast.core.checks import validate_depth
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({'A': [1, 2, 3], 'depth': [10, 20, 30]})
+    >>> pred = pd.Series([1.1, 2.1, 3.1], name='prediction')
+    >>> reference = pd.Series([1.0, 2.0, 3.0], name='reference')
+    >>> validated_df, validated_pred, validated_ref, depth = validate_depth(
+    ...     df,
+    ...     pred_df=pred,
+    ...     reference=reference,
+    ...     depth='depth',
+    ...     rename_depth=True
+    ... )
+    >>> print(validated_df)
+       A  Depth
+    0  1     10
+    1  2     20
+    2  3     30
+    >>> print(validated_pred)
+    0    1.1
+    1    2.1
+    2    3.1
+    Name: prediction, dtype: float64
+    >>> print(validated_ref)
+    0    1.0
+    1    2.0
+    2    3.0
+    Name: reference, dtype: float64
+    >>> print(depth)
+    0    10
+    1    20
+    2    30
+    Name: Depth, dtype: int64
+
+    Notes
+    -----
+    - The function is designed to handle various input types and ensure that
+      all provided data structures are properly aligned based on depth information.
+    - Monotonicity checks are crucial for downstream applications that assume
+      ordered depth values.
+    - When `allow_index_mismatch` is set to `False`, the function enforces strict
+      alignment, which may involve reindexing or raising errors to prevent data
+      inconsistencies.
+
+    See Also
+    --------
+    pandas.DataFrame.align : Align two objects on their axes with the specified
+    fill logic.
+    pandas.Series.is_monotonic_increasing : Check if the Series is monotonic
+    increasing.
+
+    References
+    ----------
+    .. [1] McKinney, Wes. "Data Structures for Statistical Computing in Python."
+       Proceedings of the 9th Python in Science Conference. 2010.
+    .. [2] Van Rossum, Guido, and Fred L. Drake Jr. "Python Reference Manual."
+       Python.org. 2009.
+    """
+    def to_series (df_):
+        """ Convert dataframe with single columm back to series"""
+        if isinstance(df_, pd.DataFrame) and df_.shape[1] == 1:
+            df_ = df_.iloc[:, 0]
+            
+        return df_
+    # 1) Ensure that the primary input `df` is a pandas DataFrame.
+    if isinstance(df, pd.Series): 
+        df = df.to_frame() 
+        
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("`df` must be a pandas DataFrame.")
+    
+    # If  `index_as_depth` is True, ensure that the DataFrame index is numeric. 
+    # If it is not, handle according to the `error` policy and resetting
+    # before starting any operations.
+    if index_as_depth:
+        if not np.issubdtype(df.index.dtype, np.number):
+            if error =='raise':
+                raise ValueError(
+                    "Index is not numeric, cannot interpret as depth "
+                    "with `index_as_depth=True`."
+                )
+            elif error == 'warn':
+                warnings.warn(
+                    "Index is not numeric. Resetting index because "
+                    "`index_as_depth=True` was requested."
+                )
+                df = df.reset_index(drop=True)
+            else:  # 'ignore'
+                df = df.reset_index(drop=True)
+                
+    # 5) Determine the `depth` values based on provided parameters.
+    if depth is None:
+        if index_as_depth:
+            # a) Use the DataFrame's index as depth.
+            depth_vals = pd.Series(
+                df.index,
+                name="Depth"
+            )
+        else:
+            # b) Use a range based on the length of `df` as depth.
+            depth_vals = pd.Series(
+                np.arange(len(df)),
+                name="Depth"
+            )
+    else:
+        if isinstance(depth, str):
+            # c) Use a column from `df` as depth if `depth` is a string.
+            if depth not in df.columns:
+                raise ValueError(f"Depth column '{depth}' not found in df.")
+            depth_vals = df[depth].copy()
+        elif isinstance(depth, pd.DataFrame) and depth.shape[1] == 1:
+            # d) Use the single column of a DataFrame as depth.
+            depth_vals = depth.iloc[:, 0].copy()
+        elif isinstance(depth, (list, np.ndarray)):
+            # e) Convert list or ndarray to Series for depth.
+            depth_vals = pd.Series(
+                depth,
+                name=new_name
+            )
+        elif isinstance(depth, pd.Series):
+            # f) Use the provided Series as depth.
+            depth_vals = depth.copy()
+        else:
+            raise TypeError(
+                "`depth` must be str, 1D array-like, Series,"
+                " or single-col DataFrame."
+            )
+            
+    # 2) Optionally reset the index of `df`, `pred_df`,
+    # and `reference` to ensure alignment.
+    if reset_index:
+        df = df.reset_index(drop=True)
+        
+        if isinstance(pred_df, pd.DataFrame):
+            pred_df = pred_df.reset_index(drop=True)
+        
+        if isinstance(reference, pd.DataFrame):
+            reference = reference.reset_index(drop=True)
+    
+    # 3) Process `pred_df` if it is provided.
+    if pred_df is not None:
+        # a) Convert list or ndarray to DataFrame 
+        # with aligned index and default column names.
+        if isinstance(pred_df, (list, np.ndarray)):
+            pred_df = pd.DataFrame(
+                pred_df,
+                index=df.index
+            )
+            pred_df.columns = [f"pred_{i}" for i in range(pred_df.shape[1])]
+        
+        # b) Convert Series to DataFrame and handle index reset if necessary.
+        elif isinstance(pred_df, pd.Series):
+            pred_df = pred_df.to_frame(
+                name=pred_df.name or "prediction"
+            )
+            if reset_index:
+                pred_df = pred_df.reset_index(drop=True)
+        
+        # c) Raise error if `pred_df` is not array-like, Series, or DataFrame.
+        elif not isinstance(pred_df, pd.DataFrame):
+            raise TypeError(
+                "`pred_df` must be array-like, Series, or DataFrame.")
+        
+        # d) Align `pred_df` with `df`'s index unless mismatches are allowed.
+        if (len(pred_df) != len(df)) and not allow_index_mismatch:
+            if error == 'raise':
+                raise ValueError("`pred_df` length/index does not match `df`.")
+            elif error == 'warn':
+                warnings.warn(
+                    "`pred_df` length/index does not match `df`. "
+                    "Forcing alignment by reindexing pred_df."
+                )
+            # Force alignment by reindexing to match `df`'s index.
+            pred_df = pred_df.reindex(df.index)
+    
+    # 4) Process `reference` if it is provided.
+    if reference is not None:
+        if isinstance(reference, pd.DataFrame):
+            # a) Extract the reference column if `ref_col` is specified and exists.
+            if ref_col and ref_col in reference.columns:
+                reference = reference[ref_col]
+            # b) If DataFrame has only one column, use it as the reference Series.
+            elif reference.shape[1] == 1:
+                reference = reference.iloc[:, 0]
+            else:
+                raise ValueError(
+                    "`reference` DataFrame must have exactly one column "
+                    "or a valid `ref_col` must be specified."
+                )
+            # c) Reset index if required.
+            if reset_index:
+                reference = reference.reset_index(drop=True)
+        elif isinstance(reference, (list, np.ndarray)):
+            # d) Convert list or ndarray to Series with aligned index.
+            reference = pd.Series(
+                reference,
+                index=df.index,
+                name="reference"
+            )
+        elif isinstance(reference, pd.Series):
+            # e) Reset index of Series if required.
+            if reset_index:
+                reference = reference.reset_index(drop=True)
+        else:
+            raise TypeError(
+                "`reference` must be array-like, Series,"
+                " or a single-col DataFrame."
+            )
+        
+        # f) Align `reference` with `df`'s index unless mismatches are allowed.
+        if (len(reference) != len(df)) and not allow_index_mismatch:
+            if error == 'raise':
+                raise ValueError("`reference` length/index does not match `df`.")
+            elif error == 'warn':
+                warnings.warn(
+                    "`reference` length/index does not match `df`. "
+                    "Forcing alignment by reindexing reference."
+                )
+            # Force alignment by reindexing to match `df`'s index.
+            reference = reference.reindex(df.index)
+      
+    # 6) Optionally rename the `depth` Series to `new_name`.
+    if rename_depth:
+        depth_vals.name = new_name
+    
+    # 7) Enforce that all inputs have the same size if `check_size` is True.
+    if check_size:
+        len_df = len(df)
+        
+        # a) Check and adjust `pred_df` size.
+        if pred_df is not None:
+            len_pred = len(pred_df)
+            if len_pred != len_df:
+                if error == 'raise':
+                    raise ValueError(
+                        "`pred_df` length does not match `df` (check_size=True)."
+                    )
+                elif error == 'warn':
+                    warnings.warn(
+                        "`pred_df` length does not match `df`. "
+                        "Forcing alignment by slicing or reindexing."
+                    )
+                # Slice `pred_df` to match `df` length.
+                pred_df = pred_df.iloc[:len_df].reset_index(drop=True)
+        
+        # b) Check and adjust `reference` size.
+        if reference is not None:
+            len_ref = len(reference)
+            if len_ref != len_df:
+                if error == 'raise':
+                    raise ValueError(
+                        "`reference` length does not match `df` (check_size=True)."
+                    )
+                elif error == 'warn':
+                    warnings.warn(
+                        "`reference` length does not match `df`. "
+                        "Forcing alignment by slicing or reindexing."
+                    )
+                # Slice `reference` to match `df` length.
+                reference = reference.iloc[:len_df].reset_index(drop=True)
+        
+        # c) Check and adjust `depth_vals` size relative to `df`.
+        len_depth = len(depth_vals)
+        if len_depth > len_df:
+            if error == 'warn':
+                warnings.warn(
+                    "Depth array is longer than df. Slicing"
+                    " depth to match df length."
+                )
+            # Slice `depth_vals` to match `df` length.
+            depth_vals = depth_vals.iloc[:len_df].reset_index(drop=True)
+        elif len_depth < len_df:
+            if error == 'warn':
+                warnings.warn(
+                    "Depth array is shorter than df. Slicing df, pred_df, "
+                    "and reference to match depth length."
+                )
+            # Slice `df` to match `depth_vals` length.
+            df = df.iloc[:len_depth].reset_index(drop=True)
+            
+            # Slice `pred_df` if it exists.
+            if isinstance(pred_df, pd.DataFrame):
+                pred_df = pred_df.iloc[:len_depth].reset_index(drop=True)
+            elif isinstance(pred_df, pd.Series):
+                pred_df = pred_df.iloc[:len_depth].reset_index(drop=True)
+            
+            # Slice `reference` if it exists.
+            if isinstance(reference, pd.DataFrame):
+                reference = reference.iloc[:len_depth].reset_index(drop=True)
+            elif isinstance(reference, pd.Series):
+                reference = reference.iloc[:len_depth].reset_index(drop=True)
+            
+            # Reset `depth_vals` index after slicing.
+            depth_vals = depth_vals.reset_index(drop=True)
+    
+    # 8) Ensure that `depth_vals` and `df` have the same length
+    # unless mismatches are allowed.
+    if (len(depth_vals) != len(df)) and not allow_index_mismatch:
+        if error == 'raise':
+            raise ValueError("Depth length does not match `df`.")
+        elif error == 'warn':
+            warnings.warn(
+                "Depth length does not match `df`. Forcing alignment."
+            )
+        # Force alignment by reindexing `depth_vals` to match `df`'s index.
+        depth_vals = depth_vals.reindex(df.index)
+    
+    # 9) If `index_as_depth` is True and `depth` is provided, verify
+    # that `depth_vals` matches `df`'s index.
+    if index_as_depth and (depth is not None):
+        index_series = pd.Series(
+            df.index,
+            name=depth_vals.name
+        )
+        if not depth_vals.equals(index_series):
+            if not allow_index_mismatch:
+                if error == 'raise':
+                    raise ValueError(
+                        "`index_as_depth=True` but depth does not match df.index."
+                    )
+                elif error == 'warn':
+                    warnings.warn(
+                        "`index_as_depth=True` but depth does not match df.index. "
+                        "Forcing alignment by replacing depth with df.index."
+                    )
+            # Replace `depth_vals` with `df`'s index.
+            depth_vals = index_series
+    
+    # 10) Check if `depth_vals` is monotonic. If not, 
+    # sort all related DataFrames accordingly.
+    if check_monotonic:
+        sorted_idx = np.argsort(depth_vals.values)
+        is_monotonic = (np.diff(depth_vals.values) >= 0).all()
+        
+        if not is_monotonic:
+            if error == 'raise':
+                raise ValueError("Depth is not monotonic.")
+            elif error == 'warn':
+                warnings.warn(
+                    "Depth is not monotonic. Sorting df, depth, pred_df, and reference."
+                )
+            # Sort `df` and related DataFrames based on sorted indices of `depth_vals`.
+            df = df.iloc[sorted_idx].reset_index(drop=True)
+            depth_vals = depth_vals.iloc[sorted_idx].reset_index(drop=True)
+            
+            if isinstance(pred_df, pd.DataFrame):
+                pred_df = pred_df.iloc[sorted_idx].reset_index(drop=True)
+            elif isinstance(pred_df, pd.Series):
+                pred_df = pred_df.iloc[sorted_idx].reset_index(drop=True)
+            
+            if isinstance(reference, pd.DataFrame):
+                reference = reference.iloc[sorted_idx].reset_index(drop=True)
+            elif isinstance(reference, pd.Series):
+                reference = reference.iloc[sorted_idx].reset_index(drop=True)
+        else:
+            # Check if `depth_vals` is strictly increasing.
+            strictly_increasing = depth_vals.is_monotonic_increasing
+            if not strictly_increasing:
+                if error == 'warn':
+                    warnings.warn("Depth is not strictly monotonic. Proceeding as is.")
+                elif error == 'raise':
+                    raise ValueError("Depth is not strictly monotonic.")
+    
+    # 11) Optionally convert single-column `pred_df`
+    # and `reference` back to Series.
+    if as_series:
+        pred_df = to_series (pred_df ) 
+        reference = to_series (reference ) 
+        depth_vals = to_series (depth_vals) 
+        
+    # 12) Return the validated and potentially modified
+    # DataFrames along with `depth_vals`.
+    return df, pred_df, reference, depth_vals
