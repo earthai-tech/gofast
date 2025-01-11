@@ -50,7 +50,7 @@ __all__=[
 def run_return(
     self, 
     attribute_name: Optional[str] = None, 
-    error_policy: str = 'warn',
+    error: str = 'warn',
     default_value: Optional[Any] = None,
     check_callable: bool = False,
     return_type: str = 'attribute',
@@ -67,7 +67,7 @@ def run_return(
     ----------
     attribute_name : str, optional
         The name of the attribute to return. If `None`, returns `self`.
-    error_policy : str, optional
+    error : str, optional
         Policy for handling non-existent attributes. Options:
         - `warn` : Warn the user and return `self` or a default value.
         - `ignore` : Silently return `self` or the default value.
@@ -183,14 +183,14 @@ def run_return(
             else:
                 return attr_value
         else:
-            # Handle the case where the attribute does not exist based on the error_policy
+            # Handle the case where the attribute does not exist based on the error
             custom_msg = msg or ( 
                 f"'{self.__class__.__name__}' object has"
                 f"  no attribute '{attribute_name}'."
                 )
-            if error_policy == 'raise':
+            if error == 'raise':
                 raise AttributeError(custom_msg)
-            elif error_policy == 'warn':
+            elif error== 'warn':
                 warnings.warn(f"{custom_msg} Returning default value or self.")
             # Return the default value if provided, otherwise return self
             return default_value if default_value is not None else self
@@ -2957,7 +2957,8 @@ def error_policy(
     policy: str = 'auto',
     base: str = 'ignore',
     exception: type[Exception] = None,
-    msg: str | None = None
+    msg: str | None = None, 
+    valid_policies: set =None 
 ) -> str:
     """
     Manage error-handling policies like 'warn', 'raise', or 'ignore'.
@@ -3054,7 +3055,7 @@ def error_policy(
     """  # noqa: E501
 
     # Predefined valid policies.
-    valid_policies = {'warn', 'raise', 'ignore'}
+    valid_policies = valid_policies or {'warn', 'raise', 'ignore'}
 
     # Default message if none is provided.
     default_msg = (

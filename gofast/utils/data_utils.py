@@ -734,9 +734,11 @@ def truncate_data(
 
     See Also
     --------
-    pandas.DataFrame.merge : Merge DataFrame objects by performing a database-style 
+    pandas.DataFrame.merge : 
+        Merge DataFrame objects by performing a database-style 
     join operation.
-    scipy.spatial.cKDTree : A fast implementation of KDTree for nearest-neighbor search.
+    scipy.spatial.cKDTree : 
+        A fast implementation of KDTree for nearest-neighbor search.
 
     References
     ----------
@@ -774,7 +776,9 @@ def truncate_data(
         for idx, df in enumerate(dfs):
             missing_cols = [col for col in feature_cols if col not in df.columns]
             if missing_cols:
-                msg = f"DataFrame at position {idx} is missing feature columns: {missing_cols}."
+                msg = (f"DataFrame at position {idx} is missing"
+                f" feature columns: {missing_cols}."
+                )
                 if error == 'raise':
                     raise ValueError(msg)
                 elif error == 'warn':

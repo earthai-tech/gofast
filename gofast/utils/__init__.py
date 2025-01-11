@@ -21,7 +21,7 @@ MODULE_MAPPING = {
          'detect_categorical_columns', 
          'extract_target',
          'fancier_downloader',
-         'fillNaN',
+         'fill_NaN',
          'get_target',
          'interpolate_data',
          'interpolate_grid',

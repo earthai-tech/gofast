@@ -39,13 +39,17 @@ from ..api.types import (
     _T, _F, DataFrame, ArrayLike, Series, Callable, NDArray, 
 )
 from ..compat.pandas import select_dtypes 
-from ..core.array_manager import  to_numeric_dtypes, reshape 
+from ..core.array_manager import  ( 
+    to_numeric_dtypes, reshape, to_array, array_preserver, 
+    drop_nan_in, 
+)
 from ..core.checks import( 
-    _assert_all_types,  is_iterable, exist_features, validate_feature, 
+    _assert_all_types,  is_iterable, exist_features, validate_feature,
+    is_numeric_dtype, ensure_same_shape
     )
 from ..core.handlers import get_batch_size 
 from ..core.io import is_data_readable 
-from ..core.utils import ellipsis2false, smart_format 
+from ..core.utils import ellipsis2false, smart_format, error_policy 
 from ..compat.scipy import check_scipy_interpolate
 from ..decorators import Dataify
 from ..exceptions import FileHandlingError
@@ -65,8 +69,449 @@ __all__ = [
     'make_df', 'normalizer', 'remove_outliers', 'remove_target_from_array', 
     'rename_labels_in', 'scale_y', 'select_features', 
     'smooth1d', 'smoothing', 'soft_bin_stat', 'speed_rowwise_process', 
-    'nan_to_mode', 'handle_outliers', 
+    'nan_to_mode', 'handle_outliers', 'fill_NaN'
 ]
+
+
+@is_data_readable 
+def nan_ops(
+    data,
+    witness_data = None,
+    data_kind = None,
+    ops = 'check_only',
+    action = None,
+    error = 'raise',
+    process = None,
+    condition = None,
+    verbose = 0,
+):
+    """
+    Perform operations on NaN values within data structures, handling both
+    primary data and optional witness data based on specified parameters.
+
+    This function provides a comprehensive toolkit for managing missing
+    values (`NaN`) in various data structures such as NumPy arrays,
+    pandas DataFrames, and pandas Series. Depending on the `ops` parameter,
+    it can check for the presence of `NaN`s, validate data integrity, or
+    sanitize the data by filling or dropping `NaN` values. The function
+    also supports handling witness data, which can be crucial in scenarios
+    where the relationship between primary and witness data must be maintained.
+
+    .. math::
+       \text{Processed\_data} =
+       \begin{cases}
+           \text{filled\_data} & \text{if action is 'fill'} \\
+           \text{dropped\_data} & \text{if action is 'drop'} \\
+           \text{original\_data} & \text{otherwise}
+       \end{cases}
+
+    Parameters
+    ----------
+    data : array-like, pandas.DataFrame, or pandas.Series
+        The primary data structure containing `NaN` values to be processed.
+    witness_data : array-like, pandas.DataFrame, or pandas.Series, optional
+        Auxiliary data that accompanies the primary `data`. Its role depends
+        on the ``data_kind`` parameter. If ``data_kind`` is `'target'`,
+        ``witness_data`` is treated as feature data, and vice versa. This is
+        useful for operations that need to maintain the alignment between
+        primary and witness data.
+    data_kind : {'target', 'feature', None}, optional
+        Specifies the role of the primary `data`. If set to `'target'`, `data`
+        is considered target data, and ``witness_data`` (if provided) is
+        treated as feature data. If set to `'feature'`, `data` is treated as
+        feature data, and ``witness_data`` is considered target data. If
+        `None`, no special handling is applied, and witness data is ignored
+        unless explicitly required by other parameters.
+    ops : {'check_only', 'validate', 'sanitize'}, default ``'check_only'``
+        Defines the operation to perform on the `NaN` values in the data:
+
+        - ``'check_only'``: Checks whether the data contains any `NaN` values
+          and returns a boolean indicator.
+        - ``'validate'``: Validates that the data does not contain `NaN` values.
+          If `NaN`s are found, it raises an error or warns based on the
+          ``error`` parameter.
+        - ``'sanitize'``: Cleans the data by either filling or dropping `NaN`
+          values based on the ``action``, ``process``, and ``condition``
+          parameters.
+
+    action : {'fill', 'drop'}, optional
+        Specifies the action to take when ``ops`` is set to `'sanitize'`:
+
+        - ``'fill'``: Fills `NaN` values using the `fill_NaN` function with the
+          method set to `'both'`.
+        - ``'drop'``: Drops `NaN` values based on the conditions and process
+          specified. If `data_kind` is `'target'`, it handles `NaN`s in a way
+          that preserves data integrity for machine learning models.
+        - If `None`, defaults to `'drop'` when sanitizing.
+
+        **Note:** If ``ops`` is not `'sanitize'` and ``action`` is set, an error
+        is raised indicating conflicting parameters.
+
+    error : {'raise', 'warn', None}, default ``'raise'``
+        Determines the error handling policy:
+
+        - ``'raise'``: Raises exceptions when encountering issues.
+        - ``'warn'``: Emits warnings instead of raising exceptions.
+        - ``None``: Defaults to the base policy, which is typically `'warn'`.
+
+        This parameter is utilized by the `error_policy` function to enforce
+        consistent error handling throughout the operation.
+
+    process : {'do', 'do_anyway'}, optional
+        Works in conjunction with the ``action`` parameter when ``action`` is
+        `'drop'`:
+
+        - ``'do'``: Drops `NaN` values only if certain conditions are met.
+        - ``'do_anyway'``: Forces the dropping of `NaN` values regardless of
+          conditions.
+
+        This provides flexibility in handling `NaN`s based on the specific
+        requirements of the dataset and the analysis being performed.
+
+    condition : callable or None, optional
+        A callable that defines a condition for dropping `NaN` values when
+        ``action`` is `'drop'`. For example, it can specify that the number
+        of `NaN`s should not exceed a certain fraction of the dataset. If the
+        condition is not met, the behavior is controlled by the ``process``
+        parameter.
+
+    verbose : int, default ``0``
+        Controls the verbosity level of the function's output for debugging
+        purposes:
+
+        - ``0``: No output.
+        - ``1``: Basic informational messages.
+        - ``2``: Detailed processing messages.
+        - ``3``: Debug-level messages with complete trace of operations.
+
+        Higher verbosity levels provide more insights into the function's
+        internal operations, aiding in debugging and monitoring.
+
+    Returns
+    -------
+    array-like, pandas.DataFrame, or pandas.Series
+        The sanitized data structure with `NaN` values handled according to
+        the specified parameters. If ``witness_data`` is provided and
+        processed, a tuple containing the sanitized `data` and
+        `witness_data` is returned. Otherwise, only the sanitized `data`
+        is returned.
+
+    Raises
+    ------
+    ValueError
+        - If an invalid value is provided for ``ops`` or ``data_kind``.
+        - If ``witness_data`` does not align with ``data`` in shape.
+        - If sanitization conditions are not met and the error policy is
+          set to `'raise'`.
+    Warning
+        - Emits warnings when `NaN` values are present and the error policy is
+          set to `'warn'`.
+
+    Examples
+    --------
+    >>> from gofast.utils.base_utils import nan_ops
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> # Example with target data and witness feature data
+    >>> target = pd.Series([1, 2, np.nan, 4])
+    >>> features = pd.DataFrame({
+    ...     'A': [5, np.nan, 7, 8],
+    ...     'B': ['x', 'y', 'z', np.nan]
+    ... })
+    >>> # Check for NaNs
+    >>> nan_ops(target, witness_data=features, data_kind='target', ops='check_only')
+    (True, True)
+    >>> # Validate data (will raise ValueError if NaNs are present)
+    >>> nan_ops(target, witness_data=features, data_kind='target', ops='validate')
+    Traceback (most recent call last):
+        ...
+    ValueError: Target contains NaN values.
+    >>> # Sanitize data by dropping NaNs
+    >>> cleaned_target, cleaned_features = nan_ops(
+    ...     target,
+    ...     witness_data=features,
+    ...     data_kind='target',
+    ...     ops='sanitize',
+    ...     action='drop',
+    ...     verbose=2
+    ... )
+    Dropping NaN values.
+    Dropped NaNs successfully.
+    >>> cleaned_target
+    0    1.0
+    1    2.0
+    3    4.0
+    dtype: float64
+    >>> cleaned_features
+         A    B
+    0  5.0    x
+    3  8.0  NaN
+
+    Notes
+    -----
+    The `nan_ops` function is designed to provide a robust framework for handling
+    missing values in datasets, especially in machine learning workflows where
+    the integrity of target and feature data is paramount. By allowing
+    conditional operations and providing flexibility in error handling, it ensures
+    that data preprocessing can be tailored to the specific needs of the analysis.
+
+    The function leverages helper utilities such as `fill_NaN`, `drop_nan_in`,
+    and `error_policy` to maintain consistency and reliability across different
+    data structures and scenarios. The verbosity levels aid developers in tracing
+    the function's execution flow, making it easier to debug and verify data
+    transformations.
+
+    See Also
+    --------
+    gofast.utils.base_utils.fill_NaN` :
+        Fills `NaN` values in numeric data structures using specified methods.
+    gofast.core.array_manager.drop_nan_in:
+        Drops `NaN` values from data structures, optionally alongside witness data.
+    gofast.core.utils.error_policy:
+        Determines how errors are handled based on user-specified policies.
+    gofast.core.array_manager.array_preserver:
+        Preserves and restores the original structure of array-like data.
+
+    """
+
+    # Helper function to check for NaN values in the data.
+    def has_nan(d):
+        if isinstance(d, pd.DataFrame):
+            return d.isnull().any().any()
+        return pd.isnull(d).any()
+    
+    # Helper function to return data and witness_data based on availability.
+    def return_kind(dval, wval=None):
+        if witness_data is not None:
+            return dval, wval
+        return dval
+    
+    # Helper function to drop NaNs from data and witness_data.
+    def drop_nan(d, wval=None):
+        if witness_data is not None:
+            d_cleaned, w_cleaned = drop_nan_in(d, wval, axis=0)
+        else:
+            d_cleaned = drop_nan_in(d, solo_return=True, axis=0)
+            w_cleaned = None
+        return d_cleaned, w_cleaned
+    
+    # Helper function to log messages based on verbosity level.
+    def log(message, level):
+        if verbose >= level:
+            print(message)
+    
+    # Apply the error policy to determine how to handle errors.
+    error = error_policy(
+        error, base='warn', valid_policies={'raise', 'warn'}
+    )
+    
+    # Validate that 'ops' parameter is one of the allowed operations.
+    valid_ops = {'check_only', 'validate', 'sanitize'}
+    if ops not in valid_ops:
+        raise ValueError(
+            f"Invalid ops '{ops}'. Choose from {valid_ops}."
+        )
+    
+    # Ensure 'data_kind' is either 'target', 'feature', or None.
+    if data_kind not in {'target', 'feature', None}:
+        raise ValueError(
+            "Invalid data_kind. Choose from 'target', 'feature', or None."
+        )
+    
+    # If 'witness_data' is provided, ensure it matches the shape of 'data'.
+    if witness_data is not None:
+        try:
+            ensure_same_shape(data, witness_data, axis=None)
+            log("Witness data shape matches data.", 3)
+        except Exception as e:
+            raise ValueError(
+                f"Witness data shape mismatch: {e}"
+            )
+    
+    # Determine if 'data' and 'witness_data' contain NaN values.
+    data_contains_nan = has_nan(data)
+    w_contains_nan = has_nan(witness_data) if witness_data is not None else False
+    
+    # Define subjects based on 'data_kind' for clearer messaging.
+    subject = 'Data' if data_kind is None else data_kind.capitalize()
+    w_subject = "Witness data" if data_kind is None else (
+        "Feature" if subject == 'Target' else 'Target'
+    )
+    
+    # Handle 'check_only' operation: simply return NaN presence status.
+    if ops == 'check_only':
+        log("Performing NaN check only.", 1)
+        return return_kind(data_contains_nan, w_contains_nan)
+    
+    # Handle 'validate' operation: raise errors or warnings if NaNs are present.
+    if ops == 'validate':
+        log("Validating data for NaN values.", 1)
+        if data_contains_nan:
+            message = f"{subject} contains NaN values."
+            if error == 'raise':
+                raise ValueError(message)
+            elif error == 'warn':
+                warnings.warn(message)
+        if w_contains_nan:
+            message = f"{w_subject} contains NaN values."
+            if error == 'raise':
+                raise ValueError(message)
+            elif error == 'warn':
+                warnings.warn(message)
+        log("Validation complete. No NaNs detected or handled.", 2)
+        return return_kind(data, witness_data)
+    
+    # For 'sanitize' operation, proceed to handle NaN values based on 'action'.
+    if ops == 'sanitize':
+        log("Sanitizing data by handling NaN values.", 1)
+        # Preserve the original structure of the data.
+        collected = array_preserver(data, witness_data, action='collect')
+        
+        # Convert inputs to array-like structures for processing.
+        data_converted = to_array(data)
+        witness_converted = to_array(witness_data) if witness_data is not None else None
+        
+        # If 'action' is not specified, default to 'drop'.
+        if action is None:
+            action = 'drop'
+            log("No action specified. Defaulting to 'drop'.", 2)
+        
+        # Handle 'fill' action: fill NaNs using the 'fillNaN' function.
+        if action == 'fill':
+            log("Filling NaN values.", 2)
+            data_filled = fill_NaN(data_converted, method='both')
+            if witness_data is not None:
+                witness_filled = fill_NaN(witness_converted, method='both')
+            else:
+                witness_filled = None
+            log("NaN values filled successfully.", 3)
+            return return_kind(data_filled, witness_filled)
+        
+        # Handle 'drop' action: drop NaNs based on 'data_kind' and 'process'.
+        elif action == 'drop':
+            log("Dropping NaN values.", 2)
+            nan_count = (
+                data_converted.isnull().sum().sum()
+                if isinstance(data_converted, pd.DataFrame)
+                else pd.isnull(data_converted).sum()
+            )
+            data_length = len(data_converted)
+            log(f"NaN count: {nan_count}, Data length: {data_length}", 3)
+            
+            # Specific handling when 'data_kind' is 'target'.
+            if data_kind == 'target':
+                # Define condition: NaN count should be less than half of data length.
+                if condition is None:
+                    condition = (nan_count < (data_length / 2))
+                    log(
+                        "No condition provided. Setting condition to "
+                        f"NaN count < {data_length / 2}.",
+                        3
+                    )
+                
+                # If condition is not met, decide based on 'process'.
+                if not condition:
+                    if process == 'do_anyway':
+                        log(
+                            "Condition not met. Proceeding to drop NaNs "
+                            "anyway.", 2
+                        )
+                        data_cleaned, witness_cleaned = drop_nan(data, witness_data)
+                    else:
+                        warning_msg = (
+                            "NaN values in target exceed half the data length. "
+                            "Dropping these NaNs may lead to significant information loss."
+                        )
+                        error_msg = (
+                            "Too many NaN values in target data. "
+                            "Consider revisiting the target variable."
+                        )
+                        if error == 'warn':
+                            warnings.warn(warning_msg)
+                        raise ValueError(error_msg)
+                else:
+                    # Condition met: proceed to drop NaNs.
+                    log("Condition met. Dropping NaNs.", 3)
+                    data_cleaned, witness_cleaned = drop_nan(data, witness_data)
+            
+            # Handling when 'data_kind' is 'feature' or None.
+            elif data_kind in {'feature', None}:
+                if process == 'do_anyway':
+                    log(
+                        "Process set to 'do_anyway'. Dropping NaNs regardless "
+                        "of conditions.", 2
+                    )
+                    condition = None  # Reset condition to drop unconditionally
+                
+                if condition is None:
+                    log("Dropping NaNs unconditionally.", 3)
+                    data_cleaned, witness_cleaned = drop_nan(data, witness_data)
+                else:
+                    # Example condition: NaN count should be less than a third of data length.
+                    condition_met = (nan_count < condition)
+                    log(
+                        f"Applying condition: NaN count < {data_length / 3} -> "
+                        f"{condition_met}", 3
+                    )
+                    if not condition_met:
+                        if process == 'do_anyway':
+                            log(
+                                "Condition not met. Dropping NaNs anyway.", 2
+                            )
+                            data_cleaned, witness_cleaned = drop_nan(data, witness_data)
+                        else:
+                            warning_msg = (
+                                "NaN values exceed the acceptable limit based on "
+                                "the condition. Dropping may remove significant data."
+                            )
+                            error_msg = (
+                                "Condition for dropping NaNs not met. "
+                                "Consider adjusting the condition or processing parameters."
+                            )
+                            if error == 'warn':
+                                warnings.warn(warning_msg)
+                            raise ValueError(error_msg)
+                    else:
+                        # Condition met: proceed to drop NaNs.
+                        log("Condition met. Dropping NaNs.", 3)
+                        data_cleaned, witness_cleaned = drop_nan(data, witness_data)
+            
+            # Assign cleaned data back to variables.
+            data_filled = data_cleaned
+            witness_filled = witness_cleaned if witness_data is not None else None
+            
+            # Handle verbose messages for the cleaned data.
+            if verbose >= 2:
+                log("NaN values have been dropped from the data.", 2)
+                if witness_filled is not None:
+                    log("NaN values have been dropped from the witness data.", 2)
+            
+        else:
+            # If 'action' is not recognized, raise an error.
+            raise ValueError(
+                f"Invalid action '{action}'. Choose from 'fill', 'drop', or None."
+            )
+        
+        # Restore the original array structure using the preserved properties.
+        collected['processed'] = [data_filled, witness_filled]
+        try:
+            
+            data_restored, witness_restored = array_preserver(
+                collected, action='restore'
+            )
+            log("Data structure restored successfully.", 3)
+        except Exception as e:
+            log(
+                f"Failed to restore data structure: {e}. Returning filled data as is.",
+                1
+            )
+            data_restored = data_filled
+            witness_restored = witness_filled
+        
+        # Return the cleaned data and witness_data if available.
+        
+        return return_kind(data_restored, witness_restored)
+
 
 @is_data_readable 
 def detect_categorical_columns(
@@ -1108,6 +1553,210 @@ def interpolate_grid_in(
 
     return interpolated
 
+def _select_fill_method(method):
+    """
+    Helper function to standardize the fill method input.
+    Maps various user-provided method aliases to standardized method keys.
+    
+    Parameters
+    ----------
+    method : str
+        The fill method specified by the user. Can be one of the following:
+        - Forward fill: 'forward', 'ff', 'fwd'
+        - Backward fill: 'backward', 'bf', 'bwd'
+        - Both: 'both', 'ffbf', 'fbwf', 'bff', 'full'
+    
+    Returns
+    -------
+    str
+        Standardized fill method key: 'ff', 'bf', or 'both'.
+    
+    Raises
+    ------
+    ValueError
+        If the provided method is not recognized.
+    """
+    # Convert method to lowercase to ensure case-insensitive matching
+    method_lower = method.lower()
+    
+    # Define mappings for forward fill aliases
+    forward_aliases = {'forward', 'ff', 'fwd'}
+    # Define mappings for backward fill aliases
+    backward_aliases = {'backward', 'bf', 'bwd'}
+    # Define mappings for both forward and backward fill aliases
+    both_aliases = {'both', 'ffbf', 'fbwf', 'bff', 'full'}
+    
+    # Determine the standardized method based on aliases
+    if method_lower in forward_aliases:
+        return 'ff'   # Forward fill
+    elif method_lower in backward_aliases:
+        return 'bf'   # Backward fill
+    elif method_lower in both_aliases:
+        return 'both' # Both forward and backward fill
+    else:
+        # Raise an error if the method is not recognized
+        raise ValueError(
+            f"Invalid fill method '{method}'. "
+            "Choose from 'forward', 'ff', 'fwd', 'backward', 'bf', 'bwd', "
+            "'both', 'ffbf', 'fbwf', 'bff', or 'full'."
+        )
+        
+def fill_NaN(arr, method='ff'):
+    """
+    Fill NaN values in an array-like structure using specified methods.
+    Handles numeric and non-numeric data separately to preserve data
+    integrity.
+
+    Parameters
+    ----------
+    ``arr`` : array-like, pandas.DataFrame, or pandas.Series
+        The input data structure containing NaN values to be filled.
+    ``method`` : str, default ``'ff'``
+        The method to use for filling NaN values. Accepted values:
+
+        - Forward fill: ``'forward'``, ``'ff'``, ``'fwd'``
+        - Backward fill: ``'backward'``, ``'bf'``, ``'bwd'``
+        - Both: ``'both'``, ``'ffbf'``, ``'fbwf'``, ``'bff'``, ``'full'``
+
+    Returns
+    -------
+    array-like, pandas.DataFrame, or pandas.Series
+        The input data structure with NaN values filled according to the specified
+        method.
+
+    Raises
+    ------
+    ValueError
+        If the provided fill method is not recognized.
+
+    Notes
+    -----
+    Mathematically, the function performs:
+
+    .. math::
+        \text{Filled\_array} =
+        \begin{cases}
+            \text{fillNaN(arr, method)} & \text{if arr is numeric} \\
+            \text{concat(fillNaN(numeric\_parts, method), non\_numeric\_parts)} &
+            \text{otherwise}
+        \end{cases}
+
+    This ensures that non-numeric data remains unaltered while NaN values in
+    numeric columns are appropriately filled.
+
+    Examples
+    --------
+    >>> from gofast.utils.base_utils import fill_NaN
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'A': [1, 2, np.nan, 4],
+    ...     'B': ['x', np.nan, 'y', 'z']
+    ... })
+    >>> fill_NaN(df, method='ff')
+         A    B
+    0  1.0    x
+    1  2.0    x
+    2  2.0    y
+    3  4.0    z
+
+    Notes
+    -----
+    The function preserves the original structure of the input array by utilizing
+    ``array_preserver``. Numeric columns are filled using the specified method,
+    while non-numeric columns remain unchanged.
+
+    See Also
+    --------
+    gofast.core.array_manager.array_preserver:
+        Preserves and restores array structures.
+    gofast.core.array_manager.to_array:
+        Converts input to a pandas-compatible array-like structure.
+    gofast.core.checks.is_numeric_dtype:
+        Checks if the array has numeric data types.
+    gofast.utils.base_utils.fillNaN :
+        Core function to fill NaN values in numeric data.
+
+    """
+
+    # Step 1: Standardize the fill method using the helper function
+    standardized_method = _select_fill_method(method)
+    
+    # Step 2: Collect the original array's properties to preserve its structure
+    collected = array_preserver(arr, action='collect')
+    
+    # Step 3: Convert the input to a pandas-compatible array-like structure
+    # This ensures consistent handling across different input types
+    arr_converted = to_array(arr)
+    arr_converted = to_numeric_dtypes(arr_converted)
+    # Step 4: Check if the entire array has a numeric dtype
+    if is_numeric_dtype(arr_converted):
+        # If all data is numeric, apply the fillNaN function directly
+        array_filled = fillNaN(arr_converted, method=standardized_method)
+    else:
+        if not isinstance (arr_converted, (pd.Series, pd.DataFrame)): 
+            # For other array-like types (e.g., lists, tuples), 
+            # convert to pandas Series
+            # to leverage pandas' fill capabilities
+            try: 
+                arr_converted = pd.Series(arr_converted) # expert one1d 
+            except : 
+                arr_converted = pd.DataFrame (arr_converted) # two dimensional
+        
+        # If there are non-numeric data types, handle numeric
+        # and non-numeric separately
+        if isinstance(arr_converted, pd.DataFrame):
+            # Identify numeric columns
+            numeric_cols = select_dtypes(
+                arr_converted, incl=[np.number], 
+                return_columns=True 
+                )
+            # numeric_cols = arr_converted.select_dtypes(
+            #     include=[np.number]).columns
+            # Identify non-numeric columns
+            non_numeric_cols = arr_converted.columns.difference(
+                numeric_cols)
+            
+            # Apply fillNaN to numeric columns
+            filled_numeric = fillNaN(
+                arr_converted[numeric_cols], method=standardized_method)
+            
+            # Retain non-numeric columns as-is
+            filled_non_numeric = arr_converted[non_numeric_cols]
+            
+            # Combine the filled numeric data with the untouched non-numeric data
+            array_filled = pd.concat(
+                [filled_numeric, filled_non_numeric], axis=1)
+            # Ensure the original column order is preserved
+            array_filled = array_filled[arr_converted.columns]
+        
+        elif isinstance(arr_converted, pd.Series):
+            # If the Series is not numeric, return it unchanged
+            if not is_numeric_dtype(arr_converted):
+                array_filled = arr_converted.copy()
+            else:
+                # If the Series is numeric, apply fillNaN
+                array_filled = fillNaN(
+                    arr_converted, method=standardized_method
+                    )
+
+    # Step 5: Attempt to restore the original array
+    # structure using the collected properties
+    collected['processed'] = [array_filled]
+    try:
+        # Restore the original structure 
+        # (e.g., DataFrame, Series) with filled data
+        array_restored = array_preserver(
+            collected, action='restore',
+            solo_return= True 
+            )
+    except Exception:
+        # If restoration fails, return the filled
+        # array without structure preservation
+        array_restored = array_filled
+    
+    # Step 6: Return the filled and structure-preserved array
+    return array_restored
+
 def fillNaN(
     arr: Union[ArrayLike, Series, DataFrame], 
     method: str = 'ff'
@@ -1183,10 +1832,21 @@ def fillNaN(
     if not hasattr(arr, '__array__'): 
         arr = np.array(arr)
         
-    arr = _handle_non_numeric(arr, action ='fill missing values NaN')
+    arr = to_array (arr) 
+    has_numeric_dtype = is_numeric_dtype(arr, to_array= True )
+    
+    if not has_numeric_dtype: 
+        warnings.warn(
+            "Non-numeric data detected. Note `FillNaN` operates only with"
+            " numeric data. To deal with  non-numeric data or both',"
+            " use 'fill_NaN' instead.")
+        
+    arr = _handle_non_numeric(
+        arr, action ='fill missing values NaN')
     
     if isinstance (arr, (pd.Series, pd.DataFrame)): 
-        name_or_columns = arr.name if isinstance (arr, pd.Series) else arr.columns 
+        name_or_columns = arr.name if isinstance (
+            arr, pd.Series) else arr.columns 
         arr = arr.to_numpy() # get numpy array 
         
     def ffill (arr): 
@@ -1201,20 +1861,11 @@ def fillNaN(
         idx = np.minimum.accumulate(idx[:, ::-1], axis =1)[:, ::-1]
         return arr [np.arange(idx.shape [0])[:, None], idx ]
     
-    method= str(method).lower().strip() 
+    method = _select_fill_method(str(method).lower().strip())
     
     if arr.ndim ==1: 
         arr = reshape(arr, axis=1)  
         
-    if method  in ('backward', 'bf',  'bwd'):
-        method = 'bf' 
-    elif method in ('forward', 'ff', 'fwd'): 
-        method= 'ff' 
-    elif method in ('both', 'ffbf', 'fbwf', 'bff', 'full'): 
-        method ='both'
-    if method not in ('bf', 'ff', 'both'): 
-        raise ValueError ("Expect a backward <'bf'>, forward <'ff'> fill "
-                          f" or both <'bff'> not {method!r}")
     mask = np.isnan (arr )  
     if method =='both': 
         arr = ffill(arr) ;
@@ -1520,8 +2171,11 @@ def _flatten(items):
             yield x
             
 def filter_nan_values(
-        nan_policy, *data_lists, sample_weights=None, error='raise',
-        flatten=False, preserve_type=False):
+    nan_policy, *data_lists, 
+    sample_weights=None, error='raise',
+    flatten=False, 
+    preserve_type=False
+    ):
     """
     Filters out NaN values from provided lists based on a specified policy,
     adjusts sample weights if necessary, and can optionally flatten the input lists.

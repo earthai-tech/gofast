@@ -513,7 +513,7 @@ def to_array(
     # Maintain original type if ops_mode is 'keep_origin' and no conversion was done
     if ops_mode == "keep_origin":
         collected['processed'] = [arr]
-        arr = array_preserver(collected, action='restore')[0]
+        arr = array_preserver(collected, action='restore', solo_return= True)
     
     if isinstance(arr, np.ndarray) and as_frame: 
         # Then try to convert array to frame 
@@ -3022,7 +3022,8 @@ def drop_nan_in(
     columns: Optional[List[str]] = None,
     reset_index: bool = True,
     axis: Union[int, str] = 0,
-    error: str = 'raise'
+    error: str = 'raise', 
+    solo_return=False, 
 ) -> List[Union[np.ndarray, pd.DataFrame]]:
     """
     Drop rows or columns containing NaNs across multiple arrays consistently.
@@ -3090,7 +3091,12 @@ def drop_nan_in(
                 \text{'warn'} & \text{to notify about inconsistencies} \\
                 \text{'ignore'} & \text{to proceed without notifications}
             \end{cases}
-    
+            
+    solo_return : bool, default=False
+        If ``True`` and exactly one array, the function returns that array
+        directly rather than as a tuple of length 1. If multiple
+        arrays are provided or `solo_return` does no work. 
+        
     Returns
     -------
     List[Union[np.ndarray, pd.DataFrame]]
@@ -3234,7 +3240,7 @@ def drop_nan_in(
 
     # Convert the processed DataFrames back to their original types
     final_arrays = _convert_back_to_original_types(
-        processed_dfs, original_types
+        processed_dfs, original_types, solo_return, 
     )
 
     return final_arrays
@@ -3487,7 +3493,8 @@ def _convert_arrays_to_df(
 
 def _convert_back_to_original_types(
     processed_dfs: List[pd.DataFrame],
-    original_types: List[str]
+    original_types: List[str], 
+    solo_return: bool=False, 
 ) -> List[Union[np.ndarray, pd.DataFrame, pd.Series]]:
     """
     Convert the processed DataFrames back to their original types.
@@ -3500,6 +3507,10 @@ def _convert_back_to_original_types(
     original_types : List[str]
         A list indicating the original type of each DataFrame
         ('df' for DataFrame, 'ndarray' for NumPy ndarray, 'series' for Series).
+        
+    solo_return: bool, Default=False 
+       If ``True``, remove  the single array from the final processed list 
+       and return it.
 
     Returns
     -------
@@ -3543,13 +3554,17 @@ def _convert_back_to_original_types(
             raise TypeError(
                 f"Unsupported original type '{original_type}'."
             )
+    if solo_return and len(final_arrays)==1: 
+        return final_arrays [0]
+    
     return final_arrays
 
 def array_preserver(
     *arrays: Any,
     action: str = 'collect',
     error: str = 'warn',
-    deep_restore: bool = False
+    deep_restore: bool = False, 
+    solo_return: bool=True, 
 ) -> Union[Dict[str, List[Any]], List[Any]]:
     """
     Collect and restore array-like objects while preserving their 
@@ -3608,7 +3623,12 @@ def array_preserver(
         When ``deep_restore`` is enabled, the restored DataFrames and Series 
         will retain their original indices and column names, providing a 
         faithful reconstruction of the original data structures.
-
+        
+    solo_return : bool, default=True
+        If ``True`` and exactly one array, the function returns that array
+        directly rather than as a tuple of length 1. If multiple
+        arrays are provided or `solo_return` does no work. 
+        
     Returns
     -------
     Union[Dict[str, List[Any]], List[Any]]
@@ -3860,7 +3880,10 @@ def array_preserver(
                     restored.append(proc_arr)
                 elif error == 'ignore':
                     restored.append(proc_arr)
-
+        
+        if solo_return and len(restored) ==1: 
+            return restored[0] 
+        
         return restored
 
 def index_based_selector(
