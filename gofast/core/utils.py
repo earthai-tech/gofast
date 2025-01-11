@@ -1939,9 +1939,12 @@ def pretty_printer(
         print(i)
      
 def sanitize_frame_cols(
-        d,  func:_F = None , regex=None, pattern:str = None, 
-        fill_pattern:str =None, inplace:bool =False 
-        ):
+    d,  func:_F = None , 
+    regex=None, 
+    pattern:str = None, 
+    fill_pattern:str =None, 
+    inplace:bool =False 
+    ):
     """ Remove an indesirable characters to the dataframe and returns 
     new columns. 
     
@@ -1990,7 +1993,7 @@ def sanitize_frame_cols(
     >>> f = lambda r : r.replace ('_', "'s ") 
     >>> h502_f= sanitize_frame_cols( h502, func =f )
     >>> h502_f.columns [:3]
-    ... Index(['depth's top', 'depth's bottom', 'strata's name'], dtype='object')
+    ... Index(["depth's top", "depth's bottom", "strata's name"], dtype='object')
                
     """
     isf , iss= False , False 
@@ -2008,9 +2011,8 @@ def sanitize_frame_cols(
         isf = True
         
     else : 
-        if not is_iterable(d) : c = [d] 
-        else : c = d 
-        
+        c = is_iterable(d, exclude_string= True, transform =True )
+ 
     if inspect.isfunction(func): 
         c = list( map (func , c ) ) 
     
@@ -2018,14 +2020,19 @@ def sanitize_frame_cols(
         lambda r : regex.sub(fill_pattern, r.strip() ), c ))
         
     if isf : 
-        if inplace : d.columns = c
-        else : d =pd.DataFrame(d.values, columns =c )
+        if inplace : 
+            d.columns = c
+        else : 
+            d =pd.DataFrame(d.values, columns =c )
         
     elif iss:
-        if inplace: d.name = c[0]
-        else : d= pd.Series (data =d.values, name =c[0] )
+        if inplace: 
+            d.name = c[0]
+        else :
+            d= pd.Series (data =d.values, name =c[0] )
         
-    else : d = c 
+    else :
+        d = c 
 
     return d 
 
@@ -2911,7 +2918,7 @@ def get_full_metric_name(metric: str) -> str:
         'mae': 'mean_absolute_error',
         'mape': 'mean_absolute_percentage_error',
         'mse': 'mean_squared_error',
-        'rmse': 'root_mean_squared_error',
+        'rmse': 'root_mean_squared_error',  # GOFAST metric
         'r2': 'r2_score',
         'accuracy': 'accuracy_score',
         'f1': 'f1_score',
@@ -2937,7 +2944,7 @@ def get_full_metric_name(metric: str) -> str:
         'mrs': 'mean_reciprocal_score',     # GOFAST metric
         'adj_r2': 'adjusted_r2_score',      # GOFAST metric
         'likelihood': 'likelihood_score',   # GOFAST metric
-        'twa': 'twa_score',                  # GOFAST metric
+        'twa': 'twa_score',                 # GOFAST metric
     }
     if callable (metric): 
         metric = metric.__name__ 

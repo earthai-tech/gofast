@@ -4322,6 +4322,99 @@ def mean_reciprocal_score(
         else weighted_reciprocal_ranks
         )
 
+def root_mean_squared_error(
+    y_true,
+    y_pred,
+    *,
+    sample_weight=None,
+    multioutput='uniform_average',
+):
+    """
+    Compute the Root Mean Squared Error (RMSE) between true and 
+    predicted values.
+    
+    The RMSE is a widely used metric for regression tasks, representing 
+    the square root of the average of squared differences between predictions
+    and actual values.
+    
+    .. math::
+       \text{RMSE} = \sqrt{ \frac{1}{n} \sum_{i=1}^{n} (\hat{y}_i - y_i)^2 }
+    
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        True target values.
+    
+    y_pred: array-like of shape (n_samples,) or (n_samples, n_outputs)
+        Estimated target values.
+    
+    sample_weight : array-like of shape (n_samples,), default=None
+        Sample weights.
+    
+    multioutput : {'raw_values', 'uniform_average', 'variance_weighted'},\
+        default='uniform_average'
+        Defines aggregating of multiple output scores.
+        
+        - ``'raw_values'``:
+            Returns a full set of scores in case of multioutput input.
+        - ``'uniform_average'``:
+            Scores of all outputs are averaged with equal weight.
+        - ``'variance_weighted'``:
+            Scores of all outputs are averaged, weighted by the variances
+            of each individual output.
+
+    Returns
+    -------
+    float or ndarray of floats
+        Root Mean Squared Error between ``y_true`` and ``y_pred``.
+        If ``multioutput`` is 'raw_values', then an array is returned, otherwise
+        the aggregated value is returned.
+    
+    Raises
+    ------
+    ValueError
+        - If ``y_true`` and ``y_pred`` have different shapes.
+        - If ``multioutput`` is neither 'raw_values', 'uniform_average', 
+          nor 'variance_weighted'.
+        - If ``zero_division`` is not among {'warn', 'raise', 'ignore'}.
+        - If ``nan_policy`` is not among {'propagate', 'raise', 'omit'}.
+    
+    Notes
+    -----
+    The RMSE is the square root of the Mean Squared Error (MSE). It provides an
+    interpretable metric in the same units as the target variable, making it
+    easier to understand the magnitude of prediction errors.
+    
+    .. math::
+       \text{RMSE} = \sqrt{ \text{MSE} }
+    
+    See Also
+    --------
+    mean_squared_error :
+        Computes the Mean Squared Error.
+    
+    mean_absolute_error :
+        Computes the Mean Absolute Error.
+    
+    References
+    ----------
+    .. [1] Chai, T., & Draxler, R.R. (2014). Root mean square error (RMSE) or
+       mean absolute error (MAE)? – Arguments against avoiding RMSE in the
+       literature. *Geoscientific Model Development*, 7(3), 1247-1250.
+    """
+    
+    # Handle this in mean_squared_error of scikit-learn
+    # If multioutput is 'raw_values', keep outputs separate
+    # Otherwise, aggregate them
+    rmse = mean_squared_error(
+        y_true,
+        y_pred,
+        sample_weight=sample_weight,
+        multioutput=multioutput,
+        squared=False
+    )
+    return rmse
+
 def fetch_sklearn_scorers(scorer):
     """
     Fetches a scoring function from scikit-learn's predefined scorers or a custom
@@ -4406,6 +4499,7 @@ SCORERS = {
     "balanced_accuracy": balanced_accuracy,
     "balanced_accuracy_score": balanced_accuracy_score,
     "information_value": information_value,
+    "root_mean_squared_error": root_mean_squared_error, 
     "mean_absolute_percentage_error": mean_absolute_percentage_error,
     "explained_variance_score": explained_variance_score,
     "median_absolute_error": median_absolute_error,

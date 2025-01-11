@@ -1543,7 +1543,7 @@ def save_job(
 
     import sklearn
 
-    check_files(savefile)
+    # check_files(savefile)
     # Generate versioning metadata
     versions = 'sklearn_v{0}.numpy_v{1}.pandas_v{2}'.format(
         sklearn.__version__, np.__version__, pd.__version__)

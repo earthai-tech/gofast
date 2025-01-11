@@ -806,6 +806,7 @@ def to_arrays(
     
     # Return the converted arrays as a tuple to maintain immutability
     return tuple(converted_arrays)
+
 def smart_ts_detector(
     df,
     date_col,
@@ -4122,3 +4123,149 @@ def index_based_selector(
         return out_dfs[0]
 
     return out_dfs
+
+def to_series(
+    data,
+    name=None,
+):
+    """
+    Convert the provided data to a one-dimensional pandas Series,
+    respecting shapes and optional `name` assignment. This function,
+    named `to_series`, aims to unify various array-like inputs
+    (lists, tuples, NumPy arrays, or single-column pandas DataFrame)
+    into a single coherent Series structure.
+
+    .. math::
+       y = \\alpha x + \\beta
+
+    Here, :math:`y` represents the resulting Series of length
+    :math:`x`, and :math:`\\alpha, \\beta` are conceptual
+    scaling factors in transformations of the input data [1]_.
+
+    Parameters
+    ----------
+    ``data`` : array-like, pandas.DataFrame, list, or tuple
+        The input data to be converted into a one-dimensional
+        Series. Supported formats include:
+          - Python lists or tuples (converted to NumPy arrays first)
+          - NumPy arrays of shape (n,) or reshaped from (1, n) or
+            (n, 1) into (n,)
+          - A pandas DataFrame with a single column
+    ``name`` : str, optional
+        A string used to rename the resulting Series. If not
+        provided, the name is inferred from the DataFrame column
+        (if applicable) or left as None.
+
+    Returns
+    -------
+    pandas.Series
+        A one-dimensional Series containing the input data. If the
+        conversion fails or if multiple columns are detected when
+        a single-column structure was expected, a descriptive error
+        is raised.
+
+    Raises
+    ------
+    ValueError
+        If the input shape or format is incompatible with a single
+        Series. For instance, if the DataFrame contains more than
+        one column, or if the NumPy array has more than one
+        dimension that cannot be reduced to (n,).
+
+    Examples
+    --------
+    >>> from gofast.core.array_manager import to_series
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> # Convert a list to Series
+    >>> my_list = [1, 2, 3, 4]
+    >>> s = to_series(my_list, name='my_series')
+    >>> s
+    0    1
+    1    2
+    2    3
+    3    4
+    Name: my_series, dtype: int64
+
+    >>> # Convert a single-column DataFrame
+    >>> df_single = pd.DataFrame({'A': [10, 20, 30]})
+    >>> series_A = to_series(df_single)
+    >>> series_A
+    0    10
+    1    20
+    2    30
+    Name: A, dtype: int64
+
+    Notes
+    -----
+    The `to_series` function is primarily designed to simplify
+    downstream processing by ensuring that any valid one-dimensional
+    input is uniformly handled as a pandas Series. This is especially
+    useful in data cleaning and feature engineering workflows, where
+    consistency of data types and shapes is paramount.
+
+    See Also
+    --------
+    ``to_array`` :
+        Converts input to a NumPy array, providing an intermediate
+        step for uniform handling of data shapes.
+
+    References
+    ----------
+    .. [1] Slatt, R.M. "Stratigraphic reservoir characterization
+       for petroleum geologists, geophysicists, and engineers",
+       2nd Edition, Elsevier, 2013.
+    """
+    # If data is already a Series, just rename if requested.
+    if isinstance(data, pd.Series):
+        if name is not None:
+            data = data.rename(name)
+        return data
+
+    # If data is a DataFrame, ensure it has exactly one column,
+    # then extract that column as a Series.
+    if isinstance(data, pd.DataFrame):
+        if data.shape[1] != 1:
+            raise ValueError(
+                "DataFrame must have exactly one column to be converted to Series."
+            )
+        series_col = data.columns[0]
+        s = data.iloc[:, 0]
+        # If user provided a name, use it; otherwise use the column name.
+        if name is not None:
+            s = s.rename(name)
+        else: 
+            s = pd.Series (s, name = series_col, index=s.index)
+        return s
+
+    # If data is a list or tuple, convert to a numpy array for uniform handling.
+    if isinstance(data, (list, tuple)):
+        data = np.array(data)
+
+    # If data is a numpy array, ensure it is one-dimensional or reshaped to (n,).
+    if isinstance(data, np.ndarray):
+        # Reshape if it's (1, n) or (n, 1).
+        if len(data.shape) == 2:
+            if data.shape[0] == 1 and data.shape[1] >= 1:
+                data = data.reshape(-1)
+            elif data.shape[1] == 1 and data.shape[0] >= 1:
+                data = data.reshape(-1)
+            else:
+                raise ValueError(
+                    "NumPy array must be one-dimensional or reshapeable to (n,). "
+                    f"Current shape: {data.shape}"
+                )
+        elif len(data.shape) > 2:
+            raise ValueError(
+                "NumPy array must be one-dimensional or reshapeable to (n,). "
+                f"Current shape: {data.shape}"
+            )
+        # Convert to Series
+        s = pd.Series(data)
+        if name is not None:
+            s = s.rename(name)
+        return s
+
+    raise ValueError(
+        f"Cannot convert data of type {type(data)} to a Series."
+    )

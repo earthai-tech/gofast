@@ -35,6 +35,7 @@ from ..core.checks import is_iterable
 from ..core.handlers import param_deprecated_message 
 from ..core.utils import make_obj_consistent_if
 from ..core.plot_manager import default_params_plot 
+from ..metrics import get_scorer 
 from ..utils.deps_utils import ensure_pkg 
 from ..utils.validator import _is_cross_validated, validate_yy, validate_keras_model
 from ..utils.validator import assert_xy_in, get_estimator_name, check_is_fitted
@@ -1655,6 +1656,7 @@ def plot_confusion_matrix_in(
     
     return cmo 
 
+
 def plot_r2(
     y_true: ArrayLike, 
     *y_preds: ArrayLike, 
@@ -1665,6 +1667,7 @@ def plot_r2(
     scatter_colors: Optional[List[str]] = None, 
     line_colors: Optional[List[str]] = None, 
     line_styles: Optional[List[str]] = None, 
+    other_metrics: List[str]=None, 
     annotate: bool = True, 
     show_grid: bool = True, 
     max_cols: int = 3,
@@ -1727,7 +1730,10 @@ def plot_r2(
         A list of line styles for the perfect fit lines in each subplot. If ``None``,
         defaults to dashed lines (``'--'``) for all lines. If fewer styles are
         provided than the number of predictions, the last style is repeated.
-    
+    view_other_metrics: bool, default=False 
+       Display others metrics like Root-Mean Squared Error (RMSE) and 
+       Mean Absolute Error (MAE) on the figure. 
+       
     annotate : bool, default=True
         Whether to annotate each subplot with its corresponding R-squared value.
         Annotations are positioned at the bottom right corner of each subplot to
@@ -1887,6 +1893,9 @@ def plot_r2(
     if titles is not None: 
         titles = is_iterable(titles, exclude_string= True, transform=True )
         
+    metrics_values =[] 
+    valid_metrics =[] 
+    
     for idx, pred in enumerate(y_preds):
         # Determine the current subplot's row and column
         ax = axes_flat[idx]
@@ -1894,6 +1903,16 @@ def plot_r2(
         # Calculate R-squared value for the current prediction
         r_squared = r2_score(y_true, pred, **r2_score_kws)
         
+        if other_metrics is not None:
+            for metric in other_metrics : 
+                try: 
+                    value = get_scorer(metric)(y_true, pred)
+                except Exception as e : 
+                    warnings.warn(str(e))
+                    continue 
+                
+                metrics_values.append(value)
+                valid_metrics.append (metric)
         # Plot actual vs predicted values as a scatter plot
         ax.scatter(
             y_true, pred, 
@@ -1924,7 +1943,21 @@ def plot_r2(
                 fontsize=12, ha='right', va='bottom', 
                 transform=ax.transAxes
             )
-        
+            if other_metrics and valid_metrics: 
+                for ii, metric in enumerate (valid_metrics): 
+                    # Add text with others metrics on the plot
+                    ax.text( 0.95 , 0.05 + ( ii + 1 ) * 0.1,
+                            f'${metric} = {metrics_values[ii]:.2f}$', 
+                             transform=ax.transAxes, 
+                             fontsize=12,
+                             va='bottom',
+                             ha='right', 
+                             color='black'
+                    )
+                # Initialize the list 
+                metrics_values =[] 
+                valid_metrics =[] 
+                
         # Set axis labels; use provided labels or default ones
         ax.set_xlabel(xlabel or 'Actual Values')
         ax.set_ylabel(ylabel or 'Predicted Values')

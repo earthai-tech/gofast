@@ -1712,8 +1712,10 @@ def build_data_preprocessor(
     ])
 
     categorical_pipeline = Pipeline([
-        ('imputer', SimpleImputer(strategy='most_frequent', missing_values=missing_values)),
-        ('encoder', OneHotEncoder() if label_encoding == 'LabelEncoder' else label_encoding)
+        ('imputer', SimpleImputer(strategy='most_frequent', 
+                                  missing_values=missing_values)),
+        ('encoder', OneHotEncoder() if label_encoding in ('LabelEncoder', 'onehot')
+         else label_encoding)
     ])
 
     # Determine automatic feature selection if not provided

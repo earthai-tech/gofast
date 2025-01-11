@@ -563,7 +563,7 @@ class Optimizer(BaseOptimizer):
                          estimator=self )
 
         max_length = max([len(str(estimator)) for estimator in self.estimators])
-    
+  
         results = Parallel(n_jobs=self.n_jobs)(delayed(_perform_search)(
             name, self.estimators[i], self.param_grids[i], 
             self.strategy, X, y, self.scoring, self.cv, self.search_kwargs,
@@ -571,8 +571,8 @@ class Optimizer(BaseOptimizer):
             name in enumerate(self.estimators))
     
         result_dict = {get_estimator_name(name): {
-            'best_estimator': best_est, 'best_params': best_params, 
-            'best_score': best_sc, 'cv_results': cv_res
+            'best_estimator_': best_est, 'best_params_': best_params, 
+            'best_score_': best_sc, 'cv_results_': cv_res
             } for name, best_est, best_params, best_sc, cv_res in results
         }
     
