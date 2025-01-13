@@ -3076,7 +3076,9 @@ def contains_nested_objects(lst, strict=False, allowed_types=None):
     False  # strict, no nested objects
     """
     if allowed_types is None:
-        allowed_types = (list, set, dict, tuple)  # Default nested types
+        allowed_types = (
+            list, set, dict, tuple, pd.Series, pd.DataFrame, np.ndarray
+            )  # Default nested types
     
     # Function to check if an item is a nested type
     def is_nested(item):

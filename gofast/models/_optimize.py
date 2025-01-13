@@ -4,7 +4,7 @@
 """
 Optimize Base Classes
 """
-
+from __future__ import annotations  
 import joblib
 from joblib import Parallel, delayed
 from tqdm import tqdm 

@@ -20,7 +20,7 @@ from ...api.types import Any, List, Dict, Tuple, Union, Optional, DataFrame
 from ...api.summary import ReportFactory 
 from ...compat.sklearn import validate_params, Interval, StrOptions, HasMethods 
 from ...core.array_manager import to_numeric_dtypes, is_array_like
-from ...core.checks import is_in_if, is_iterable, exist_features
+from ...core.checks import is_in_if, is_iterable, exist_features, is_numeric_dtype
 from ...core.io import is_data_readable
 from ...core.utils import type_of_target 
 from ...decorators import Dataify
@@ -28,7 +28,7 @@ from ..base_utils import select_features
 from ..deps_utils import ensure_pkg
 from ..validator import ( 
     build_data_if, validate_data_types, check_consistent_length, 
-    get_estimator_name 
+    get_estimator_name
 )
 
 # Logger Configuration
@@ -280,13 +280,19 @@ def select_relevant_features(
     
     # Validate target variable
     if target is not None:
+        tmsg = "The 'target' parameter must be a numeric array-like object."
         if isinstance(target, str):
             exist_features(data, target, name='Target')
+            if not is_numeric_dtype(data[target], to_array=True): 
+                raise TypeError(tmsg)
             target_correlations = data.corr(method=method)[target]
             if remove_target:
                 target_correlations = target_correlations.drop(labels=target)
         elif is_array_like(target):
             check_consistent_length(data, target)
+            
+            if not is_numeric_dtype(target, to_array=True): 
+                raise TypeError(tmsg)
             temp_target_column = 'temp_target_column'
             data[temp_target_column] = target
             correlation_matrix = data.corr(method=method)
@@ -348,7 +354,7 @@ def select_relevant_features(
                     "No features meet the threshold for visualization.",
                     UserWarning)
             else:
-                print(f"Visualizing {'correlations' if target else 'variances'}"
+                print(f"Visualizing {'correlations' if target is not None else 'variances'}"
                       f" of {len(relevant_features)} relevant feature(s).")
         
         if relevant_features:

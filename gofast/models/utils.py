@@ -885,7 +885,6 @@ def validate_strategy(strategy: Union[str, _F]) -> str:
         'GeneticSearchCV': ['GENSCV', 'GeneticSearchCV']
     }
 
-
     strategy_name = strategy if isinstance(
         strategy, str) else get_estimator_name(strategy)
 

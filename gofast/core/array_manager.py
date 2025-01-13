@@ -344,7 +344,51 @@ def to_array(
         except Exception as e:
             _handle_error(f"Failed to reshape array to {target_dim}D. Error: {e}")
         return arr_np
-
+    
+    # Helper function to Pandas Series to dataframe if target_dim is 2d 
+    # else return Numpy array for reshaping in higher dimension. 
+    def _reshape_series(series: pd.Series, target_dim: int, axis: int = 0):
+        """
+        Reshape a Pandas Series into a DataFrame or NumPy array based 
+        on the target dimension.
+    
+        Parameters:
+        - series (pd.Series): The Pandas Series to reshape.
+        - target_dim (int): The desired number of dimensions after reshaping.
+        - axis (int, optional): The axis along which to reshape. Defaults to 0.
+    
+        Returns:
+        - pd.DataFrame or np.ndarray: The reshaped Series as a DataFrame 
+         if target_dim is 2,
+          or as a NumPy array for higher dimensions.
+        """
+        if isinstance (series, pd.Series): 
+            if axis == 0:
+                if target_dim == 2:
+                    _verbose_print(
+                        "Reshaping Series to DataFrame.", level=2
+                    )
+                    return series.to_frame() # Convert Series to DataFrame
+                
+                elif target_dim > 2:
+                    _verbose_print(
+                        "Series detected. Converting to NumPy array for"
+                        " dimensions exceeding 2.", level=2
+                    )
+                    raise # force to ball back to numpy array conversion 
+                else: # for 1d dimension, no conversion is performed. 
+                    return series 
+                
+            elif axis == 1:
+                _verbose_print(
+                    "Series detected with conversion axis=1. Conversion to"
+                    " DataFrame is only supported with axis=0. "
+                    "Falling back to NumPy reshaping.", level=2
+                )
+                raise # Fallback to numpy array conversion.
+        else: 
+            raise 
+    
     # Convert list or tuple to NumPy array if necessary
     arr = _convert_to_numpy(arr)
     
@@ -409,20 +453,40 @@ def to_array(
                     )
                     _handle_error(message)
             else:
-                # When 'only_' is not specified, allow greater or equal dimensions
+                
+                # Allow dimensions greater than or equal to the minimum 
+                # required when 'only_' is not specified
                 if min_dim and current_ndim < min_dim:
                     if force_conversion:
+                        # Attempt to reshape using _reshape_series
+                        # for intelligent handling
                         _verbose_print(
-                            f"Attempting to reshape array to {accept_dim}D.", level=2
+                            f"Attempting to reshape array to {accept_dim}"
+                            " using _reshape_series.", level=2
                         )
-                        arr = _reshape_numpy(arr, dim_map[accept_dim])
-                        current_ndim = _get_ndim(arr)
+                        try:
+                            arr = _reshape_series(
+                                arr, target_dim=dim_map[accept_dim], axis=axis)
+                            current_ndim = _get_ndim(arr)
+                            _verbose_print(
+                                "Reshaping successful. Current dimensions:"
+                                f" {current_ndim}D.", level=2
+                            )
+                        except Exception as e:
+                            if isinstance (arr, pd.Series) :
+                                arr= arr.values 
+                            _verbose_print(
+                                f"Reshaping with _reshape_series failed: {e}."
+                                " Falling back to NumPy reshaping.", level=2
+                            )
+                            arr = _reshape_numpy(arr, dim_map[accept_dim])
+                            current_ndim = _get_ndim(arr)
                     else:
-                        message = (
-                            f"Input array has {current_ndim} dimensions, but at least "
-                            f"{min_dim} dimensions are required."
+                        error_message = (
+                            f"Input array has {current_ndim} dimension(s), but at least "
+                            f"{min_dim} dimension(s) are required."
                         )
-                        _handle_error(message)
+                        _handle_error(error_message)
 
     # Handle conversion based on 'accept' parameter
     if accept:
@@ -4144,18 +4208,18 @@ def to_series(
 
     Parameters
     ----------
-    ``data`` : array-like, pandas.DataFrame, list, or tuple
+    data : array-like, pandas.DataFrame, list, or tuple
         The input data to be converted into a one-dimensional
         Series. Supported formats include:
           - Python lists or tuples (converted to NumPy arrays first)
           - NumPy arrays of shape (n,) or reshaped from (1, n) or
             (n, 1) into (n,)
           - A pandas DataFrame with a single column
-    ``name`` : str, optional
+    name : str, optional
         A string used to rename the resulting Series. If not
         provided, the name is inferred from the DataFrame column
         (if applicable) or left as None.
-
+    
     Returns
     -------
     pandas.Series

@@ -139,7 +139,7 @@ def plot_well(
     minorticks_on=True,
     subplot_kws=None
 ):
-    """
+    r"""
     Plot well logs from a main DataFrame and optional prediction
     DataFrame with a shared or separate depth axis. The depth can be
     provided explicitly via ``depth_arr`` or derived from `df` index
@@ -236,10 +236,6 @@ def plot_well(
     subplot_kws : dict, optional
         Additional keyword arguments passed to
         ``plt.subplots`` or GridSpec.
-
-    Returns
-    -------
-    None
 
     Examples
     --------
@@ -739,7 +735,7 @@ def plot_perturbations(
     display_values: bool = True,
     **kwargs
 ):
-    """
+    r"""
     Plot feature perturbation effects for multiple perturbation values
     using MIV metrics.
 
@@ -1217,7 +1213,7 @@ def plot_sensitivity(
     color_palette='muted',
     boxplot_showfliers=False
 ):
-    """
+    r"""
     Plot the feature sensitivity values.
 
     Parameters

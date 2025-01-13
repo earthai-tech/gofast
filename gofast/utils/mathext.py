@@ -30,11 +30,13 @@ from ..api.types import (
 )
 from ..api.summary import ResultSummary
 from ..compat.pandas import select_dtypes 
-from ..compat.sklearn import validate_params, InvalidParameterError 
+from ..compat.sklearn import validate_params, InvalidParameterError, HasMethods 
 from ..core.array_manager import ( 
-    to_numeric_dtypes, concat_array_from_list, extract_array_from
+    to_numeric_dtypes, concat_array_from_list, extract_array_from, to_arrays 
 )
-from ..core.checks  import  _assert_all_types, validate_name_in, exist_features
+from ..core.checks  import  ( 
+    _assert_all_types, validate_name_in, exist_features, is_iterable 
+) 
 from ..core.handlers import ( 
     columns_manager, param_deprecated_message, delegate_on_error
   )
@@ -58,6 +60,8 @@ from .validator import (
     validate_length_range,
     validate_scores,
     ensure_2d,
+    contains_nested_objects,
+    get_estimator_name
 )
 
 # Configure logging
@@ -109,8 +113,185 @@ __all__=[
      'weighted_spearman_rank',
      'compute_coverage', 
      'compute_coverages', 
+     'get_preds', 
    ]
 
+@validate_params ({ 
+    'y_true': ['array-like', None], 
+    'y_preds': ['array-like', None], 
+    'models': [HasMethods(['predict']), None], 
+    })
+def get_preds(
+    models = None,
+    X = None,
+    y_preds = None,
+    return_model_names=False,
+    solo_return = False, 
+):
+    """
+    Get predictions from models or provided arrays. 
+    
+    Retrieve prediction arrays (`y_preds`) by either converting user-
+    supplied arrays or computing model predictions on feature data `X`.
+    The function <object> (`get_preds`) offers a unified approach for
+    handling both scenarios. It can also return model names for easy
+    reference in evaluations or visualizations.
+    
+    .. math::
+       \hat{y}_i = f_i(X), \quad i=1,2,\dots,m
+    
+    Here, :math:`f_i(X)` represents the prediction function of model
+    :math:`i`, and :math:`\hat{y}_i` is the resulting prediction array,
+    especially when handling multiple models in ensemble scenarios [1]_.
+    
+    Parameters
+    ----------
+    models : estimator or list of estimators, optional
+        Trained model(s) that implement the `<model.predict>`
+        method. If ``y_preds`` is None, predictions are computed
+        from these estimators using the feature matrix `X`.
+        Otherwise, this parameter is ignored.
+    X : array-like of shape (n_samples, n_features), optional
+        Input feature matrix used to compute predictions when
+        ``y_preds`` is None. Must be provided if `models` is
+        specified.
+     y_preds : array-like, list of array-like, optional
+         Predicted values provided directly by the user. If not
+         None, these arrays are simply returned after conversion
+         to NumPy arrays. When multiple arrays are provided as a
+         list-like structure, each is converted individually.
+         
+    return_model_names : bool, default=False
+        If True, the function also returns the names of each
+        estimator, as retrieved by `<get_estimator_name>`. Useful
+        for labeling or logging.
+    solo_return : bool, default=False
+        If True and exactly one predictions array is found, the
+        function returns that single array directly, rather than
+        a list with one element.
+    
+    Returns
+    -------
+    list of ndarray or ndarray or tuple
+        - If ``y_preds`` is provided, returns the converted array
+          or list of arrays.
+        - If ``y_preds`` is None and `models` is provided,
+          returns a list of arrays (each estimator's predictions).
+        - If ``return_model_names`` is True, returns a 2-tuple:
+          (predictions, model_names).
+        - If ``solo_return`` is True and only one array is
+          obtained, returns that single array instead of a list.
+    
+    Raises
+    ------
+    ValueError
+        - If ``y_preds`` is None but `models` is also None, making
+          it impossible to compute predictions.
+        - If ``X`` is None while needing to compute predictions
+          from `models`.
+    
+    Examples
+    --------
+    >>> from gofast.utils.mathext import get_preds
+    >>> import numpy as np
+    >>> # Case 1: Provide y_preds directly
+    >>> y_true = np.array([1, 0, 1])
+    >>> my_preds = [np.array([0.8, 0.2, 0.9])]
+    >>> results = get_preds(y_true, y_preds=my_preds, solo_return=True)
+    >>> results
+    array([0.8, 0.2, 0.9])
+    
+    >>> # Case 2: Compute predictions from models
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> model = LogisticRegression().fit(np.random.rand(3,2), np.array([1,0,1]))
+    >>> X_new = np.random.rand(2,2)
+    >>> y_predicts = get_preds(y_true=None,
+    ...                        models=model,
+    ...                        X=X_new,
+    ...                        return_model_names=True)
+    >>> y_predicts
+    ([array([1, 1])], ['LogisticRegression'])
+    
+    Notes
+    -----
+    - The helper inline methods `<contains_nested_objects>`,
+      `<to_arrays>`, `<is_iterable>`, and `<get_estimator_name>` may be
+      invoked internally to manage array conversions or model name
+      retrieval.
+    - This function ensures consistent handling of multiple
+      scenarios: user-provided predictions or model-based
+      computation, single or multiple arrays, etc.
+    - If the user sets ``solo_return=True`` yet multiple arrays
+      are generated, all arrays are returned as a list ignoring
+      the `solo_return` hint.
+    
+    See Also
+    --------
+    ``gofast.utils.mathext.to_arrays`` : Convert list-like inputs
+        into NumPy arrays.
+    ``gofast.utils.ml.utils.get_estimator_name`` : Retrieve a
+        string name from an estimator for labeling.
+    ``gofast.utils.ml.utils.is_iterable`` : Check if an object
+        is iterable (excluding strings).
+    
+    References
+    ----------
+    .. [1] D. Wolpert, "Stacked generalization," Neural Networks,
+        vol. 5, issue 2, pp. 241-259, 1992.
+    """
+
+    # If y_preds is provided, convert it to arrays. 
+    # Otherwise, we compute predictions using each model in 'models'.
+    if y_preds is not None:
+        # Check if y_preds is a nested list-like structure.
+        is_nested_list = contains_nested_objects(y_preds)
+        if is_nested_list:
+            # Convert each element in y_preds to arrays.
+            y_preds = to_arrays(*y_preds)
+        else:
+            # y_preds is a single array or list; just convert it.
+            y_preds = to_arrays(y_preds)
+
+        # If solo_return is True and there's exactly one array,
+        # return that array directly.
+        if solo_return:
+            if len(y_preds) == 1:
+                return y_preds[0]
+
+        # If we got here, return all arrays (list of predictions).
+        return y_preds
+
+    # If y_preds is None, we need 'models' and 'X' to compute predictions.
+    if models is None:
+        # Raise an error indicating models is required when y_preds is not given.
+        raise ValueError(
+            "No y_preds provided. 'models' cannot be None if predictions "
+            "are to be computed."
+        )
+
+    if X is None:
+        # Raise an error indicating X is required to compute predictions
+        # if y_preds isn't given.
+        raise ValueError(
+            "No y_preds provided. 'X' must be supplied to compute predictions."
+        )
+
+    # Convert 'models' into an iterable if it's a single model.
+    models = is_iterable(models, exclude_string=True, transform=True)
+
+    # Compute predictions for each model on X.
+    y_preds = []
+    for model in models:
+        y_pred = model.predict(X)
+        y_preds.append(y_pred)
+
+    # If the user wants model names, return them alongside predictions.
+    if return_model_names:
+        model_names = [get_estimator_name(model) for model in models]
+        return y_preds, model_names
+
+    # Otherwise, return predictions only.
+    return y_preds
 
 def compute_coverages(
     df,

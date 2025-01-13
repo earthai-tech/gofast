@@ -7,6 +7,7 @@ Provides classes and functions designed to optimize machine learning models,
 featuring methods for hyperparameter tuning and strategies for executing 
 searches in parallel."""
 
+from __future__ import annotations 
 import joblib
 import concurrent 
 from concurrent.futures import ThreadPoolExecutor
@@ -231,7 +232,7 @@ class OptimizeHyperparams(BaseOptimizer):
     
         Returns
         -------
-        summary_ : ModelSummary
+        summary : ModelSummary
             A `ModelSummary` object containing the optimization results for the 
             estimator. The object includes information on the best estimator, 
             best parameters, best score, and cross-validation results.
@@ -314,10 +315,10 @@ class OptimizeHyperparams(BaseOptimizer):
             joblib.dump(results_dict, f'{savefile}.joblib')
             print(f"Results saved to {savefile}.joblib")
 
-        self.summary_ = self.construct_model_summary(
+        self.summary = self.construct_model_summary(
             results_dict, descriptor="OptimizeHyperparams")
         
-        return self.summary_
+        return self.summary
 
     def __repr__(self):
         return super().__repr__()
@@ -747,7 +748,7 @@ class OptimizeSearch(BaseOptimizer):
     
         Returns
         -------
-        summary_ : ModelSummary
+        summary : ModelSummary
             A `ModelSummary` object containing the optimization results for each 
             estimator. The object includes information on the best estimator, 
             best parameters, best score, and cross-validation results for each 
@@ -1017,7 +1018,7 @@ class ParallelizeSearch(BaseOptimizer):
     
         Returns
         -------
-        summary_ : ModelSummary
+        summary : ModelSummary
             A `ModelSummary` object containing the optimization results for each 
             estimator. The object includes information on the best estimator, 
             best parameters, best score, and cross-validation results for each 
@@ -1128,9 +1129,9 @@ class ParallelizeSearch(BaseOptimizer):
                 joblib.dump(pack, filename=f"{self.file_prefix}.joblib")
                 print(f"Aggregated results saved to {self.file_prefix}.joblib")
 
-        self.summary_ = ModelSummary(descriptor="ParallelizeSearch", **o)
-        self.summary_.summary(o)
-        return self.summary_
+        self.summary = ModelSummary(descriptor="ParallelizeSearch", **o)
+        self.summary.summary(o)
+        return self.summary
 
 @smartFitRun
 class ThreadedOptimizer(BaseOptimizer):
@@ -1306,7 +1307,7 @@ class ThreadedOptimizer(BaseOptimizer):
 
         Returns
         -------
-        summary_ : ModelSummary
+        summary : ModelSummary
             A `ModelSummary` object containing the optimization results for each 
             estimator. The object includes information on the best estimator, 
             best parameters, best score, and cross-validation results for each 
@@ -1415,8 +1416,8 @@ class ThreadedOptimizer(BaseOptimizer):
                     joblib.dump(o[name], file_name)
                     print(f"Results saved to {file_name}")
 
-        self.summary_ = ModelSummary(descriptor="ThreadedOptimizer", **o)
-        return self.summary_.summary(o)
+        self.summary = ModelSummary(descriptor="ThreadedOptimizer", **o)
+        return self.summary.summary(o)
    
 @smartFitRun
 class ParallelOptimizer(BaseOptimizer):
@@ -1665,7 +1666,7 @@ class ParallelOptimizer(BaseOptimizer):
 
         Returns
         -------
-        summary_ : ModelSummary
+        summary : ModelSummary
             A summary object containing the results of the hyperparameter 
             optimization for each estimator.
 
@@ -1758,8 +1759,8 @@ class ParallelOptimizer(BaseOptimizer):
             )
 
         results = dict(results)
-        self.summary_ = ModelSummary(descriptor="ParallelOptimizer", **results)
-        return self.summary_.summary(results)
+        self.summary = ModelSummary(descriptor="ParallelOptimizer", **results)
+        return self.summary.summary(results)
     
 
 def optimize_search(

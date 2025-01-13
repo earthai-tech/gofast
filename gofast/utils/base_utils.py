@@ -69,8 +69,221 @@ __all__ = [
     'make_df', 'normalizer', 'remove_outliers', 'remove_target_from_array', 
     'rename_labels_in', 'scale_y', 'select_features', 
     'smooth1d', 'smoothing', 'soft_bin_stat', 'speed_rowwise_process', 
-    'nan_to_mode', 'handle_outliers', 'fill_NaN'
+    'nan_to_mode', 'handle_outliers', 'fill_NaN', 'map_values',
+    'drop_few_members'
 ]
+
+
+def drop_few_members(
+    frame,
+    target_col,
+    test_ratio=0.2,
+    min_count=None,
+    verbose=1
+    ):
+    # Example implementation of _verbose_print
+    def _verbose_print(message: str, level: int = 1):
+        """
+        Prints messages based on the verbosity level.
+        
+        Parameters:
+        - message (str): The message to be printed.
+        - level (int): The verbosity level required to print the message.
+                        Lower numbers indicate higher priority.
+        """
+        if level <= 2:
+            print(message)
+
+
+    # Convert dictionary to DataFrame if necessary
+    if isinstance(frame, dict):
+        _verbose_print(
+            "Input is a dictionary. Converting to DataFrame.", level=2
+        )
+        frame = pd.DataFrame(frame)
+    elif not isinstance(frame, (pd.DataFrame, pd.Series)):
+        raise TypeError(
+            f"'frame' must be a pandas DataFrame or Series, got {type(frame).__name__}."
+        )
+    
+    # Extract target data based on input type
+    if isinstance(frame, pd.DataFrame):
+        if target_col not in frame.columns:
+            raise ValueError(
+                f"'target_col' '{target_col}' not found in DataFrame columns."
+            )
+        target = frame[target_col]
+    elif isinstance(frame, pd.Series):
+        target = frame
+        if target.name != target_col and target_col is not None:
+            raise ValueError(
+                f"'target_col' '{target_col}' does not match the Series name '{target.name}'."
+            )
+    
+    # Validate test_ratio parameter
+    if not (0 < test_ratio < 1):
+        raise ValueError("'test_ratio' must be between 0 and 1.")
+    
+    # Determine minimum required count per class
+    if min_count is None:
+        min_count = np.ceil(1 / test_ratio)  # Ensure at least one sample in test set
+    
+    # Count the number of instances per class
+    class_counts = target.value_counts()
+    
+    # Identify classes that meet the minimum count requirement
+    classes_to_keep = class_counts[class_counts >= min_count].index
+    
+    # Identify classes that do not meet the minimum count requirement
+    classes_to_drop = class_counts[class_counts < min_count].index
+    
+    # Handle verbose messages based on the number of classes to drop
+    if len(classes_to_drop) > 0:
+        missing_classes = list(classes_to_drop)
+        if verbose >= 2:
+            _verbose_print(
+                f"Dropping classes with fewer than {min_count} members: {missing_classes}.",
+                level=2
+            )
+        elif verbose == 1:
+            print(
+                f"Dropping classes with fewer than {min_count} members: {missing_classes}."
+            )
+    
+    # Drop classes that do not meet the minimum count requirement
+    if isinstance(frame, pd.DataFrame):
+        filtered_frame = frame[frame[target_col].isin(classes_to_keep)].reset_index(drop=True)
+    else:
+        filtered_frame = target[target.isin(classes_to_keep)].reset_index(drop=True)
+    
+    # Verify that at least one class remains after dropping
+    if filtered_frame.empty:
+        raise ValueError(
+            "All classes have been dropped. Adjust 'test_ratio' or provide a different dataset."
+        )
+    
+    return filtered_frame
+
+
+@is_data_readable 
+def map_values(
+    data : Union[DataFrame, Series, dict],
+    map_dict: Dict[Any, Any],
+    action: str = None,
+    suffix : str = '_map',
+    error : str = 'warn',
+    coerce : bool = False
+):
+    error = error_policy(error, base='warn') 
+    emsg = f"Invalid input <action>. Expect one of {None, 'append'}. Got '{action}'"
+    action = parameter_validator(
+        "action", target_strs={None, 'append'}, error_msg=emsg)(action)
+    # 1) If user passed a dict instead of DataFrame/Series,
+    # convert it to DataFrame.
+    if isinstance(data, dict):
+        data = pd.DataFrame(data)
+
+    # 2) If data is a Series, convert to a single-col
+    # DataFrame for uniform processing.
+    is_series = False
+    if isinstance(data, pd.Series):
+        data = data.to_frame()
+        is_series = True
+
+    # 3) For each column in the DataFrame, attempt to map using `map_dict`.
+    #    We'll store mapped results in new_cols dict to assemble after processing.
+    new_cols = {}
+
+    for col in data.columns:
+        col_data = data[col]
+
+        # 3a) If coerce=True, try to convert col_data to numeric if possible,
+        #     or to string. We'll do a best-effort approach:
+        if coerce:
+            # Attempt to unify types so that dict keys match.
+            # We'll guess numeric => string or string => numeric,
+            # depending on map_dict.
+            # Minimal approach: convert col_data to str if map_dict keys
+            # are str, else numeric.
+            # More robust logic might inspect the types in map_dict.
+            # For now, let's do a naive approach: if the first key is str,
+            # we do col_data = col_data.astype(str)
+            # else we do numeric. We'll handle exceptions or partial conversions.
+            first_key = next(iter(map_dict))
+            if isinstance(first_key, str):
+                try:
+                    col_data = col_data.astype(str)
+                except ValueError as e:
+                    # If it fails, we skip forcing
+                    warnings.warn(
+                        f"coerce=True but converting column '{col}'"
+                        f" to string failed: {e}")
+            else:
+                try:
+                    col_data = pd.to_numeric(col_data, errors='coerce')
+                except ValueError as e:
+                    warnings.warn(
+                        f"coerce=True but numeric conversion"
+                        f" for column '{col}' failed: {e}")
+
+        # 3b) We'll build a function that handles 'not found'
+        # keys depending on `error`.
+        def mapper_fn(x):
+            # If x is in map_dict => return map_dict[x], else handle not found
+            if x in map_dict:
+                return map_dict[x]
+            else:
+                # If value not found, handle error/warn/ignore
+                if error == 'raise':
+                    raise ValueError(
+                        f"Value '{x}' in column '{col}' not found in map_dict."
+                    )
+                elif error == 'warn':
+                    warnings.warn(
+                        f"Value '{x}' in column '{col}' not found in map_dict. "
+                        f"It will be left unmapped."
+                    )
+                # error='ignore' => do nothing silently
+                return x  # keep original if not found
+
+        # 3c) Apply the mapper to each value in this column
+        mapped_col = col_data.map(mapper_fn)
+
+        # 3d) If action=='append', store in a new column named col+suffix
+        #     else, we overwrite the original column name.
+        if action == 'append':
+            new_col_name = f"{col}{suffix}"
+        else:
+            new_col_name = col
+
+        new_cols[new_col_name] = mapped_col
+
+    # 4) If action=='append', we add these new columns to the existing DataFrame
+    #    otherwise we replace the old columns with newly mapped columns.
+    if action == 'append':
+        for nc in new_cols:
+            data[nc] = new_cols[nc]
+    else:
+        # Overwrite only the columns that exist in new_cols
+        # if the user had more columns not in the old data,
+        # we only keep them if they are in new_cols?
+        # but logically we only mapped existing columns, so safe to do:
+        for c in data.columns:
+            if c in new_cols:
+                data[c] = new_cols[c]
+        # If action=None, the user might want to rename columns
+        # to old name => we did that above.
+
+    # 5) If data was originally a Series, return the relevant column as a Series
+    #    If action='append' and is_series, we have two columns now => decide?
+    #    We'll do minimal approach: if is_series and not append => return the single col
+    if is_series and action != 'append':
+        # There's only one column, let's return it as a series
+        col_name = data.columns[0]
+        return data[col_name]
+
+    # 6) Return the DataFrame
+    return data
 
 
 @is_data_readable 

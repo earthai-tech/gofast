@@ -1,4 +1,8 @@
-"""
+# -*- coding: utf-8 -*-
+#   Licence:BSD 3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
+
+r"""
 Regression Prediction Application
 =================================
 

@@ -148,6 +148,10 @@ def load_toc(
 
     from ..utils.data_utils import random_sampling 
     data_file = "toc.csv"
+    #-------------------------------------------------------------
+    # Remotely download if the file doesnot exist.
+    download_file_if(data_file, verbose =False, error ='raise')
+    # ------------------------------------------------------------
     with resources.path (DMODULE, data_file) as p : 
         file = str(p)
     target_columns = ["toc"]
@@ -290,6 +294,11 @@ def load_hydro_metrics(
     full power of numpy and pandas for data processing and analysis, respectively.
     """
     data_file = "hydro_metrics.csv"
+    #-------------------------------------------------------------
+    # Remotely download if the file doesnot exist.
+    download_file_if(data_file, verbose =False, error ='raise')
+    # ------------------------------------------------------------
+    
     data, target, target_classes, feature_names, fdescr = csv_data_loader(
         data_file=data_file, include_headline=True, 
         descr_file="hydro_metrics.rst"
@@ -393,6 +402,11 @@ def load_statlog(*, return_X_y=False, as_frame=False, tag=None,
 
     """
     data_file = "statlog_heart.csv"
+    #-------------------------------------------------------------
+    # Remotely download if the file doesnot exist.
+    download_file_if(data_file, verbose =False, error ='raise')
+    # ------------------------------------------------------------
+    
     data, target, target_classes, feature_names, fdescr = csv_data_loader(
         data_file=data_file, descr_file="statlog_heart.rst"
     )
@@ -544,6 +558,9 @@ def load_dyspnea(
 
     data_file = f"dyspnea{'+'if key=='pp' else ''}.csv"
 
+    #-------------------------------------------------------------
+    download_file_if(data_file, verbose =False, error ='raise')
+    # ------------------------------------------------------------
     with resources.path (DMODULE, data_file) as p : 
         file = str(p)
     data = pd.read_csv ( file )
@@ -632,10 +649,6 @@ def _ensure_data_file(data_file):
     Checks if data file exists locally, downloads if not.
     """
     download_file_if(data_file, error ='raise')
-    # if not check_file_exists(DMODULE, data_file):
-    #     package_path = str(files(DMODULE).joinpath(data_file))
-    #     URL = os.path.join(RemoteDataURL, data_file)
-    #     fancier_downloader(URL, data_file, dstpath=os.path.dirname(package_path))
 
 def _load_data(data_file, key, available_sets):
     """
@@ -813,14 +826,6 @@ def load_nansha (
     
     #-----------------------------------------------------------
     download_file_if(data_file, verbose =False, error ='raise')
-    # if not check_file_exists(DMODULE, data_file): 
-        
-    #     # If file does not exist download it from the remote and 
-    #     # save it to the path 
-    #     package_path = str(files(DMODULE).joinpath(data_file))
-    #     URL= os.path.join( RemoteDataURL, data_file) 
-    #     fancier_downloader (URL,data_file, dstpath = os.path.dirname (package_path)
-    #     )
     #-------------------------------------------------------------- 
     with resources.path (DMODULE, data_file) as p : 
         data_file = str(p)
@@ -1016,6 +1021,8 @@ def load_bagoue(
  ):
 
     data_file = "bagoue.csv"
+
+    download_file_if(data_file, verbose =False, error ='raise')
     data, target, target_classes, feature_names, fdescr = csv_data_loader(
         data_file=data_file, descr_file="bagoue.rst", 
         include_headline= True, 
@@ -1136,6 +1143,7 @@ def load_iris(
         *, return_X_y=False, as_frame=False, tag=None, data_names=None, **kws
         ):
     data_file = "iris.csv"
+    download_file_if(data_file, verbose =False, error ='raise')
     data, target, target_classes, feature_names, fdescr = csv_data_loader(
         data_file=data_file, descr_file="iris.rst"
     )
@@ -1390,6 +1398,8 @@ def load_mxs (
     key = 'pp' if key.lower() in ('pp', 'preprocessed') else key.lower()
     available_dict = _validate_key(key)
     data_file = 'mxs.joblib'
+    
+    download_file_if(data_file, verbose =False, error ='raise')
     with resources.path(DMODULE, data_file) as p:
         data_file = str(p)
     data_dict = joblib.load(data_file)
@@ -1642,6 +1652,7 @@ def load_forensic( *,
         })
     data_file = f"forensic_bf{'+'if key=='pp' else ''}.csv"
     
+    download_file_if(data_file, verbose =False, error ='raise')
     with resources.path (DMODULE, data_file) as p : 
         file = str(p)
     data = pd.read_csv ( file )
@@ -1801,6 +1812,8 @@ def load_jrs_bet(
     )
     # Loading the dataset
     data_file = "jrs_bet.csv"
+    
+    download_file_if(data_file, verbose =False, error ='raise')
     with resources.path(DMODULE, data_file) as p: 
         file = str(p)
     data = pd.read_csv(file)

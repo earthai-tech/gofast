@@ -19,10 +19,22 @@ import matplotlib.transforms as transforms
 from matplotlib.collections import EllipseCollection
 
 from sklearn.base import BaseEstimator 
-from sklearn.metrics import confusion_matrix, roc_curve,mean_absolute_error 
-from sklearn.metrics import roc_auc_score, r2_score, mean_squared_error 
+from sklearn.metrics import (
+    roc_auc_score, 
+    r2_score, 
+    mean_squared_error,
+    confusion_matrix,
+    ConfusionMatrixDisplay,
+    roc_curve,
+    auc, 
+    mean_absolute_error 
+)
 from sklearn.model_selection import learning_curve, KFold 
 from sklearn.utils import resample
+try: 
+    from sklearn.utils.multiclass import type_of_target
+except: 
+    from ..core.utils import type_of_target 
 try: 
     from keras.models import Model
 except : 
@@ -37,12 +49,14 @@ from ..core.utils import make_obj_consistent_if
 from ..core.plot_manager import default_params_plot 
 from ..metrics import get_scorer 
 from ..utils.deps_utils import ensure_pkg 
+from ..utils.mathext import get_preds 
 from ..utils.validator import _is_cross_validated, validate_yy, validate_keras_model
 from ..utils.validator import assert_xy_in, get_estimator_name, check_is_fitted
 from ..utils.validator import check_consistent_length
 from .utils import _set_sns_style, _make_axe_multiple
 from .utils import make_plot_colors  
 from ._config import PlotConfig 
+
 
 __all__= [ 
     'plot_confusion_matrices',
@@ -60,7 +74,8 @@ __all__= [
     'plot_regression_diagnostics', 
     'plot_residuals_vs_leverage', 
     'plot_residuals_vs_fitted', 
-    'plot_r2'    
+    'plot_r2', 
+    'plot_cm', 
     ]
 
 @default_params_plot(
@@ -1657,6 +1672,389 @@ def plot_confusion_matrix_in(
     return cmo 
 
 
+def plot_cm(
+    y_true: np.ndarray,
+    *y_preds: np.ndarray,
+    titles: Optional[str] = None,
+    fig_size: Optional[Tuple[int, int]] = None,
+    cmap: Optional[str] = None,
+    scatter_colors: Optional[List[str]] = None,
+    line_colors: Optional[List[str]] = None,
+    line_styles: Optional[List[str]] = None,
+    add_roc_curves: bool = False,
+    pos_label: Optional[Union[int, str]]= None,  
+    annotate: bool = False,
+    xlabel: Optional[str] = None,
+    ylabel: Optional[str] = None,
+    show_grid: bool  = True,
+    max_cols: int  = 3,
+    **cm_kws: Any
+):
+    """
+    Plot Confusion Matrices and optional ROC Curves.
+
+    Visualize confusion matrices for multiple classification predictions
+    along with an optional ROC (Receiver Operating Characteristic) curve.
+    This function, named ``plot_cm``, can display multiple confusion
+    matrices side by side (or in a grid) and, if requested, compile a
+    collective ROC curve subplot for binary classification scenarios.
+    
+    .. math::
+       C_{ij} = \\sum_{x \\in D} \\mathbf{1}
+       \\bigl( y_{\\mathrm{true}}(x) = i \\wedge
+       y_{\\mathrm{pred}}(x) = j \\bigr)
+    
+    Where :math:`C_{ij}` is the count of instances with true label
+    :math:`i` predicted as :math:`j` in dataset :math:`D` [1]_.
+    
+    Parameters
+    ----------
+    y_true : np.ndarray of shape (n_samples,)
+        The ground truth labels for the dataset.
+    
+    *y_preds : np.ndarray of shape (n_samples,), optional
+        One or more predicted label arrays or probability arrays
+        corresponding to <y_true>. Each array is plotted in its own
+        confusion matrix subplot.
+    
+    titles : str or list of str, optional
+        Title(s) for each subplot. If fewer titles than subplots
+        are provided, the last one is repeated. If None, default
+        labeling is used.
+
+    fig_size : tuple of int, optional
+        The overall figure size in inches (width, height). If None,
+        an appropriate size is computed based on the number of
+        subplots.
+    
+    cmap : str, optional
+        The colormap used to display the confusion matrix values.
+        Defaults to ``'Blues'``.
+    
+    scatter_colors : list of str, optional
+        Not directly used for confusion matrix. Preserved for
+        compatibility. Colors for scatter points if extended
+        functionality is needed.
+    
+    line_colors : list of str, optional
+        Colors for ROC curves if ``add_roc_curves=True``. Repeated
+        if fewer colors are given than the number of predicted
+        arrays.
+    
+    line_styles : list of str, optional
+        Line styles for ROC curves if ``add_roc_curves=True``.
+        Repeated if fewer styles are given than the number of
+        predicted arrays.
+    
+    add_roc_curves : bool, default=False
+        Whether to create an additional subplot containing ROC
+        curves for each predicted array. Only valid for binary
+        classification or 1D probability predictions. Multiclass
+        data triggers a warning or is skipped.
+    
+    pos_label : int or str, optional
+        The label considered "positive" for binary classification
+        in the ROC curve calculation. If None, the function assumes
+        probabilities for the positive class were passed. A warning
+        is issued when this assumption may be incorrect.
+    
+    annotate : bool, default=False
+        Whether to add textual annotations on the confusion
+        matrices. scikit-learn's default annotation is used
+        typically, so a user can set this to True for further
+        custom text or extra debugging.
+        
+    xlabel : str, optional
+       The label for the x-axis of each confusion matrix. If not
+       provided, the scikit-learn default label is used.
+
+    ylabel : str, optional
+       The label for the y-axis of each confusion matrix. If not
+       provided, the scikit-learn default label is used.
+
+    show_grid : bool, default=True
+        Whether to enable grid lines on the subplots. For
+        confusion matrices, the scikit-learn default typically
+        omits grids, but enabling them may be helpful for
+        reference.
+    
+    max_cols : int, default=3
+        Maximum number of columns in the subplot grid. Extra
+        subplots continue onto the next row. If
+        ``add_roc_curves=True``, one of these subplots is used
+        for the ROC curve.
+    
+    **cm_kws : Any
+        Additional keyword arguments passed to
+        ``ConfusionMatrixDisplay.plot(...)``, which may include
+        parameters such as ``values_format``, ``colorbar``, etc.
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The matplotlib figure object containing all the subplots
+        (confusion matrices and optionally the ROC subplot).
+    
+    Raises
+    ------
+    ValueError
+        If no predicted arrays are provided or if ROC curves are
+        requested for an unsupported configuration (e.g.,
+        multiclass without one-vs-rest logic).
+    
+    Examples
+    --------
+    >>> from gofast.plot.ml_viz import plot_cm
+    >>> import numpy as np
+    >>> # Suppose we have ground-truth labels and two sets of
+    ... # predicted labels from different models.
+    >>> y_true = np.array([0, 0, 1, 1, 0, 1])
+    >>> y_pred1 = np.array([0, 0, 1, 1, 0, 1])
+    >>> y_pred2 = np.array([0, 1, 1, 1, 0, 1])
+    >>> # Plot their confusion matrices side by side:
+    >>> fig = plot_cm(
+    ...     y_true,
+    ...     y_pred1,
+    ...     y_pred2,
+    ...     titles=['Model_1', 'Model_2'],
+    ...     add_roc_curves=True,
+    ...     pos_label=1
+    ... )
+    
+    Notes
+    -----
+    - When ``add_roc_curves=True``, an extra subplot is allocated
+      to display ROC curves for each predicted array, requiring
+      that <y_preds> contain either binary labels with a known
+      ``pos_label`` or probability estimates. If the target type
+      is multiclass, a warning is emitted and the ROC subplot is
+      skipped.
+    - The default parameter values are chosen to give a
+      straightforward visual comparison of confusion matrices
+      side by side or in multiple rows, depending on the number
+      of predictions.
+    
+    See Also
+    --------
+    sklearn.metrics.ConfusionMatrixDisplay : Native class used
+        to plot confusion matrices.
+    sklearn.metrics.confusion_matrix : Generates the numerical
+        confusion matrix for a single set of predictions.
+    sklearn.metrics.roc_curve:
+        Used internally for plotting ROC curves in binary tasks.
+    
+    References
+    ----------
+    .. [1] Provost, F., & Kohavi, R. "Glossary of Terms". In *Machine
+           Learning*, 30(2–3), 271–274. 1998.
+    .. [2] Pedregosa, F., et al. "Scikit-learn: Machine Learning in
+           Python." *Journal of Machine Learning Research*, 12,
+           2825–2830, 2011.
+    """
+
+    # 1) Check the type of target to see if it's binary, multiclass, etc.
+    ttype = type_of_target(y_true)
+
+    # 2) If user provided no predictions, 
+    # return with a warning and do nothing.
+    if not y_preds:
+        warnings.warn(
+            "No predicted arrays were provided. The function will "
+            "return without plotting any confusion matrix."
+        )
+        return None
+
+    # 3) Decide how many total subplots are needed. If user wants 
+    #    to add ROC curves, we add one extra 
+    #    subplot at the end for ROC.
+    num_preds   = len(y_preds)
+    total_plots = num_preds if not add_roc_curves else (num_preds + 1)
+
+    # 4) Determine how many rows and columns 
+    #    we need based on max_cols vs. total_plots.
+    ncols = min(max_cols, total_plots)
+    nrows = int(np.ceil(total_plots / ncols))
+
+    # 5) If figure size isn't given, compute a reasonable default.
+    if fig_size is None:
+        base_w = 4.0  # width per subplot
+        base_h = 4.0  # height per subplot
+        fig_size = (ncols * base_w, nrows * base_h)
+
+    # 6) Create the figure and axis grid. Flatten them for easy indexing.
+    fig, axes = plt.subplots(
+        nrows   = nrows,
+        ncols   = ncols,
+        figsize = fig_size,
+        squeeze = False
+    )
+    axes_flat = axes.flatten()
+
+    # 7) Convert titles to a list if user provided 
+    #    a single string or fewer titles than needed.
+    if titles is not None:
+        if isinstance(titles, str):
+            titles = [titles] * total_plots
+        else:
+            # If user gave a list of titles but not enough,
+            # fill with last title repeated.
+            if len(titles) < total_plots:
+                shortfall = total_plots - len(titles)
+                titles += [titles[-1]] * shortfall
+      
+                if len(titles) ==len(y_preds) + 1: 
+                    # Then rename the last title to ROC.
+                    titles[-1] = f"ROC Curve{'s' if len(y_preds)>1 else ''}" 
+            
+    else:
+        # If no titles were given, fill with None placeholders.
+        titles = [None] * total_plots
+    
+    if line_colors is None: 
+        line_colors = make_plot_colors(y_preds) 
+        
+    # 8) Loop over each of the predicted arrays to plot confusion matrices.
+    for idx, y_pred in enumerate(y_preds):
+        ax_ = axes_flat[idx]
+        # 8a) Compute confusion matrix for that prediction.
+        cm = confusion_matrix(y_true, y_pred)
+
+        # 8b) Create a confusion matrix display and plot it.
+        disp = ConfusionMatrixDisplay(cm)
+        disp.plot(ax=ax_, cmap=(cmap if cmap else "Blues"), **cm_kws)
+
+        # 8c) If annotate is True, user might want to 
+        #     add text or more info, but by default
+        #     ConfusionMatrixDisplay already adds text 
+        #     on each cell with counts or percentages.
+        if annotate:
+            warnings.warn(
+                "By default, ConfusionMatrixDisplay includes labels."
+                " Skipping Annotations."
+                )
+            pass  
+
+        # 8d) If user wants custom x or y label,
+        #    set them here. Otherwise keep default axis labels.
+        if xlabel:
+            ax_.set_xlabel(xlabel)
+        if ylabel:
+            ax_.set_ylabel(ylabel)
+
+        # 8e) Set or update the subplot title. If user provided
+        #     a title, use that; otherwise, default name.
+        subplot_title = titles[idx] if titles[idx] else f"CM {idx + 1}"
+        ax_.set_title(subplot_title)
+
+        # 8f) If user wants to see a grid behind the
+        #     confusion matrix, enable it.
+        ax_.grid(show_grid)
+
+    # 9) If user asked to add ROC curves, 
+    #    we handle it in the last subplot of the figure.
+    if add_roc_curves:
+        roc_ax = axes_flat[len(y_preds)]
+
+        # 9a) We'll loop through each prediction. 
+        #     If it's binary classification, we can do a normal ROC.
+        #     If it's multiclass, we might need a one-vs-rest approach.
+        #     This code is minimal.
+        for i, y_pred in enumerate(y_preds):
+            # 9b) We'll check if the user provided pos_label.
+            #     If pos_label is None, we assume y_pred are probabilities 
+            #     for the positive class, but we can't confirm that. We'll
+            #     issue a warning so user is aware.
+            if pos_label is None:
+                warnings.warn(
+                    "No pos_label provided. We assume y_pred is a probability "
+                    "for the positive class. If not correct, please specify "
+                    "pos_label or pass probability predictions for the correct label."
+                )
+            # 9c) If we're dealing with multi-class data, we'd need
+            #     one-vs-rest approach,  or we skip plotting. 
+            #     This snippet is simplistic, so let's check the target type:
+            if ttype in ("multiclass", "multilabel-indicator"):
+                warnings.warn(
+                    "Detected a multiclass scenario. For ROC curves, a "
+                    "one-vs-rest approach is needed or you must pass binary"
+                    " proba predictions. Skipping ROC curve for this"
+                    " set of predictions."
+                )
+                continue
+
+            try:
+                # 9d) Attempt to get FPR/TPR from the y_pred array.
+                #    We'll pass pos_label if set.
+                
+                if pos_label is not None:
+                    fpr, tpr, _ = roc_curve(y_true, y_pred, pos_label=pos_label)
+                else:
+                    fpr, tpr, _ = roc_curve(y_true, y_pred)
+                score_auc = auc(fpr, tpr)
+            except ValueError as e:
+                warnings.warn(
+                    f"Skipping ROC for prediction {i + 1} due to error: {e}"
+                )
+                continue
+
+            # 9e) Determine line color or fallback to a default
+            color = "darkorange"
+            if line_colors is not None and i < len(line_colors):
+                color = line_colors[i]
+
+            # 9f) Determine line style or fallback to '-'
+            lstyle = "-"
+            if line_styles is not None and i < len(line_styles):
+                lstyle = line_styles[i]
+
+            # 9g) Plot the ROC curve for the i-th prediction.
+            roc_ax.plot(
+                fpr, tpr,
+                linestyle=lstyle,
+                color=color,
+                label=( f"Pred {i+1} (AUC={score_auc:.2f})"
+                       ) if titles is None else titles[i]
+            )
+
+        # 9h) Plot the diagonal no-skill line from (0,0) to (1,1).
+        roc_ax.plot([0, 1], [0, 1], color="navy", linestyle="--", label="Chance")
+
+        # 9i) Set the x/y axis labels or defaults if none provided.
+        xlab = xlabel if xlabel else "False Positive Rate"
+        ylab = ylabel if ylabel else "True Positive Rate"
+        roc_ax.set_xlabel(xlab)
+        roc_ax.set_ylabel(ylab)
+
+        # 9j) If user provided enough titles, set the 
+        # last one for ROC. Else default name.
+        if len(titles) >= total_plots:
+            roc_ax.set_title( titles[-1] if titles[-1] else "ROC Curves")
+            
+        else:
+            roc_ax.set_title( f"ROC Curve{'s' if len(y_preds)>1 else ''}" )
+
+        # 9k) If user wants grid lines, enable them here.
+        roc_ax.grid(show_grid)
+
+        # 9l) Show legend in lower right corner to avoid clutter.
+        roc_ax.legend(loc="lower right")
+
+    # 10) If total_plots is less than the number of subplots,
+    #     hide the unused ones.
+    #     This can happen if user didn't add ROC but the figure
+    #     allocated more subplots.
+    if total_plots < len(axes_flat):
+        for j in range(total_plots, len(axes_flat)):
+            axes_flat[j].axis("off")
+
+    # 11) Adjust layout to avoid overlaps, then show the figure.
+    fig.tight_layout()
+    plt.show()
+
+    # 12) Return the figure object so user 
+    #     can save or manipulate further if desired.
+    return fig
+
 def plot_r2(
     y_true: ArrayLike, 
     *y_preds: ArrayLike, 
@@ -1994,6 +2392,8 @@ def plot_r2(
     # for further manipulation if needed
     return fig
 
+
+
 @param_deprecated_message(
     conditions_params_mappings=[
         {
@@ -2011,7 +2411,8 @@ def plot_r2(
 def plot_confusion_matrices (
     clfs: List[BaseEstimator], 
     X: NDArray, 
-    y: ArrayLike, *,  
+    y: ArrayLike, 
+    y_preds=None, *,   
     annot: bool =True, 
     pkg: Optional[str]=None, 
     normalize: str='true', 
@@ -2102,7 +2503,11 @@ def plot_confusion_matrices (
     if not is_iterable( clfs): 
         clfs =[clfs]
 
-    model_names = [get_estimator_name(name) for name in clfs ]
+    y_preds, model_names = get_preds (
+        models = clfs, X =X, y_preds =y_preds, 
+        return_model_names =True, 
+        )
+    # model_names = [get_estimator_name(name) for name in clfs ]
     # create a figure 
     subplot_kws = subplot_kws or dict (left=0.0625, right = 0.95, 
                                        wspace = 0.12)
@@ -2110,16 +2515,16 @@ def plot_confusion_matrices (
     fig.subplots_adjust(**subplot_kws)
     if not is_iterable(axes): 
        axes =[axes] 
-    for kk, (model , mname) in enumerate(zip(clfs, model_names )): 
-        ypred = model.predict(X)
-        if pkg in ('sklearn', 'scikit-learn'): 
-            plot_confusion_matrix(y, ypred, annot =annot , ax = axes[kk], 
-                normalize= normalize , sample_weight= sample_weight ) 
-            axes[kk].set_title (mname)
+    for kk, (ypred , mname) in enumerate(zip(y_preds, model_names )): 
+        # ypred = model.predict(X)
+        # if pkg in ('sklearn', 'scikit-learn'): 
+        plot_confusion_matrix(y, ypred, annot =annot , ax = axes[kk], 
+            normalize= normalize , sample_weight= sample_weight ) 
+        axes[kk].set_title (mname)
             
-        elif pkg in ('yellowbrick', 'yb'):
-            plot_confusion_matrix_in(
-                model, X, y, ax=axes[kk], encoder =encoder )
+        # elif pkg in ('yellowbrick', 'yb'):
+        #     plot_confusion_matrix_in(
+        #         model, X, y, ax=axes[kk], encoder =encoder )
     if savefig is not None:
         plt.savefig(savefig, dpi = 300 )
         

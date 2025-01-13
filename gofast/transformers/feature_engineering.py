@@ -6,7 +6,7 @@
 including feature selection, transformation, scaling, and encoding to enhance 
 machine learning model inputs."""
 
-from __future__ import division
+from __future__ import division, annotations 
 
 import itertools 
 import warnings 
@@ -19,8 +19,8 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.cluster import KMeans 
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler,MinMaxScaler, OrdinalEncoder
-from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures, RobustScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, OrdinalEncoder
+from sklearn.preprocessing import PolynomialFeatures, RobustScaler
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.feature_selection import SelectFromModel
@@ -31,13 +31,14 @@ from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 
 from .._gofastlog import gofastlog 
 from ..api.types import _F, Union, Optional
-from ..core.array_manager import to_numeric_dtypes 
+from ..compat.sklearn import OneHotEncoder 
+from ..core.array_manager import to_numeric_dtypes  
 from ..core.checks import assert_ratio, validate_feature
 from ..core.checks import is_iterable, exist_features 
 from ..core.handlers import parse_attrs, get_batch_size
 from ..core.utils import ellipsis2false, type_of_target 
 from ..exceptions import EstimatorError, NotFittedError 
-from ..utils.base_utils import detect_categorical_columns 
+from ..utils.base_utils import detect_categorical_columns, nan_ops  
 from ..utils.validator import  get_estimator_name, check_X_y, is_frame
 from ..utils.validator import _is_arraylike_1d, build_data_if, check_array 
 from ..utils.validator import check_is_fitted, check_consistent_length 
@@ -63,7 +64,7 @@ __all__= [
     'PolynomialFeatureCombiner', 
     'DimensionalityReducer', 
     'CategoricalEncoder', 
-    'CategoricalEncoder2',
+    'CategoricalEncoderIn',
     'FeatureScaler', 
     'MissingValueImputer', 
     'ColumnSelector', 
@@ -74,7 +75,7 @@ __all__= [
 
 
 class OutlierHandler(BaseEstimator, TransformerMixin):
-    """
+    r"""
 
     Detects and handles outliers in numerical data using specified methods
     and strategies.
@@ -1781,9 +1782,9 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
         return X_transformed
 
 
-class CategoricalEncoder2(BaseEstimator, TransformerMixin):
+class CategoricalEncoderIn(BaseEstimator, TransformerMixin):
     """
-    CategoricalEncoder2 is a versatile transformer for encoding categorical 
+    CategoricalEncoderIn is a versatile transformer for encoding categorical 
     variables using various strategies including label encoding, one-hot 
     encoding, bin-counting, frequency encoding, and mean-target encoding.
 
@@ -1920,7 +1921,9 @@ class CategoricalEncoder2(BaseEstimator, TransformerMixin):
         detect_integer_as_categorical=True,
         detect_float_ending_with_zero=True,
         min_unique_values=None,
-        max_unique_values=None
+        max_unique_values=None, 
+        handle_nan=None, 
+        verbose=0
         ):
         
         self.encoding = encoding
@@ -1929,8 +1932,9 @@ class CategoricalEncoder2(BaseEstimator, TransformerMixin):
         self.detect_float_ending_with_zero = detect_float_ending_with_zero
         self.max_unique_values = max_unique_values
         self.min_unique_values = min_unique_values
-
-        
+        self.handle_nan=handle_nan
+        self.verbose=verbose 
+ 
     def fit(self, X, y=None):
         """
         Fit the CategoricalEncoder to the data.
@@ -2003,6 +2007,8 @@ class CategoricalEncoder2(BaseEstimator, TransformerMixin):
             Convert categorical variable(s) into dummy/indicator variables.
  
         """
+        X = self._check_nan_in(X)
+                
         self.categorical_columns_ = [] 
         self.label_encoders_ = {}
         if isinstance(X, pd.DataFrame):
@@ -2114,6 +2120,9 @@ class CategoricalEncoder2(BaseEstimator, TransformerMixin):
     
         """
         check_is_fitted(self, 'label_encoders_')
+        
+        X = self._check_nan_in(X)
+            
         if isinstance(X, pd.DataFrame):
             return self._transform_dataframe(X)
         else:
@@ -2214,6 +2223,26 @@ class CategoricalEncoder2(BaseEstimator, TransformerMixin):
             X_df[col] = X_df[col].map(means)
         return X_df.values
 
+    def _check_nan_in (self, X): 
+        if nan_ops(X, ops='check_only'): 
+            if self.handle_nan not in {'fill', 'drop'}: 
+                warnings.warn(
+                    "NaN values detected in the input data. Consider handle"
+                    " missing values by setting `handle_nan='drop'` to remove"
+                    " rows with NaN or `handle_nan='fill'` to impute "
+                    "missing values appropriately."
+                )
+            elif self.handle_nan in {'fill', 'drop'}: 
+                X = nan_ops(
+                    X, 
+                    ops = 'sanitize', 
+                    action = self.handle_nan, 
+                    data_kind ='feature', 
+                    verbose=self.verbose 
+                ) 
+                
+        return X 
+    
 class StratifyFromBaseFeature(BaseEstimator, TransformerMixin):
     """
     Stratifies a dataset by categorizing a numerical attribute and returns 
@@ -4491,7 +4520,8 @@ class CategoricalEncoder(BaseEstimator, TransformerMixin):
         
         # Create encoders for each categorical feature
         self.encoders_ = {
-            feature: OneHotEncoder(drop=self.drop, sparse=(self.return_type == 'sparse')) 
+            feature: OneHotEncoder(
+                drop=self.drop, sparse=(self.return_type == 'sparse')) 
             for feature in self.categorical_features
         }
         

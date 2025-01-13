@@ -2314,7 +2314,13 @@ def type_of_target(y):
     # Check if y is an array-like
     if not isinstance(y, (np.ndarray, list, pd.Series, Sequence, pd.DataFrame)):
         raise ValueError("Expected array-like (array or list), got %s" % type(y))
-
+    
+    # check whether it is a series of pandas dataframe with single column.
+    if isinstance (y, pd.Series) or ( 
+            isinstance (y, pd.DataFrame) and len(y.columns) ==1): 
+        y= np.array(y).ravel() # ravel it for 
+        
+    y= np.asarray(y)
     # Check for valid number type
     if not all(isinstance(i, (int, float, np.integer, np.floating)) 
                for i in np.array(y).flatten()):

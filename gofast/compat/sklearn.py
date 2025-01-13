@@ -37,10 +37,12 @@ get_scorer
 check_is_fitted
     Perform is_fitted validation for sklearn models.
 """
-
+import warnings
 from packaging.version import Version, parse
-import sklearn
 import inspect
+import numpy as np
+import sklearn
+from sklearn.preprocessing import OneHotEncoder as SklearnOneHotEncoder
 from sklearn.utils._param_validation import validate_params as sklearn_validate_params
 from sklearn.utils._param_validation import Interval as sklearn_Interval 
 from sklearn.utils._param_validation import StrOptions, HasMethods, Hidden
@@ -74,10 +76,110 @@ __all__ = [
     "StrOptions", 
     "HasMethods", 
     "Hidden", 
+    "OneHotEncoder", 
     "SKLEARN_LT_0_22", 
     "SKLEARN_LT_0_23", 
     "SKLEARN_LT_0_24"
 ]
+
+
+class OneHotEncoder(SklearnOneHotEncoder):
+    """
+    A compatibility wrapper around scikit-learn's OneHotEncoder
+    that manages 'sparse' vs. 'sparse_output' parameters across
+    different scikit-learn versions.
+
+    For scikit-learn < 1.2:
+      - The 'sparse' parameter is recognized, while 'sparse_output'
+        is not. If a user supplies ``sparse_output``, it is mapped
+        to ``sparse``. If both are supplied, we prioritize
+        ``sparse_output``.
+
+    For scikit-learn >= 1.2:
+      - The 'sparse' parameter is deprecated, replaced by
+        ``sparse_output``. If a user supplies ``sparse``, it is
+        mapped to ``sparse_output``, preventing deprecation warnings.
+
+    Notes
+    -----
+    This wrapper helps avoid warnings such as:
+
+    .. code-block:: none
+
+       FutureWarning: `sparse` was renamed to `sparse_output` in version 1.2
+       and will be removed in 1.4. `sparse_output` is ignored unless you
+       leave `sparse` to its default value.
+
+    Usage is identical to the scikit-learn OneHotEncoder, with the same
+    parameters. The wrapper internally adjusts parameters to be compatible
+    with the detected scikit-learn version. For full parameter details,
+    see the official scikit-learn OneHotEncoder documentation.
+    """
+
+    def __init__(
+        self,
+        categories = "auto",
+        drop = None,
+        sparse = "deprecated",
+        sparse_output = None,
+        dtype = np.float64,
+        handle_unknown = "error",
+        min_frequency = None,
+        max_categories = None
+        # we can add other parameters introduced in scikit-learn
+        # for future or past versions if needed.
+    ):
+        # Determine scikit-learn version at runtime
+        sk_version = parse(sklearn.__version__)
+
+        # If scikit-learn < 1.2: rename 'sparse_output' -> 'sparse'
+        # if user provided it. If both are set, prioritize 'sparse_output'.
+        if sk_version < parse("1.2"):
+            if sparse == "deprecated":
+                sparse = sparse_output
+            if sparse_output is not None and sparse != "deprecated":
+                warnings.warn(
+                    "Both 'sparse' and 'sparse_output' are set. "
+                    "Using 'sparse_output' as the final value for older "
+                    "scikit-learn versions (<1.2)."
+                )
+                sparse = sparse_output
+            if sparse == "deprecated":
+                sparse = True
+
+            super().__init__(
+                categories = categories,
+                drop = drop,
+                sparse = sparse,
+                dtype = dtype,
+                handle_unknown = handle_unknown,
+                min_frequency = min_frequency,
+                max_categories = max_categories
+            )
+
+        # If scikit-learn >= 1.2: rename 'sparse' -> 'sparse_output'
+        # if user provided it. If both are set, prioritize 'sparse_output'.
+        else:
+            if sparse_output is None and sparse != "deprecated":
+                sparse_output = sparse
+            if sparse_output is None and sparse == "deprecated":
+                sparse_output = True
+            elif sparse_output is not None and sparse != "deprecated":
+                warnings.warn(
+                    "Both 'sparse' and 'sparse_output' are set. "
+                    "Using 'sparse_output' as the final value for newer "
+                    "scikit-learn versions (>=1.2)."
+                )
+
+            super().__init__(
+                categories = categories,
+                drop = drop,
+                sparse_output = sparse_output,
+                dtype = dtype,
+                handle_unknown = handle_unknown,
+                min_frequency = min_frequency,
+                max_categories = max_categories
+            )
 
 
 class Interval:
