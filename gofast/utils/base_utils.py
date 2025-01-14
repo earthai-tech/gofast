@@ -19,6 +19,7 @@ import warnings
 import functools
 import threading
 import subprocess
+from numbers import Real 
 from datetime import datetime
 from collections.abc import Iterable as IterableInstance
 
@@ -39,13 +40,15 @@ from ..api.types import (
     _T, _F, DataFrame, ArrayLike, Series, Callable, NDArray, 
 )
 from ..compat.pandas import select_dtypes 
+from ..compat.sklearn import type_of_target, validate_params
+from ..compat.sklearn import Interval, StrOptions, HasMethods  
 from ..core.array_manager import  ( 
     to_numeric_dtypes, reshape, to_array, array_preserver, 
-    drop_nan_in, 
+    drop_nan_in, to_series
 )
 from ..core.checks import( 
     _assert_all_types,  is_iterable, exist_features, validate_feature,
-    is_numeric_dtype, ensure_same_shape
+    is_numeric_dtype, ensure_same_shape, check_empty, validate_ratio
     )
 from ..core.handlers import get_batch_size 
 from ..core.io import is_data_readable 
@@ -53,7 +56,7 @@ from ..core.utils import ellipsis2false, smart_format, error_policy
 from ..compat.scipy import check_scipy_interpolate
 from ..decorators import Dataify
 from ..exceptions import FileHandlingError
-from ._dependency import import_optional_dependency
+from .deps_utils import import_optional_dependency, ensure_pkg
 from .validator import (
     check_consistent_length, get_estimator_name, _is_arraylike_1d, 
     array_to_frame, build_data_if, _is_numeric_dtype, check_y, 
@@ -73,6 +76,613 @@ __all__ = [
     'drop_few_members'
 ]
 
+
+#-----------------------------------------------------------
+# # write the function to handle_minority_classes(
+# target, 
+# data=None, # feature _data to handling alongside the target so the shape should be consistent with target 
+# # after handling. 
+# target_col=None, # only when target is passed as dataframe.
+# techn=None, # for technique to applied. if None, then the default='drop' or 'minimum samples is applied.
+# strategy =None, 
+# test_size = 0.2 ,
+# error ={"raise"} # can be raise warn or 'ignore', throughout the function. 
+# verbose=1, # level of verbosity should go from 1 to 5 
+# min_count=None , 
+# ... # other parameters can added for making the function robust and versatible. 
+# )
+# # the target can be numpy array, pd.Series or pandas dataframe or str. 
+# if pandas dataframe with single colum , then convert to series, otherwise, target_col 
+# must be supplied so to extract the target. after extracting the target, if data is None, then 
+# set the data to the feature data as the dataframe whom the target is extracted from . 
+# howver if data is explicity set , then consider it as feature_data 
+# if target is 'str', data must be subplied to to extract the target and reset the data to the 
+# the feature data with target_excluded. 
+
+# data is optional, but if given , it should correspond to the feature data or target is passed as str 
+# so it could be extracted and reset data to fit the feature data with target excluded.  
+# this is helpfull to to aligned with the target transformation when technique are applied 
+# if data is given then function return target_handled, data_handled. 
+# if data is not given then return only the target_handled. 
+# technique = techn to applied to handle minory classes. Before applduing any 
+# technique, first check whether the minority classes existe in the target. 
+
+# if minority classes exist, then applied one of the technique below with corresponding 
+# strategy if applicable:  
+
+# techn : {'drop'  or 'minimum_samples} # both does the same 
+     # Drop minor classes knwon as few members based on given ratio . 
+     # drop classes with fewer than a certain number of samples
+     
+
+# # techn : oversampling
+#        - strategy : {'random_over' (default), 'smote', 'adasyn'}
+#             # adasyn is adaptative syntehic sampling 
+#             # Random Oversampling: Randomly duplicate examples from the minority classes.
+#             # Synthetic Minority Over-sampling Technique (SMOTE): Generate 
+#             # synthetic samples by interpolating between existing minority class samples.
+#             # ADASYN (Adaptive Synthetic Sampling): Similar to SMOTE but 
+#             # focuses more on generating samples for minority class examples 
+#             # that are harder to learn.
+#             if user set 'oversampling' an strategy is None, the default strategy(random_over} is used 
+# # techn : undersampling 
+#       - strategy : 'random_under'(default), 'cluster_centroids'; 
+#       # Random Undersampling: Randomly remove samples from majority classes.
+#       # Cluster Centroids: Replace a cluster of majority class samples with the cluster centroid.
+#       if user set 'oversampling' an strategy is None, the default strategy(random_under} is used
+                                                                           
+# techn : combine
+    # Merge rare classes into a single "Other" category. This reduces the number
+    # of minority classes, making the dataset more balanced.
+    
+# techn : augment 
+    # Generate new samples for minority classes using domain-specific 
+    # transformations or synthetic data generation techniques. 
+
+# techn : anomaly_detection 
+    # Treat minority classes as anomalies and apply anomaly
+    # detection algorithms.
+
+# techn : tomeklins or 'enn' for  Edited Nearest Neighbors (ENN)
+#    # Use techniques that remove ambiguous samples between classes 
+#     to clean the dataset.
+
+
+# skip the documentation for brevity and just comment the code. 
+# skip the docstring documentation , just comments the code nicely and professional 
+# come back to a new line if the code is long using the best vertical alignement similar 
+# for comments and error message or verbosity message 
+
+# import warnings
+# import pandas as pd
+# import numpy as np
+# from typing import Any, Optional, Union
+
+
+@is_data_readable(data_to_read= 'data') 
+@validate_params ({
+    'target': [str, 'array-like'], 
+    'data': ['array-like', None ], 
+    'tech': [StrOptions({
+            'drop',
+            'minimum_samples',
+            'oversampling',
+            'undersampling' , 
+            'combine',
+            'augment', 
+            'anomaly_detection',
+            'tomeklins',
+            'enn' 
+        }),
+        None ], 
+    'strategy': [StrOptions({
+        'random_over', 
+         'random_under', 
+         "adasyn", "smote", 
+         "cluster_centroids"
+         }),
+        None ], 
+    'test_ratio': [ str, Interval(Real, 0, 1, closed="neither")], 
+    'contamination': [str,  Interval(Real, 0, 1, closed="neither")], 
+    'anomaly_detector': [HasMethods(['predict']), None], 
+    'random_state': ['random_state'], 
+    'min_count': [Real, None], 
+   })
+
+@ensure_pkg (
+    'imblearn', 
+    dist_name='imbalance-learn', 
+    partial_check=True, # check partially based on 'techn' condition 
+    condition = lambda *args, **kwargs: kwargs.get('techn') in {
+        'oversampling', 'undersampling', 'tomeklinks', 'enn'}
+ )
+@check_empty ( ['target', 'data'])
+def handle_minority_classes(
+    target,
+    data = None,
+    target_col = None,
+    techn = None,
+    strategy= None,
+    test_ratio = "20%",
+    augment_fn=None, 
+    contamination=0.01, 
+    anomaly_detector=None, # the default IsolationForest is used. 
+    random_state=42, 
+    min_count= None,
+    error = 'raise',
+    verbose  = 1,
+    **kwargs
+):
+    error = error_policy(error, base ='raise')
+    # 1) Interpret the `target` parameter. It may be:
+    #    - A numpy array or Series
+    #    - A pandas DataFrame with a single column
+    #    - A string representing the column name in `data`
+    # If `target` is a string, then we must extract it from `data`
+    # using that name. We'll remove that column from data afterwards
+    # to get the feature matrix.
+    if isinstance(target, str):
+        if data is None:
+            # If `target` is a string, we need `data` to extract the column.
+            raise ValueError(
+                "If 'target' is a string (column name), then 'data' must be provided."
+            )
+        # Extract the target column from data
+        if target not in data.columns:
+            raise ValueError(
+                f"Column '{target}' not found in data."
+            )
+        y = data[target].copy()
+        # Drop the target column from data => features only
+        data = data.drop(columns=[target])
+    else:
+        # check if numpy array expecting only single 1d array 
+        if isinstance (target, np.ndarray): 
+            # Convert to Series for uniform handling
+            target = to_array(target, accept='only_1d', as_frame=True)
+            # for consistency 
+            target = to_series (target, name ='target')# rename series. 
+
+        # If target is not a string
+        if isinstance(target, pd.DataFrame):
+            # If it's a DataFrame with more than one column, we might need `target_col`
+            if target.shape[1] == 1:
+                y = target.iloc[:, 0].copy()
+            else:
+                if target_col is None:
+                    raise ValueError(
+                        "target_col must be specified if 'target' "
+                        "DataFrame has more than one column."
+                    )
+                if target_col not in target.columns:
+                    raise ValueError(
+                        f"Column '{target_col}' not found in 'target' DataFrame."
+                    )
+                y = target[target_col].copy()
+        elif isinstance(target, pd.Series):
+            y = target.copy()
+
+        else:
+            raise TypeError(
+                "Invalid 'target' type. Expect str, DataFrame, Series, or ndarray."
+            )
+
+        # If data is None, but 'target' was originally a DataFrame or something,
+        # we could assume the rest of the columns are in that DataFrame => data
+        if data is None and isinstance(target, pd.DataFrame):
+            # Drop the `target_col` if we used it
+            if target_col is not None and target_col in target.columns:
+                data = target.drop(columns=[target_col])
+            else:
+                # If single-col DataFrame, data is empty
+                data = None
+
+    # 2) If `data` is provided, it must align with `y` in length. 
+    #    If there's a mismatch, handle according to `error`.
+    if data is not None:
+        if len(data) != len(y):
+            msg = (
+                f"Length mismatch: data has {len(data)} rows while "
+                f"target has {len(y)} entries."
+            )
+            if error == 'raise':
+                raise ValueError(msg)
+            elif error == 'warn':
+                warnings.warn(msg)
+            elif error == 'ignore':
+                pass  # do nothing
+
+    # Determine the type of the target variable
+    target_type = type_of_target(y)
+    
+    if target_type in ['continuous', 'continuous-multioutput']:
+        if error == 'raise':
+            # Raise an informative error message to the user
+            raise ValueError(
+                "Regression target detected while handling a classification "
+                "problem. Please provide a classification target variable."
+            )
+        elif error in ['warn', 'ignore']: # force warning even error is 'ignore'
+            # Issue a warning to inform the user about the detected regression target
+            warnings.warn(
+                "Regression target detected while handling a classification "
+                "problem. Proceeding with classification may lead to"
+                " unexpected results. Use at your own risk."
+            )
+  
+    # 3) Identify minority classes in the target if any.
+    #    We'll count the occurrences of each class and see if any is "too small".
+    class_counts = y.value_counts()
+    total = len(y)
+    
+    if techn is None: 
+        if verbose > 0 : 
+            print("Default technique 'minimum_samples' is"
+                  " set when tech is not provided."
+                 )
+        techn= 'minimum_samples'
+        
+    # If min_count is not set, we might define a default or 
+    # check whether the user wants a ratio. 
+    # For now, if min_count is None => we skip "drop" logic for minority classes 
+    # unless techn is 'drop' or 'minimum_samples'.
+    test_size = validate_ratio (
+        test_ratio, bounds=(0, 1), param_name ='Test ratio'
+        )
+    if techn in ('drop', 'minimum_samples') and min_count is None:
+        # We might define a default min_count = test_size * total or something
+        min_count = int(np.ceil(test_size * total))
+        
+    # 4) If we detect classes with fewer than min_count members => those are "minorities".
+    #    We'll store them in a list.
+    if min_count is not None:
+        minority_classes = class_counts[class_counts < min_count].index.tolist()
+    else:
+        minority_classes = []
+
+    if verbose >= 2:
+        if minority_classes:
+            print(f"Detected minority classes: {minority_classes}")
+
+    # 5) Based on `techn`, we apply the chosen approach:
+    #    - drop or minimum_samples
+    #    - oversampling
+    #    - undersampling
+    #    - combine
+    #    - augment
+    #    - anomaly_detection
+    #    - tomeklins or enn
+
+    if techn in ('drop', 'minimum_samples'):
+        # 5a) We remove rows whose target is in minority_classes.
+        #     or skip if no minority classes found
+        if minority_classes:
+            mask = ~y.isin(minority_classes)
+            y_new = y[mask]
+            data_new = data[mask] if data is not None else None
+            if verbose >= 2:
+                print(
+                    f"Dropped {len(y) - len(y_new)} samples from minority classes "
+                    f"{minority_classes}."
+                )
+            y = y_new
+            data = data_new
+        else:
+            if verbose >= 2:
+                print("No minority classes detected to drop.")
+
+    elif techn == 'combine':
+        # 5d) combine => merge minority classes into 'Other'
+        if minority_classes:
+            y_new = y.where(~y.isin(minority_classes), other='Other')
+            data_new = data.copy() if data is not None else None
+            if verbose >= 2:
+                print(
+                    f"Combined minority classes {minority_classes} into 'Other'."
+                )
+            y = y_new
+            data = data_new
+        else:
+            if verbose >= 2:
+                print("No minority classes to combine.")
+
+    elif techn == 'oversampling':
+        # 5b) oversample => random_over, smote, adasyn
+    # Apply oversampling using the specified strategy
+        y, data = _oversample_data(
+            y, 
+            data, 
+            strategy=strategy if strategy else 'random_over', 
+            random_state=random_state, 
+            **kwargs
+        )
+        if verbose >= 2:
+            print(f"Oversampling applied using strategy='{strategy}'.")
+            
+    elif techn == 'undersampling':
+        # Apply undersampling using the specified strategy
+        # 5c) undersample => random_under, cluster_centroids
+        y, data = _undersample_data(
+                y, 
+                data, 
+                strategy=strategy if strategy else 'random_under', 
+                random_state=random_state, 
+                **kwargs
+        )
+        if verbose >= 2:
+            print(f"Undersampling applied using strategy='{strategy}'.")
+    elif techn == 'augment':
+        # Apply augmentation using a user-defined function
+        # 5e) augment => domain-specific generation
+        y, data = _augment_data(
+                y, 
+                data, 
+                augmentation_fn=augment_fn,  
+                **kwargs
+        )
+        if verbose >= 2:
+            print("Data augmented using the 'augment' technique.")
+    elif techn == 'anomaly_detection':
+        # Apply anomaly detection handling
+        # 5f) treat minority classes as anomalies
+        y, data = _anomaly_detection_handle(
+                y, 
+                data, 
+                anomaly_detector=anomaly_detector, 
+                contamination=contamination, 
+                **kwargs
+        )
+        if verbose >= 2:
+            print("Anomaly detection applied to handle minority classes.")
+    elif techn in ('tomeklins', 'enn'):
+        # Clean data using Tomek Links or ENN
+        # 5g) remove ambiguous samples with Tomek Links or Edited Nearest Neighbors
+        y, data = _clean_data_tomek_enn(
+                y, 
+                data, 
+                techn=techn, 
+                **kwargs
+        )
+        if verbose >= 2:
+            print(f"Data cleaned using the '{techn}' technique.")
+
+    # 6) Return final target, data (if provided)
+    #    If data was None => we only return the target
+    if data is not None:
+        return y, data
+    else:
+        return y
+
+def _oversample_data(
+        y, data, strategy='random_over', 
+        random_state=None, **kwargs
+    ):
+    """
+    Apply oversampling to balance the minority classes in the dataset.
+
+    Parameters:
+    - y: pandas Series, target variable.
+    - data: pandas DataFrame or None, feature matrix.
+    - strategy: str, oversampling strategy ('random_over', 'smote', 'adasyn').
+    - random_state: int or None, random state for reproducibility.
+    - **kwargs: additional keyword arguments for the oversampler.
+
+    Returns:
+    - y_resampled: pandas Series, resampled target variable.
+    - data_resampled: pandas DataFrame or None, resampled feature matrix.
+    """
+    from imblearn.over_sampling import RandomOverSampler, SMOTE, ADASYN
+    # Initialize the oversampler based on the strategy
+    if strategy == 'random_over':
+        sampler = RandomOverSampler(random_state=random_state, **kwargs)
+    elif strategy == 'smote':
+        sampler = SMOTE(random_state=random_state, **kwargs)
+    elif strategy == 'adasyn':
+        sampler = ADASYN(random_state=random_state, **kwargs)
+    else:
+        raise ValueError(
+            f"Oversampling strategy '{strategy}' is not recognized.")
+
+    if data is not None:
+        # Fit and resample the data and target
+        X_resampled, y_resampled = sampler.fit_resample(data, y)
+        data_resampled = pd.DataFrame(X_resampled, columns=data.columns)
+    else:
+        # If data is None, only resample y
+        y_resampled = sampler.fit_resample(y.values.reshape(-1, 1), y)[0].ravel()
+        y_resampled = pd.Series(y_resampled, name=y.name)
+
+    return y_resampled, data_resampled if data is not None else None
+
+
+def _undersample_data(
+        y, data, strategy='random_under', 
+        random_state=None, **kwargs
+    ):
+    """
+    Apply undersampling to balance the majority classes in the dataset.
+
+    Parameters:
+    - y: pandas Series, target variable.
+    - data: pandas DataFrame or None, feature matrix.
+    - strategy: str, undersampling strategy ('random_under', 'cluster_centroids').
+    - random_state: int or None, random state for reproducibility.
+    - **kwargs: additional keyword arguments for the undersampler.
+
+    Returns:
+    - y_resampled: pandas Series, resampled target variable.
+    - data_resampled: pandas DataFrame or None, resampled feature matrix.
+    """
+    from imblearn.under_sampling import RandomUnderSampler, ClusterCentroids
+    
+    # Initialize the undersampler based on the strategy
+    if strategy == 'random_under':
+        sampler = RandomUnderSampler(random_state=random_state, **kwargs)
+    elif strategy == 'cluster_centroids':
+        sampler = ClusterCentroids(random_state=random_state, **kwargs)
+    else:
+        raise ValueError(
+            f"Undersampling strategy '{strategy}' is not recognized.")
+
+    if data is not None:
+        # Fit and resample the data and target
+        X_resampled, y_resampled = sampler.fit_resample(data, y)
+        data_resampled = pd.DataFrame(X_resampled, columns=data.columns)
+    else:
+        # If data is None, only resample y
+        y_resampled = sampler.fit_resample(y.values.reshape(-1, 1), y)[0].ravel()
+        y_resampled = pd.Series(y_resampled, name=y.name)
+
+    return y_resampled, data_resampled if data is not None else None
+
+
+def _augment_data(y, data, augmentation_fn=None, **kwargs):
+    """
+    Augment minority classes using a domain-specific augmentation function.
+
+    Parameters:
+    - y: pandas Series, target variable.
+    - data: pandas DataFrame or None, feature matrix.
+    - augmentation_fn: function, user-defined function to generate new samples.
+                      It should accept (X_minority, y_minority, **kwargs) 
+                      and return (X_new, y_new).
+    - **kwargs: additional keyword arguments for the augmentation function.
+
+    Returns:
+    - y_augmented: pandas Series, augmented target variable.
+    - data_augmented: pandas DataFrame or None, augmented feature matrix.
+    """
+    if augmentation_fn is None:
+        raise ValueError(
+            "An augmentation function must be provided for 'augment' technique.")
+
+    # Identify minority classes based on the current class distribution
+    class_counts = y.value_counts()
+    minority_classes = class_counts[class_counts < class_counts.mean()].index.tolist()
+
+    if not minority_classes:
+        # No minority classes to augment
+        return y, data
+
+    # Initialize lists to collect augmented data
+    X_augmented_list = []
+    y_augmented_list = []
+
+    for cl in minority_classes:
+        # Extract samples of the current minority class
+        X_minority = data[y == cl] if data is not None else None
+        y_minority = y[y == cl]
+
+        # Generate new samples using the augmentation function
+        X_new, y_new = augmentation_fn(X_minority, y_minority, **kwargs)
+
+        if X_new is not None and y_new is not None:
+            X_augmented_list.append(X_new)
+            y_augmented_list.append(y_new)
+
+    if X_augmented_list:
+        # Concatenate all augmented samples
+        if data is not None:
+            X_augmented = pd.concat(X_augmented_list, ignore_index=True)
+            y_augmented = pd.concat(y_augmented_list, ignore_index=True)
+            data_augmented = pd.concat([data, X_augmented], ignore_index=True)
+            y_augmented = pd.concat([y, y_augmented], ignore_index=True)
+        else:
+            y_augmented = pd.concat([y] + y_augmented_list, ignore_index=True)
+            data_augmented = None
+
+        return y_augmented, data_augmented
+    else:
+        # No augmentation was performed
+        return y, data
+
+def _anomaly_detection_handle(
+        y, data, anomaly_detector=None, 
+        contamination=0.01, **kwargs
+    ):
+    """
+    Treat minority classes as anomalies and apply anomaly detection algorithms.
+
+    Parameters:
+    - y: pandas Series, target variable.
+    - data: pandas DataFrame or None, feature matrix.
+    - anomaly_detector: sklearn-like anomaly detection estimator.
+                        If None, IsolationForest is used by default.
+    - contamination: float, the amount of contamination of the data set.
+    - **kwargs: additional keyword arguments for the anomaly detector.
+
+    Returns:
+    - y_anomaly: pandas Series, target variable with anomalies labeled.
+    - data_anomaly: pandas DataFrame or None, feature matrix with anomalies handled.
+    """
+    from sklearn.ensemble import IsolationForest
+
+    # Initialize the anomaly detector
+    if anomaly_detector is None:
+        detector = IsolationForest(
+            contamination=contamination, random_state=42, 
+            **kwargs)
+    else:
+        detector = anomaly_detector
+
+    if data is not None:
+        # Fit the detector on the data
+        detector.fit(data)
+
+        # Predict anomalies
+        anomaly_labels = detector.predict(data)
+        # -1 for anomalies, 1 for normal instances
+
+        # Map anomaly labels to the target
+        y_anomaly = y.copy()
+        y_anomaly[anomaly_labels == -1] = 'Anomaly'
+
+        return y_anomaly, data
+    else:
+        # If data is None, cannot perform anomaly detection
+        raise ValueError(
+            "Data must be provided for anomaly detection.")
+
+
+def _clean_data_tomek_enn(
+        y, data, techn='tomeklins', **kwargs):
+    """
+    Clean the dataset by removing ambiguous samples using Tomek Links or ENN.
+
+    Parameters:
+    - y: pandas Series, target variable.
+    - data: pandas DataFrame or None, feature matrix.
+    - techn: str, cleaning technique ('tomeklins', 'enn').
+    - **kwargs: additional keyword arguments for the cleaner.
+
+    Returns:
+    - y_cleaned: pandas Series, cleaned target variable.
+    - data_cleaned: pandas DataFrame or None, cleaned feature matrix.
+    """
+    from imblearn.neighbors import EditedNearestNeighbours
+    
+    if techn == 'tomeklins':
+        from imblearn.under_sampling import TomekLinks
+        cleaner = TomekLinks(**kwargs)
+    elif techn == 'enn':
+        cleaner = EditedNearestNeighbours(**kwargs)
+    else:
+        raise ValueError(
+            f"Cleaning technique '{techn}' is not recognized.")
+
+    if data is not None:
+        # Fit and resample the data and target
+        X_cleaned, y_cleaned = cleaner.fit_resample(data, y)
+        data_cleaned = pd.DataFrame(X_cleaned, columns=data.columns)
+    else:
+        # If data is None, cannot perform cleaning
+        warnings.warn(
+            "Data must be provided for cleaning with Tomek Links or ENN."
+            "Cannot perform cleaning. Skipping!"
+            )
+        data_cleaned=None 
+
+    return y_cleaned, data_cleaned
 
 def drop_few_members(
     frame,
@@ -726,55 +1336,96 @@ def nan_ops(
         return return_kind(data_restored, witness_restored)
 
 
-@is_data_readable 
+@is_data_readable
 def detect_categorical_columns(
     data,
-    detect_integer_as_categorical=True,
-    detect_float_ending_with_zero=True,
+    integer_as_cat=True,
+    float0_as_cat=True,
     min_unique_values=None,
-    max_unique_values=None
+    max_unique_values=None,
+    handle_nan=None,
+    return_frame=False,
+    verbose=0
 ):
     """
-    Detects categorical columns within a given dataset. Categorical columns can
-    include object types, integer columns (if flagged as such), and float 
-    columns where all values are effectively integers (i.e., ending in .0).
-
-    The function allows flexible detection of categorical columns based on 
-    user-defined rules, such as integer or float columns being treated as 
-    categorical if desired, and based on the number of unique values.
-
+    Detect categorical columns in a dataset by examining column
+    types and user-defined criteria. Columns with integer type
+    or float values ending with .0 can be categorized as
+    categorical, depending on settings. Also handles user-defined
+    thresholds for minimum and maximum unique values.
+    
+    .. math::
+       \forall x \in X,\; x = \lfloor x \rfloor
+    
+    Above equation indicates that for float columns to be treated
+    as categorical, each value :math:`x` must be an integer when
+    cast from float. This function leverages the inline methods
+    `build_data_if`, `drop_nan_in`, `fill_NaN`, `parameter_validator`,
+    and `smart_format` (excluding those prefixed with `_`).
+    
     Parameters
     ----------
-    data : array-like or pandas.DataFrame
-        The input data where columns are to be analyzed. If the data is not a 
-        DataFrame, it will be converted into one.
-        
-    detect_integer_as_categorical : bool, optional
-        If True, integer columns will be considered as categorical. By default,
-        this is set to True.
-        
-    detect_float_ending_with_zero : bool, optional
-        If True, float columns where all values are effectively integers 
-        (ending with .0) will be considered as categorical. By default, this is 
-        set to True.
-        
+    data : DataFrame or array-like
+        The input data to analyze. If not a DataFrame,
+        it will be converted internally.
+    integer_as_cat : bool, optional
+        If ``True``, integer-type columns are considered
+        categorical. Default is ``True``.
+    float0_as_cat : bool, optional
+        If ``True``, float columns whose values can be
+        cast to integer without remainder are considered
+        categorical. Default is ``True``.
     min_unique_values : int or None, optional
-        The minimum number of unique values a column must have to be considered 
-        categorical. If None, no minimum threshold is applied. Default is None.
-        
-    max_unique_values : int or None, optional
-        The maximum number of unique values a column can have to still be 
-        considered categorical. If None, no maximum threshold is applied. 
-        Default is None.
-
+        Minimum number of unique values in a column to
+        qualify as categorical. If ``None``, no minimum
+        check is applied.
+    max_unique_values : int or ``'auto'`` or None, optional
+        Maximum number of unique values allowed for a
+        column to be considered categorical. If ``'auto'``,
+        set the limit to the column's own unique count.
+        If ``None``, no maximum check is applied.
+    handle_nan : str or None, optional
+        Handling method for missing data. Can be ``'drop'``
+        to remove rows with NaNs, ``'fill'`` to impute
+        them via forward/backward fill, or ``None`` for
+        no change. 
+    return_frame : bool, optional
+        If ``True``, returns a DataFrame of detected
+        categorical columns; otherwise returns a list of
+        column names. Default is ``False``.
+    verbose : int, optional
+        Verbosity level. If greater than 0, a summary of
+        detected columns is printed.
+    
     Returns
     -------
-    categorical_columns : list
-        A list of column names from the input `data` that are identified as 
-        categorical based on the rules specified.
-
+    list or DataFrame
+        Either a list of column names or a DataFrame
+        containing the categorical columns, depending on
+        the value of ``return_frame``.
+    
+    Examples
+    --------
+    >>> from gofast.utils.base_utils import detect_categorical_columns
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'A': [1, 2, 3],
+    ...     'B': [1.0, 2.0, 3.0],
+    ...     'C': ['cat', 'dog', 'mouse']
+    ... })
+    >>> detect_categorical_columns(df)
+    ['A', 'B', 'C']
+    
     Notes
     -----
+    - This function focuses on flexible treatment of
+      integer and float columns. Combined with 
+      `<verbose>` settings, it can provide detailed
+      feedback.
+    - Utilizing ``'drop'`` or ``'fill'`` in 
+      ``handle_nan`` ensures minimal disruptions due
+      to missing data.
+ 
     The function uses flexible criteria for determining whether a column should
     be treated as categorical, allowing for detection of columns with integer 
     values or float values ending in `.0` as categorical columns. The method is
@@ -786,49 +1437,22 @@ def detect_categorical_columns(
     If the input is not a DataFrame, it creates one, giving column names that 
     start with `input_name`.
     
-    For detecting floats that are effectively integers, the method checks 
-    whether all float values in the column can be cast to integers:
-
-    .. math:: \forall x \in X, \, x = \text{int}(x)
-
-    where `X` is the column of float values.
-
-    Examples
-    --------
-    >>> from gofast.utils.baseutils import detect_categorical_columns
-    >>> data = pd.DataFrame({
-            'A': [1, 2, 3],
-            'B': [1.0, 2.0, 3.0],
-            'C': ['cat', 'dog', 'mouse']
-        })
-    >>> detect_categorical_columns(data)
-    ['A', 'B', 'C']
-    >>> detect_categorical_columns(data, detect_integer_as_categorical=False)
-    ['B', 'C']
-    >>> detect_categorical_columns(data, detect_float_ending_with_zero=False)
-    ['A', 'C']
-
-    In this example, column `A` is an integer and `B` is a float but contains 
-    values ending with `.0`, both of which are treated as categorical, and 
-    column `C` is an object (string).
-
     See Also
     --------
-    - pandas.DataFrame : A DataFrame object for handling tabular data.
-    - numpy.all : Evaluates whether all elements in a given array meet a 
-      condition.
-    - gofast.transformers.OutlierHandler : 
-        Detects and handles outliers in numerical data using specified methods
-        and strategies.
-    
+    build_data_if : Validates and converts input into a 
+        DataFrame if needed.
+    drop_nan_in : Drops NaN values from a DataFrame along 
+        axis=0.
+    fill_NaN : Fills missing data in a DataFrame using 
+        forward and backward fill.
+
     References
     ----------
-    .. [1] Harris, C. R., et al. (2020). "Array programming with NumPy." Nature, 
-       585(7825), 357-362.
+    .. [1] Harris, C.R., et al. "Array Programming
+       with NumPy." *Nature*, 585(7825), 357–362 (2020).
     """
-    
-    # Ensure that the input data is a DataFrame. If it's not, convert it.
-    # `build_data_if` handles this conversion or returns the DataFrame as-is.
+
+    # ensure input data is a DataFrame or convert it to one
     data = build_data_if(
         data, 
         to_frame=True, 
@@ -836,34 +1460,99 @@ def detect_categorical_columns(
         raise_exception=True, 
         input_name='col'
     )
-  
-    # Initialize an empty list to store detected categorical columns.
+
+    # validate handle_nan parameter
+    handle_nan = parameter_validator(
+        "handle_nan",
+        target_strs={"fill", "drop", None}
+    )(handle_nan)
+
+    # optionally drop or fill NaN values
+    if handle_nan == 'drop':
+        data = drop_nan_in(data, solo_return=True)
+    elif handle_nan == 'fill':
+        data = fill_NaN(data, method='both')
+
+    # user-specified limit might be set to 'auto' or a numeric value
+    # store the original for reference
+    original_max_unique = max_unique_values
+
+    # prepare list to store detected categorical columns
     categorical_columns = []
 
-    # Iterate over each column in the DataFrame.
+    # iterate over the columns to determine if 
+    # they meet conditions to be categorical
     for col in data.columns:
-        # Calculate the number of unique values in the column.
         unique_values = data[col].nunique()
 
-        # Always consider object (string) columns as categorical.
-        if pd.api.types.is_object_dtype(data[col]):
-            categorical_columns.append(col)
-        
-        # Consider integer columns as categorical based on the flag.
-        elif detect_integer_as_categorical and pd.api.types.is_integer_dtype(data[col]):
-            if (min_unique_values is None or unique_values >= min_unique_values) and \
-               (max_unique_values is None or unique_values <= max_unique_values):
-                categorical_columns.append(col)
-        
-        # Consider float columns as categorical if all values end with .0 and
-        # the `detect_float_ending_with_zero` flag is True.
-        elif detect_float_ending_with_zero and pd.api.types.is_float_dtype(data[col]):
-            # Check if all float values can be cast to integers.
-            if np.all(data[col] == data[col].astype(int)):
-                if (min_unique_values is None or unique_values >= min_unique_values) and \
-                   (max_unique_values is None or unique_values <= max_unique_values):
-                    categorical_columns.append(col)
+        # if the user set max_unique_values to 'auto',
+        # just use the column's own unique count
+        if original_max_unique == 'auto':
+            max_unique_values = unique_values
 
+        # always consider object dtype as categorical
+        if pd.api.types.is_object_dtype(data[col]):
+            # check optional unique-value thresholds
+            # no need, so go straight for collection.
+            # if (
+            #     (min_unique_values is None or unique_values >= min_unique_values)
+            #     and (max_unique_values is None or unique_values <= max_unique_values)
+            # ):
+                categorical_columns.append(col)
+
+        # also consider boolean dtype columns as categorical
+        elif pd.api.types.is_bool_dtype(data[col]):
+            # no need to apply condition, usually consider as a 
+            # binary so categorical col.
+            # if (
+            #     (min_unique_values is None or unique_values >= min_unique_values)
+            #     and (max_unique_values is None or unique_values <= max_unique_values)
+            # ):
+                categorical_columns.append(col)
+
+        # consider integer columns as categorical if flagged
+        elif integer_as_cat and pd.api.types.is_integer_dtype(data[col]):
+            if (
+                (min_unique_values is None or unique_values >= min_unique_values)
+                and (max_unique_values is None or unique_values <= max_unique_values)
+            ):
+                categorical_columns.append(col)
+
+        # consider float columns with all .0 values as categorical if flagged
+        elif float0_as_cat and pd.api.types.is_float_dtype(data[col]):
+            try:
+                # check if all float values can be cast to int without remainder
+                if np.all(data[col] == data[col].astype(int)):
+                    if (
+                        (min_unique_values is None or unique_values >= min_unique_values)
+                        and (max_unique_values is None or unique_values <= max_unique_values)
+                    ):
+                        categorical_columns.append(col)
+            except pd.errors.IntCastingNaNError as e:
+                raise ValueError(
+                    f"NaN detected in the data: {e}. Consider resetting "
+                    "integer_as_cat=False or float0_as_cat=False, or handle NaN "
+                    "via 'drop' or 'fill'."
+                )
+
+    # optionally print a summary of what was found or not found
+    if verbose:
+        if len(categorical_columns) == 0:
+            print(
+                "No categorical columns detected based on conditions. "
+                "Consider adjusting min_unique_values or max_unique_values."
+            )
+        else:
+            print(
+                f"Categorical columns detected ({len(categorical_columns)}): "
+                f"{smart_format(categorical_columns)}"
+            )
+
+    # return either the DataFrame subset of just 
+    # the categorical columns or the list of names
+    if return_frame:
+        return data[categorical_columns]
+    
     return categorical_columns
 
 def handle_outliers(

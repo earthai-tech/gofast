@@ -164,11 +164,13 @@ from gofast.core.io import (
     show_usage
 )
 from gofast.core.checks import check_datetime
+from gofast.dataops import handle_unique_identifiers, data_assistant 
 from gofast.utils.base_utils import (
     nan_ops,
     extract_target,
     select_features, 
-    map_values
+    map_values, 
+    handle_minority_classes 
 )
 from gofast.utils.ml.preprocessing import (
     build_data_preprocessor,
@@ -284,7 +286,28 @@ def class_pred_app(
         action  = 'drop', 
         verbose=verbose, 
     )
-
+    # Then suppress the unique idenfifiers in the data snce it is not usefull 
+    # for machine learning training.
+    data_n = handle_unique_identifiers(
+        data, 
+        threshold =0.95,  
+        action ='drop', 
+        view =True
+    )
+    if len(data_n) ==0: 
+        # then display in-depth analysis of the dataset the gofast assistant
+        # tool to let the user focus on 
+        # the recommendation proposed by gofast assistant tool details 
+        data_assistant(data)
+        # after assitant has 
+        raise ValueError (
+            "Too much identifiers found in all dataframes." 
+            " Consider revisiting the whole dataframe and follow recommendations"
+            " details proposed by assistant tool above."
+            )
+        
+    data = data_n.copy() # remake the copy to redefine the data for next steps 
+    
     # (7.1) Soft-encode target for classification: ensures int codes.
     target, target_map = soft_encoder(target, return_cat_codes=True)
     # soft_encoded the data for for correlation analysis
@@ -358,7 +381,21 @@ def class_pred_app(
     # (12) Keep only the relevant columns in data.
     processed_data = data[relevant_features]
     y = target
-
+    
+    # XXX let try to handle minory classes if few members are detected.
+    y, processed_data = handle_minority_classes(
+        y, data=processed_data, 
+        verbose =verbose,
+        techn='drop', 
+        min_count=5 # 5 to be sure to have stratification at least 2 samples in both sides 
+        # training and testing, 
+        )
+    if len(y) ==0: # mean is empty
+        raise TypeError(
+            "Inconsistent target with all minority classes. Consider"
+            " collecting more data or ..."
+            )
+    
     # (13) Train/test split
     if verbose >= 2:
         logger.info("Splitting data with test_size=%.2f", test_size)
@@ -369,7 +406,6 @@ def class_pred_app(
         random_state=42, 
         stratify=y
     )
-    ## XXX write a function to drop few_members in a target class based on ratio. 
 
     # (14) Build a pipeline with StandardScaler + onehot for categorical
     #      or other transformations if needed.

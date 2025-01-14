@@ -1814,11 +1814,11 @@ class CategoricalEncoderIn(BaseEstimator, TransformerMixin):
         `encoding='mean_target'`, and it should be provided during the fitting 
         stage to compute mean target values for each category.
 
-    detect_integer_as_categorical : bool, optional, default=True
+    integer_as_cat : bool, optional, default=True
         If True, integer columns in the input data are treated as categorical 
         features and are encoded based on the chosen encoding strategy.
 
-    detect_float_ending_with_zero : bool, optional, default=True
+    float0_as_cat : bool, optional, default=True
         If True, float columns that contain values ending in `.0` (effectively 
         representing integers) are treated as categorical variables.
 
@@ -1918,8 +1918,8 @@ class CategoricalEncoderIn(BaseEstimator, TransformerMixin):
         self, 
         encoding='label', 
         target=None, 
-        detect_integer_as_categorical=True,
-        detect_float_ending_with_zero=True,
+        integer_as_cat=True,
+        float0_as_cat=True,
         min_unique_values=None,
         max_unique_values=None, 
         handle_nan=None, 
@@ -1928,8 +1928,8 @@ class CategoricalEncoderIn(BaseEstimator, TransformerMixin):
         
         self.encoding = encoding
         self.target = target
-        self.detect_integer_as_categorical = detect_integer_as_categorical
-        self.detect_float_ending_with_zero = detect_float_ending_with_zero
+        self.integer_as_cat = integer_as_cat
+        self.float0_as_cat = float0_as_cat
         self.max_unique_values = max_unique_values
         self.min_unique_values = min_unique_values
         self.handle_nan=handle_nan
@@ -2025,8 +2025,8 @@ class CategoricalEncoderIn(BaseEstimator, TransformerMixin):
         
         self.categorical_columns_= detect_categorical_columns(
             X, 
-            detect_integer_as_categorical=self.detect_integer_as_categorical, 
-            detect_float_ending_with_zero=self.detect_float_ending_with_zero, 
+            integer_as_cat=self.integer_as_cat, 
+            float0_as_cat=self.float0_as_cat, 
             max_unique_values=self.max_unique_values, 
             min_unique_values=self.min_unique_values
         )
@@ -4392,10 +4392,10 @@ class CategoricalEncoder(BaseEstimator, TransformerMixin):
         - 'if_binary' : drop one category if it is binary.
         - None : keep all categories.
     
-    detect_integer_as_categorical : bool, optional, default=True
+    integer_as_cat : bool, optional, default=True
         Whether integer columns should be detected as categorical features.
     
-    detect_float_ending_with_zero : bool, optional, default=True
+    float0_as_cat : bool, optional, default=True
         Whether float columns ending with `.0` (i.e., integers in float form)
         should be detected as categorical features.
     
@@ -4474,16 +4474,16 @@ class CategoricalEncoder(BaseEstimator, TransformerMixin):
         self, 
         categorical_features=None, 
         drop=None, 
-        detect_integer_as_categorical=True, 
-        detect_float_ending_with_zero=True, 
+        integer_as_cat=True, 
+        float0_as_cat=True, 
         max_unique_values=None, 
         min_unique_values=None, 
         return_type="array"
     ):
         self.categorical_features = categorical_features
         self.drop = drop
-        self.detect_integer_as_categorical = detect_integer_as_categorical
-        self.detect_float_ending_with_zero = detect_float_ending_with_zero
+        self.integer_as_cat = integer_as_cat
+        self.float0_as_cat = float0_as_cat
         self.max_unique_values = max_unique_values
         self.min_unique_values = min_unique_values
         self.return_type = return_type
@@ -4512,8 +4512,8 @@ class CategoricalEncoder(BaseEstimator, TransformerMixin):
         if self.categorical_features is None: 
             self.categorical_features = detect_categorical_columns(
                 X, 
-                detect_integer_as_categorical=self.detect_integer_as_categorical, 
-                detect_float_ending_with_zero=self.detect_float_ending_with_zero, 
+                integer_as_cat=self.integer_as_cat, 
+                float0_as_cat=self.float0_as_cat, 
                 max_unique_values=self.max_unique_values, 
                 min_unique_values=self.min_unique_values
             )

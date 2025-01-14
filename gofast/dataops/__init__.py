@@ -51,7 +51,10 @@ from .quality import (
     quality_control,
     convert_date_features, 
     handle_categorical_features, 
-    scale_data 
+    scale_data, 
+    corr_analysis, 
+    corr_engineering, 
+    corr_engineering_in
     )
 from .transformation import ( 
     format_long_column_names, 
@@ -108,7 +111,10 @@ __all__=[
         'transform_dates',
         'verify_data_integrity', 
         'smart_group', 
-        'group_and_filter', 
+        'group_and_filter',
+        'corr_analysis', 
+        'corr_engineering', 
+        'corr_engineering_in'
     ]
 
 

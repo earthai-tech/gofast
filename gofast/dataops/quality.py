@@ -21,11 +21,12 @@ from ..api.types import Any, List, DataFrame, Optional, Series
 from ..api.types import Dict, Union, Tuple, ArrayLike, Callable
 from ..api.util import get_table_size , to_snake_case
 from ..core.utils import ellipsis2false, smart_format
+from ..compat.pandas import select_dtypes 
 from ..core.checks import assert_ratio, validate_ratio, check_params  
 from ..core.io import is_data_readable 
 from ..decorators import isdf, Dataify
 from ..decorators import Extract1dArrayOrSeries 
-from ..utils.base_utils import reshape_to_dataframe
+from ..utils.base_utils import reshape_to_dataframe, detect_categorical_columns
 from ..utils.validator import is_frame, parameter_validator, validate_numeric  
 from ..utils.validator import _is_numeric_dtype, filter_valid_kwargs
 
@@ -50,6 +51,9 @@ __all__= [
      'merge_frames_on_index',
      'quality_control',
      'scale_data',
+     'corr_analysis', 
+     'corr_engineering', 
+     'corr_engineering_in'
  ]
 
 @is_data_readable
@@ -2005,6 +2009,794 @@ def analyze_data_corr(
         autofit=autofit, 
         )
     return summary
+
+
+@is_data_readable
+@isdf
+def corr_analysis(
+    data,
+    method='pearson',
+    analysis='numeric',
+    encoding=None,
+    integer_as_cat=False,
+    float0_as_cat=False,
+    min_unique_values=None,
+    max_unique_values=None,
+    handle_nan=None,
+    corr_type='all',
+    min_corr=0.5,
+    high_corr=0.8,
+    min_periods=1,
+    display_corrtable=False,
+    return_corr_data=False,
+    show_corr_results=True,
+    cmap='Blues',
+    fig_size=(10, 8),
+    verbose=0,
+    view=False
+):
+    # import required library for encoding
+    from sklearn.preprocessing import LabelEncoder
+
+    # if encoding is not set, default to 'ordinal'
+    encoding = encoding or 'ordinal'
+
+    # detect categorical columns based on user-defined criteria
+    categorical_data = detect_categorical_columns(
+        data,
+        integer_as_cat=integer_as_cat,
+        float0_as_cat=float0_as_cat,
+        min_unique_values=min_unique_values,
+        max_unique_values=max_unique_values,
+        handle_nan=handle_nan,
+        return_frame=True,
+        verbose=verbose
+    )
+
+    # extract numeric columns by dropping detected categorical columns
+    numeric_data = data.drop(
+        columns=categorical_data.columns,
+        errors='ignore'
+    )
+    numeric_data = select_dtypes(
+        numeric_data,
+        dtypes='numeric'
+    )
+
+    # flag to check if numeric data is missing when it is expected
+    numeric_data_missing = False
+    if numeric_data.empty and analysis in ['numeric', 'dual', 'dual_merge']:
+        numeric_data_missing = True
+        if verbose > 0:
+            warnings.warn(
+                "No numeric columns found in the dataframe "
+                "based on the provided conditions."
+            )
+
+    # flag to check if categorical data is missing when it is expected
+    categorical_data_missing = False
+    if categorical_data.empty and analysis in ['category', 'dual', 'dual_merge']:
+        categorical_data_missing = True
+        if verbose > 0:
+            warnings.warn(
+                "No categorical columns found in the dataframe "
+                "based on the provided conditions."
+            )
+
+    # helper function to encode categorical columns
+    def encode_categorical(df, enc_method):
+        # return None if the dataframe is empty or None
+        if df is None or df.empty:
+            return None
+
+        # apply one-hot encoding
+        if enc_method == 'one_hot':
+            if verbose > 2:
+                print("Applying one-hot encoding to categorical data.")
+            return pd.get_dummies(df, drop_first=True)
+
+        # apply ordinal encoding
+        elif enc_method == 'ordinal':
+            if verbose > 2:
+                print("Applying ordinal encoding to categorical data.")
+            temp_df = df.copy()
+            le = LabelEncoder()
+            for col in temp_df.columns:
+                temp_df[col] = le.fit_transform(temp_df[col].astype(str))
+            return temp_df
+
+        # default to ordinal encoding if an unknown method is provided
+        else:
+            warnings.warn(
+                f"Unknown encoding method '{enc_method}'. Defaulting to ordinal encoding."
+            )
+            temp_df = df.copy()
+            le = LabelEncoder()
+            for col in temp_df.columns:
+                temp_df[col] = le.fit_transform(temp_df[col].astype(str))
+            return temp_df
+
+    # encode categorical data if analysis type requires categorical handling
+    encoded_categorical = None
+    if analysis in ['category', 'dual', 'dual_merge'] and not categorical_data_missing:
+        encoded_categorical = encode_categorical(categorical_data, encoding)
+
+    # placeholders for different correlation results
+    numeric_corr = None
+    categorical_corr = None
+    merged_corr = None
+
+    # compute correlation for numeric data if required and available
+    if analysis in ['numeric', 'dual'] and not numeric_data_missing:
+        numeric_corr = numeric_data.corr(method=method)
+        if verbose > 1:
+            print("Computed correlation for numeric data.")
+
+    # compute correlation for categorical data if required and available
+    if analysis in ['category', 'dual'] and not categorical_data_missing:
+        if encoded_categorical is not None:
+            categorical_corr = encoded_categorical.corr(method=method)
+            if verbose > 1:
+                print("Computed correlation for categorical data.")
+
+    # compute merged correlation if analysis is 'dual_merge' and both data types exist
+    if (analysis == 'dual_merge'
+            and not numeric_data_missing
+            and not categorical_data_missing):
+        merged_data = pd.concat(
+            [numeric_data, encoded_categorical],
+            axis=1
+        )
+        merged_corr = merged_data.corr(method=method)
+        if verbose > 1:
+            print("Computed merged correlation for dual_merge analysis.")
+
+    # optionally display heatmaps if 'view' is True
+    if view:
+        # numeric analysis heatmap
+        if analysis == 'numeric' and numeric_corr is not None:
+            plt.figure(figsize=fig_size)
+            sns.heatmap(numeric_corr, annot=True, cmap=cmap)
+            plt.title("Numeric Correlation Matrix")
+            plt.show()
+
+        # categorical analysis heatmap
+        elif analysis == 'category' and categorical_corr is not None:
+            plt.figure(figsize=fig_size)
+            sns.heatmap(categorical_corr, annot=True, cmap=cmap)
+            plt.title("Categorical Correlation Matrix")
+            plt.show()
+
+        # separate heatmaps for numeric and categorical in 'dual' analysis
+        elif analysis == 'dual':
+            fig, axes = plt.subplots(
+                1,
+                2,
+                figsize=(2 * fig_size[0], fig_size[1])
+            )
+            if numeric_corr is not None:
+                sns.heatmap(
+                    numeric_corr,
+                    annot=True,
+                    cmap=cmap,
+                    ax=axes[0]
+                )
+                axes[0].set_title("Numeric Correlation Matrix")
+            if categorical_corr is not None:
+                sns.heatmap(
+                    categorical_corr,
+                    annot=True,
+                    cmap=cmap,
+                    ax=axes[1]
+                )
+                axes[1].set_title("Categorical Correlation Matrix")
+            plt.tight_layout()
+            plt.show()
+
+        # merged correlation heatmap for 'dual_merge'
+        elif analysis == 'dual_merge' and merged_corr is not None:
+            plt.figure(figsize=fig_size)
+            sns.heatmap(merged_corr, annot=True, cmap=cmap)
+            plt.title("Merged Correlation Matrix")
+            plt.show()
+
+    # return the computed correlation matrices if requested
+    if return_corr_data:
+        if analysis == 'numeric':
+            return numeric_corr
+        elif analysis == 'category':
+            return categorical_corr
+        elif analysis == 'dual':
+            return numeric_corr, categorical_corr
+        elif analysis == 'dual_merge':
+            return merged_corr
+
+    # prepare data for correlation_ops
+    # this data will be used for further operations or summary display
+    if analysis == 'numeric' and not numeric_data_missing:
+        transformed_data = numeric_data
+    elif analysis == 'category' and not categorical_data_missing:
+        transformed_data = encoded_categorical
+    elif analysis == 'dual':
+        # combine numeric and categorical if both are present
+        if not numeric_data_missing and not categorical_data_missing:
+            transformed_data = pd.concat(
+                [numeric_data, encoded_categorical],
+                axis=1
+            )
+        elif not numeric_data_missing:
+            transformed_data = numeric_data
+        elif not categorical_data_missing:
+            transformed_data = encoded_categorical
+        else:
+            transformed_data = data
+    elif analysis == 'dual_merge':
+        # merged data if both numeric and categorical exist
+        if not numeric_data_missing and not categorical_data_missing:
+            transformed_data = pd.concat(
+                [numeric_data, encoded_categorical],
+                axis=1
+            )
+        else:
+            transformed_data = data
+    else:
+        # if no suitable scenario, default back to original data
+        transformed_data = data
+
+    # generate correlation operations summary or table
+    corr_results = correlation_ops(
+        transformed_data,
+        corr_type=corr_type,
+        min_corr=min_corr,
+        high_corr=high_corr,
+        method=method,
+        min_periods=min_periods,
+        display_corrtable=display_corrtable
+    )
+
+    # display correlation operations results if requested
+    if show_corr_results and corr_results is not None:
+        print(corr_results)
+
+    if verbose > 0:
+        print("Returning transformed data after correlation analysis.")
+
+    # return the final transformed data for further use
+    return transformed_data
+
+
+@is_data_readable
+@isdf
+def corr_engineering_in(
+    data,
+    action='drop',   
+    threshold=0.8,  
+    precomputed=False,  
+    return_selected_features=False, 
+    strategy=None,  
+    verbose=0,      
+    view=True       
+):
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import PolynomialFeatures
+    
+    # if 'data' is already a correlation matrix, 
+    # there's no need to compute it again
+    if precomputed:
+        # assume 'data' is a correlation matrix
+        corr_matrix = data
+        original_data = None
+    else:
+        # assume 'data' is a dataframe and we need to compute correlation
+        # use corr_analysis to get the transformed data, which is typically
+        # numeric/categorical encoded
+        # we do not display or return correlation data from corr_analysis here
+        transformed_data = corr_analysis(
+            data,
+            analysis='numeric',
+            return_corr_data=False,
+            view=False,
+            verbose=verbose
+        )
+
+        # compute correlation matrix from transformed data
+        corr_matrix = transformed_data.corr()
+        original_data = transformed_data
+
+    # identify highly correlated feature pairs based on the threshold
+    # we consider both positive and negative correlations
+    # store each pair as (feature_a, feature_b, correlation_value)
+    corr_pairs = []
+    for col_a in corr_matrix.columns:
+        for col_b in corr_matrix.columns:
+            if col_a < col_b:  # avoid duplicating symmetrical pairs
+                corr_value = corr_matrix.loc[col_a, col_b]
+                if abs(corr_value) >= threshold:
+                    corr_pairs.append((col_a, col_b, corr_value))
+
+    # if no feature pairs are above threshold, we might not need to do anything
+    if len(corr_pairs) == 0 and verbose > 0:
+        print("No highly correlated features detected above the threshold.")
+
+    # define a helper function to drop correlated features
+    def drop_correlated_features():
+        # we track dropped features to avoid repeated drops
+        features_to_drop = set()
+        for (f1, f2, val) in corr_pairs:
+            # decide which feature to drop (heuristic: drop the second one)
+            # more sophisticated logic can be used here, e.g., dropping 
+            # by feature importance, for that see 
+            # 'gofast.dataops.corr_engineering' instead.
+            if f1 not in features_to_drop and f2 not in features_to_drop:
+                features_to_drop.add(f2)
+
+        if not precomputed:
+            # drop from original_data if it is a dataframe
+            dropped_data = original_data.drop(
+                columns=list(features_to_drop), 
+                errors='ignore'
+            )
+            return dropped_data
+        else:
+            # if precomputed, we remove columns/rows from the correlation matrix
+            dropped_matrix = corr_matrix.drop(
+                columns=list(features_to_drop), 
+                errors='ignore'
+            )
+            dropped_matrix = dropped_matrix.drop(
+                index=list(features_to_drop), 
+                errors='ignore'
+            )
+            return dropped_matrix
+
+    # define a helper function for pca transformation
+    # on correlated features
+    def apply_pca():
+        if not precomputed:
+            # only proceed if we have original data
+            # gather all unique features from the correlation pairs
+            all_correlated = set()
+            for (f1, f2, _) in corr_pairs:
+                all_correlated.update([f1, f2])
+
+            # subset data with the correlated features
+            subset = original_data[list(all_correlated)].copy()
+
+            # fit pca to the subset
+            pca = PCA()
+            pca_values = pca.fit_transform(subset)
+
+            # create a dataframe for the pca components
+            pca_df = pd.DataFrame(
+                pca_values, 
+                columns=[f"pca_comp_{i+1}" for i in range(pca_values.shape[1])]
+            )
+
+            # drop the original correlated columns and add the pca components
+            data_after_pca = original_data.drop(
+                columns=list(all_correlated), errors='ignore')
+            data_after_pca = pd.concat([data_after_pca, pca_df], axis=1)
+            return data_after_pca
+        else:
+            # if correlation matrix is given, we cannot apply pca meaningfully
+            # because pca requires original data
+            if verbose > 0:
+                warnings.warn(
+                    "Cannot apply PCA on a precomputed correlation matrix."
+                    )
+            return corr_matrix
+
+    # define a helper function for simple feature engineering
+    def feature_engineering():
+        # combine correlated features into a single feature, e.g., average or sum
+        if strategy is None:
+            # default to 'average'
+            eng_strategy = 'average'
+        else:
+            eng_strategy = strategy
+
+        if not precomputed:
+            data_copy = original_data.copy()
+            processed_pairs = set()
+
+            for (f1, f2, _) in corr_pairs:
+                # skip if we've already handled a pair
+                if (f1, f2) in processed_pairs or (f2, f1) in processed_pairs:
+                    continue
+
+                # combine features using the chosen strategy
+                if eng_strategy == 'average':
+                    new_feature = (data_copy[f1] + data_copy[f2]) / 2
+                elif eng_strategy == 'sum':
+                    new_feature = data_copy[f1] + data_copy[f2]
+                else:
+                    # fallback to average if unrecognized
+                    new_feature = (data_copy[f1] + data_copy[f2]) / 2
+                    if verbose > 1:
+                        warnings.warn(
+                            f"Unknown strategy '{eng_strategy}'."
+                            " Defaulting to average."
+                        )
+
+                # create a new column name
+                new_feature_name = f"{f1}_{f2}_eng"
+                data_copy[new_feature_name] = new_feature
+
+                # drop original features
+                data_copy.drop(columns=[f1, f2], errors='ignore', inplace=True)
+
+                # mark pair as processed
+                processed_pairs.add((f1, f2))
+                processed_pairs.add((f2, f1))
+
+            return data_copy
+        else:
+            # if correlation matrix is given, we cannot directly create new columns
+            if verbose > 0:
+                warnings.warn(
+                    "Cannot create engineered features from a"
+                    "precomputed correlation matrix."
+                )
+            return corr_matrix
+
+    # define a helper function for polynomial feature generation
+    def polynomial_feature():
+        if not precomputed:
+            data_copy = original_data.copy()
+            poly = PolynomialFeatures(
+                degree=2, include_bias=False, interaction_only=False
+                )
+
+            # gather all unique features from the correlation pairs
+            all_correlated = set()
+            for (f1, f2, _) in corr_pairs:
+                all_correlated.update([f1, f2])
+
+            subset = data_copy[list(all_correlated)].copy()
+            poly_data = poly.fit_transform(subset)
+            poly_feature_names = poly.get_feature_names_out(subset.columns)
+
+            # create a dataframe from polynomial features
+            poly_df = pd.DataFrame(poly_data, columns=poly_feature_names)
+
+            # drop the original correlated columns and add polynomial features
+            data_after_poly = data_copy.drop(
+                columns=list(all_correlated), errors='ignore')
+            data_after_poly = pd.concat([data_after_poly, poly_df], axis=1)
+            return data_after_poly
+        else:
+            # cannot generate polynomial features from a precomputed correlation matrix
+            if verbose > 0:
+                warnings.warn(
+                    "Cannot create polynomial features from"
+                    " a precomputed correlation matrix."
+                )
+            return corr_matrix
+
+    # apply the requested action
+    if action == 'drop':
+        result = drop_correlated_features()
+    elif action == 'pca':
+        result = apply_pca()
+    elif action in ['fe', 'feature_engineering']:
+        result = feature_engineering()
+    elif action in ['pf', 'polynomial_feature']:
+        result = polynomial_feature()
+    else:
+        if verbose > 1:
+            warnings.warn(
+                f"Unknown action '{action}'. No transformations applied.")
+        result = original_data if not precomputed else corr_matrix
+
+    # if we are returning only the new or selected features, return 'result'
+    # otherwise return the same structure based on whether
+    # we had precomputed correlation
+    if return_selected_features:
+        return result
+    else:
+        # if correlation was precomputed, return the updated correlation matrix
+        # or if not precomputed, return the updated dataframe
+        return result
+
+@is_data_readable
+@isdf
+def corr_engineering(
+    data,
+    target=None,                
+    threshold_features=0.8, 
+    threshold_target=0.1,   
+    action='drop',               
+    strategy='average',          
+    precomputed=False,          
+    return_selected_features=False,
+    verbose=0,
+):
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import PolynomialFeatures
+    
+    # --- Step 1: Validate and extract target if provided ---
+    original_data = None
+    target_series = None
+
+    # if we already have a correlation matrix, skip data transformations
+    if precomputed:
+        corr_matrix = data
+    else:
+        # get numeric/categorical-encoded version of data (no correlation returned)
+        transformed_data = corr_analysis(
+            data,
+            analysis='numeric',
+            return_corr_data=False,
+            view=False,
+            verbose=verbose
+        )
+        corr_matrix = transformed_data.corr()
+        original_data = transformed_data
+
+    # if target is a string, try to retrieve its series from the dataframe
+    if (target is not None) and isinstance(target, str) and not precomputed:
+        if target in original_data.columns:
+            target_series = original_data[target]
+        else:
+            if verbose > 1:
+                warnings.warn(
+                    "Target is a string but not found in the dataframe columns."
+                )
+    elif target is not None and not precomputed:
+        # if target is array-like, convert to Series
+        try:
+            target_series = pd.Series(target, index=original_data.index)
+        except Exception as e:
+            if verbose > 1:
+                warnings.warn(f"Unable to convert target to a Series: {str(e)}")
+
+    # --- Step 2: If we have a valid target_series, remove features
+    # that have a low absolute correlation to the target ---
+    features_to_drop_for_target = set()
+    if target_series is not None and original_data is not None:
+        # compute correlation of each feature to the target
+        target_corr = original_data.corrwith(target_series).abs()
+        # find features that fail the minimum correlation requirement
+        low_target_corr = target_corr[target_corr < threshold_target].index.tolist()
+
+        if len(low_target_corr) > 0 and verbose > 0:
+            print(
+                "Features below target correlation threshold"
+                f" {threshold_target}: {low_target_corr}"
+            )
+        features_to_drop_for_target.update(low_target_corr)
+
+    # --- Step 3: Identify pairs of features with correlation above threshold ---
+    high_corr_pairs = []
+    for col_a in corr_matrix.columns:
+        for col_b in corr_matrix.columns:
+            if col_a < col_b:  # avoid duplicates
+                val = corr_matrix.loc[col_a, col_b]
+                if abs(val) >= threshold_features:
+                    high_corr_pairs.append((col_a, col_b, val))
+
+    if len(high_corr_pairs) == 0 and verbose > 0:
+        print("No highly correlated feature pairs"
+              " detected above the threshold.")
+
+    # --- Step 4: Among correlated pairs, choose which feature to 
+    # drop based on correlation to the target ---
+    # if no target is provided, we use a simpler approach: just always
+    # drop the second in the pair
+    features_to_drop_for_pairs = set()
+    if target_series is not None and original_data is not None:
+        # if we can, keep the feature with the higher correlation to the target
+        # unless one of them is already flagged for dropping due to 
+        # low target correlation
+        for (f1, f2, _) in high_corr_pairs:
+            # if either feature is already flagged to be dropped, skip directly
+            if f1 in features_to_drop_for_target or f2 in features_to_drop_for_target:
+                continue
+
+            c1 = abs(original_data[f1].corr(target_series))
+            c2 = abs(original_data[f2].corr(target_series))
+
+            # drop the one with lower correlation to the target
+            if c1 < c2:
+                features_to_drop_for_pairs.add(f1)
+            else:
+                features_to_drop_for_pairs.add(f2)
+    else:
+        # if no valid target, default to dropping 
+        # the second feature in each pair
+        for (f1, f2, _) in high_corr_pairs:
+            features_to_drop_for_pairs.add(f2)
+
+    # merge the sets of features to drop
+    all_features_to_drop = features_to_drop_for_target.union(
+        features_to_drop_for_pairs)
+
+    # --- Step 5: Implement transformations based on `action` ---
+    def apply_drop(features_to_drop):
+        """Drop the specified features from data or correlation matrix."""
+        if not precomputed:
+            return original_data.drop(columns=list(features_to_drop), errors='ignore')
+        else:
+            # remove rows/columns for those features from corr_matrix
+            tmp = corr_matrix.drop(columns=list(features_to_drop), errors='ignore')
+            tmp = tmp.drop(index=list(features_to_drop), errors='ignore')
+            return tmp
+
+    def apply_pca(features_to_drop):
+        """
+        Apply PCA on the correlated features (plus possibly some that 
+                                              are not dropped).
+        We'll first drop everything flagged, then apply PCA to the subset
+        that remains if needed. Another approach is to apply PCA only to 
+        the 'highly correlated' subset.
+        """
+        if precomputed:
+            if verbose > 0:
+                warnings.warn(
+                    "Cannot perform PCA on a precomputed correlation matrix.")
+            return corr_matrix
+
+        # drop any features flagged, then gather remaining correlated sets
+        data_after_drop = original_data.drop(
+            columns=list(features_to_drop), errors='ignore')
+
+        # find any features that are still potentially correlated
+        # (In practice, you might want to apply PCA specifically  
+        # to a subset of correlated columns.)
+        remaining_corr = data_after_drop.corr()
+        still_correlated = set()
+        for col_a in remaining_corr.columns:
+            for col_b in remaining_corr.columns:
+                if col_a < col_b:
+                    val = remaining_corr.loc[col_a, col_b]
+                    if abs(val) >= threshold_features:
+                        still_correlated.update([col_a, col_b])
+
+        if not still_correlated:
+            # if no correlated subset remains, return data as is
+            return data_after_drop
+
+        correlated_subset = data_after_drop[list(still_correlated)].copy()
+        pca = PCA()
+        pca_values = pca.fit_transform(correlated_subset)
+        pca_cols = [f'pca_comp_{i+1}' for i in range(pca_values.shape[1])]
+        pca_df = pd.DataFrame(pca_values, columns=pca_cols, index=correlated_subset.index)
+
+        # drop the correlated subset and add PCA components
+        final_data = data_after_drop.drop(columns=list(still_correlated), errors='ignore')
+        final_data = pd.concat([final_data, pca_df], axis=1)
+        return final_data
+
+    def apply_feature_engineering(features_to_drop):
+        """
+        Combine correlated pairs into a single feature, then drop original 
+        features.
+        Strategy can be 'average', 'sum', etc. 
+        Note that we still drop anything flagged for target correlation issues.
+        """
+        if precomputed:
+            if verbose > 0:
+                warnings.warn(
+                    "Cannot do feature engineering on precomputed"
+                    " correlation matrix.")
+            return corr_matrix
+
+        data_copy = original_data.drop(
+            columns=list(features_to_drop), errors='ignore')
+        visited_pairs = set()
+
+        # re-check correlation among the remaining features
+        remaining_corr = data_copy.corr()
+        correlated_pairs = []
+        for col_a in remaining_corr.columns:
+            for col_b in remaining_corr.columns:
+                if col_a < col_b:
+                    val = remaining_corr.loc[col_a, col_b]
+                    if abs(val) >= threshold_features:
+                        correlated_pairs.append((col_a, col_b, val))
+
+        for (f1, f2, _) in correlated_pairs:
+            if (f1, f2) in visited_pairs or (f2, f1) in visited_pairs:
+                continue
+
+            if strategy == 'average':
+                new_col_data = (data_copy[f1] + data_copy[f2]) / 2
+            elif strategy == 'sum':
+                new_col_data = data_copy[f1] + data_copy[f2]
+            else:
+                # default to average if unrecognized
+                if verbose > 1:
+                    warnings.warn(
+                        f"Unknown strategy '{strategy}'. Defaulting to average.")
+                new_col_data = (data_copy[f1] + data_copy[f2]) / 2
+
+            new_feature_name = f"{f1}_{f2}_eng"
+            data_copy[new_feature_name] = new_col_data
+
+            # remove original features
+            data_copy.drop(columns=[f1, f2], inplace=True, errors='ignore')
+
+            visited_pairs.add((f1, f2))
+            visited_pairs.add((f2, f1))
+
+        return data_copy
+
+    def apply_polynomial_feature(features_to_drop):
+        """
+        Generate polynomial and interaction terms from the remaining 
+        correlated columns after dropping those flagged. 
+        """
+        if precomputed:
+            if verbose > 0:
+                warnings.warn(
+                    "Cannot create polynomial features on"
+                    " a precomputed correlation matrix.")
+            return corr_matrix
+
+        data_after_drop = original_data.drop(
+            columns=list(features_to_drop), errors='ignore')
+        poly = PolynomialFeatures(degree=2, include_bias=False, 
+                                  interaction_only=False)
+
+        # detect features still correlated among themselves
+        remaining_corr = data_after_drop.corr()
+        still_correlated = set()
+        for col_a in remaining_corr.columns:
+            for col_b in remaining_corr.columns:
+                if col_a < col_b:
+                    val = remaining_corr.loc[col_a, col_b]
+                    if abs(val) >= threshold_features:
+                        still_correlated.update([col_a, col_b])
+
+        if not still_correlated:
+            # if no correlated subset remains, return data as is
+            return data_after_drop
+
+        # subset to correlated features
+        subset = data_after_drop[list(still_correlated)]
+        poly_values = poly.fit_transform(subset)
+        poly_cols = poly.get_feature_names_out(subset.columns)
+
+        poly_df = pd.DataFrame(
+            poly_values, 
+            columns=poly_cols,
+            index=subset.index
+        )
+
+        # drop the correlated subset and add polynomial features
+        final_data = data_after_drop.drop(columns=list(still_correlated), 
+                                          errors='ignore')
+        final_data = pd.concat([final_data, poly_df], axis=1)
+        return final_data
+
+    # --- Step 6: Execute the chosen action ---
+    if action == 'drop':
+        result = apply_drop(all_features_to_drop)
+    elif action == 'pca':
+        result = apply_pca(all_features_to_drop)
+    elif action in ['fe', 'feature_engineering']:
+        result = apply_feature_engineering(all_features_to_drop)
+    elif action in ['pf', 'polynomial_feature']:
+        result = apply_polynomial_feature(all_features_to_drop)
+    else:
+        if verbose > 1:
+            warnings.warn(f"Unknown action '{action}'. No transformations applied.")
+        if precomputed:
+            result = corr_matrix
+        else:
+            # drop anything that fails target correlation but do nothing else
+            result = original_data.drop(
+                columns=list(all_features_to_drop), errors='ignore'
+            )
+
+    # --- Step 7: Return the appropriate output ---
+    if return_selected_features:
+        # final feature set or final correlation matrix
+        return result
+    else:
+        # if correlation was precomputed, return updated correlation matrix
+        # or if raw data, return updated DataFrame
+        return result
 
 @is_data_readable
 def correlation_ops(
