@@ -19,10 +19,11 @@ from .feature_engineering import (
     PolynomialFeatureCombiner,
     DimensionalityReducer,
     CategoricalEncoder,
-    CategoricalEncoder2, 
+    CategoricalEncoderIn, 
     FeatureScaler,
     MissingValueImputer,
     ColumnSelector,
+    OutlierHandler, 
 ) 
 
 __all__= [
@@ -46,11 +47,12 @@ __all__= [
     'PolynomialFeatureCombiner', 
     'DimensionalityReducer', 
     'CategoricalEncoder', 
-    'CategoricalEncoder2', 
+    'CategoricalEncoderIn', 
     'FeatureScaler', 
     'MissingValueImputer', 
     'ColumnSelector', 
     'LogTransformer', 
-    'CategoryFrequencyEncoder', 
+    'CategoryFrequencyEncoder',
+    'OutlierHandler', 
   ]
 

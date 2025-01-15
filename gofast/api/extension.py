@@ -482,6 +482,7 @@ class DynamicDataFrame:
         if len(self.df) > rows_to_display:
             print(f"[Displaying {rows_to_display} of {len(self.df)} rows]")
 
+
 def make_introspection(target_obj, source_obj):
     """
     Copies all attributes from a source object to a target object, effectively

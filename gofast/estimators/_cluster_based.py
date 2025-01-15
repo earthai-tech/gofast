@@ -2,17 +2,18 @@
 # License: BSD-3-Clause
 # Author: LKouadio <etanoyau@gmail.com>
 
-from abc import ABCMeta, abstractmethod
+from abc import abstractmethod
 from numbers import Integral, Real
 
 from sklearn.base import BaseEstimator, clone
 from sklearn.utils._param_validation import Hidden, HasMethods 
 from sklearn.utils._param_validation  import Interval, StrOptions
 
-from ..tools.validator import check_is_fitted
+from ..api.property import LearnerMeta 
+from ..utils.validator import check_is_fitted
 from .util import fit_with_estimator, select_best_model 
 
-class BaseKMF(BaseEstimator, metaclass=ABCMeta):
+class BaseKMF(BaseEstimator, metaclass=LearnerMeta):
     """
     Base class for KMeansFeaturizer estimators.
 

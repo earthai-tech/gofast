@@ -19,8 +19,8 @@ from ._config import INSTALL_DEPENDENCIES, USE_CONDA
 from .._gofastlog import gofastlog 
 from ..api.property import BaseLearner 
 from ..compat.sklearn import validate_params 
-from ..tools.depsutils import ensure_pkgs
-from ..tools.validator import parameter_validator 
+from ..utils.deps_utils import ensure_pkgs
+from ..utils.validator import parameter_validator 
 
 logger=gofastlog.get_gofast_logger(__name__)
 

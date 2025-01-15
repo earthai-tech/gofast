@@ -12,8 +12,9 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from ..tools.coreutils import is_iterable, unpack_list_of_dicts
-from ..tools.validator import (
+from ..core.checks import is_iterable
+from ..core.utils import unpack_list_of_dicts 
+from ..utils.validator import (
     validate_dates,
     validate_distribution,
     validate_length_range,
@@ -61,8 +62,576 @@ __all__ = [
     "simulate_weather_data",
     "simulate_climate_data",
     "simulate_clinical_trials",
-    "simulate_telecom_data"
+    "simulate_telecom_data", 
+    "simulate_electricity_data", 
+    "simulate_retail_data", 
+    "simulate_traffic_data"
 ]
+
+
+def simulate_electricity_data(
+    *,
+    n_timepoints: int = 1000,
+    end_time: float = 365,  # days
+    noise_level: float = 0.1,
+    trend: float = 0.05,
+    seasonality_amplitude: float = 10.0,
+    seasonality_period: int = 365,  # annual seasonality
+    holiday_effect: float = 5.0,
+    temperature_base: float = 20.0,
+    temperature_variation: float = 10.0,
+    price_base: float = 50.0,
+    price_variation: float = 15.0,
+    holiday_dates: list = None,
+    n_samples: int = None,
+    as_frame: bool = False,
+    return_X_y: bool = False,
+    target_name: list = None,
+    seed: int = None,
+):
+    r"""
+    Generate a synthetic electricity dataset that captures daily (or hourly)
+    consumption, price fluctuations, and external influences. Intended for
+    training and validating multi-horizon forecasting models, especially
+    those leveraging hierarchical attention and multiscale modules [1]_.
+
+    Parameters
+    ----------
+    n_timepoints : int, optional
+        Number of temporal observations. Represents how many records
+        are drawn within ``end_time``. Default is 1000.
+
+    end_time : float, optional
+        Final time point (in days) for the simulation, marking the
+        range [0, end_time]. Default is 365.0 (one year).
+
+    noise_level : float, optional
+        Standard deviation of added Gaussian noise. Models random
+        consumption deviations. Default is 0.1.
+
+    trend : float, optional
+        Linear drift applied to the demand variable, simulating
+        evolving usage patterns. Default is 0.05.
+
+    seasonality_amplitude : float, optional
+        Magnitude of sinusoidal cycles, reflecting annual or weekly
+        peaks. Default is 10.0.
+
+    seasonality_period : float, optional
+        Period for seasonal patterns, e.g., 365 for yearly or 7 for
+        weekly. Default is 365.
+
+    holiday_effect : float, optional
+        Amount by which holidays can spike or reduce consumption.
+        Default is 5.0.
+
+    temperature_base : float, optional
+        Mean external temperature. Allows temperature-based modeling
+        of heating or cooling loads. Default is 20.0.
+
+    temperature_variation : float, optional
+        Fluctuation factor for temperature, creating sinusoidal
+        temperature shifts. Default is 10.0.
+
+    price_base : float, optional
+        Average electricity price level. Default is 50.0.
+
+    price_variation : float, optional
+        Oscillation factor for price, modeling real-time dynamic
+        pricing. Default is 15.0.
+
+    holiday_dates : list, optional
+        Specific time indices of holidays. If None, default sample
+        holidays are used. Default is None.
+
+    n_samples : int, optional
+        Kept for API consistency. If provided, sets
+        ``n_timepoints`` to this value.
+
+    as_frame : bool, optional
+        If True, returns a pandas DataFrame. If False, the dataset
+        format is determined by additional arguments. Default is
+        False.
+
+    return_X_y : bool, optional
+        If True, returns feature matrix and target separately. If
+        False, returns a single dataset object. Default is False.
+
+    target_name : list, optional
+        Names for the target(s). Defaults to ``["demand"]``.
+
+    seed : int, optional
+        Random seed ensuring reproducible noise and holiday patterns.
+        Default is None.
+
+    Notes
+    -----
+    This function simulates a time-indexed electricity domain. It
+    combines a linear trend :math:`\alpha t`, a sinusoidal
+    seasonality :math:`A \sin(2\pi t / P)`, optional holiday
+    perturbations, and random price/temperature variations. Demand is
+    then offset by noise and user-defined factors.
+
+    .. math::
+       \text{demand} = (\text{baseline} + \alpha t + \text{holiday} +
+       \text{seasonal} + \text{noise}) - \beta\,(\text{price})
+
+    Examples
+    --------
+    >>> from gofast.datasets.simulate import simulate_electricity_data
+    >>> data = simulate_electricity_data(n_timepoints=500, end_time=365.0,
+    ...     holiday_dates=[50,100,300], seed=42, as_frame=True)
+    >>> data.head()
+
+    See Also
+    --------
+    manage_data : Organizes the final dataset into the requested output
+                 format.
+
+    References
+    ----------
+    .. [1] Liu, Jianxin et al. (2024). Machine learning-based techniques
+           for land subsidence simulation in an urban area. 
+           Journal of Environmental Management, 352, 120078.
+    """
+    np.random.seed(seed)
+    func_name = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr = fetch_simulation_metadata(func_name)
+
+    if n_samples is not None:
+        warnings.warn(
+            "`n_samples` is provided for API consistency only and should equal "
+            "`n_timepoints`. Please use `n_timepoints` directly to specify the "
+            "number of time points in the dataset. Setting `n_timepoints` "
+            "to match `n_samples`."
+        )
+        n_timepoints = n_samples
+
+    # Validate parameters
+    end_time = validate_positive_integer(end_time, "end_time")
+    n_timepoints = validate_positive_integer(n_timepoints, "n_timepoints")
+    noise_level = validate_noise_level(noise_level, default_value=0.1)
+
+    # Time variable in days
+    time = np.linspace(0, end_time, n_timepoints)
+
+    # Trend component
+    trend_component = trend * time
+
+    # Seasonality component (annual)
+    seasonality = seasonality_amplitude * np.sin(2 * np.pi * time / seasonality_period)
+
+    # Holiday effect
+    if holiday_dates is None:
+        holiday_dates = [50, 150, 250, 350]  # Example holidays
+    holiday_indicator = np.zeros(n_timepoints)
+    for holiday in holiday_dates:
+        if 0 <= holiday < n_timepoints:
+            holiday_indicator[holiday] = holiday_effect
+
+    # Temperature feature with seasonal variation
+    temperature = (
+        temperature_base
+        + temperature_variation * np.sin(2 * np.pi * time / seasonality_period)
+        + np.random.normal(0, noise_level, n_timepoints)
+    )
+
+    # Electricity price with trend and seasonality
+    price = (
+        price_base
+        + price_variation * np.cos(2 * np.pi * time / seasonality_period)
+        + trend_component
+        + np.random.normal(0, noise_level, n_timepoints)
+    )
+
+    # Electricity demand influenced by temperature and price
+    demand = (
+        100
+        + 5 * temperature
+        - 2 * price
+        + trend_component
+        + seasonality
+        + holiday_indicator
+        + np.random.normal(0, noise_level * 5, n_timepoints)
+    )
+
+    # Create DataFrame
+    dataset = pd.DataFrame({
+        "time": time,
+        "trend": trend_component,
+        "seasonality": seasonality,
+        "holiday_indicator": holiday_indicator,
+        "temperature": temperature,
+        "price": price,
+        "demand": demand,
+    })
+
+    target_name = target_name or ["demand"]
+
+    return manage_data(
+        data=dataset,
+        as_frame=as_frame,
+        return_X_y=return_X_y,
+        target_names=target_name,
+        DESCR=dataset_descr,
+        FDESCR=features_descr,
+        noise=noise_level,
+    )
+
+def simulate_traffic_data(
+    *,
+    n_timepoints: int = 1000,
+    end_time: float = 24.0,   # hours (1 day)
+    noise_level: float = 0.1,
+    peak_hours: list[int]= None,
+    peak_factor: float = 3.0,
+    baseline_flow: float= 100.0,
+    flow_trend: float = 0.05,
+    day_seasonality: float = 0.5,
+    n_samples: int = None,
+    as_frame: bool = False,
+    return_X_y: bool = False,
+    target_name: list = None,
+    seed: int = None,
+):
+    r"""
+    Create a synthetic traffic dataset reflecting hourly (or sub-hourly)
+    vehicular flow patterns, rush-hour peaks, and daily seasonality [1]_.
+    This data suits multi-step forecasting tasks, such as congestion
+    mitigation and route planning in a smart city context.
+
+    Parameters
+    ----------
+    n_timepoints : int, optional
+        Number of observations, typically 24 to 168 for daily
+        or weekly cycles. Default is 1000.
+
+    end_time : float, optional
+        Final time (in hours) for the simulation, mapping 
+        [0, end_time]. Default is 24.0.
+
+    noise_level : float, optional
+        Standard deviation of random noise in traffic flow. 
+        Default is 0.1.
+
+    peak_hours : list of int, optional
+        Specific hours of rush (e.g., 7,8,9,17,18). Default 
+        is [7,8,9,17,18].
+
+    peak_factor : float, optional
+        Scaling factor for rush-hour flow spikes. Default is 3.0.
+
+    baseline_flow : float, optional
+        Baseline traffic volume. Default is 100.0.
+
+    flow_trend : float, optional
+        Linear shift over the simulation window, modeling 
+        gradual city expansion or policy changes. Default is 0.05.
+
+    day_seasonality : float, optional
+        Amplitude for daily sin wave, capturing day/night cycles.
+        Default is 0.5.
+
+    n_samples : int, optional
+        Maintained for API usage. Overrides
+        ``n_timepoints`` if provided.
+
+    as_frame : bool, optional
+        If True, outputs a pandas DataFrame. Otherwise, the format
+        is determined by other arguments. Default False.
+
+    return_X_y : bool, optional
+        If True, returns (X, y) separately. If False, returns one
+        dataset object. Default False.
+
+    target_name : list, optional
+        Target columns' names, default is ``["traffic_flow"]``.
+
+    seed: int, optional
+        Controls randomness for consistent noise. Default None.
+
+    Notes
+    -----
+    This function merges a baseline flow with daily seasonality,
+    peak-hour intensities, and random noise. Rush hours increase
+    flow by :math:`\gamma \times peak_{factor}`, while day
+    seasonality uses :math:`\delta \sin(2\pi t / 24)`.
+
+    .. math::
+       \text{traffic_flow} = \text{baseline} + \text{trend}(t) + 
+       \text{peak\_spike} + \sin(\dots) + \text{noise}
+
+    Examples
+    --------
+    >>> from gofast.datasets.simulate import simulate_traffic_data
+    >>> traffic_data = simulate_traffic_data(n_timepoints=720,
+    ...     end_time=24.0, peak_hours=[7,8,9,17], seed=0,
+    ...     as_frame=True)
+    >>> traffic_data.head()
+
+    See Also
+    --------
+    manage_data : Builds final dataset in user-defined structure.
+
+    References
+    ----------
+    .. [1] Rahmati, O. et al. (2019). Land subsidence modeling using 
+           tree-based ML algorithms. Science of the Total Environment,
+           672, 239--252.
+    """
+    np.random.seed(seed)
+    func_name      = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr = fetch_simulation_metadata(func_name)
+
+    if n_samples is not None:
+        warnings.warn(
+            "`n_samples` is provided for API consistency only and should "
+            "equal `n_timepoints`. Setting `n_timepoints` to match `n_samples`."
+        )
+        n_timepoints = n_samples
+
+    end_time       = validate_positive_integer(end_time,  "end_time")
+    n_timepoints   = validate_positive_integer(n_timepoints, "n_timepoints")
+    noise_level    = validate_noise_level(noise_level, default_value=0.1)
+
+    time     = np.linspace(0, end_time, n_timepoints)
+    # Optional peak hours
+    if peak_hours is None:
+        peak_hours = [7, 8, 9, 17, 18]  # default morning/evening rush
+    # Convert hours to indices
+    peak_indices = [int((h / end_time) * n_timepoints) for h in peak_hours if 0 <= h < end_time]
+
+    # Baseline traffic flow with linear trend
+    flow_trend_comp  = flow_trend * time
+    flow_base        = baseline_flow + flow_trend_comp
+
+    # Daily seasonality
+    daily_season     = day_seasonality * np.sin(2 * np.pi * time / end_time) * 10.0
+
+    # Introduce peak hour spikes
+    peak_spike       = np.zeros(n_timepoints)
+    for idx in peak_indices:
+        if 0 <= idx < n_timepoints:
+            peak_spike[idx] += peak_factor * 10.0
+
+    # Final traffic flow with noise
+    traffic_flow = (
+        flow_base
+        + daily_season
+        + peak_spike
+        + np.random.normal(0, noise_level * 5.0, n_timepoints)
+    )
+
+    dataset = pd.DataFrame({
+        "time": time,
+        "flow_trend": flow_trend_comp,
+        "daily_seasonality": daily_season,
+        "peak_spike": peak_spike,
+        "traffic_flow": traffic_flow,
+    })
+
+    target_name = target_name or ["traffic_flow"]
+
+    return manage_data(
+        data          = dataset,
+        as_frame      = as_frame,
+        return_X_y    = return_X_y,
+        target_names  = target_name,
+        DESCR         = dataset_descr,
+        FDESCR        = features_descr,
+        noise         = noise_level
+    )
+
+
+def simulate_retail_data(
+    *,
+    n_timepoints: int= 365,
+    end_time: float = 365.0,
+    noise_level: float = 0.1,
+    baseline_sales: float = 100.0,
+    sales_trend: float = 0.2,
+    seasonality_amplitude: float = 30.0,
+    seasonality_period: float  = 365.0,
+    holiday_effect: float= 20.0,
+    holiday_dates: list = None,
+    discount_effect: float = 10.0,
+    discount_period: int = 30,
+    n_samples: int = None,
+    as_frame: bool = False,
+    return_X_y: bool = False,
+    target_name: list = None,
+    seed: int = None,
+):
+    r"""
+    Produce a synthetic retail dataset reflecting daily or weekly sales
+    subject to baseline trends, seasonal cycles, holidays, and discount
+    periods [1]_. Ideal for testing multi-horizon forecasting models that
+    incorporate promotions and event signals.
+
+    Parameters
+    ----------
+    n_timepoints : int, optional
+        Number of time-based observations. Defaults to 365.
+
+    end_time : float, optional
+        Upper bound (in days) of the simulation, e.g., one 
+        year. Default is 365.0.
+
+    noise_level : float, optional
+        Gaussian noise amplitude in sales. Default is 0.1.
+
+    baseline_sales : float, optional
+        Initial average sales level. Default is 100.0.
+
+    sales_trend : float, optional
+        Linear slope over time, representing growing or 
+        declining demand. Default is 0.2.
+
+    seasonality_amplitude : float, optional
+        Strength of sinusoidal seasonality. Default is 30.0.
+
+    seasonality_period : float, optional
+        Period (in days) for cyclical patterns. Default 365.0.
+
+    holiday_effect : float, optional
+        Magnitude added to sales on holiday dates. Default 20.0.
+
+    holiday_dates : list, optional
+        Specific holiday indexes. If None, uses a default 
+        sampling. Default None.
+
+    discount_effect : float, optional
+        Additional sales spikes when discount cycles appear. 
+        Default 10.0.
+
+    discount_period : int, optional
+        Interval between repeated discounts (in days). 
+        Default is 30.
+
+    n_samples: int, optional
+        Present for API unity. If provided, overrides
+        ``n_timepoints``.
+
+    as_frame: bool, optional
+        Returns a pandas DataFrame if True. Otherwise,
+        the format depends on other arguments. Default False.
+
+    return_X_y : bool, optional
+        If True, splits data into features and target. 
+        Otherwise, returns one dataset. Default False.
+
+    target_name: list, optional
+        Target variable name(s). Default is ``["sales"]``.
+
+    seed : int, optional
+        Seed for random processes, ensuring reproducibility. 
+        Default None.
+
+    Notes
+    -----
+    The sales model merges a baseline with a linear drift 
+    :math:`\theta t`, sinusoidal patterns, holiday or promotion 
+    spikes, and random noise:
+
+    .. math::
+       \text{sales} = \text{baseline} + \theta t + 
+       \text{holiday\_indicator} + 
+       \text{discount\_indicator} + \text{noise}
+
+    Examples
+    --------
+    >>> from gofast.datasets.simulate import simulate_retail_data
+    >>> retail = simulate_retail_data(n_timepoints=730, 
+    ...     discount_period=60, holiday_dates=[100,200,300],
+    ...     seed=123, as_frame=True)
+    >>> retail.head()
+
+    See Also
+    --------
+    manage_data : Manages the final output structure, e.g. 
+                  returning a DataFrame or (X, y).
+
+    References
+    ----------
+    .. [1] Kim, Dohyun et al. (2020). Multiscale LSTM-based deep learning
+           for very-short-term photovoltaic power generation forecasting
+           in smart city energy management. IEEE Systems Journal, 15(1),
+           346--354.
+    """
+    np.random.seed(seed)
+    func_name      = inspect.currentframe().f_code.co_name
+    dataset_descr, features_descr = fetch_simulation_metadata(func_name)
+
+    if n_samples is not None:
+        warnings.warn(
+            "`n_samples` is provided for API consistency only; please use "
+            "`n_timepoints` to specify the number of time points. "
+            "Setting `n_timepoints` to `n_samples`."
+        )
+        n_timepoints = n_samples
+
+    end_time       = validate_positive_integer(end_time,   "end_time")
+    n_timepoints   = validate_positive_integer(n_timepoints, "n_timepoints")
+    noise_level    = validate_noise_level(noise_level, default_value=0.1)
+
+    time  = np.linspace(0, end_time, n_timepoints)
+
+    # Baseline with linear trend
+    sales_trend_comp = sales_trend * time
+    baseline_series  = baseline_sales + sales_trend_comp
+
+    # Seasonality
+    seasonal_factor = (
+        seasonality_amplitude
+        * np.sin(2 * np.pi * time / seasonality_period)
+    )
+
+    # Generate random holidays if none specified
+    if holiday_dates is None:
+        holiday_dates = [50, 150, 250, 350]  # placeholder
+
+    holiday_indicator = np.zeros(n_timepoints)
+    for hday in holiday_dates:
+        idx = int((hday / end_time) * n_timepoints)
+        if 0 <= idx < n_timepoints:
+            holiday_indicator[idx] += holiday_effect
+
+    # Periodic discount effect
+    # e.g.,  discount cycle every discount_period days
+    discount_indicator = np.zeros(n_timepoints)
+    for idx in range(n_timepoints):
+        if (idx % discount_period) == 0:
+            discount_indicator[idx] = discount_effect
+
+    # Combine sales influences
+    sales = (
+        baseline_series
+        + seasonal_factor
+        + holiday_indicator
+        + discount_indicator
+        + np.random.normal(0, noise_level * 5.0, n_timepoints)
+    )
+
+    dataset = pd.DataFrame({
+        "time": time,
+        "sales_trend": sales_trend_comp,
+        "seasonality": seasonal_factor,
+        "holiday_indicator": holiday_indicator,
+        "discount_indicator": discount_indicator,
+        "sales": sales,
+    })
+
+    target_name = target_name or ["sales"]
+
+    return manage_data(
+        data         = dataset,
+        as_frame     = as_frame,
+        return_X_y   = return_X_y,
+        target_names = target_name,
+        DESCR        = dataset_descr,
+        FDESCR       = features_descr,
+        noise        = noise_level
+    )
 
 def simulate_telecom_data(
     *, n_timepoints=1000, 

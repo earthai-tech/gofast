@@ -1,174 +1,112 @@
+# -*- coding: utf-8 -*-
 """
-The Tools sub-package offers a variety of utilities for data handling, 
-parameter computation, model estimation, and evaluation. It extends
-mathematical concepts through the module :mod:`~gofast.tools.mathex`. 
-Additionally, machine learning utilities and supplementary functionalities 
-are facilitated by :mod:`~gofast.tools.mlutils` and 
-:mod:`~gofast.tools.coreutils`, respectively.
- 
+gofast.tools
+==============
+
+**Description:**
+This initialization script for the `gofast.tools` package ensures that 
+essential dependencies, such as TensorFlow, are available when specific 
+applications or scripts within the package are invoked. If the required 
+dependencies are missing, the script raises informative errors
+to guide the user in resolving the issue.
+
+**Functionality:**
+- **Dependency Checks:** Automatically checks for the presence of TensorFlow
+   when certain modules or scripts are accessed.
+- **Informative Errors:** Provides clear and actionable error messages 
+  if dependencies are not installed.
+- **Flexibility:** Easily extendable to include additional dependencies 
+  and modules as needed.
+
+**Modules Monitored:**
+- `xtft_point_p.py`
+- `tft_batch_p.py`
+- `xtft_proba_p.py`
+- `xtft_proba.py`
+
+**Usage:**
+When a user attempts to import any of the monitored modules without having 
+TensorFlow installed, an `ImportError` with a detailed message will be raised.
+
+**Example:**
+```python
+from gofast.tools import xtft_proba_p
+# If TensorFlow is not installed, an ImportError will be raised with an
+ informative message.
+```
+
+**Author:** Daniel
+**Date:** 2024-12-17
 """
 
+import sys # noqa
 import importlib
+import logging
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
 
-MODULE_MAPPING = {
-    'baseutils': [
-         'array2hdf5',
-         'binning_statistic',
-         'categorize_target',
-         'category_count',
-         'denormalizer',
-         'detect_categorical_columns', 
-         'extract_target',
-         'fancier_downloader',
-         'fillNaN',
-         'get_target',
-         'interpolate_data',
-         'interpolate_grid',
-         'labels_validator',
-         'normalizer',
-         'remove_outliers',
-         'remove_target_from_array',
-         'rename_labels_in',
-         'save_or_load',
-         'scale_y',
-         'select_features',
-         'select_features',
-         'smooth1d',
-         'smoothing',
-         'soft_bin_stat',
-         'speed_rowwise_process'
-    ],
-    'coreutils': [
-        'features_in', 
-        'find_features_in',
-        'split_train_test',
-        'split_train_test_by_id',
-    ],
-    'datautils': [ 
-        'cleaner', 
-        'pair_data',
-        'random_sampling', 
-        'random_selector',
-        'replace_data', 
-        'resample_data', 
-        
-    ], 
-    'ioutils':[ 
-        'deserialize_data', 
-        'extract_tar_with_progress', 
-        'fetch_tgz_from_url', 
-        'fetch_tgz_locally', 
-        'fetch_json_data_from_url',
-        'load_serialized_data',
-        'load_csv', 
-        'parse_csv',
-        'parse_json',
-        'parse_md',
-        'parse_yaml',
-        'save_job',
-        'save_path',
-        'serialize_data',
-        'store_or_write_hdf5',
-        'to_hdf5',
-        'zip_extractor'
-        
-    ], 
-    'mathext': [
-        'adjust_for_control_vars',
-        'calculate_adjusted_lr', 
-        'calculate_binary_iv', 
-        'calculate_optimal_bins', 
-        'calculate_residuals', 
-        'compute_balance_accuracy',
-        'compute_effort_yield',
-        'compute_errors', 
-        'compute_p_values',
-        'compute_sunburst_data',
-        'compute_cost_based_threshold', 
-        'compute_sensitivity_specificity', 
-        'compute_youdens_index',
-        'cubic_regression', 
-        'exponential_regression', 
-        'get_time_steps', 
-        'infer_sankey_columns', 
-        'label_importance',
-        'linear_regression',
-        'linkage_matrix', 
-        'logarithmic_regression',
-        'minmax_scaler',
-        'normalize',
-        'optimized_spearmanr', 
-        'quadratic_regression', 
-        'rank_data', 
-        'sinusoidal_regression',
-        'standard_scaler', 
-        'step_regression',
-        'weighted_spearman_rank', 
-    ],
-    'mlutils': [
-        'bi_selector', 
-        'bin_counting', 
-        'build_data_preprocessor',
-        'display_feature_contributions', 
-        'discretize_categories', 
-        'evaluate_model',
-        'fetch_model', 
-        'get_batch_size', 
-        'get_correlated_features',
-        'get_feature_contributions',
-        'get_global_score',
-        'handle_imbalance',
-        'laplace_smoothing', 
-        'laplace_smoothing_categorical',
-        'laplace_smoothing_word', 
-        'load_model',
-        'make_pipe', 
-        'one_click_prep',
-        'process_data_types', 
-        'resampling',
-        'save_dataframes', 
-        'select_feature_importances', 
-        'smart_label_classifier', 
-        'smart_split',
-        'soft_encoder', 
-        'soft_data_split', 
-        'soft_imputer', 
-        'soft_scaler', 
-        'stats_from_prediction',
-        'stratify_categories'
-    ], 
-    'sysutils': [
-        'WorkflowManager', 
-        'WorkflowOptimizer',
-        'parallelize_jobs', 
-        'safe_optimize', 
-        ]
+# List of modules that require TensorFlow
+_TENSORFLOW_REQUIRED_MODULES = {
+    'xtft_point',
+    'tft_batch_p',
+    'xtft_proba_p',
+    'xtft_proba',
 }
 
-# Lazy loader function
+def _check_tensorflow():
+    """
+    Checks if TensorFlow is installed. If not, raises an ImportError
+    with an informative message.
+    """
+    try:
+        import tensorflow as tf  # noqa: F401
+    except ImportError as e:
+        error_message = (
+            "TensorFlow is required to use this module but is not installed.\n"
+            "Please install TensorFlow by running:\n"
+            "    pip install tensorflow\n"
+            "or refer to the TensorFlow installation guide: "
+            "https://www.tensorflow.org/install"
+        )
+        logger.error(error_message)
+        raise ImportError(error_message) from e
+
 def __getattr__(name):
-    # Loop through the module mapping to find the function
-    for submodule, functions in MODULE_MAPPING.items():
-        if name in functions:
-            # Import the submodule if the function is found
-            module = importlib.import_module('.' + submodule, 'gofast.tools')
-            func = getattr(module, name)
-            # Cache the imported function back into globals to speed up future imports
-            globals()[name] = func
-            return func
-    raise AttributeError(f"No function named {name} found in gofast.tools.")
+    """
+    Custom attribute access for the gofast.tools package. Checks 
+    for required dependencies
+    when specific modules are accessed.
 
-# Dynamically populate __all__ to make imports 
-# like 'from gofast.tools import *' work correctly
-__all__ = sum(MODULE_MAPPING.values(), [])
+    :param name: Name of the attribute/module being accessed.
+    :return: The imported module if it exists and dependencies are met.
+    :raises ImportError: If dependencies are missing.
+    """
+    if name in _TENSORFLOW_REQUIRED_MODULES:
+        _check_tensorflow()
+        try:
+            module = importlib.import_module(f".{name}", __name__)
+            globals()[name] = module  # Cache the imported module
+            return module
+        except ImportError as e:
+            error_message = (
+                f"Failed to import module '{name}'. Ensure it exists"
+                " within the 'gofast.tools' package."
+            )
+            logger.error(error_message)
+            raise ImportError(error_message) from e
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
-# Adjusted __dir__ to assist with autocomplete and dir() calls
 def __dir__():
-    return __all__
-
-
-
-
-
+    """
+    Custom directory listing for the gofast.tools package.
+    Includes monitored modules.
+    """
+    standard_attrs = list(globals().keys())
+    return standard_attrs + list(_TENSORFLOW_REQUIRED_MODULES)
 

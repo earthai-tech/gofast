@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-#   License: BSD-3-Clause
-#   Author: LKouadio <etanoyau@gmail.com>
 
 """
 Provides compatibility utilities for different versions of pandas.
@@ -79,6 +77,7 @@ call_cached_func
 from typing import Optional
 
 import numpy as np
+from collections.abc import Iterable 
 from packaging.version import Version, parse
 import pandas as pd
 from pandas.util._decorators import (
@@ -96,6 +95,7 @@ __all__ = [
     "frequencies",
     "is_numeric_dtype",
     "describe_dataframe", 
+    "select_dtypes", 
     "testing",
     "cache_readonly",
     "deprecate_kwarg",
@@ -147,6 +147,184 @@ assert_frame_equal = testing.assert_frame_equal
 assert_index_equal = testing.assert_index_equal
 assert_series_equal = testing.assert_series_equal
 
+def select_dtypes(
+    df: pd.DataFrame, 
+    dtypes: 'str | list[str]'=None, 
+    incl: 'str | list[str]' = None, 
+    excl: 'str | list[str]' = None, 
+    return_columns: bool = False, 
+    return_dtype: bool = False,
+    include_nan: bool = False
+) -> pd.DataFrame:
+    """
+    Selects columns from a pandas DataFrame based on data types or 
+    includes/excludes certain column types. This function allows for 
+    greater flexibility and control over the selection of columns based 
+    on their data types. It supports inclusion and exclusion of specific 
+    data types, and can also return the column names or a DataFrame with 
+    selected data types.
+
+    The function also accommodates numeric types and handles optional 
+    arguments like `return_columns` (to return column names) and 
+    `include_nan` (to include columns with NaN values). This function 
+    aims to provide more control in environments where specific data types 
+    need to be filtered, such as during pre-processing or data analysis.
+
+    Parameters
+    ----------
+    df : `pandas.DataFrame`
+        The DataFrame from which to select columns based on data type. 
+        This argument is mandatory, and the function will raise a 
+        `TypeError` if the argument is not a valid DataFrame.
+
+    dtypes : `str` or `list[str]`, optional
+        The data type(s) to select from the DataFrame. Can be a 
+        single type (e.g., `'int64'`) or a list of types 
+        (e.g., `['int64', 'float64']`). Special case: If `dtypes` is 
+        'numeric', it automatically includes `['int64', 'float64']`. For 
+        non-string arguments, `incl` or `excl` should be used instead.
+
+    incl : `str | list[str]`, optional, default: `None`
+        Specifies the data types to include when selecting columns. 
+        If provided, this will override the `dtypes` parameter to filter 
+        columns based on the included types. Can be a single type or a 
+        list of types.
+
+    excl : `str | list[str]`, optional, default: `None`
+        Specifies the data types to exclude from selection. If provided, 
+        this will exclude columns matching the types in the list from 
+        the selection. Can be a single type or a list of types.
+
+    return_columns : `bool`, optional, default: `False`
+        If `True`, returns the column names of the selected DataFrame 
+        as a list. If `False`, returns the full DataFrame of selected 
+        columns.
+
+    return_dtype : `bool`, optional, default: `False`
+        If `True`, the function will return a DataFrame with both the 
+        column names and the corresponding data types for the selected 
+        columns. This can be useful for examining the data types of 
+        selected columns.
+
+    include_nan : `bool`, optional, default: `False`
+        If `True`, columns that contain NaN values will be included in 
+        the selection, even if the columns' data types would otherwise 
+        exclude them. If `False`, columns with NaN values are excluded 
+        based on their data types.
+
+    Returns
+    -------
+    `pandas.DataFrame`
+        Returns a DataFrame containing the selected columns based on the 
+        specified data types, or a list of column names if `return_columns` 
+        is `True`. If `return_dtype` is `True`, a DataFrame with column names 
+        and data types is returned instead.
+
+    Examples
+    --------
+    1. Select all numeric columns from the DataFrame:
+    
+    >>> from gofast.compat.pandas import select_dtypes 
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({'a': [1, 2, 3], 'b': [1.1, 2.2, 3.3], 'c': ['x', 'y', 'z']})
+    >>> from gofast.compat.pandas import select_dtypes
+    >>> select_dtypes(df, 'numeric')
+       a    b
+    0  1  1.1
+    1  2  2.2
+    2  3  3.3
+
+    2. Select specific data types and return column names:
+    
+    >>> select_dtypes(df, ['int64', 'float64'], return_columns=True)
+    ['a', 'b']
+
+    3. Include only `float64` columns and exclude `int64` columns:
+    
+    >>> select_dtypes(df, 'float64', excl='int64')
+       b
+    0  1.1
+    1  2.2
+    2  3.3
+
+    4. Select columns that include NaN values:
+    
+    >>> df = pd.DataFrame({'a': [1, 2, None], 'b': [4, 5, 6]})
+    >>> select_dtypes(df, 'float64', include_nan=True)
+       a    b
+    0  1  4
+    1  2  5
+    2 NaN  6
+
+    Notes
+    -----
+    - The `dtypes` argument can be used to select columns by their data 
+      type, including numeric types (e.g., `int64`, `float64`) or any 
+      other specific data types (e.g., `object` for string columns).
+    - The `include` and `exclude` parameters provide additional flexibility 
+      to selectively include or exclude specific data types from the selection.
+    - This function is particularly useful for handling large DataFrames where 
+      column selection based on data types is necessary, such as data preprocessing 
+      or feature selection tasks in machine learning pipelines.
+
+    See Also
+    --------
+    `pandas.DataFrame.select_dtypes` : The underlying function used for column 
+    selection based on data types.
+    
+    References
+    ----------
+    .. [1] pandas documentation: https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.select_dtypes.html
+    """
+
+    # Ensure that df is a pandas DataFrame
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("Expected a pandas DataFrame, but got a {}.".format(type(df).__name__))
+
+    # If dtypes is 'numeric', default to ['int64', 'float64']
+    if dtypes == 'numeric':
+        dtypes = ['int64', 'float64']
+
+    # If dtypes is a string, convert it to a list
+    if isinstance(dtypes, str):
+        dtypes = [dtypes]
+
+    # Ensure dtypes is an iterable if not already
+    if dtypes is not None:
+        if not isinstance(dtypes, Iterable):
+            raise TypeError(
+                "`dtypes` must be a string or a list of strings. Use parameters"
+                " `incl` or `excl` for non-string arguments instead."
+            )
+    
+    # Prepare include/exclude arguments
+    include = incl if incl is not None else []
+    exclude = excl if excl is not None else []
+
+    # Handle NaN inclusion/exclusion logic for numeric types
+    if include_nan and 'float64' in dtypes: 
+        dtypes = list(set(dtypes) - {'float64'})  # Remove 'float64' if NaN is included
+    
+    # Select columns based on specified dtypes
+    selected_df = df.copy() 
+    if include:
+        selected_df = df.select_dtypes(include=include)
+    elif dtypes is not None:
+        selected_df = df.select_dtypes(include=dtypes)
+
+    # Exclude columns with specified data types
+    if exclude:
+        selected_df = selected_df.select_dtypes(exclude=exclude)
+
+    # If return_columns is True, return only column names
+    if return_columns:
+        return selected_df.columns.tolist()
+
+    # If return_dtype is True, return columns with their data types
+    if return_dtype:
+        return selected_df.dtypes
+
+    return selected_df
 
 def describe_dataframe(
         df, numeric_only=True, include_all=False, percentiles=None, 
@@ -237,6 +415,9 @@ def describe_dataframe(
     .. [1] pandas.DataFrame.describe documentation. 
        https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.describe.html
     """
+    if not isinstance (df, pd.DataFrame): 
+        raise TypeError ("Dataframe is expected for `describe_dataframe` to proceed.")
+        
     if include_all:
         include = 'all'
     else:

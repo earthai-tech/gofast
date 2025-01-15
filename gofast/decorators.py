@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
-#   Author: LKouadio~@Daniel03 <etanoyau@gmail.com>
+#   Author: LKouadio <etanoyau@gmail.com>
 """
 Provides a collection of decorators designed to enhance and simplify 
 common programming tasks in Python. These decorators offer functionality ranging 
@@ -19,8 +19,6 @@ Decorators included in this module:
    diagrams or dendrogram figures.
 - `RedirectToNew`: Redirects calls from deprecated functions or classes to their 
    new implementations.
-- `SanitizeDocstring`: Sanitizes and restructures docstrings to fit the Numpy
-   docstring format.
 - More ...
 
 Each decorator is designed with specific use cases in mind, ranging from 
@@ -29,7 +27,7 @@ scripts for cleaner execution logs. Users are encouraged to explore the
 functionalities provided by each decorator to enhance their codebase.
 
 Examples:
-    >>> from gofast.decorators import SuppressOutput, SanitizeDocstring, AppendDocFrom
+    >>> from gofast.decorators import SanitizeDocstring, AppendDocFrom
 
 Note:
     While each decorator is designed to be as versatile as possible, users should
@@ -41,14 +39,13 @@ Contributions:
       these decorators.
 """
 
-from __future__ import print_function 
+from __future__ import print_function, annotations  
 import os
 import re
-import sys
-import time
 import inspect
 import warnings
 import functools
+from textwrap import dedent
 import numpy as np 
 import pandas as pd
 import matplotlib.pyplot as plt 
@@ -69,8 +66,10 @@ __all__= [
     'Deprecated',
     'DynamicMethod',
     'EnsureMethod',
+    'executeWithFallback', 
     'ExportData',
     'Extract1dArrayOrSeries',
+    'IsPerformanceData', 
     'NumpyDocstring',
     'NumpyDocstringFormatter',
     'PlotFeatureImportance',
@@ -80,16 +79,12 @@ __all__= [
     'SignalFutureChange',
     'smartFitRun',
     'SmartProcessor',
-    'SuppressOutput',
     'Temp2D',
-    'TrainingProgressBar', 
     'available_if',
-    'example_function',
     'isdf',
     'sanitize_docstring',
-    'EnsureFileExists',
+    'copy_doc'
   ]
-
 
 class EnsureMethod:
     """
@@ -341,7 +336,7 @@ class EnsureMethod:
             print(msg)
 
 
-def executeWithFallback(method):
+def executeWithFallback(method, *, mode="soft"):
     """
     Decorator for the `execute` method, providing fallback functionality to
     either `run` or `fit` methods within the class based on availability.
@@ -350,7 +345,8 @@ def executeWithFallback(method):
     `run` or `fit`, depending on which one is available, and provides an 
     informative warning if only one is present. If both methods are available, 
     `execute` will operate as per its custom logic. In the case where neither 
-    `run` nor `fit` exists, an `AttributeError` is raised.
+    `run` nor `fit` exists, an `AttributeError` is raised in ``strict`` mode, 
+    otherwise will operate as per its custom decorated method logic
 
     The decorator is implemented using :math:`\text{method chaining}` to 
     improve code flexibility and prevent redundancy. For example, in cases 
@@ -446,9 +442,12 @@ def executeWithFallback(method):
         
         # Raise an error if neither 'run' nor 'fit' is defined
         else:
-            raise AttributeError("Neither 'run' nor 'fit' methods are "
-                                 "available in the class.")
-    
+            if mode=="strict": 
+                raise AttributeError("Neither 'run' nor 'fit' methods are "
+                                     "available in the class.")
+            else:
+                return method(self, *args, **kwargs)
+        
     return wrapper
 
 class RunReturn:
@@ -871,8 +870,6 @@ def smartFitRun(cls):
         
     return cls
 
-
-
 class SmartProcessor:
     """
     A decorator class for data processing which selectively excludes specified 
@@ -986,6 +983,8 @@ class SmartProcessor:
     
         Examples
         --------
+        >>> from gofast.decorators import SmartProcessor
+        >>> import pandas as pd
         >>> @SmartProcessor(to_dataframe=True)
         ... def scale_data(data):
         ...     return (data - data.mean()) / data.std()
@@ -1256,7 +1255,10 @@ class DataTransformer:
         If True and `original_attrs` has 'columns', the decorator will rename 
         the columns of the return value. This is only applicable if the return 
         value is a DataFrame. Default is False.
-
+    keep_origin_type: bool, default=False 
+       If set ``True`` and mode is set to ``lazy``, return as the original data
+       types passed to the decorated function. 
+       
     Examples
     --------
     Use as a decorator to automatically convert the return value of a function 
@@ -1284,7 +1286,8 @@ class DataTransformer:
         mode='lazy', 
         verbose=False, 
         set_index=False, 
-        rename_columns=False
+        rename_columns=False, 
+        keep_origin_type=False, 
     ):
         self.name = name
         self.data_index = data_index
@@ -1293,8 +1296,10 @@ class DataTransformer:
         self.verbose = verbose
         self.set_index = set_index
         self.rename_columns = rename_columns
+        self.keep_origin_type=keep_origin_type 
         self.original_attrs = {}
-         
+        self._is_frame=False 
+        
     def __call__(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -1306,9 +1311,14 @@ class DataTransformer:
             result = self._reconstruct_data(result)
             if self.verbose: 
                 print( "DataTransformer: Finished processing the result.")
+            
+            if self.mode=='lazy': 
+                if self.keep_origin_type and not self._is_frame: 
+                    # keep the data type as is.
+                    result = np.asarray(result)
             return result
         return wrapper
-    
+
     def _collect_data_attributes(self, *args, **kwargs):
         if self.name:
             data = kwargs.get(self.name)
@@ -1318,9 +1328,11 @@ class DataTransformer:
         if isinstance(data, pd.DataFrame):
             self.original_attrs['columns'] = data.columns.tolist()  
             self.original_attrs['index'] = data.index.tolist()
+            self._is_frame =True 
         elif isinstance(data, pd.Series):
             self.original_attrs['name'] = data.name
             self.original_attrs['index'] = data.index.tolist()
+            self._is_frame =True 
 
     def _reconstruct_data(self, result):
         is_tuple_result = isinstance(result, (tuple, list))
@@ -1395,7 +1407,7 @@ class DataTransformer:
                 if self.verbose:
                     print(f"DataTransformer: Error setting index - {e}")
         return data
-    
+
 class Extract1dArrayOrSeries:
     """
     A decorator and callable that preprocesses input data to ensure it is 
@@ -1546,7 +1558,8 @@ class Extract1dArrayOrSeries:
         elif isinstance(arr, np.ndarray):
             result = self._extract_from_ndarray(arr)
         else:
-            raise TypeError("The input must be either a Pandas DataFrame or a NumPy ndarray.")
+            raise TypeError(
+                "The input must be either a Pandas DataFrame or a NumPy ndarray.")
         
         if self.as_series and isinstance(result, np.ndarray):
             result = pd.Series(result)
@@ -2185,7 +2198,7 @@ class ExportData:
             # Optionally move files to a designated output directory
             # Assuming move_cfile function exists and is imported correctly
             for fname in fnames:
-                from .tools.ioutils import move_cfile 
+                from .utils.ioutils import move_cfile 
                 move_cfile(fname, savepath, dpath='_out')
                 
             # Optionally return the filenames of the exported files
@@ -2584,7 +2597,8 @@ class RedirectToNew:
     ...     pass
     ...
     >>> old_function()
-    # This call will be redirected to `new_function`, with a warning issued about the deprecation.
+    # This call will be redirected to `new_function`, with a warning issued
+    # about the deprecation.
 
     """
 
@@ -3094,61 +3108,6 @@ def sanitize_docstring(enforce_strict=False, custom_sections=None):
                               custom_sections=custom_sections)
     return decorator
 
-class SuppressOutput:
-    """
-    A context manager for suppressing stdout and stderr messages. It can be
-    useful when interacting with APIs or third-party libraries that output
-    messages to the console, and you want to prevent those messages from
-    cluttering your output.
-
-    Parameters
-    ----------
-    suppress_stdout : bool, optional
-        Whether to suppress stdout messages. Default is True.
-    suppress_stderr : bool, optional
-        Whether to suppress stderr messages. Default is True.
-
-    Examples
-    --------
-    >>> from gofast.decorators import SuppressOutput
-    >>> with SuppressOutput():
-    ...     print("This will not be printed to stdout.")
-    ...     raise ValueError("This error message will not be printed to stderr.")
-    
-    Note
-    ----
-    This class is particularly useful in scenarios where controlling external
-    library output is necessary to maintain clean and readable application logs.
-
-    See Also
-    --------
-    contextlib.redirect_stdout, contextlib.redirect_stderr : For more granular control
-    over output redirection in specific parts of your code.
-    """
-    
-    def __init__(self, suppress_stdout=True, suppress_stderr=True):
-        self.suppress_stdout = suppress_stdout
-        self.suppress_stderr = suppress_stderr
-        self._stdout = None
-        self._stderr = None
-        self._devnull = None
-
-    def __enter__(self):
-        self._devnull = open(os.devnull, 'w')
-        if self.suppress_stdout:
-            self._stdout = sys.stdout
-            sys.stdout = self._devnull
-        if self.suppress_stderr:
-            self._stderr = sys.stderr
-            sys.stderr = self._devnull
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.suppress_stdout and self._stdout is not None:
-            sys.stdout = self._stdout
-        if self.suppress_stderr and self._stderr is not None:
-            sys.stderr = self._stderr
-        if self._devnull is not None:
-            self._devnull.close()
 
 class _M:
     def _m(self): pass
@@ -3207,7 +3166,7 @@ def available_if(check):
 
     Examples
     --------
-    >>> from sklearn.tools.metaestimators import available_if
+    >>> from sklearn.utils.metaestimators import available_if
     >>> class HelloIfEven:
     ...    def __init__(self, x):
     ...        self.x = x
@@ -3230,328 +3189,388 @@ def available_if(check):
     """
     return lambda fn: _AvailableIfDescriptor(fn, check, attribute_name=fn.__name__)
 
+
 def isdf(func):
     """
-    Advanced decorator that ensures the first positional argument 
-    (after `self` for methods) passed to the decorated callable is a pandas 
-    DataFrame. If it's not, attempts to convert it to a DataFrame using an 
-    optional `columns` keyword argument. 
+    Decorator that ensures the first positional argument passed to the 
+    decorated callable is a pandas DataFrame. If it's not, attempts to convert
+    it to a DataFrame using an optional `columns` keyword argument. 
     
-    Function is designed to  be flexible and efficient, suitable for 
+    Function is designed to be flexible and efficient, suitable for 
     both functions and methods.
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        # Determine if we're decorating a method or a function
-        args_list = list(args)
-        if args and hasattr(args_list[0], func.__name__):
-            # If the first argument has an attribute with the same name as `func`,
-            # it's likely an instance method where `self` or `cls` is the first argument.
-            self_or_cls, data_arg_index = args_list[0], 1
-        else:
-            self_or_cls, data_arg_index = None, 0
+        # Get the signature of the function
+        sig = inspect.signature(func)
+        params = sig.parameters
+        param_list = list(params.values())
+        
+        # Check if the function has any parameters
+        if not param_list:
+            # No parameters to process
+            return func(*args, **kwargs)
+        
+        # Determine if we're decorating a method (with 'self' or 'cls')
+        is_method = False
+        start_idx = 0
+        if param_list[0].name in ('self', 'cls'):
+            is_method = True
+            start_idx = 1  # Skip 'self' or 'cls'
 
-        # Retrieve the data argument and `columns` keyword argument if provided
-        data = args_list[data_arg_index]
-        columns = kwargs.get('columns', None)
+        # Map arguments to their names
+        bound_args = sig.bind_partial(*args, **kwargs)
+        bound_args.apply_defaults()
+        
+        # Identify the data parameter name
+        # Prefer 'data' if it's among the parameters
+        data_param_name = None
+        for idx, param in enumerate(param_list[start_idx:], start=start_idx):
+            if param.name == 'data':
+                data_param_name = 'data'
+                break
+        else:
+            # If 'data' is not a parameter, use the first positional
+            # parameter after 'self'/'cls'
+            if ( len(param_list) > start_idx) or is_method:
+                data_param_name = param_list[start_idx].name
+            else:
+                # No parameters left to consider
+                return func(*args, **kwargs)
+
+        # Get 'data' argument from bound arguments
+        data = bound_args.arguments.get(data_param_name, None)
+        columns = bound_args.arguments.get('columns', kwargs.get('columns', None))
         if isinstance(columns, str):
             columns = [columns]
-
+        
         # Proceed with conversion if necessary
-        if not isinstance(data, pd.DataFrame):
+        if data is not None and not isinstance(data, pd.DataFrame):
             try:
-                data = pd.DataFrame(data, columns=columns)
                 if columns and len(columns) != data.shape[1]:
                     data = pd.DataFrame(data)
+                else: 
+                    data = pd.DataFrame(data, columns=columns)
             except Exception as e:
-                raise ValueError(f"Unable to convert to DataFrame: {e}")
-            # Update the data argument in the arguments list
-            args_list[data_arg_index] = data
+                raise ValueError(
+                    f"Unable to convert {type(data).__name__!r} to DataFrame: {e}"
+                )
             
-            # Reconstruct args from the potentially modified args_list
-            args = tuple(args_list)
-
-        # Call the original function or method, passing `self` or 
-        # `cls` explicitly if necessary
-        if self_or_cls is not None:
-            return func(self_or_cls, *args[1:], **kwargs)
-        else:
-            return func(*args, **kwargs)
-
+            # Update the bound arguments with the new data
+            bound_args.arguments[data_param_name] = data
+        
+        # Call the original function with the updated arguments
+        return func(*bound_args.args, **bound_args.kwargs)
+    
     return wrapper
 
-class TrainingProgressBar:
+class IsPerformanceData:
     """
-    A context manager class to display a training progress bar during model 
-    training, similar to the Keras progress bar, showing real-time updates 
-    on metrics and progress.
+    A decorator and validator for performance data in machine learning.
 
-    This class is designed to provide an intuitive way to visualize training 
-    progress, track metric improvements, and display training status across 
-    epochs. The progress bar is updated dynamically at each training step 
-    to reflect current progress within the epoch, and displays performance 
-    metrics, such as loss and accuracy.
+    The `IsPerformanceData` class can be used both as a decorator and as a
+    function to validate performance data, ensuring that the data conforms
+    to expected formats and value ranges. It checks that the data is a 
+    pandas DataFrame or dictionary with numeric values, handles NaN values
+    according to the specified policy, and verifies that performance metrics
+    are within the range [0, 1].
 
     Parameters
     ----------
-    epochs : int
-        Total number of epochs for model training. This determines the 
-        number of iterations over the entire training dataset.
-    steps_per_epoch : int
-        The number of steps (batches) to process per epoch. It is the 
-        number of iterations per epoch, corresponding to the number of 
-        batches the model will process during each epoch.
-    metrics : dict, optional
-        Dictionary of metric names and initial values. This dictionary should 
-        include keys as metric names (e.g., 'loss', 'accuracy') and 
-        values as the initial values (e.g., `{'loss': 1.0, 'accuracy': 0.5}`). 
-        These values are updated during each training step to reflect the 
-        model's current performance.
-    bar_length : int, optional, default=30
-        The length of the progress bar (in characters) that will be displayed 
-        in the console. The progress bar will be divided proportionally based 
-        on the progress made at each step.
-    delay : float, optional, default=0.01
-        The time delay between steps, in seconds. This delay is used to 
-        simulate processing time for each batch and control the speed at 
-        which updates appear.
+    *args : tuple
+        Positional arguments. If used as a decorator without arguments,
+        the first argument may be the function to decorate.
+        If used as a function, the first argument is the data to validate.
 
-    Attributes
-    ----------
-    best_metrics_ : dict
-        A dictionary that holds the best value for each metric observed 
-        during training. This is used to track the best-performing metrics 
-        (e.g., minimum loss, maximum accuracy) across the epochs.
+    **kwargs : dict
+        Keyword arguments for configuration.
+
+    nan_policy : str, optional
+        Defines how to handle NaN values in the data.
+        Options are ``'raise'`` (default), ``'omit'``, or ``'propagate'``.
+
+        - ``'raise'``: Raise a ``ValueError`` if NaN values are found.
+        - ``'omit'``: Drop rows containing NaN values.
+        - ``'propagate'``: Proceed without altering NaN values.
+
+    convert_integers : bool, optional
+        If ``True`` (default), integer values are converted to floats.
+
+    check_performance_range : bool, optional
+        If ``True`` (default), checks that all performance values are within
+         the range [0, 1].
+
+    verbose : bool, optional
+        If ``True``, prints detailed messages during validation.
 
     Methods
     -------
-    __enter__ :
-        Initializes the progress bar and begins displaying training 
-        progress when used in a context manager.
-    __exit__ :
-        Finalizes the progress bar display and shows the best metrics 
-        after the training is complete.
-    update :
-        Updates the metrics and the progress bar at each step of training.
-    _display_progress :
-        Internal method to display the training progress bar, including 
-        metrics at the current training step.
-    _update_best_metrics :
-        Internal method that updates the best metrics based on the current 
-        values of metrics during training.
+    __call__(*args, **kwargs)
+        Allows the class instance to be called as a function or used as a 
+        decorator.
 
-    Formulation
-    -----------
-    The progress bar is updated at each step of training as the completion 
-    fraction within the epoch:
-
-    .. math::
-        \text{progress} = \frac{\text{step}}{\text{steps\_per\_epoch}}
-
-    The bar length is represented by:
-
-    .. math::
-        \text{completed} = \text{floor}( \text{progress} \times \text{bar\_length} )
-    
-    The metric values are updated dynamically and tracked for each metric. 
-    For metrics that are minimized (like `loss`), the best value is updated 
-    if the current value is smaller. For performance metrics like accuracy, 
-    the best value is updated if the current value is larger.
-    
-    Example
-    -------
-    >>> from gofast.decorators import TrainingProgressBar
-    >>> metrics = {'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
-    >>> epochs, steps_per_epoch = 10, 20
-    >>> with TrainingProgressBar(epochs, steps_per_epoch, metrics=metrics,
-    >>>                          bar_length=40) as progress_bar:
-    >>>     for epoch in range(epochs):
-    >>>         for step in range(steps_per_epoch):
-    >>>             progress_bar.update(step + 1, epoch + 1)
+    actual_validate_performance_data(data)
+        Validates the performance data according to the specified policies.
 
     Notes
     -----
-    - The `update` method should be called at each training step to update 
-      the metrics and refresh the progress bar.
-    - The progress bar is calculated based on the completion fraction within 
-      the current epoch using the formula:
+    This class serves both as a decorator and a validator function. When 
+    used as a decorator, it validates the performance data  passed to the
+    decorated function. When used as a function, it validates the given 
+    data and returns the validated DataFrame.
 
-    .. math::
-        \text{progress} = \frac{\text{step}}{\text{steps\_per\_epoch}}
+    The validation process includes:
 
-    - Best metrics are tracked for both performance and loss metrics, with 
-      the best values being updated throughout the training process.
+    - Checking that the data is a pandas DataFrame or a dictionary that can
+      be converted to a DataFrame.
+    - Converting integer values to floats if `convert_integers` is `True`.
+    - Handling NaN values according to the specified `nan_policy`.
+    - Ensuring all performance values are within the range [0, 1] if
+       `check_performance_range` is `True`.
 
-    See also
+    Examples
     --------
-    - Keras Callbacks: Callbacks in Keras extend the training process.
-    - ProgressBar: A generic progress bar implementation.
-    
+    Using as a decorator without arguments:
+
+    >>> from gofast.decorators import IsPerformanceData
+    >>> @IsPerformanceData
+    ... def analyze_performance(data):
+    ...     # Function body
+    ...     pass
+
+    Using as a decorator with arguments:
+
+    >>> from gofast.decorators import IsPerformanceData
+    >>> @IsPerformanceData(nan_policy='omit', verbose=True)
+    ... def analyze_performance(data):
+    ...     # Function body
+    ...     pass
+
+    Using as a function:
+
+    >>> from gofast.decorators import IsPerformanceData
+    >>> validator = IsPerformanceData(nan_policy='omit')
+    >>> validated_data = validator(data)
+
+    See Also
+    --------
+    pandas.DataFrame : Two-dimensional, size-mutable,
+        potentially heterogeneous tabular data.
+
     References
     ----------
-    .. [1] Chollet, F. (2015). Keras. https://keras.io
+    .. [1] pandas.DataFrame documentation,
+       https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.html
+
     """
-    def __init__(self, epochs, steps_per_epoch, metrics=None, 
-                 bar_length=30, delay=0.01):
-        self.epochs = epochs
-        self.steps_per_epoch = steps_per_epoch
-        self.bar_length = bar_length
-        self.delay = delay
-        self.metrics = metrics if metrics is not None else {
-            'loss': 1.0, 'accuracy': 0.5, 'val_loss': 1.0, 'val_accuracy': 0.5}
-        
-        # Initialize best metrics to track improvements
-        self.best_metrics_ = {}
-        for metric in self.metrics:
-            if "loss" in metric or "PSS" in metric:
-                self.best_metrics_[metric] = float('inf')  # For minimizing metrics
-            else:
-                self.best_metrics_[metric] = 0.0  # For maximizing metrics
 
+    def __init__(
+        self,
+        *args,
+        **kwargs
+    ):
+        # Default parameter values
+        self.nan_policy = kwargs.get('nan_policy', 'raise')
+        self.convert_integers = kwargs.get('convert_integers', True)
+        self.check_performance_range = kwargs.get(
+            'check_performance_range', True)
+        self.verbose = kwargs.get('verbose', False)
+        self.func = None
 
-    def __enter__(self):
-        """
-        Initialize the progress bar and begin tracking training progress 
-        when used in a context manager.
-
-        This method sets up the display and prepares the progress bar to 
-        begin showing the current epoch and step during the training process.
-        """
-        print(f"Starting training for {self.epochs} epochs.")
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """
-        Finalize the progress bar and display the best metrics at the end 
-        of the training process.
-
-        This method will be called after all epochs are completed and 
-        will display the best observed metrics across the training process.
-        """
-        best_metric_display = " - ".join(
-            [f"{k}: {v:.4f}" for k, v in self.best_metrics_.items()]
-        )
-        print("\nTraining complete!")
-        print(f"Best Metrics: {best_metric_display}")
-
-    def update(self, step, epoch, step_metrics={}):
-        """
-        Update the metrics and refresh the progress bar at each training 
-        step.
-
-        This method is responsible for updating the training progress, 
-        calculating the current values for the metrics, and refreshing the 
-        display.
-
-        Parameters
-        ----------
-        step : int
-            The current step (batch) in the training process.
-        epoch : int
-            The current epoch number.
-        step_metrics : dict, optional
-            A dictionary of metrics to update for the current step. If 
-            provided, the values will override the default ones for that 
-            step.
-        """
-        time.sleep(self.delay)  # Simulate processing time per step
-    
-        for metric in self.metrics:
-            if step == 0:
-                # Initialize step value for the first step
-                step_value = self.metrics[metric]
-            else:
-                if step_metrics:
-                    # Update step_value based on provided step_metrics
-                    if metric not in step_metrics:
-                        continue
-                    default_value = (
-                        self.metrics[metric] * step + step_metrics[metric]
-                    ) / (step + 1)
-                else:
-                    # For loss or PSS metrics, decrease value over time
-                    if "loss" in metric or "PSS" in metric:
-                        # Decrease metric value by a small step
-                        default_value = max(
-                            self.metrics[metric], 
-                            self.metrics[metric] - 0.001 * step
-                        )
-                    else:
-                        # For performance metrics, increase value over time
-                        # Here we can allow unlimited increase
-                        self.metrics[metric] += 0.001 * step
-                        default_value = self.metrics[metric]
-    
-            # Get the step value for the current metric
-            step_value = step_metrics.get(metric, default_value)
-            self.metrics[metric] = round(step_value, 4)  # Round to 4 decimal places
-    
-        # Update the best metrics and display progress
-        self._update_best_metrics()
-        self._display_progress(step, epoch)
-
-    def _update_best_metrics(self):
-        """
-        Update the best metrics based on the current values observed for 
-        each metric during training.
-
-        This method ensures that the best values for each metric are tracked 
-        by comparing the current value to the previously recorded best value. 
-        For metrics like loss, the best value is minimized, while for 
-        performance metrics, the best value is maximized.
-        """
-        for metric, value in self.metrics.items():
-            if "loss" in metric or "PSS" in metric:
-                # Track minimum values for loss and PSS metrics
-                if value < self.best_metrics_[metric]:
-                    self.best_metrics_[metric] = value
-            else:
-                # Track maximum values for other performance metrics
-                if value > self.best_metrics_[metric]:
-                    self.best_metrics_[metric] = value
-
-
-    def _display_progress(self, step, epoch):
-        """
-        Display the progress bar for the current step within the epoch.
-    
-        This internal method constructs the progress bar string, updates 
-        it dynamically, and prints the bar with the metrics to the console.
-    
-        Parameters
-        ----------
-        step : int
-            The current step (batch) in the training process.
-        epoch : int
-            The current epoch number.
-        """
-        progress = step / self.steps_per_epoch  # Calculate progress
-        completed = int(progress * self.bar_length)  # Number of '=' chars to display
-        
-        # The '>' symbol should be placed where the progress is at,
-        # so it starts at the last position.
-        remaining = self.bar_length - completed  # Number of '.' chars to display
-        
-        # If the progress is 100%, remove the '>' from the end
-        if progress == 1.0:
-            progress_bar = '=' * completed + '.' * remaining
+        if args and callable(args[0]):
+            # Decorator used without arguments
+            self.func = args[0]
+        elif args:
+            # Called as a function with data as the first argument
+            self.data = args[0]
         else:
-            # Construct the progress bar string with the leading 
-            # '=' and trailing dots, and the '>'
-            progress_bar = '=' * completed + '>' + '.' * (remaining - 1)
-        
-        # Ensure the progress bar has the full length
-        progress_bar = progress_bar.ljust(self.bar_length, '.')
-        
-        # Construct the display string for metrics
-        metric_display = " - ".join([f"{k}: {v:.4f}" for k, v in self.metrics.items()])
-        
-        # Print the progress bar and metrics to the console
-        sys.stdout.write(
-            f"\r{step}/{self.steps_per_epoch} "
-            f"[{progress_bar}] - {metric_display}"
+            # Decorator used with arguments or will be called as a function later
+            self.data = None
+
+    def __call__(self, *args, **kwargs):
+        """
+        Enables the class instance to be called as a function
+        or used as a decorator.
+
+        Parameters
+        ----------
+        *args : tuple
+            Positional arguments. If used as a decorator, the
+            first argument may be the function to decorate. If
+            used as a function, the first argument is the data
+            to validate.
+
+        **kwargs : dict
+            Keyword arguments passed to the decorated function
+            or the validation process.
+
+        Returns
+        -------
+        callable or pandas.DataFrame
+            If used as a decorator, returns the wrapped function.
+            If used as a function, returns the validated DataFrame.
+
+        Examples
+        --------
+        Using as a decorator:
+
+        >>> from gofast.decorators import IsPerformanceData
+        >>> @IsPerformanceData
+        ... def analyze_performance(data):
+        ...     # Function body
+        ...     pass
+
+        Using as a function:
+
+        >>> from gofast.decorators import IsPerformanceData
+        >>> validator = IsPerformanceData()
+        >>> validated_data = validator(data)
+
+        """
+        if self.func:
+            # Used as a decorator without arguments
+            @functools.wraps(self.func)
+            def wrapper(*args, **kwargs):
+                data = args[0]
+                data = self._is_formatter_data(data)
+                validated_data = self.actual_validate_performance_data(data)
+                return self.func(validated_data, *args[1:], **kwargs)
+            return wrapper(*args, **kwargs)
+        elif args and callable(args[0]):
+            # Used as a decorator with arguments
+            func = args[0]
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                data = args[0]
+                data = self._is_formatter_data(data)
+                validated_data = self.actual_validate_performance_data(data)
+                return func(validated_data, *args[1:], **kwargs)
+            return wrapper
+        else:
+            # Called as a function with data
+            data = args[0] if args else self.data
+            return self.actual_validate_performance_data(data)
+
+    @isdf 
+    def actual_validate_performance_data(self, data):
+        """
+        Performs the actual validation of the performance data.
+
+        Parameters
+        ----------
+        data : pandas.DataFrame or dict
+            The performance data to validate. Should be a DataFrame
+            or a dictionary that can be converted into a DataFrame.
+
+        Returns
+        -------
+        pandas.DataFrame
+            The validated performance data.
+
+        Raises
+        ------
+        ValueError
+            If the data is invalid or does not meet the specified
+            criteria.
+
+        Notes
+        -----
+        The validation process includes:
+
+        - Converting dictionaries to DataFrames if necessary.
+        - Converting integer values to floats if
+          `convert_integers` is `True`.
+        - Handling NaN values according to the `nan_policy`.
+        - Checking that all performance values are within the
+          range [0, 1] if `check_performance_range` is `True`.
+
+        The performance values are expected to satisfy:
+
+        .. math::
+
+            0 \\leq x \\leq 1
+
+        where :math:`x` represents a performance metric value.
+
+        Examples
+        --------
+        >>> validator = IsPerformanceData()
+        >>> validated_data = validator.actual_validate_performance_data(data)
+
+        """
+        from .utils.validator import convert_to_numeric
+        from .utils.validator import is_valid_policies
+
+        # Convert to DataFrame if input is a dictionary
+        if isinstance(data, dict):
+            if self.verbose:
+                print("Converting dictionary to DataFrame...")
+            df = pd.DataFrame(data)
+        elif isinstance(data, pd.DataFrame):
+            df = data.copy()
+        else:
+            raise ValueError("Input data must be either a dictionary "
+                             "or a DataFrame.")
+
+        # Ensure all values are float, convert integers to floats if needed
+        if self.convert_integers:
+            if self.verbose:
+                print("Converting integer values to floats where necessary...")
+            df = df.applymap(
+                lambda x: convert_to_numeric(
+                    x, preserve_integers=False,
+                    context_description='Performance data')
+            )
+
+        # Handle NaN values according to nan_policy
+        is_valid_policies(
+            self.nan_policy, allowed_policies=['raise', 'omit', 'propagate']
         )
-        sys.stdout.flush()
+
+        if df.isna().any().any():  # Check for NaN values
+            if self.nan_policy == 'raise':
+                raise ValueError("NaN values detected in the data. "
+                                 "Set `nan_policy='omit'` to drop them.")
+            elif self.nan_policy == 'omit':
+                if self.verbose:
+                    print("Dropping rows with NaN values...")
+                df = df.dropna()
+
+        # Ensure all values are float type
+        df = df.astype(float)
+
+        # Check if performance values are within the valid range [0, 1]
+        if self.check_performance_range:
+            if self.nan_policy == 'propagate':
+                df_checked = df.dropna()
+            else:
+                df_checked = df
+
+            if (df_checked < 0).any().any():
+                raise ValueError("Performance values cannot be negative.")
+            if (df_checked > 1).any().any():
+                raise ValueError("Performance values must be in the "
+                                 "range [0, 1].")
+
+        if self.verbose:
+            print("Validation and conversion complete. "
+                  "Data is ready for further processing.")
+
+        return df
+    
+    def _is_formatter_data (self, data): 
+        """ Check whether the data passed is a formatter instance. If so,
+        then retrieve the dataframe before calling the 
+        `actual_validate_performance_data` method. 
+        
+        """
+        from .api.formatter import( 
+            DataFrameFormatter, MultiFrameFormatter, formatter_validator
+            )
+        if isinstance(data, (DataFrameFormatter, MultiFrameFormatter)):
+            data = formatter_validator(data, df_indices=[0], only_df=True)
+            
+        return data 
 
 class NumpyDocstringFormatter:
     """
@@ -3804,15 +3823,15 @@ class NumpyDocstringFormatter:
         This method provides a conceptual approach and requires a Sphinx 
         environment to be properly implemented.
         """
-        from .tools.depsutils import import_optional_dependency
+        from .utils.deps_utils import import_optional_dependency
         
         try: 
             import_optional_dependency ("docutils")
         except: 
-            from .tools.depsutils import is_module_installed 
-            from .tools.depsutils import install_package
+            from .utils.deps_utils import is_module_installed 
+            from .utils.deps_utils import ensure_module_installed
             if not is_module_installed("docutils"): 
-                install_package('docutils', infer_dist_name=True)
+                ensure_module_installed('docutils', auto_install=True)
             
         from docutils import nodes
         from docutils.core import publish_doctree
@@ -3931,22 +3950,25 @@ class Dataify:
         self.fail_silently = fail_silently
 
     def __call__(self, func):
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             if not self.enforce_df or not args:
                 return func(*args, **kwargs)
-
+        
             data = args[0]
             if not isinstance(data, pd.DataFrame):
+                # Remove 'data' from kwargs if present to avoid collision
+                new_kwargs = {k: v for k, v in kwargs.items() if k != 'data'}
+                
                 try:
-                    data = self._attempt_dataframe_conversion(data, **kwargs)
+                    data = self._attempt_dataframe_conversion(data, **new_kwargs)
                 except ValueError as e:
                     if self.fail_silently:
                         warnings.warn(f"Dataify Warning: {e}")
                         return func(*args, **kwargs)
                     else:
                         raise
-                        
             return func(data, *args[1:], **kwargs)
         return wrapper
 
@@ -4010,228 +4032,488 @@ class Dataify:
                 # Re-try without columns if ignoring mismatches
                 df = pd.DataFrame(data)
             else:
-                raise ValueError(f"Error converting data to DataFrame: {e}")
+                raise ValueError(
+                    f"Error converting data <{type(data).__name__!r}> to DataFrame: {e}")
         
         return df  
     
-class EnsureFileExists:
+def copy_doc(
+    source=None, 
+    docstring=None, 
+    replace=False, 
+    copy_attrs=None
+    ):
     """
-    Class decorator to ensure a file or URL exists before calling the 
-    decorated function.
+    Class or function decorator to copy the docstring and specified attributes 
+    from a source class or function to the decorated class or function.
 
-    This decorator checks if the specified file or URL exists before executing  
-    the decorated function. If the file does not exist, it raises a
-    FileNotFoundError. If the URL does not exist, it raises a ConnectionError. 
-    The decorator can be configured to print verbose messages during the check.
-    It also handles other data types based on the specified action.
+    This decorator facilitates the transfer of documentation and attributes, 
+    ensuring consistency and reducing redundancy. It is particularly useful when  
+    creating aliases for deprecated classes or functions, allowing the new 
+    and deprecated entities to share documentation seamlessly.
+
+    .. math::
+        \text{CopyDoc}(S, D) = 
+        \begin{cases} 
+            \text{Replace} & \text{if } \text{replace=True} \\
+            \text{Append}  & \text{if } \text{replace=False}
+        \end{cases}
 
     Parameters
     ----------
-    file_param : int or str, optional
-        The index of the parameter that specifies the file path or URL or 
-        the name of the keyword argument (default is 0). If an integer is 
-        provided, it refers to the position of the argument in the function 
-        call. If a string is provided, it refers to the keyword argument name.
-    verbose : bool, optional
-        If True, prints messages indicating the file or URL check status 
-        (default is False).
-    action : str, optional
-        Action to take if the parameter is not a file or URL. Options are 
-        'ignore', 'warn', or 'raise' (default is 'raise').
+    source : class or function, optional
+        The source class or function from which to copy the docstring and attributes.
+        If provided, the decorator will copy the `__doc__` attribute and any attributes
+        specified in `copy_attrs` from this source to the decorated object.
+
+    docstring : str, optional
+        An additional or alternative docstring to include in the decorated object.
+        If `replace` is `False`, this docstring will be appended to the source's docstring.
+        If `replace` is `True`, this docstring will replace the source's docstring.
+
+    replace : bool, default=False
+        Determines how the `docstring` parameter is applied.
+        - If `True`, the existing docstring of the decorated object is replaced entirely 
+          by the `docstring` parameter.
+        - If `False`, the `docstring` parameter is appended to the existing docstring.
+
+    copy_attrs : list of str, optional
+        A list of attribute names to copy from the `source` to the decorated object.
+        Only attributes listed in `copy_attrs` will be copied. If `None`, no additional
+        attributes are copied beyond the docstring.
+
+    Returns
+    -------
+    decorator : function
+        The decorator function that applies the specified docstring and attribute 
+        copying to the decorated class or function.
+
+    Methods
+    -------
+    __call__(obj)
+        Applies the decorator to the given class or function `obj`.
 
     Examples
     --------
-    Basic usage with verbose output:
-    
-    >>> from gofast.decorators import EnsureFileExists
-    >>> @EnsureFileExists(verbose=True)
-    ... def process_data(file_path: str):
-    ...     print(f"Processing data from {file_path}")
-    >>> process_data("example_file.txt")
+    >>> import hwm 
+    >>> from hwm.utils.decorators import copy_doc
+    >>> from hwm.estimators import HWRegressor
 
-    Basic usage without parentheses:
-    
-    >>> from gofast.decorators import EnsureFileExists
-    >>> @EnsureFileExists
-    ... def process_data(file_path: str):
-    ...     print(f"Processing data from {file_path}")
-    >>> process_data("example_file.txt")
+    **Copying Docstring from a Class:**
 
-    Checking URL existence:
-    
-    >>> from gofast.decorators import EnsureFileExists
-    >>> @EnsureFileExists(file_param='url', verbose=True)
-    ... def fetch_data(url: str):
-    ...     print(f"Fetching data from {url}")
-    >>> fetch_data("https://example.com/data.csv")
-    
+    >>> @copy_doc(source=HWRegressor, docstring="Deprecated. Use HWRegressor instead.",
+    ...              replace=False)
+    ... class HammersteinWienerRegressor(HWRegressor):
+    ...     def __init__(self, *args, **kwargs):
+    ...         import warnings
+    ...         warnings.warn(
+    ...             "HammersteinWienerRegressor is deprecated and will be removed in version 1.1.3. "
+    ...             "Use HWRegressor instead.",
+    ...             DeprecationWarning,
+    ...             stacklevel=2
+    ...         )
+    ...         super().__init__(*args, **kwargs)
+
+    **Copying Docstring from a Function:**
+
+    >>> def source_function():
+    ...     '''Original source function docstring.'''
+    ...     pass
+    ...
+    >>> @copy_doc(source=source_function, docstring="Additional information.", replace=False)
+    ... def decorated_function():
+    ...     pass
+    ...
+    >>> print(decorated_function.__doc__)
+    Original source function docstring.
+
+    Additional information.
+
+    **Replacing Docstring Completely:**
+
+    >>> @copy_doc(docstring="Completely new docstring.", replace=True)
+    ... def new_function():
+    ...     pass
+    ...
+    >>> print(new_function.__doc__)
+    Completely new docstring.
+
+    **Copying Specific Attributes:**
+
+    >>> class Source:
+    ...     attribute = "Copied attribute"
+    ...
+    >>> @copy_doc(source=Source, copy_attrs=["attribute"])
+    ... class Decorated(Source):
+    ...     pass
+    ...
+    >>> print(Decorated.attribute)
+    Copied attribute
+
     Notes
     -----
-    This decorator is particularly useful for functions that require a file path 
-    or URL as an argument and need to ensure the file or URL exists before 
-    proceeding with further operations. It helps in avoiding runtime errors 
-    due to missing files or unreachable URLs.
-    
+    - The `copy_doc` decorator does not modify any methods or internal attributes 
+      (those starting with an underscore) of the decorated class or function.
+    - It is recommended to use this decorator primarily for creating aliases 
+      for deprecated classes or functions to maintain documentation consistency.
+
     See Also
     --------
-    os.path.isfile : Checks if a given path is an existing regular file.
-    requests.head : Sends a HEAD request to a URL to check its existence.
-    
+    warnings.warn : Issue warnings to users about deprecated features.
+
     References
     ----------
-    .. [1] McKinney, W. (2010). Data Structures for Statistical Computing in Python. 
-           Proceedings of the 9th Python in Science Conference, 51-56.
-    
-    """
-    def __init__(
-            self, file_param: Union[int, str] = 0, 
-            verbose: bool = False, 
-            action: str = 'raise'
-            ):
-        self.file_param = file_param
-        self.verbose = verbose
-        self.action = action
+    .. [1] Python Documentation on [Decorators](https://docs.python.org/3/glossary.html#term-decorator).
 
-    def __call__(self, func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> any:
-            # Determine the file path or URL from args or kwargs
-            file_path_or_url = None
-            if isinstance(self.file_param, int):
-                if len(args) > self.file_param:
-                    file_path_or_url = args[self.file_param]
-            elif isinstance(self.file_param, str):
-                file_path_or_url = kwargs.get(self.file_param)
-    
-            if self.verbose:
-                print(f"Checking if path or URL exists: {file_path_or_url}")
-    
-            # Check if the file path or URL exists
-            if file_path_or_url is None:
-                self.handle_action(f"File or URL not specified: {file_path_or_url}")
-            elif isinstance(file_path_or_url, str):
-                if file_path_or_url.startswith(('http://', 'https://')):
-                    if not self.url_exists(file_path_or_url):
-                        self.handle_action(f"URL not reachable: {file_path_or_url}")
-                    elif self.verbose:
-                        print(f"URL exists: {file_path_or_url}")
-                else:
-                    if not os.path.isfile(file_path_or_url):
-                        self.handle_action(f"File not found: {file_path_or_url}")
-                    elif self.verbose:
-                        print(f"File exists: {file_path_or_url}")
+    """
+    def decorator(obj):
+        """
+        Apply the `copy_doc` decorator to the given object `obj`.
+
+        Parameters
+        ----------
+        obj : class or function
+            The class or function to which the docstring and attributes 
+            will be copied.
+
+        Returns
+        -------
+        obj : class or function
+            The decorated object with updated docstring and attributes.
+        """
+        # Handle docstring copying
+        if source:
+            source_doc = source.__doc__ or ""
+            if replace:
+                combined_doc = docstring or ""
             else:
-                if self.action == 'ignore':
-                    if self.verbose:
-                        print(f"Ignoring non-file, non-URL argument: {file_path_or_url}")
-                elif self.action == 'warn':
-                    warnings.warn(f"Non-file, non-URL argument provided: {file_path_or_url}")
-                else:
-                    raise TypeError(f"Invalid file or URL argument: {file_path_or_url}")
+                combined_doc = f"{source_doc}\n\n{docstring}" if docstring else source_doc
+        else:
+            combined_doc = docstring or ""
+
+        if combined_doc:
+            obj.__doc__ = combined_doc
+
+        # Handle attribute copying
+        if source and copy_attrs:
+            for attr in copy_attrs:
+                if hasattr(source, attr):
+                    setattr(obj, attr, getattr(source, attr))
+
+        return obj
+
+    return decorator
+
+# Substitution and Appender are derived from matplotlib.docstring (1.1.0)
+# module https://matplotlib.org/users/license.html
+
+class Substitution:
+    """
+    A decorator to take a function's docstring and perform string
+    substitution on it.
+
+    This decorator should be robust even if func.__doc__ is None
+    (for example, if -OO was passed to the interpreter)
+
+    Usage: construct a docstring.Substitution with a sequence or
+    dictionary suitable for performing substitution; then
+    decorate a suitable function with the constructed object. e.g.
+
+    sub_author_name = Substitution(author='Jason')
+
+    @sub_author_name
+    def some_function(x):
+        "%(author)s wrote this function"
+
+    # note that some_function.__doc__ is now "Jason wrote this function"
+
+    One can also use positional arguments.
+
+    sub_first_last_names = Substitution('Edgar Allen', 'Poe')
+
+    @sub_first_last_names
+    def some_function(x):
+        "%s %s wrote the Raven"
+    """
+
+    def __init__(self, *args, **kwargs):
+        if args and kwargs:
+            raise AssertionError("Only positional or keyword args are allowed")
+
+        self.params = args or kwargs
+
+    def __call__(self, func: callable) -> callable:
+        func.__doc__ = func.__doc__ and func.__doc__ % self.params
+        return func
+
+    def update(self, *args, **kwargs) -> None:
+        """
+        Update self.params with supplied args.
+        """
+        if isinstance(self.params, dict):
+            self.params.update(*args, **kwargs)
+
+
+class Appender:
+    """
+    A function decorator that will append an addendum to the docstring
+    of the target function.
+
+    This decorator should be robust even if func.__doc__ is None
+    (for example, if -OO was passed to the interpreter).
+
+    Usage: construct a docstring.Appender with a string to be joined to
+    the original docstring. An optional 'join' parameter may be supplied
+    which will be used to join the docstring and addendum. e.g.
+
+    add_copyright = Appender("Copyright (c) 2009", join='\n')
+
+    @add_copyright
+    def my_dog(has='fleas'):
+        "This docstring will have a copyright below"
+        pass
+    """
+
+    addendum: str | None
+
+    def __init__(self, addendum: str | None, join: str = "", indents: int = 0):
+        if indents > 0:
+            self.addendum = indent(addendum, indents=indents)
+        else:
+            self.addendum = addendum
+        self.join = join
+
+    def __call__(self, func: callable) -> callable:
+        func.__doc__ = func.__doc__ if func.__doc__ else ""
+        self.addendum = self.addendum if self.addendum else ""
+        docitems = [func.__doc__, self.addendum]
+        func.__doc__ = dedent(self.join.join(docitems))
+        return func
+
+
+def indent(text: str | None, indents: int = 1) -> str:
+    if not text or not isinstance(text, str):
+        return ""
+    jointext = "".join(["\n"] + ["    "] * indents)
+    return jointext.join(text.split("\n"))
+
+
+# Substitution and Appender are derived from matplotlib.docstring (1.1.0)
+# module https://matplotlib.org/users/license.html
+class ValidateXy:
+    """
+    A class-based decorator that validates and converts the input data `X` 
+    and optionally `y`. It checks for numeric data types, reshapes the 
+    data if needed, and applies additional checks based on preferences.
     
-            return func(*args, **kwargs)
+    Parameters
+    ----------
+    check_y : bool or str, optional, default='auto'
+        If True, the decorator will check `y` for validity (numeric type).
+        If 'auto', `y` will be checked only if it is not None.
     
+    ensure_y_2d : bool, optional, default=False
+        If False, `y` is expected to be 1D. If True, `y` can be 1D or 2D.
+    
+    allow_sparse_matrix : bool, optional, default=False
+        If True, the decorator will allow sparse matrix inputs for `X`.
+    
+    check_1d_input : bool, optional, default=False
+        If True, checks whether `X` is 1D and reshapes it accordingly.
+    
+    allow_negative_values : bool, optional, default=True
+        If False, raises a warning if `X` or `y` contains negative values.
+    
+    raise_on_non_numeric : bool, optional, default=True
+        If True, raises an error when non-numeric data is encountered in 
+        `X` or `y`.
+    
+    Examples
+    --------
+    >>> from gofast.decorators import ValidateXy 
+    >>> @ValidateXy(check_y=True, ensure_y_2d=True, check_1d_input=True)
+    >>> def my_model(X, y):
+    >>>     # Model processing here
+    >>>     return X, y
+    
+    >>> X = [[1, 2], [3, 4]]
+    >>> y = [5, 6]
+    >>> my_model(X, y)  # Valid data
+    
+    >>> X_invalid = [[1, 'a'], [3, 4]]
+    >>> my_model(X_invalid, y)  # Raises ValueError due to non-numeric data
+    
+    >>> X_negative = [[-1, 2], [3, 4]]
+    >>> my_model(X_negative, y)  # Will raise a valueError if allow_negative_values=False
+    """
+
+    def __init__(
+        self, 
+        check_y="auto", 
+        ensure_y_2d=False, 
+        allow_sparse_matrix=False, 
+        check_1d_input=False, 
+        allow_negative_values=True, 
+        raise_on_non_numeric=True
+    ):
+        self.check_y = check_y
+        self.ensure_y_2d = ensure_y_2d
+        self.allow_sparse_matrix = allow_sparse_matrix
+        self.check_1d_input = check_1d_input
+        self.allow_negative_values = allow_negative_values
+        self.raise_on_non_numeric = raise_on_non_numeric
+
+    def __call__(self, func=None):
+        """
+        Callable method to wrap the function/method.
+        """
+        if func is None:
+            return lambda func: self.__call__(func)
+
+        # Identify if the decorated function is part of a class (i.e., a method)
+        if hasattr(func, '__self__'):
+            # For methods (bound functions), check self argument
+            @functools.wraps(func)
+            def wrapper(self, X, y=None):
+                # Process data (X, y) before calling the original function
+                X = self._check_and_convert_X(X)
+                if self.check_y and y is not None:
+                    y = self._check_and_convert_y(y)
+                elif self.check_y == 'auto' and y is not None:
+                    y = self._check_and_convert_y(y)
+                return func(self, X, y)
+        else:
+            # For standalone functions
+            @functools.wraps(func)
+            def wrapper(X, y=None):
+                X = self._check_and_convert_X(X)
+                if self.check_y and y is not None:
+                    y = self._check_and_convert_y(y)
+                elif self.check_y == 'auto' and y is not None:
+                    y = self._check_and_convert_y(y)
+                return func(X, y)
+        
         return wrapper
 
-    def handle_action(self, message: str):
+    def _check_and_convert_X(self, X):
         """
-        Handle the action based on the specified action parameter.
-
+        Helper function to check and convert X.
+        
         Parameters
         ----------
-        message : str
-            The message to display or include in the raised exception.
-        """
-        if self.action == 'ignore':
-            if self.verbose:
-                print(f"Ignoring: {message}")
-        elif self.action == 'warn':
-            warnings.warn(message)
-        elif self.action == 'raise':
-            raise FileNotFoundError(message)
-        else:
-            raise ValueError(f"Invalid action: {self.action}")
-
-    @staticmethod
-    def url_exists(url: str) -> bool:
-        """
-        Check if a URL exists.
-
-        Parameters
-        ----------
-        url : str
-            The URL to check.
-
+        X : array-like
+            The input data to be checked and converted.
+        
         Returns
         -------
-        bool
-            True if the URL exists, False otherwise.
+        X : array-like
+            The validated and converted input data.
         """
-        import requests
-        try:
-            response = requests.head(url, allow_redirects=True)
-            return response.status_code == 200
-        except requests.RequestException:
-            return False
+        import scipy.sparse as sp
+        
+        if not isinstance (X, pd.DataFrame): 
+            X =  np.asarray (X )
+        # Check if X is a pandas DataFrame
+        if isinstance(X, pd.DataFrame):
+            # Ensure DataFrame contains numeric values
+            if X.select_dtypes(include=[np.number]).shape[1] == 0:
+                raise ValueError(
+                    "DataFrame contains no numeric values."
+                    " Only numeric data is supported."
+                )
+            else:
+                # Warn the user if there are non-numeric columns
+                non_numeric_columns = X.select_dtypes(exclude=[np.number]).columns
+                if len(non_numeric_columns) > 0:
+                    warnings.warn(
+                        "The following non-numeric columns will be ignored: "
+                        f"{', '.join(non_numeric_columns)}"
+                    )
+                # Use only numeric columns
+                X = X.select_dtypes(include=[np.number])
 
-    @classmethod
-    def ensure_file_exists(
-        cls, func: Optional[Callable] = None, *, 
-        file_param: Union[int, str] = 0, 
-        verbose: bool = False, 
-        action: str = 'raise'):
+        # If X is not numeric (and not a DataFrame), try to convert it
+        elif not np.issubdtype(np.array(X).dtype, np.number):
+            try:
+                X = np.array(X, dtype=np.float64)
+            except ValueError:
+                if self.raise_on_non_numeric:
+                    raise ValueError(
+                        "X contains non-numeric values and could"
+                        " not be converted to numeric."
+                    )
+                else:
+                    warnings.warn(
+                        "X contains non-numeric values and will be ignored.")
+                    return np.array([])
+
+        # Ensure X is 2D (reshape if it's 1D)
+        if self.check_1d_input and X.ndim == 1:
+            X = X.reshape(-1, 1)
+        
+        # Allow sparse matrices if enabled
+        if not self.allow_sparse_matrix and isinstance(
+                X, (sp.csr_matrix, sp.csc_matrix, sp.bsr_matrix)):
+            raise ValueError(
+                "Sparse matrices are not supported by this transformer.")
+        
+        # Check for negative values if allowed
+        if not self.allow_negative_values and np.any(X < 0):
+            raise ValueError("Negative values are not allowed in X.")
+
+        return X
+
+    def _check_and_convert_y(self, y):
         """
-        Class method to allow the decorator to be used without parentheses.
-
-        This method enables the decorator to be applied directly without 
-        parentheses, by using the first positional argument as the file or URL 
-        to check. It also allows setting the `file_param`, `verbose`, and `action`
-        parameters when called with parentheses.
-
+        Helper function to check and convert y.
+        
         Parameters
         ----------
-        func : Callable, optional
-            The function to be decorated.
-        file_param : int or str, optional
-            The index of the parameter that specifies the file path or URL 
-            or the name of the keyword argument (default is 0).
-        verbose : bool, optional
-            If True, prints messages indicating the file or URL check status 
-            (default is False).
-        action : str, optional
-            Action to take if the parameter is not a file or URL. 
-            Options are 'ignore', 'warn', or 'raise' (default is 'raise').
-
+        y : array-like
+            The target labels to be checked and converted.
+        
         Returns
         -------
-        Callable
-            The decorated function with file or URL existence check.
-
-        Examples
-        --------
-        >>> from gofast.decorators import EnsureFileExists
-        >>> @EnsureFileExists(verbose=True)
-        ... def process_data(file_path: str):
-        ...     print(f"Processing data from {file_path}")
-        >>> process_data("example_file.txt")
-
-        >>> from gofast.decorators import EnsureFileExists
-        >>> @EnsureFileExists
-        ... def process_data(file_path: str):
-        ...     print(f"Processing data from {file_path}")
-        >>> process_data("example_file.txt")
+        y : array-like
+            The validated and converted target labels.
         """
-        if func is not None:
-            return cls(file_param, verbose, action)(func)
-        return cls(file_param, verbose, action)
+        if not isinstance (y, (pd.Series, pd.DataFrame)): 
+             y = np.asarray (y )
+        if not np.issubdtype(np.array(y).dtype, np.number):
+            try:
+                y = np.array(y, dtype=np.float64)
+            except ValueError:
+                if self.raise_on_non_numeric:
+                    raise ValueError(
+                        "y contains non-numeric values and"
+                        " could not be converted to numeric."
+                    )
+                else:
+                    warnings.warn(
+                        "y contains non-numeric values and will be ignored.")
+                    return np.array([])
 
-# Allow decorator to be used without parentheses
-EnsureFileExists = EnsureFileExists.ensure_file_exists
+        # Ensure y is 2D if ensure_y_2d is True
+        if self.ensure_y_2d:
+            if y.ndim == 1:
+                y = y.reshape(-1, 1)
+        elif y.ndim != 1:
+            raise ValueError("If ensure_y_2d is False, y must be 1D.")
+        
+        # Check for negative values in y if allowed
+        if not self.allow_negative_values and np.any(y < 0):
+            raise ValueError(
+                "Negative values found in y. Expect non-negatives only.")
 
-@NumpyDocstringFormatter(include_sections=['Parameters', 'Returns'], validate_with_sphinx=True)
+        return y
+
+@NumpyDocstringFormatter(
+    include_sections=['Parameters', 'Returns'],
+    validate_with_sphinx=True)
 def example_function(param1, param2=None):
     """
-    This is an example function that demonstrates the usage of the NumpyDocstringFormatter.
+    This is an example function that demonstrates the usage of
+    the NumpyDocstringFormatter.
 
     Parameters
     ----------

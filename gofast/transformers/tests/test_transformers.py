@@ -15,7 +15,7 @@ from sklearn.linear_model import  LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder
 
-from gofast.tools.depsutils import is_module_installed
+from gofast.utils.deps_utils import is_module_installed
 from gofast.transformers.feature_engineering import ( 
     StratifyFromBaseFeature,
     CategoryBaseStratifier, 
@@ -70,14 +70,24 @@ from gofast.transformers.image import (
 # 
 # 
 # install scikit-image 
+SKLIM_AVAILABLE =False 
 try: 
     from skimage.transform import resize # noqa 
 except: 
-    from gofast.tools.depsutils import install_package 
+    from gofast.utils.deps_utils import ensure_module_installed 
     if not is_module_installed("skimage", distribution_name='scikit-image'): 
-        install_package('skimage', dist_name='scikit-image', 
-                        infer_dist_name= True )
-        
+        SKLIM_AVAILABLE =ensure_module_installed(
+            'skimage', 
+            dist_name='scikit-image', 
+            auto_install=True
+        )
+else:
+    SKLIM_AVAILABLE =True 
+
+if SKLIM_AVAILABLE: 
+    from skimage.transform import resize # noqa 
+    
+
 def test_text_vectorizer_initialization():
     transformer = TextToVectorTransformer()
     assert transformer.columns == 'auto'
@@ -382,7 +392,8 @@ def test_kmeans_featurizer():
     X_kmeans = kmeans_featurizer.fit_transform(df)
 
     # Ensure that the transformed data has the expected shape
-    assert X_kmeans.shape == (df.shape[0], n_features +1 )
+    # since encoding is onehot by default so add +3 to n_features 
+    assert X_kmeans.shape == (df.shape[0], n_features +3 )
 
 # Test StratifiedWithCategoryAdder
 def test_stratified_with_category_adder():
@@ -567,7 +578,7 @@ def test_categorical_encoder2():
     
     # Fit and transform the dataset
     enc.fit(X)
-    X_encoded = enc.transform([['Category B'], ['Category C']]).toarray()
+    X_encoded = enc.transform([['Category B'], ['Category C']]).todense()
     
     # Check the shape of the encoded features
     assert X_encoded.shape == (2, 2)  # Encoded as one-hot
@@ -578,14 +589,14 @@ def test_categorical_encoder():
     X = [['Male', 1], ['Female', 3], ['Female', 2]]
     X= pd.DataFrame ( X, columns =['gender', 'number'])
     # Initialize CategoricalEncoder
-    enc = CategoricalEncoder()
+    enc = CategoricalEncoder() #here by default
     
     # Fit and transform the dataset
     enc.fit(X)
-    X_encoded = enc.transform(X)[0].toarray()
+    X_encoded = enc.transform(X)[0]
     
     # Check the shape of the encoded features
-    assert X_encoded.shape == (3, 2)  # Encoded as one-hot
+    assert X_encoded.shape ==(5,) # Encoded as one-hot
 
 
 def test_polynomial_feature_combiner():

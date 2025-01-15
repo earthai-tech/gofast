@@ -12,9 +12,9 @@ import numpy as np
 from ..api.types import  Optional,  Tuple
 from ..api.types import ArrayLike , Callable, Generator
 
-from ..tools.coreutils import is_iterable
-from ..tools.validator import check_X_y
-from ..tools.validator import check_array
+from ..core.checks import is_iterable
+from ..utils.validator import check_X_y
+from ..utils.validator import check_array
 
 __all__ = ['create_sequences', 'data_generator']
 

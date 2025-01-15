@@ -37,13 +37,16 @@ get_scorer
 check_is_fitted
     Perform is_fitted validation for sklearn models.
 """
-
+import warnings
 from packaging.version import Version, parse
-import sklearn
 import inspect
+import numpy as np
+import sklearn
+from sklearn.preprocessing import OneHotEncoder as SklearnOneHotEncoder
 from sklearn.utils._param_validation import validate_params as sklearn_validate_params
 from sklearn.utils._param_validation import Interval as sklearn_Interval 
-from sklearn.utils._param_validation import StrOptions, HasMethods 
+from sklearn.utils._param_validation import StrOptions, HasMethods, Hidden
+from sklearn.utils._param_validation import InvalidParameterError 
 from sklearn.utils import resample
 from sklearn.utils.validation import check_is_fitted as sklearn_check_is_fitted
 from sklearn.metrics import get_scorer
@@ -62,6 +65,7 @@ __all__ = [
     "resample",
     "train_test_split",
     "get_scorer",
+    "type_of_target", 
     "get_feature_names",
     "get_feature_names_out", 
     "get_transformers_from_column_transformer",
@@ -69,12 +73,114 @@ __all__ = [
     "adjusted_mutual_info_score", 
     "get_sgd_loss_param", 
     "validate_params", 
+    "InvalidParameterError", 
     "StrOptions", 
     "HasMethods", 
+    "Hidden", 
+    "OneHotEncoder", 
     "SKLEARN_LT_0_22", 
     "SKLEARN_LT_0_23", 
     "SKLEARN_LT_0_24"
 ]
+
+
+class OneHotEncoder(SklearnOneHotEncoder):
+    """
+    A compatibility wrapper around scikit-learn's OneHotEncoder
+    that manages 'sparse' vs. 'sparse_output' parameters across
+    different scikit-learn versions.
+
+    For scikit-learn < 1.2:
+      - The 'sparse' parameter is recognized, while 'sparse_output'
+        is not. If a user supplies ``sparse_output``, it is mapped
+        to ``sparse``. If both are supplied, we prioritize
+        ``sparse_output``.
+
+    For scikit-learn >= 1.2:
+      - The 'sparse' parameter is deprecated, replaced by
+        ``sparse_output``. If a user supplies ``sparse``, it is
+        mapped to ``sparse_output``, preventing deprecation warnings.
+
+    Notes
+    -----
+    This wrapper helps avoid warnings such as:
+
+    .. code-block:: none
+
+       FutureWarning: `sparse` was renamed to `sparse_output` in version 1.2
+       and will be removed in 1.4. `sparse_output` is ignored unless you
+       leave `sparse` to its default value.
+
+    Usage is identical to the scikit-learn OneHotEncoder, with the same
+    parameters. The wrapper internally adjusts parameters to be compatible
+    with the detected scikit-learn version. For full parameter details,
+    see the official scikit-learn OneHotEncoder documentation.
+    """
+
+    def __init__(
+        self,
+        categories = "auto",
+        drop = None,
+        sparse = "deprecated",
+        sparse_output = None,
+        dtype = np.float64,
+        handle_unknown = "error",
+        min_frequency = None,
+        max_categories = None
+        # we can add other parameters introduced in scikit-learn
+        # for future or past versions if needed.
+    ):
+        # Determine scikit-learn version at runtime
+        sk_version = parse(sklearn.__version__)
+
+        # If scikit-learn < 1.2: rename 'sparse_output' -> 'sparse'
+        # if user provided it. If both are set, prioritize 'sparse_output'.
+        if sk_version < parse("1.2"):
+            if sparse == "deprecated":
+                sparse = sparse_output
+            if sparse_output is not None and sparse != "deprecated":
+                warnings.warn(
+                    "Both 'sparse' and 'sparse_output' are set. "
+                    "Using 'sparse_output' as the final value for older "
+                    "scikit-learn versions (<1.2)."
+                )
+                sparse = sparse_output
+            if sparse == "deprecated":
+                sparse = True
+
+            super().__init__(
+                categories = categories,
+                drop = drop,
+                sparse = sparse,
+                dtype = dtype,
+                handle_unknown = handle_unknown,
+                min_frequency = min_frequency,
+                max_categories = max_categories
+            )
+
+        # If scikit-learn >= 1.2: rename 'sparse' -> 'sparse_output'
+        # if user provided it. If both are set, prioritize 'sparse_output'.
+        else:
+            if sparse_output is None and sparse != "deprecated":
+                sparse_output = sparse
+            if sparse_output is None and sparse == "deprecated":
+                sparse_output = True
+            elif sparse_output is not None and sparse != "deprecated":
+                warnings.warn(
+                    "Both 'sparse' and 'sparse_output' are set. "
+                    "Using 'sparse_output' as the final value for newer "
+                    "scikit-learn versions (>=1.2)."
+                )
+
+            super().__init__(
+                categories = categories,
+                drop = drop,
+                sparse_output = sparse_output,
+                dtype = dtype,
+                handle_unknown = handle_unknown,
+                min_frequency = min_frequency,
+                max_categories = max_categories
+            )
 
 
 class Interval:
@@ -188,6 +294,149 @@ class Interval:
             # 'inclusive' not supported, remove it from kwargs if present
             kwargs.pop('inclusive', None)
             return sklearn_Interval(*args, **kwargs)
+
+
+def type_of_target(y):
+    """
+    Determine the type of the target variable.
+
+    This function identifies the nature of the target variable ``y`` and
+    returns a string indicating its type. It leverages scikit-learn's
+    `type_of_target` if available; otherwise, it falls back to gofast's
+    implementation.
+
+    Parameters
+    ----------
+    y : array-like
+        The target variable to classify. It can be one of the following
+        types:
+        - List
+        - Tuple
+        - NumPy array
+        - Pandas Series
+        - Pandas DataFrame
+        - Other array-like structures.
+
+        The function assesses the structure and contents of ``y`` to
+        determine its type, such as binary, multiclass, multilabel-indicator,
+        continuous, or continuous-multioutput.
+
+    Returns
+    -------
+    target_type : str
+        A string representing the type of the target variable. Possible
+        return values include:
+        - `'binary'`: Binary classification.
+        - `'multiclass'`: Multiclass classification.
+        - `'multilabel-indicator'`: Multilabel classification with
+          binary indicators.
+        - `'continuous'`: Continuous target (regression).
+        - `'continuous-multioutput'`: Multioutput regression.
+        - `'unknown'`: Unknown or unsupported target type.
+
+    Notes
+    -----
+    The `type_of_target` function classifies the target variable based on its
+    structure and the number of unique classes. It is essential for determining
+    the appropriate machine learning algorithms to apply.
+
+    The classification rules are as follows:
+
+    .. math::
+        \text{If } y \text{ is 2D and each column has at most two unique values,} \\
+        \text{then it is 'multilabel-indicator'}. \\
+        \text{Else, if } y \text{ has two unique values, it is 'binary'}. \\
+        \text{Else, if } y \text{ has more than two unique values, it is 'multiclass'}. \\
+        \text{If } y \text{ contains continuous values, it is 'continuous'}. \\
+        \text{For multioutput regression, it is 'continuous-multioutput'}.
+
+    Examples
+    --------
+    >>> from gofast.compat.sklearn import type_of_target
+
+    Binary classification:
+
+    >>> y_binary = [0, 1, 0, 1, 1]
+    >>> type_of_target(y_binary)
+    'binary'
+
+    Multiclass classification:
+
+    >>> y_multiclass = [0, 1, 2, 1, 0]
+    >>> type_of_target(y_multiclass)
+    'multiclass'
+
+    Multilabel-indicator:
+
+    >>> y_multilabel = [[1, 0], [0, 1], [1, 1], [0, 0]]
+    >>> type_of_target(y_multilabel)
+    'multilabel-indicator'
+
+    Continuous (regression):
+
+    >>> y_continuous = [0.5, 1.2, 3.3, 2.1, 5.5]
+    >>> type_of_target(y_continuous)
+    'continuous'
+
+    Continuous multioutput (multioutput regression):
+
+    >>> y_multioutput = [[0.5, 1.0], [1.2, 0.8], [3.3, 2.2],
+    ...                 [2.1, 1.5], [5.5, 3.3]]
+    >>> type_of_target(y_multioutput)
+    'continuous-multioutput'
+
+    Unknown type:
+
+    >>> y_unknown = ['a', 'b', 'a', 'c', 'b']
+    >>> type_of_target(y_unknown)
+    'unknown'
+
+    Empty target:
+
+    >>> y_empty = []
+    >>> type_of_target(y_empty)
+    'unknown'
+
+    Notes
+    -----
+    The function prioritizes scikit-learn's implementation for its robustness
+    and comprehensive type classification. The fallback to gofast's
+    ``type_of_target`` ensures compatibility in environments where scikit-learn
+    is unavailable.
+
+    See also
+    --------
+    `sklearn.utils.multiclass.type_of_target` : scikit-learn's implementation
+    `gofast.core.utils.type_of_target` : gofast's fallback implementation
+
+    References
+    ----------
+    .. [1] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B.,
+           Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V.,
+           Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M.,
+           & Duchesnay, É. (2011). Scikit-learn: Machine Learning in Python.
+           Journal of Machine Learning Research, 12, 2825–2830.
+
+    .. [2] Gofast Documentation. Available at https://gofast.readthedocs.io/en/latest/
+
+    """
+    # Attempt to import type_of_target from scikit-learn
+    try:
+        from sklearn.utils.multiclass import type_of_target as skl_type_of_target
+        return skl_type_of_target(y)
+    except ImportError:
+        # Fallback to gofast's type_of_target if scikit-learn is not available
+        try:
+            from gofast.core.utils import type_of_target as gofast_type_of_target
+            return gofast_type_of_target(y)
+        except ImportError:
+            # If both imports fail, raise an ImportError
+            raise ImportError(
+                "Neither scikit-learn nor gofast.core.utils could provide "
+                "'type_of_target'. Please ensure that scikit-learn is installed "
+                "or gofast.core.utils contains 'type_of_target'."
+            )
+
 
 def get_sgd_loss_param():
     """Get the correct argument of loss parameter for SGDClassifier 

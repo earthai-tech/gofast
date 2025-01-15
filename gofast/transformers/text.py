@@ -13,7 +13,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator,TransformerMixin 
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from ..tools.validator import build_data_if 
+from ..utils.validator import build_data_if 
 
 __all__=[ "TextToVectorTransformer", "TextFeatureExtractor"]
 

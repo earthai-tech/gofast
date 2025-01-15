@@ -2,14 +2,14 @@
 """
 test_ts.py
 """
+import pytest
+from unittest.mock import patch, MagicMock # noqa 
 
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from unittest.mock import patch, MagicMock # noqa 
-import pytest
 import seaborn as sns 
-from gofast.tools.depsutils import is_module_installed, install_package 
+from gofast.utils.deps_utils import is_module_installed, install_package 
 from gofast.plot.ts import TimeSeriesPlotter  
 
 try:

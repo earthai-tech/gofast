@@ -9,45 +9,214 @@ validating data, and converting to dataframes. Inspired by popular dataset
 loading functions in machine learning libraries.
 """
 
-import os
 import random
 import warnings
 from importlib import resources
-from importlib.resources import files
 
 import joblib
 import numpy as np
 import pandas as pd
 
 from ..api.structures import Boxspace
-from ..tools.baseutils import check_file_exists, fancier_downloader
-from ..tools.coreutils import (
-    assert_ratio,
-    convert_to_structured_format,
-    format_to_datetime,
-    is_in_if,
-    smart_format,
-    split_train_test_by_id,
-    to_numeric_dtypes,
-    validate_feature
-)
-from ..tools.ioutils import get_valid_key, key_checker
-from .io import DMODULE, RemoteDataURL, _to_dataframe, csv_data_loader
-from .io import DESCR, description_loader
+from ..api.summary import ResultSummary
+from ..core.array_manager import to_numeric_dtypes, convert_to_structured_format 
+from ..core.array_manager import split_train_test_by_id 
+from ..core.checks import assert_ratio, is_in_if, validate_feature 
+from ..core.utils import smart_format, format_to_datetime, type_of_target
+from ..utils.io_utils import get_valid_key, key_checker
+from .io import DMODULE, _to_dataframe, csv_data_loader
+from .io import DESCR, description_loader, download_file_if
+from .util import _format_feature_descriptions 
 
 
 __all__= [ "load_iris",  "load_hlogs",  "load_nansha", "load_forensic", 
           "load_jrs_bet", "load_statlog", "load_hydro_metrics", "load_mxs", 
-          "load_bagoue"]
+          "load_bagoue", "load_dyspnea", "load_toc"
+         ]
 
+def load_toc(
+    *, 
+    return_X_y=False,
+    as_frame=False, 
+    tag=None, 
+    data_names=None,
+    samples=None, 
+    seed =None, 
+    shuffle=False, 
+    **kws
+):
+    """
+    Load and return the TOC (Total Organic Carbon) dataset.
 
-def load_hydro_metrics(*, return_X_y=False, as_frame=False, tag=None, 
-                       data_names=None,  **kws):
+    The dataset includes measurements related to Total Organic Carbon (TOC)
+    across various environmental and geophysical features. It encompasses 
+    attributes such as acoustic properties (ac), calcium content (cal), 
+    C:N ratio (cnl), density (den), grain size (gr), permeability (pe), and 
+    resistivity logs times at different intervals(rt10, rt20, rt30, rt60, rt90).
+    This dataset is vital for studies in geophysics, environmental science, 
+    and hydrology, enabling the analysis and modeling of TOC based on the
+    provided features.
+
+    Parameters
+    ----------
+    return_X_y : bool, default=False
+        If True, returns `(data, target)` instead of a Boxspace object. Here, 
+        `data` includes all features except the target variable(s), and 
+        `target` is typically the TOC measurement considered for predictive 
+        modeling tasks.
+    
+    as_frame : bool, default=False
+        If True, returns a pandas DataFrame for `data` and a pandas Series for
+        `target`, facilitating direct interaction with pandas functionalities 
+        for data manipulation and analysis.
+    
+    tag : str, optional
+        A tag to add to the dataset loading for user-defined categorization or 
+        filtering, not used in this function but maintained for API compatibility.
+    
+    data_names : list of str, optional
+        Custom names for the data columns if needed to override the default 
+        names derived from the dataset; not utilized in this function but
+        preserved for future extension or API consistency.
+    
+    samples : int or str, optional
+        Specifies the number or method of samples to retrieve from the dataset.
+        If an integer, selects that number of samples. If a string, uses predefined
+        sampling strategies (e.g., '*' for all samples).
+    
+    seed : int, optional
+        Random seed for reproducibility when `shuffle` is True and sampling
+        involves randomness.
+    
+    shuffle : bool, default=False
+        If True, shuffles the dataset before sampling, ensuring random selection
+        of samples.
+    
+    **kws : dict, optional
+        Additional keyword arguments allowing for future enhancements without 
+        affecting the current function signature.
+    
+    Returns
+    -------
+    data : ndarray or DataFrame
+        The dataset's features, excluding the target variable. If `as_frame=True`,
+        `data` is a pandas DataFrame.
+    
+    target : ndarray or Series
+        The target variable(s), typically representing the TOC measurements.
+        If `as_frame=True`, 
+        `target` is a pandas Series.
+    
+    Boxspace : Bunch object
+        A container holding the dataset details. Returned when `return_X_y` is
+        False and `as_frame` is False. 
+        It includes:
+        - `data`: ndarray, shape (n_samples, n_features) for the feature matrix.
+        - `target`: ndarray, shape (n_samples,) for the target variable.
+        - `frame`: DataFrame, combining `data` and `target` if `as_frame=True`.
+        - `DESCR`: str, a detailed description of the dataset and its context.
+        - `feature_names`: list, the names of the feature columns.
+        - `target_names`: list, the names of the target column(s).
+    
+    Examples
+    --------
+    To load the dataset as a (data, target) tuple for custom analysis:
+
+    >>> from gofast.datasets import load_toc
+    >>> data, target = load_toc(return_X_y=True)
+    >>> print(data.shape)
+    (100, 11)  # Assuming 100 instances and 11 features.
+    >>> print(target.shape)
+    (100,)  # Assuming 100 instances of the target variable.
+    
+    To load the dataset as a pandas DataFrame for easier data manipulation
+    and exploration:
+
+    >>> df, target = load_toc(return_X_y=True, as_frame=True)
+    >>> print(df.head())
+    # Displays the first five rows of the feature data.
+    >>> print(target.head())
+    # Displays the first five rows of the target data.
+    
+    Notes
+    -----
+    The function is designed with flexibility in mind, accommodating various 
+    forms of data analysis and machine learning tasks. By providing options to 
+    return the data as arrays or a DataFrame, it enables users to leverage the 
+    full power of numpy and pandas for data processing and analysis, respectively.
+    """
+
+    from ..utils.data_utils import random_sampling 
+    data_file = "toc.csv"
+    #-------------------------------------------------------------
+    # Remotely download if the file doesnot exist.
+    download_file_if(data_file, verbose =False, error ='raise')
+    # ------------------------------------------------------------
+    with resources.path (DMODULE, data_file) as p : 
+        file = str(p)
+    target_columns = ["toc"]
+    feature_names =[
+         'ac',
+         'cal',
+         'cnl',
+         'den',
+         'gr',
+         'pe',
+         'rt10',
+         'rt20',
+         'rt30',
+         'rt60',
+         'rt90',
+    ]
+    target_columns =['toc']
+    
+    frame, _, _ = _to_dataframe(
+        file, feature_names=feature_names,
+         target_names=target_columns
+    )
+    samples = samples or "*"
+    frame = random_sampling(
+        frame, samples = samples, random_state= seed, shuffle= shuffle
+    ) 
+    # set date column index 
+    if kws.get("split_X_y", False): 
+        return _split_X_y(frame,target_columns, as_frame=as_frame, 
+            test_ratio=kws.pop("test_ratio", None),
+        )
+    target= frame[target_columns]
+    data = frame.drop(columns = target_columns )
+    
+    if return_X_y : 
+        return _return_X_y(data, target, as_frame) 
+    
+    if as_frame: 
+        return to_numeric_dtypes(frame)
+    
+    fdescr = description_loader(descr_module=DESCR, descr_file="toc.rst")
+    
+    return Boxspace(
+        data=np.array(data),
+        target=np.array(target),
+        frame=frame,
+        target_names=target_columns,
+        DESCR=fdescr,
+        feature_names=feature_names,
+        filename=data_file,
+        data_module=DMODULE,
+    )
+
+def load_hydro_metrics(
+    *, return_X_y=False, 
+    as_frame=False, 
+    tag=None, 
+    data_names=None, 
+    **kws
+    ):
     """
     Load and return the Hydro-Meteorological dataset collected in Yobouakro, 
     S-P Agnibilekro, Cote d'Ivoire(West-Africa).
 
-    This dataset encompasses a comprehensive range of environmental and 
+    The dataset encompasses a comprehensive range of environmental and 
     hydro-meteorological variables, including temperature, humidity, wind speed,
     solar radiation, evapotranspiration, rainfall, and river flow metrics. 
     It's instrumental for studies in environmental science, agriculture, 
@@ -125,6 +294,11 @@ def load_hydro_metrics(*, return_X_y=False, as_frame=False, tag=None,
     full power of numpy and pandas for data processing and analysis, respectively.
     """
     data_file = "hydro_metrics.csv"
+    #-------------------------------------------------------------
+    # Remotely download if the file doesnot exist.
+    download_file_if(data_file, verbose =False, error ='raise')
+    # ------------------------------------------------------------
+    
     data, target, target_classes, feature_names, fdescr = csv_data_loader(
         data_file=data_file, include_headline=True, 
         descr_file="hydro_metrics.rst"
@@ -228,6 +402,11 @@ def load_statlog(*, return_X_y=False, as_frame=False, tag=None,
 
     """
     data_file = "statlog_heart.csv"
+    #-------------------------------------------------------------
+    # Remotely download if the file doesnot exist.
+    download_file_if(data_file, verbose =False, error ='raise')
+    # ------------------------------------------------------------
+    
     data, target, target_classes, feature_names, fdescr = csv_data_loader(
         data_file=data_file, descr_file="statlog_heart.rst"
     )
@@ -365,6 +544,13 @@ def load_dyspnea(
     from ..dataops.preprocessing import transform_dates 
     from ._globals import DYSPNEA_DICT, DYSPNEA_LABELS_DESCR
     
+    cdescr = _format_feature_descriptions( 
+        DYSPNEA_DICT, title ='Dyspnea Features', 
+        descriptor='dyspnea', 
+        ) 
+    ldescr = ResultSummary('DyspneaLabels').add_results(DYSPNEA_LABELS_DESCR)
+    # ---- end formattage 
+    
     key = get_valid_key(key, "pp", {
         "pp": ("pp", 'preprocessed', 'cleaned', 'transformed', 'structured'), 
         "raw": ["raw", "unprocessed", "source", "original"]
@@ -372,6 +558,9 @@ def load_dyspnea(
 
     data_file = f"dyspnea{'+'if key=='pp' else ''}.csv"
 
+    #-------------------------------------------------------------
+    download_file_if(data_file, verbose =False, error ='raise')
+    # ------------------------------------------------------------
     with resources.path (DMODULE, data_file) as p : 
         file = str(p)
     data = pd.read_csv ( file )
@@ -407,8 +596,8 @@ def load_dyspnea(
         feature_names=feature_names,
         filename=data_file,
         data_module=DMODULE,
-        labels_descr=DYSPNEA_LABELS_DESCR,
-        columns_descr=DYSPNEA_DICT
+        labels_descr=ldescr,
+        columns_descr=cdescr
     )
 
 def load_hlogs(
@@ -459,10 +648,7 @@ def _ensure_data_file(data_file):
     """
     Checks if data file exists locally, downloads if not.
     """
-    if not check_file_exists(DMODULE, data_file):
-        package_path = str(files(DMODULE).joinpath(data_file))
-        URL = os.path.join(RemoteDataURL, data_file)
-        fancier_downloader(URL, data_file, dstpath=os.path.dirname(package_path))
+    download_file_if(data_file, error ='raise')
 
 def _load_data(data_file, key, available_sets):
     """
@@ -517,6 +703,7 @@ def _finalize_return(data, target_names, frame, data_file):
         filename=data_file,
         data_module=DMODULE,
     )
+
 load_hlogs.__doc__ =r"""\
 Load hydro-logging dataset for hydrogeophysical analysis.
 
@@ -558,7 +745,7 @@ drop_observations: bool, default=False
 
 Returns
 -------
-data : :class:`~gofast.tools.Boxspace`
+data : :class:`~gofast.utils.Boxspace`
     Dictionary-like object with attributes:
     - data: {ndarray, DataFrame} 
       Data matrix; pandas DataFrame if `as_frame=True`.
@@ -620,7 +807,7 @@ def load_nansha (
     shuffle =False, 
     **kws
     ): 
-    from ..tools.datautils import random_sampling 
+    from ..utils.data_utils import random_sampling 
     
     drop_display_rate = kws.pop("drop_display_rate", True)
     key = key or 'b0' 
@@ -638,13 +825,7 @@ def load_nansha (
     else: data_file = "n.npz"
     
     #-----------------------------------------------------------
-    if not check_file_exists(DMODULE, data_file): 
-        # If file does not exist download it from the remote and 
-        # save it to the path 
-        package_path = str(files(DMODULE).joinpath(data_file))
-        URL= os.path.join( RemoteDataURL, data_file) 
-        fancier_downloader (URL,data_file, dstpath = os.path.dirname (package_path)
-                       )
+    download_file_if(data_file, verbose =False, error ='raise')
     #-------------------------------------------------------------- 
     with resources.path (DMODULE, data_file) as p : 
         data_file = str(p)
@@ -660,7 +841,7 @@ def load_nansha (
         target_names=target_columns 
     else: 
         data = pd.read_csv( data_file )
-        # since target and columns are alread set 
+        # since target and columns are already set 
         # for land subsidence data, then 
         # go for "ns" and "b0" to
         # set up features and target names
@@ -692,12 +873,13 @@ def load_nansha (
         
     # read dataframe and separate data to target. 
     frame, data, target = _to_dataframe(
-        data, feature_names = feature_names, target_names = target_names, 
+        data, feature_names = feature_names, 
+        target_names = target_names, 
         target=data[target_names].values 
         )
-    # for consistency, re-cast values to numeric 
+    # for consistency, re-cast values to numeric
     frame = to_numeric_dtypes(frame)
-        
+
     if split_X_y: 
         return _split_X_y(frame,target_columns, as_frame=as_frame, 
                           test_ratio=test_ratio)
@@ -773,7 +955,7 @@ drop_display_rate: bool, default=True
 
 Returns
 -------
-data : :class:`~gofast.tools.box.Boxspace`
+data : :class:`~gofast.utils.box.Boxspace`
     Dictionary-like object with attributes:
     - data: {ndarray, DataFrame} 
       Data matrix; pandas DataFrame if `as_frame=True`.
@@ -829,16 +1011,18 @@ References
 """
 
 def load_bagoue(
-        *, return_X_y=False, 
-        as_frame=False, 
-        split_X_y=False, 
-        test_ratio ="30%" , 
-        tag=None , 
-        data_names=None, 
-        **kws
+    *, return_X_y=False, 
+    as_frame=False, 
+    split_X_y=False, 
+    test_ratio ="30%" , 
+    tag=None , 
+    data_names=None, 
+    **kws
  ):
 
     data_file = "bagoue.csv"
+
+    download_file_if(data_file, verbose =False, error ='raise')
     data, target, target_classes, feature_names, fdescr = csv_data_loader(
         data_file=data_file, descr_file="bagoue.rst", 
         include_headline= True, 
@@ -847,9 +1031,11 @@ def load_bagoue(
     target_column = [
         "flow",
     ]
+
     frame, data, target = _to_dataframe(
         data, feature_names = feature_names, target_names = target_column, 
-        target=target)
+        target=target, error ='ignore')
+
     frame = to_numeric_dtypes(frame)
 
     if split_X_y: 
@@ -883,7 +1069,7 @@ Parameters
 ----------
 return_X_y : bool, default=False
     If True, returns ``(data, target)`` instead of a 
-    :class:`~gofast.tools.box.Boxspace` object. See below for more information 
+    :class:`~gofast.utils.box.Boxspace` object. See below for more information 
     about the `data` and `target` object.
 as_frame : bool, default=False
     If True, the data is a pandas DataFrame including columns with
@@ -904,7 +1090,7 @@ tag, data_names: None
 
 Returns
 -------
-data: :class:`~gofast.tools.box.Boxspace`
+data: :class:`~gofast.utils.box.Boxspace`
     Dictionary-like object, with the following attributes.
     data : {ndarray, dataframe} of shape (150, 4)
         The data matrix. If `as_frame=True`, `data` will be a pandas DataFrame.
@@ -957,6 +1143,7 @@ def load_iris(
         *, return_X_y=False, as_frame=False, tag=None, data_names=None, **kws
         ):
     data_file = "iris.csv"
+    download_file_if(data_file, verbose =False, error ='raise')
     data, target, target_classes, feature_names, fdescr = csv_data_loader(
         data_file=data_file, descr_file="iris.rst"
     )
@@ -1016,7 +1203,7 @@ as_frame : bool, default=False
     latter already holds `tag` and `data_names` as parameters. 
 Returns
 -------
-data : :class:`~gofast.tools.Boxspace`
+data : :class:`~gofast.utils.Boxspace`
     Dictionary-like object, with the following attributes.
     data : {ndarray, dataframe} of shape (150, 4)
         The data matrix. If `as_frame=True`, `data` will be a pandas
@@ -1071,9 +1258,12 @@ def load_mxs (
     target_names = None , 
     data_names=None, 
     split_X_y=False, 
+    drop_observations=False, 
+    drop_nan_columns=True, 
     seed = None, 
     shuffle=False,
-    test_ratio=.2,  
+    test_ratio=.2, 
+    
     **kws):
     """
     Load the dataset after implementing the mixture learning strategy (MXS).
@@ -1124,7 +1314,7 @@ def load_mxs (
             - "train": train data `X` and  `y` with preprocessing already performed
             - "raw": for original dataset X and y  with no preprocessing 
             - "data": Default when key is not supplied. It returns 
-              the :class:`Bowlspace` objects.
+              the :class:`Boxspace` objects.
             
         When k is not supplied, "data" is used instead and return a 
         :class:`Bowlspace` objects. where: 
@@ -1133,6 +1323,9 @@ def load_mxs (
     
     drop_observations: bool, default='False'
         Drop the ``remark`` column in the logging data if set to ``True``. 
+        
+    drop_nan_columns : bool, default=True
+        If True, drops columns filled entirely with NaN values.
         
     seed: int, array-like, BitGenerator, np.random.RandomState, \
         np.random.Generator, optional
@@ -1148,7 +1341,7 @@ def load_mxs (
         
     Returns
     ---------
-    data : :class:`~gofast.tools.Boxspace`
+    data : :class:`~gofast.utils.Boxspace`
         Dictionary-like object, with the following attributes.
         data : {ndarray, dataframe} 
             The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
@@ -1196,9 +1389,8 @@ def load_mxs (
     >>> X_train, X_test, y_train, y_test = load_mxs_dataset(split_X_y=True, 
                                                             return_X_y=True)
     """
-    from ..tools.datautils import resample_data 
+    from ..utils.data_utils import resample_data 
     
-    drop_observations = kws.pop("drop_observations", False)
     target_map = {0: '1', 1: '11*', 2: '2', 3: '2*', 4: '3', 5: '33*'}
     
     # Handling the 'key' parameter and validating against available options
@@ -1206,39 +1398,66 @@ def load_mxs (
     key = 'pp' if key.lower() in ('pp', 'preprocessed') else key.lower()
     available_dict = _validate_key(key)
     data_file = 'mxs.joblib'
+    
+    download_file_if(data_file, verbose =False, error ='raise')
     with resources.path(DMODULE, data_file) as p:
         data_file = str(p)
     data_dict = joblib.load(data_file)
-    samples = ( None if samples =="*" else samples) or .5 # 50%
-    data, frame,feature_names, target_names = _prepare_common_dataset(
-        data_dict["data"], drop_observations, target_names,  samples, seed, shuffle)
+    samples = ( 1 if samples =="*" else samples) or .5 # 50%
+    #XXX
+    # data is processed data then feature_data 
+    # frame is a combined data 
+    data, frame, feature_names, target_names = _prepare_common_dataset(
+        data_dict["data"], 
+        drop_observations,
+        target_names,  
+        samples, 
+        seed, 
+        shuffle, 
+        drop_nan_columns, 
+    )
     # Processing based on the specified 'key'
     if key in available_dict:
         Xy = _get_mxs_X_y(available_dict[key], data_dict)
         if Xy:
-            Xy = resample_data(*Xy, samples=samples, random_state=seed, shuffle=shuffle)
+            Xy = resample_data(
+                *Xy, samples=samples, 
+                random_state=seed,
+                shuffle=shuffle
+            )
   
             if (split_X_y and key == 'pp') or return_X_y:
                 return Xy
             elif split_X_y:
-                return _split_and_convert(Xy, test_ratio, seed, shuffle, as_frame)
+                return _split_and_convert(
+                    Xy, test_ratio, seed, 
+                    shuffle, as_frame
+                    )
   
     elif split_X_y:
         return _split_X_y(frame, target_names, test_ratio, as_frame)
 
-    return (data, frame[target_names]) if return_X_y else frame if as_frame else\
-        Boxspace(
+    if return_X_y: 
+        return data, frame[target_names]
+    
+    if as_frame: 
+        return frame 
+
+    fdescr = description_loader(descr_module=DESCR, descr_file="mxs.rst")
+    
+    return Boxspace(
             data=np.array(data),
             target=np.array(frame[target_names]),
             frame=data,
             target_names=target_names,
             target_map = target_map, 
             nga_labels = data_dict.get('nga_labels'), 
-            DESCR= 'Not uploaded yet: Authors are waiting for a publication first.',
+            DESCR= fdescr, 
             feature_names=feature_names,
             filename=data_file,
             data_module=DMODULE,
-            )
+    )
+
 def _get_mxs_X_y(key_Xy: tuple, data_dict: dict):
     """
     Retrieve the data and target arrays from a dictionary given specific keys.
@@ -1282,9 +1501,11 @@ def _get_mxs_X_y(key_Xy: tuple, data_dict: dict):
 def _validate_key(key: str):
     # Validate the provided 'key' against known dataset variants
     available_data = { 
-        "sparse": ('X_csr', 'ymxs_transf'), "scale": ('Xsc', 'ymxs_transf'), 
+        "sparse": ('X_csr', 'ymxs_transf'), 
+        "scale": ('Xsc', 'ymxs_transf'), 
         "pp": ( 'X_train', 'X_test', 'y_train', 'y_test'),
-        'numeric': ( 'Xnm', 'ymxs_transf'), 'raw': ('X', 'y')
+        'numeric': ( 'Xnm', 'ymxs_transf'), 
+        'raw': ('X', 'y')
         }
     available_keys = list(available_data.keys())  + ['data']
     if key not in available_keys:
@@ -1292,24 +1513,38 @@ def _validate_key(key: str):
         
     return available_data
 
-def _prepare_common_dataset(data, drop_observations, target_names, samples, seed, shuffle):
+def _prepare_common_dataset(
+        data, drop_observations, target_names, samples, seed, shuffle, 
+        drop_nan_columns):
     # Process the common dataset: handling dropping columns, sampling,
     # and converting to DataFrame
-    from ..tools.datautils import random_sampling 
+    from ..utils.data_utils import random_sampling 
     
     if drop_observations:
         data = data.drop(columns="remark")
     feature_names = list(data.columns [:13] ) 
     target_columns = list(data.columns [13:])
     target_names = target_names or target_columns
-
+    
     sampled_data = random_sampling(
         data, samples=samples, random_state=seed, shuffle=shuffle)
-    
+
     frame, processed_data, target = _to_dataframe(
         sampled_data, target_names, list(data.columns [:13] ),
         target=sampled_data[target_names].values)
-    return processed_data, to_numeric_dtypes(frame), feature_names, target_names
+    
+    combined_frame = to_numeric_dtypes(
+        frame, drop_nan_columns=drop_nan_columns
+        )
+    if drop_nan_columns:
+        # dr
+        feature_names= list(
+            set(feature_names).intersection(combined_frame.columns)) 
+        target_names = list(
+            set(target_names).intersection(combined_frame.columns))
+        
+    return processed_data, combined_frame, feature_names, target_names
+
 
 def _split_and_convert(Xy, test_ratio, seed, shuffle, as_frame):
     # Split data into training and testing sets and optionally convert
@@ -1321,6 +1556,7 @@ def _split_and_convert(Xy, test_ratio, seed, shuffle, as_frame):
         return convert_to_structured_format(X_train, X_test, y_train, y_test,
                                             as_frame=True)
     return X_train, X_test, y_train, y_test
+
 
 def _get_subsidence_data (
         data_file, /, 
@@ -1389,7 +1625,6 @@ def _get_subsidence_data (
     
     return  data,  feature_names, target_columns     
     
-
 def load_forensic( *, 
     return_X_y=False, 
     as_frame=False, 
@@ -1402,7 +1637,14 @@ def load_forensic( *,
     exclude_vectorized_features=True,  
     **kws
 ):
+    # data formatters 
     from ._globals import FORENSIC_BF_DICT, FORENSIC_LABELS_DESCR 
+    cdescr = _format_feature_descriptions( 
+        FORENSIC_BF_DICT, title ='Forensic Features', 
+        descriptor='forensic', 
+        ) 
+    ldescr = ResultSummary('Forensic Labels').add_results(FORENSIC_LABELS_DESCR)
+    # ---- end formattage 
     
     key = get_valid_key(key, "pp", {
         "pp": ("pp", 'preprocessed', 'cleaned', 'transformed', 'structured'), 
@@ -1410,6 +1652,7 @@ def load_forensic( *,
         })
     data_file = f"forensic_bf{'+'if key=='pp' else ''}.csv"
     
+    download_file_if(data_file, verbose =False, error ='raise')
     with resources.path (DMODULE, data_file) as p : 
         file = str(p)
     data = pd.read_csv ( file )
@@ -1424,8 +1667,9 @@ def load_forensic( *,
     target_columns = [
         "dna_use_terrorism_fight",
     ]
+ 
     feature_names= is_in_if(data, items=target_columns, return_diff=True)
-    
+
     frame, data, target = _to_dataframe(
          data, feature_names = feature_names, target_names = target_columns, 
          )
@@ -1440,7 +1684,7 @@ def load_forensic( *,
         return to_numeric_dtypes(frame )
     
     fdescr = description_loader(
-        descr_module=DESCR,descr_file=data_file.replace (".csv", ".rst"))
+        descr_module=DESCR, descr_file=data_file.replace (".csv", ".rst"))
     
     return Boxspace(
         data=data,
@@ -1451,9 +1695,10 @@ def load_forensic( *,
         feature_names=feature_names,
         filename=data_file,
         data_module=DMODULE,
-        labels_descr=FORENSIC_LABELS_DESCR,
-        colums_descr= FORENSIC_BF_DICT
+        labels_descr=ldescr,
+        colums_descr= cdescr
     )
+
 load_forensic.__doc__="""\
 Load and return the forensic dataset for criminal investigation studies.
 
@@ -1567,6 +1812,8 @@ def load_jrs_bet(
     )
     # Loading the dataset
     data_file = "jrs_bet.csv"
+    
+    download_file_if(data_file, verbose =False, error ='raise')
     with resources.path(DMODULE, data_file) as p: 
         file = str(p)
     data = pd.read_csv(file)
@@ -2041,7 +2288,6 @@ def _get_target_classes(target, target_columns):
     type. Designed to distinguish between classification and regression
     tasks for appropriate model selection and preprocessing.
     """
-    from ..tools.coreutils import type_of_target
     try:
         target_type = type_of_target(target)
         unique_classes = np.unique(target)
@@ -2167,8 +2413,10 @@ def _return_X_y (data, target, as_frame):
     """
     if as_frame:
         if isinstance (target, pd.DataFrame ) and len(target.columns)==1: 
-             try : target= pd.Series (data = np.squeeze(target), 
-                                      name =target.columns[0])
+             try : 
+                 target= pd.Series (
+                     data= np.squeeze(target), name =target.columns[0]
+                )
              except: pass # do nothing
              
         return data, target

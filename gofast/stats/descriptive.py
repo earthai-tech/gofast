@@ -13,17 +13,19 @@ import matplotlib.pyplot as plt
 
 from ..api.types import Optional, List,  Union, Tuple
 from ..api.types import DataFrame, ArrayLike, Array1D, Series
-from ..decorators import DynamicMethod
-from ..tools.validator import check_consistent_length 
-from ..tools.coreutils import ( 
-    ensure_visualization_compatibility, to_series_if, ellipsis2false, 
+from ..core.array_manager import to_series_if 
+from ..core.plot_manager import ( 
+    ensure_visualization_compatibility, 
     get_colors_and_alphas
 )
-from ..tools.funcutils import make_data_dynamic
-from ..tools.funcutils import ( 
+from ..core.utils import ellipsis2false 
+from ..decorators import DynamicMethod
+from ..utils.func_utils import make_data_dynamic
+from ..utils.func_utils import ( 
     flatten_data_if, update_series_index,update_index, 
     convert_and_format_data, series_naming 
 )
+from ..utils.validator import check_consistent_length 
 from .utils import validate_stats_plot_type, prepare_stats_plot
 
 __all__= [ 
@@ -171,8 +173,7 @@ def plot_lorenz_curve(data: np.ndarray, fig_size: Tuple[int, int]):
     plt.grid(True)
     plt.show()
     
-
-@DynamicMethod ( expected_type="both", capture_columns=True)
+@DynamicMethod (expected_type="both", capture_columns=True)
 def corr(
     data: Union[ArrayLike, DataFrame],  
     columns: List[str] = None,

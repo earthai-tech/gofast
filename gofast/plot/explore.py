@@ -20,21 +20,34 @@ from pandas.plotting import radviz , parallel_coordinates
 import seaborn as sns 
 
 from .._gofastlog import gofastlog 
-from ..api.docstring import  DocstringComponents,_core_docs,_baseplot_params
+from ..api.docstring import  ( 
+    DocstringComponents,
+    _core_docs,
+    _baseplot_params
+    )
 from ..api.property import BasePlot
-from ..api.types import _F, Any, List,Dict,Optional,ArrayLike, DataFrame, Series  
-from ..exceptions import PlotError, FeatureError, NotFittedError
-
-from ..tools._dependency import import_optional_dependency 
-from ..tools.coreutils import ( 
-    _assert_all_types , _isin, smart_format, reshape, shrunkformat,
-    exist_features  
+from ..api.types import ( 
+    _F, 
+    Any, 
+    List,
+    Dict,
+    Optional,
+    ArrayLike,
+    DataFrame, 
+    Series  
+    )
+from ..core.array_manager import reshape
+from ..core.checks import  _assert_all_types , is_in, exist_features  
+from ..core.utils import shrunkformat, smart_format 
+from ..exceptions import  PlotError, FeatureError, NotFittedError
+from ..utils.deps_utils import import_optional_dependency 
+from ..utils.base_utils import ( 
+    is_readable, 
+    select_features, 
+    extract_target,
+    generate_placeholders
 )
-from ..tools.baseutils import ( 
-    is_readable, select_features, extract_target, generate_placeholders
-)
-
-from ..tools.validator import check_X_y 
+from ..utils.validator import check_X_y 
 try: 
     import missingno as msno 
 except : pass 
@@ -52,158 +65,147 @@ _logger=gofastlog.get_gofast_logger(__name__)
 
 __all__=["QuestPlotter", "EasyPlotter" ]
 
-#+++++++++++++++++++++++ add seaborn docs +++++++++++++++++++++++++++++++++++++ 
 _sns_params = dict( 
-    sns_orient="""
+    sns_orient = """
 sns_orient: 'v' | 'h', optional
-    Orientation of the plot (vertical or horizontal). This is usually inferred 
-    based on the type of the input variables, but it can be used to resolve 
-    ambiguity when both x and y are numeric or when plotting wide-form data. 
-    *default* is ``v`` which refer to 'vertical'  
-    """, 
-    sns_style="""
-sns_style: dict, or one of {darkgrid, whitegrid, dark, white, ticks}
-    A dictionary of parameters or the name of a preconfigured style.
-    """, 
-    sns_palette="""
-sns_palette: seaborn color paltte | matplotlib colormap | hls | husl
-    Palette definition. Should be something color_palette() can process. the 
-    palette  generates the point with different colors
-    """, 
-    sns_height="""
-sns_height:float, 
-    Proportion of axes extent covered by each rug element. Can be negative.
-    *default* is ``4.``
-    """, 
-    sns_aspect="""
-sns_aspect: scalar (float, int)
-    Aspect ratio of each facet, so that aspect * height gives the width of 
-    each facet in inches. *default* is ``.7``
-    """, 
-    )
-_qkp_params = dict (  
-    classes ="""
-classes: list of int | float, [categorized classes] 
-    list of the categorial values encoded to numerical. For instance, for
-    `flow` data analysis in the Bagoue dataset, the `classes` could be 
-    ``[0., 1., 3.]`` which means:: 
-        
-    * 0 m3/h  --> FR0
-    * > 0 to 1 m3/h --> FR1
-    * > 1 to 3 m3/h --> FR2
-    * > 3 m3/h  --> FR3    
-    """, 
-    mapflow ="""   
-mapflow: bool, 
-    Is refer to the flow rate prediction using DC-resistivity features and 
-    work when the `target_name` is set to ``flow``. If set to True, value 
-    in the target columns should map to categorical values. Commonly the 
-    flow rate values are given as a trend of numerical values. For a 
-    classification purpose, flow rate must be converted to categorical 
-    values which are mainly refered to the type of types of hydraulic. 
-    Mostly the type of hydraulic system is in turn tided to the number of 
-    the living population in a specific area. For instance, flow classes 
-    can be ranged as follow: 
+    Orientation of the plot (vertical or horizontal). This parameter
+    controls the layout of the plot axes. It is typically inferred from
+    the type of the input variables, but it can be specified explicitly
+    to resolve any ambiguity, especially when both the x and y variables
+    are numeric, or when plotting wide-form data. 
 
-    * FR = 0 is for dry boreholes
-    * 0 < FR ≤ 3m3/h for village hydraulic (≤2000 inhabitants)
-    * 3 < FR ≤ 6m3/h  for improved village hydraulic(>2000-20 000inhbts) 
-    * 6 <FR ≤ 10m3/h for urban hydraulic (>200 000 inhabitants). 
+    The value ``'v'`` corresponds to a *vertical* orientation, where the 
+    categorical variable is plotted along the y-axis and the numerical 
+    variable along the x-axis. Conversely, ``'h'`` corresponds to a *horizontal*
+    orientation, where the categorical variable is along the x-axis and the
+    numerical variable along the y-axis. 
+
+    The default value is ``'v'`` for vertical orientation.
+    """, 
+
+    sns_style = """
+sns_style: dict, or one of {darkgrid, whitegrid, dark, white, ticks}, optional
+    This parameter defines the aesthetic style of the plot. You can pass
+    a dictionary of parameters to configure specific visual attributes like
+    background color, gridlines, or axes labels. Alternatively, one of the
+    predefined style names from Seaborn can be used to set a consistent look
+    across all plots.
+
+    - ``'darkgrid'``: Light background with dark gridlines (default style).
+    - ``'whitegrid'``: Light background with white gridlines.
+    - ``'dark'``: Dark background with no gridlines.
+    - ``'white'``: Light background with no gridlines.
+    - ``'ticks'``: Minimalistic style with ticks on axes.
+
+    This parameter allows you to quickly change the visual appearance of your
+    plots to match your desired aesthetic or publication standards.
+    """, 
+
+    sns_palette = """
+sns_palette: seaborn color palette | matplotlib colormap | hls | husl, optional
+    Defines the color scheme used for the plot's elements (e.g., bars,
+    points, lines). You can either provide a preconfigured color palette
+    from Seaborn or use a Matplotlib colormap, or specify color schemes 
+    such as HLS (Hue-Lightness-Saturation) or HUSL (Hue-Saturation-Lightness).
+
+    Common color palette names from Seaborn include:
+    - ``deep``, ``muted``, ``pastel``, ``dark``, ``colorblind``, and others.
     
-    Note that the flow range from `mapflow` is not exhaustive and can be 
-    modified according to the type of hydraulic required on the project.   
+    Alternatively, you can use a continuous color map from Matplotlib, 
+    such as ``'viridis'``, ``'plasma'``, or ``'inferno'``.
+
+    Additionally, the ``hls`` and ``husl`` options allow you to define
+    a palette using the HLS and HUSL color spaces respectively, which are
+    particularly useful for generating perceptually uniform palettes.
+
+    The default value is ``deep``.
+    """, 
+
+    sns_height = """
+sns_height: float, optional
+    Specifies the height of each facet (subplot) in inches when using
+    facet-based plots (e.g., `sns.FacetGrid`). This controls the vertical
+    size of each individual plot, which is particularly useful when
+    you are plotting multiple facets in a grid layout.
+
+    A higher value increases the plot's height, while a smaller value
+    compresses the facets. This parameter is especially useful when the
+    default height does not provide sufficient space for axis labels or
+    tick marks.
+
+    The default value is ``4.0``, which provides a balanced height for
+    most plots.
+    """, 
+
+    sns_aspect = """
+sns_aspect: scalar (float, int), optional
+    Defines the aspect ratio of each facet (subplot) in facet-based plots.
+    This is the ratio of width to height for each subplot. By adjusting
+    the aspect ratio, you can control the relative proportions of the
+    plot, which can improve the visualization of specific patterns or 
+    features within the data.
+
+    The value should be a positive number, where larger values increase 
+    the width of each facet relative to its height, and smaller values
+    compress the width. The default aspect ratio is ``0.7``, which is a 
+    balanced ratio suitable for most use cases.
+
+    Note that adjusting the aspect ratio may also influence the spacing
+    between facets and the overall appearance of the plot grid.
     """
 )
+
+_qkp_params = dict(  
+    classes = """
+classes: list of int | float, [categorized classes], optional
+    A list of categorical values encoded as numerical representations.
+    This parameter is useful when working with classification tasks that 
+    require converting continuous data into categorical classes. For instance,
+    when analyzing flow data in the Bagoue dataset, you might encode flow 
+    categories as numerical values, as in the following example:
+
+    - 0.0 m3/h --> FR0 (Dry boreholes)
+    - 0 < flow ≤ 1.0 m3/h --> FR1 (Village hydraulic, ≤2000 inhabitants)
+    - 1.0 < flow ≤ 3.0 m3/h --> FR2 (Improved village hydraulic, >2000–20,000 inhabitants)
+    - 3.0 < flow ≤ 6.0 m3/h --> FR3 (Urban hydraulic, >200,000 inhabitants)
+    
+    This list enables flexible mapping of flow rates or other continuous data
+    into discrete categories, making it easier to train classification models
+    or analyze data according to predefined ranges.
+    """, 
+
+    mapflow = """   
+mapflow: bool, optional
+    Indicates whether to use the flow rate prediction based on DC-resistivity
+    features. This parameter is relevant when the target variable is set to
+    ``flow``. If ``True``, the values in the target column should map to
+    categorical values, as described in the ``classes`` parameter.
+
+    This is typically used when flow rate values are presented as a trend
+    of numerical values and need to be converted into categorical classes
+    for classification purposes. Flow categories can be defined to reflect
+    various types of hydraulic systems based on the expected flow range. 
+    For example, flow rates might be categorized into different classes for 
+    urban, rural, or dry hydraulic systems, as outlined below:
+
+    - FR0: Dry boreholes (flow = 0 m3/h)
+    - FR1: Village hydraulic (0 < flow ≤ 3 m3/h, for ≤2000 inhabitants)
+    - FR2: Improved village hydraulic (3 < flow ≤ 6 m3/h, for >2000–20,000 inhabitants)
+    - FR3: Urban hydraulic (6 < flow ≤ 10 m3/h, for >200,000 inhabitants)
+
+    These flow categories are flexible and can be adjusted to fit specific
+    project requirements or different geographical areas.
+    """
+)
+
 _param_docs = DocstringComponents.from_nested_components(
     core=_core_docs["params"], 
     base=DocstringComponents(_baseplot_params), 
     sns = DocstringComponents(_sns_params), 
     qdoc= DocstringComponents(_qkp_params)
     )
-#++++++++++++++++++++++++++++++++++ end +++++++++++++++++++++++++++++++++++++++
 
-class QuestPlotter(BasePlot): 
-    """
-    Exploratory plot for data analysis 
-    
-    `QuestPlotter` is a shadow class. Explore data is needed to create a model since 
-    it gives a feel for the data and also at great excuses to meet and discuss 
-    issues with business units that controls the data. `QuestPlotter` methods i.e. 
-    return an instancied object that inherits from :class:`gofast.property.Baseplots`
-    ABC (Abstract Base Class) for visualization.
-        
-    Parameters 
-    -----------
-    {params.base.savefig}
-    {params.base.fig_dpi}
-    {params.base.fig_num}
-    {params.base.fig_size}
-    {params.base.fig_orientation}
-    {params.base.fig_title}
-    {params.base.fs}
-    {params.base.ls}
-    {params.base.lc}
-    {params.base.lw}
-    {params.base.alpha}
-    {params.base.font_weight}
-    {params.base.font_style}
-    {params.base.font_size}
-    {params.base.ms}
-    {params.base.marker}
-    {params.base.marker_facecolor}
-    {params.base.marker_edgecolor}
-    {params.base.marker_edgewidth}
-    {params.base.xminorticks}
-    {params.base.yminorticks}
-    {params.base.bins}
-    {params.base.xlim}
-    {params.base.ylim}
-    {params.base.xlabel}
-    {params.base.ylabel}
-    {params.base.rotate_xlabel}
-    {params.base.rotate_ylabel}
-    {params.base.leg_kws}
-    {params.base.plt_kws}
-    {params.base.glc}
-    {params.base.glw}
-    {params.base.galpha}
-    {params.base.gaxis}
-    {params.base.gwhich}
-    {params.base.tp_axis}
-    {params.base.tp_labelsize}
-    {params.base.tp_bottom}
-    {params.base.tp_labelbottom}
-    {params.base.tp_labeltop}
-    {params.base.cb_orientation}
-    {params.base.cb_aspect}
-    {params.base.cb_shrink}
-    {params.base.cb_pad}
-    {params.base.cb_anchor}
-    {params.base.cb_panchor}
-    {params.base.cb_label}
-    {params.base.cb_spacing}
-    {params.base.cb_drawedges} 
-    {params.sns.sns_orient}
-    {params.sns.sns_style}
-    {params.sns.sns_palette}
-    {params.sns.sns_height}
-    {params.sns.sns_aspect}
-    
-    Returns
-    --------
-    {returns.self}
-    
-    Examples
-    ---------
-    >>> import pandas as pd 
-    >>> from gofast.plot.explore import QuestPlotter
-    >>> data = pd.read_csv ('data/geodata/main.bagciv.data.csv' ) 
-    >>> QuestPlotter(fig_size = (12, 4)).fit(data).missing(kind ='corr')
-    ... <gofast.plot.explore .QuestPlotter at 0x21162a975e0>
-    """.format(
-        params=_param_docs,
-        returns= _core_docs["returns"],
-    )    
+class QuestPlotter(BasePlot):   
     msg = ("{expobj.__class__.__name__} instance is not"
            " fitted yet. Call 'fit' with appropriate"
            " arguments before using this method."
@@ -260,7 +262,7 @@ class QuestPlotter(BasePlot):
         fit_params: dict 
             Additional keywords arguments for reading the data is given as 
             a path-like object passed from 
-            :func:gofast.tools.coreutils._is_readable`
+            :func:gofast.utils.coreutils._is_readable`
            
         Return
         -------
@@ -1019,7 +1021,7 @@ class QuestPlotter(BasePlot):
             if self.y_ is None: 
                 raise ValueError ("target name is missing. Specify the `target_name`"
                                   f" and refit {self.__class__.__name__!r} ")
-            if not _isin(self.y_, c ): 
+            if not is_in(self.y_, c ): 
                 raise ValueError (f"c-value should be a class label, got '{c}'"
                                   )
             mask = self.y_ == c 
@@ -1226,103 +1228,90 @@ class QuestPlotter(BasePlot):
         return  "<{0!r}:xname={1!r}, yname={2!r} , target_name={3!r}>".format(
             self.__class__.__name__, self.xname_ , self.yname_ , self.target_name 
             )
-              
+     
+QuestPlotter.__doc__="""\
+Exploratory plot for data analysis 
+
+`QuestPlotter` is a shadow class. Explore data is needed to create a model since 
+it gives a feel for the data and also at great excuses to meet and discuss 
+issues with business units that controls the data. `QuestPlotter` methods i.e. 
+return an instancied object that inherits from :class:`gofast.property.Baseplots`
+ABC (Abstract Base Class) for visualization.
+    
+Parameters 
+-----------
+{params.base.savefig}
+{params.base.fig_dpi}
+{params.base.fig_num}
+{params.base.fig_size}
+{params.base.fig_orientation}
+{params.base.fig_title}
+{params.base.fs}
+{params.base.ls}
+{params.base.lc}
+{params.base.lw}
+{params.base.alpha}
+{params.base.font_weight}
+{params.base.font_style}
+{params.base.font_size}
+{params.base.ms}
+{params.base.marker}
+{params.base.marker_facecolor}
+{params.base.marker_edgecolor}
+{params.base.marker_edgewidth}
+{params.base.xminorticks}
+{params.base.yminorticks}
+{params.base.bins}
+{params.base.xlim}
+{params.base.ylim}
+{params.base.xlabel}
+{params.base.ylabel}
+{params.base.rotate_xlabel}
+{params.base.rotate_ylabel}
+{params.base.leg_kws}
+{params.base.plt_kws}
+{params.base.glc}
+{params.base.glw}
+{params.base.galpha}
+{params.base.gaxis}
+{params.base.gwhich}
+{params.base.tp_axis}
+{params.base.tp_labelsize}
+{params.base.tp_bottom}
+{params.base.tp_labelbottom}
+{params.base.tp_labeltop}
+{params.base.cb_orientation}
+{params.base.cb_aspect}
+{params.base.cb_shrink}
+{params.base.cb_pad}
+{params.base.cb_anchor}
+{params.base.cb_panchor}
+{params.base.cb_label}
+{params.base.cb_spacing}
+{params.base.cb_drawedges} 
+{params.sns.sns_orient}
+{params.sns.sns_style}
+{params.sns.sns_palette}
+{params.sns.sns_height}
+{params.sns.sns_aspect}
+
+Returns
+--------
+{returns.self}
+
+Examples
+---------
+>>> import pandas as pd 
+>>> from gofast.plot.explore import QuestPlotter
+>>> data = pd.read_csv ('data/geodata/main.bagciv.data.csv' ) 
+>>> QuestPlotter(fig_size = (12, 4)).fit(data).missing(kind ='corr')
+... <gofast.plot.explore .QuestPlotter at 0x21162a975e0>
+""".format(
+    params=_param_docs,
+    returns= _core_docs["returns"],
+)           
+                                
 class EasyPlotter (BasePlot): 
-    """
-    Special class dealing with analysis modules for quick diagrams, 
-    histograms and bar visualizations. 
-    
-    Originally, it was designed for the flow rate prediction, however, it still 
-    works with any other dataset by following the parameters details. 
-      
-    Parameters 
-    -------------
-    {params.core.data}
-    {params.core.y}
-    {params.core.target_name}
-    {params.qdoc.classes}
-    {params.qdoc.mapflow}
-    {params.base.savefig}
-    {params.base.fig_dpi}
-    {params.base.fig_num}
-    {params.base.fig_size}
-    {params.base.fig_orientation}
-    {params.base.fig_title}
-    {params.base.fs}
-    {params.base.ls}
-    {params.base.lc}
-    {params.base.lw}
-    {params.base.alpha}
-    {params.base.font_weight}
-    {params.base.font_style}
-    {params.base.font_size}
-    {params.base.ms}
-    {params.base.marker}
-    {params.base.marker_facecolor}
-    {params.base.marker_edgecolor}
-    {params.base.marker_edgewidth}
-    {params.base.xminorticks}
-    {params.base.yminorticks}
-    {params.base.bins}
-    {params.base.xlim}
-    {params.base.ylim}
-    {params.base.xlabel}
-    {params.base.ylabel}
-    {params.base.rotate_xlabel}
-    {params.base.rotate_ylabel}
-    {params.base.leg_kws}
-    {params.base.plt_kws}
-    {params.base.glc}
-    {params.base.glw}
-    {params.base.galpha}
-    {params.base.gaxis}
-    {params.base.gwhich}
-    {params.base.tp_axis}
-    {params.base.tp_labelsize}
-    {params.base.tp_bottom}
-    {params.base.tp_labelbottom}
-    {params.base.tp_labeltop}
-    {params.base.cb_orientation}
-    {params.base.cb_aspect}
-    {params.base.cb_shrink}
-    {params.base.cb_pad}
-    {params.base.cb_anchor}
-    {params.base.cb_panchor}
-    {params.base.cb_label}
-    {params.base.cb_spacing}
-    {params.base.cb_drawedges} 
-    {params.sns.sns_orient}
-    {params.sns.sns_style}
-    {params.sns.sns_palette}
-    {params.sns.sns_height}
-    {params.sns.sns_aspect}
-    
-    Returns
-    --------
-    {returns.self}
-    
-    Examples
-    ---------
-    >>> from gofast.plot.explore import  EasyPlotter 
-    >>> data = 'data/geodata/main.bagciv.data.csv'
-    >>> qkObj = EasyPlotter(  leg_kws= dict( loc='upper right'),
-    ...          fig_title = '`sfi` vs`ohmS|`geol`',
-    ...            ) 
-    >>> qkObj.target_name='flow' # target the DC-flow rate prediction dataset
-    >>> qkObj.mapflow=True  # to hold category FR0, FR1 etc..
-    >>> qkObj.fit(data) 
-    >>> sns_pkws= dict ( aspect = 2 , 
-    ...          height= 2, 
-    ...                  )
-    >>> map_kws= dict( edgecolor="w")    
-    >>> qkObj.plotDiscussingFeatures(features =['ohmS', 'sfi','geol', 'flow'],
-    ...                           map_kws=map_kws,  **sns_pkws
-    ...                         )   
-    """.format(
-        params=_param_docs,
-        returns= _core_docs["returns"],
-    )
-   
     def __init__(
         self,  
         classes = None, 
@@ -2640,7 +2629,101 @@ class EasyPlotter (BasePlot):
             )
         return 1
      
-      
+EasyPlotter.__doc__="""\
+Special class dealing with analysis modules for quick diagrams, 
+histograms and bar visualizations. 
+
+Originally, it was designed for the flow rate prediction, however, it still 
+works with any other dataset by following the parameters details. 
+  
+Parameters 
+-------------
+{params.core.data}
+{params.core.y}
+{params.core.target_name}
+{params.qdoc.classes}
+{params.qdoc.mapflow}
+{params.base.savefig}
+{params.base.fig_dpi}
+{params.base.fig_num}
+{params.base.fig_size}
+{params.base.fig_orientation}
+{params.base.fig_title}
+{params.base.fs}
+{params.base.ls}
+{params.base.lc}
+{params.base.lw}
+{params.base.alpha}
+{params.base.font_weight}
+{params.base.font_style}
+{params.base.font_size}
+{params.base.ms}
+{params.base.marker}
+{params.base.marker_facecolor}
+{params.base.marker_edgecolor}
+{params.base.marker_edgewidth}
+{params.base.xminorticks}
+{params.base.yminorticks}
+{params.base.bins}
+{params.base.xlim}
+{params.base.ylim}
+{params.base.xlabel}
+{params.base.ylabel}
+{params.base.rotate_xlabel}
+{params.base.rotate_ylabel}
+{params.base.leg_kws}
+{params.base.plt_kws}
+{params.base.glc}
+{params.base.glw}
+{params.base.galpha}
+{params.base.gaxis}
+{params.base.gwhich}
+{params.base.tp_axis}
+{params.base.tp_labelsize}
+{params.base.tp_bottom}
+{params.base.tp_labelbottom}
+{params.base.tp_labeltop}
+{params.base.cb_orientation}
+{params.base.cb_aspect}
+{params.base.cb_shrink}
+{params.base.cb_pad}
+{params.base.cb_anchor}
+{params.base.cb_panchor}
+{params.base.cb_label}
+{params.base.cb_spacing}
+{params.base.cb_drawedges} 
+{params.sns.sns_orient}
+{params.sns.sns_style}
+{params.sns.sns_palette}
+{params.sns.sns_height}
+{params.sns.sns_aspect}
+
+Returns
+--------
+{returns.self}
+
+Examples
+---------
+>>> from gofast.plot.explore import  EasyPlotter 
+>>> data = 'data/geodata/main.bagciv.data.csv'
+>>> qkObj = EasyPlotter(  leg_kws= dict( loc='upper right'),
+...          fig_title = '`sfi` vs`ohmS|`geol`',
+...            ) 
+>>> qkObj.target_name='flow' # target the DC-flow rate prediction dataset
+>>> qkObj.mapflow=True  # to hold category FR0, FR1 etc..
+>>> qkObj.fit(data) 
+>>> sns_pkws= dict ( aspect = 2 , 
+...          height= 2, 
+...                  )
+>>> map_kws= dict( edgecolor="w")    
+>>> qkObj.plotDiscussingFeatures(features =['ohmS', 'sfi','geol', 'flow'],
+...                           map_kws=map_kws,  **sns_pkws
+...                         )   
+""".format(
+    params=_param_docs,
+    returns= _core_docs["returns"],
+)     
+                                
 def viewtemplate (y, /, xlabel=None, ylabel =None,  **kws):
     """
     Quick view template

@@ -21,8 +21,8 @@ from sklearn.decomposition import PCA
 
 from ..api.docstring import _core_docs
 from ..backends.selector import BackendSelector
-from ..tools.coreutils import _assert_all_types
-from ..tools.validator import (
+from ..core.checks import _assert_all_types
+from ..utils.validator import (
     validate_positive_integer,
     check_array,
     parameter_validator
@@ -108,7 +108,7 @@ Examples
 >>> import numpy as np 
 >>> from sklearn.impute import SimpleImputer
 >>> from sklearn.datasets import load_iris
->>> from gofast.tools.baseutils import select_features
+>>> from gofast.utils.baseutils import select_features
 >>> from gofast.datasets import fetch_data
 >>> from gofast.analysis.decomposition import get_eigen_components
 
@@ -575,7 +575,7 @@ Examples
 >>> from gofast.datasets import fetch_data
 >>> from sklearn.preprocessing import StandardScaler
 >>> from sklearn.linear_model import LogisticRegression
->>> from gofast.tools.baseutils import select_features
+>>> from gofast.utils.baseutils import select_features
 >>> from gofast.analysis.decomposition import plot_decision_regions
 >>> data = fetch_data("bagoue analyses")
 >>> y = data['flow']
@@ -807,7 +807,7 @@ Examples
 >>> from gofast.datasets import fetch_data 
 >>> from sklearn.impute import SimpleImputer
 >>> from sklearn.linear_model import LogisticRegression
->>> from gofast.tools.baseutils import select_features
+>>> from gofast.utils.baseutils import select_features
 >>> from gofast.analysis.decomposition import linear_discriminant_analysis
 >>> y = data.flow ; X= data.drop(columns='flow') 
 >>> # select the numerical features 

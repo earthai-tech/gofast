@@ -7,6 +7,7 @@ Provides classes and functions designed to optimize machine learning models,
 featuring methods for hyperparameter tuning and strategies for executing 
 searches in parallel."""
 
+from __future__ import annotations 
 import joblib
 import concurrent 
 from concurrent.futures import ThreadPoolExecutor
@@ -19,18 +20,18 @@ from ..api.box import KeyBox
 from ..api.types import Any, Dict, List,Union, Optional, ArrayLike
 from ..api.types import _F, Array1D, NDArray, Callable 
 from ..api.summary import ModelSummary
+from ..core.utils import ellipsis2false 
 from ..decorators import smartFitRun 
-from ..tools.coreutils import ellipsis2false 
-from ..tools.validator import get_estimator_name , check_X_y 
+from ..utils.validator import get_estimator_name , check_X_y 
 from ._optimize import BaseOptimizer, _perform_search, _validate_parameters
 from .utils import get_strategy_method, params_combinations # noqa
 from .utils import prepare_estimators_and_param_grids
 
 
 __all__=[
-    "Optimizer", "Optimizer2" , "OptimizeSearch", "ParallelizeSearch", 
+    "Optimizer", "ThreadedOptimizer" , "OptimizeSearch", "ParallelizeSearch", 
     "OptimizeHyperparams",  "ParallelOptimizer", "optimize_search", 
-    "parallelize_search", "optimize_hyperparams", "optimize_search2", 
+    "parallelize_search", "optimize_hyperparams", "optimize_search_in", 
     ]
 
 @smartFitRun
@@ -231,7 +232,7 @@ class OptimizeHyperparams(BaseOptimizer):
     
         Returns
         -------
-        summary_ : ModelSummary
+        summary : ModelSummary
             A `ModelSummary` object containing the optimization results for the 
             estimator. The object includes information on the best estimator, 
             best parameters, best score, and cross-validation results.
@@ -314,10 +315,10 @@ class OptimizeHyperparams(BaseOptimizer):
             joblib.dump(results_dict, f'{savefile}.joblib')
             print(f"Results saved to {savefile}.joblib")
 
-        self.summary_ = self.construct_model_summary(
+        self.summary = self.construct_model_summary(
             results_dict, descriptor="OptimizeHyperparams")
         
-        return self.summary_
+        return self.summary
 
     def __repr__(self):
         return super().__repr__()
@@ -563,7 +564,7 @@ class Optimizer(BaseOptimizer):
                          estimator=self )
 
         max_length = max([len(str(estimator)) for estimator in self.estimators])
-    
+  
         results = Parallel(n_jobs=self.n_jobs)(delayed(_perform_search)(
             name, self.estimators[i], self.param_grids[i], 
             self.strategy, X, y, self.scoring, self.cv, self.search_kwargs,
@@ -571,8 +572,8 @@ class Optimizer(BaseOptimizer):
             name in enumerate(self.estimators))
     
         result_dict = {get_estimator_name(name): {
-            'best_estimator': best_est, 'best_params': best_params, 
-            'best_score': best_sc, 'cv_results': cv_res
+            'best_estimator_': best_est, 'best_params_': best_params, 
+            'best_score_': best_sc, 'cv_results_': cv_res
             } for name, best_est, best_params, best_sc, cv_res in results
         }
     
@@ -747,7 +748,7 @@ class OptimizeSearch(BaseOptimizer):
     
         Returns
         -------
-        summary_ : ModelSummary
+        summary : ModelSummary
             A `ModelSummary` object containing the optimization results for each 
             estimator. The object includes information on the best estimator, 
             best parameters, best score, and cross-validation results for each 
@@ -1017,7 +1018,7 @@ class ParallelizeSearch(BaseOptimizer):
     
         Returns
         -------
-        summary_ : ModelSummary
+        summary : ModelSummary
             A `ModelSummary` object containing the optimization results for each 
             estimator. The object includes information on the best estimator, 
             best parameters, best score, and cross-validation results for each 
@@ -1128,14 +1129,14 @@ class ParallelizeSearch(BaseOptimizer):
                 joblib.dump(pack, filename=f"{self.file_prefix}.joblib")
                 print(f"Aggregated results saved to {self.file_prefix}.joblib")
 
-        self.summary_ = ModelSummary(descriptor="ParallelizeSearch", **o)
-        self.summary_.summary(o)
-        return self.summary_
+        self.summary = ModelSummary(descriptor="ParallelizeSearch", **o)
+        self.summary.summary(o)
+        return self.summary
 
 @smartFitRun
-class Optimizer2(BaseOptimizer):
+class ThreadedOptimizer(BaseOptimizer):
     """
-    Optimizer2 class for hyperparameter optimization of multiple estimators 
+    ThreadedOptimizer class for hyperparameter optimization of multiple estimators 
     separately.
 
     This class facilitates the process of hyperparameter optimization for 
@@ -1209,7 +1210,7 @@ class Optimizer2(BaseOptimizer):
     >>> from sklearn.linear_model import SGDClassifier
     >>> from sklearn.datasets import load_iris
     >>> from sklearn.model_selection import train_test_split
-    >>> from gofast.models.optimize import Optimizer2
+    >>> from gofast.models.optimize import ThreadedOptimizer
     >>> X, y = load_iris(return_X_y=True)
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
     ...                                                     test_size=0.2, 
@@ -1218,14 +1219,14 @@ class Optimizer2(BaseOptimizer):
     >>> param_grids = {'SVC': {'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
     ...                'SGDClassifier': {'max_iter': [50, 100], 'alpha': 
     ...                                  [0.0001, 0.001]}}
-    >>> optimizer = Optimizer2(estimators, param_grids, strategy='GSCV', 
+    >>> optimizer = ThreadedOptimizer(estimators, param_grids, strategy='GSCV', 
     ...                        n_jobs=1)
     >>> results = optimizer.fit(X_train, y_train)
     >>> print(results)
 
     Notes
     -----
-    The `Optimizer2` class uses parallel processing to expedite the 
+    The `ThreadedOptimizer` class uses parallel processing to expedite the 
     hyperparameter search process. Each estimator's optimization progress is 
     displayed using tqdm progress bars.
 
@@ -1306,7 +1307,7 @@ class Optimizer2(BaseOptimizer):
 
         Returns
         -------
-        summary_ : ModelSummary
+        summary : ModelSummary
             A `ModelSummary` object containing the optimization results for each 
             estimator. The object includes information on the best estimator, 
             best parameters, best score, and cross-validation results for each 
@@ -1340,7 +1341,7 @@ class Optimizer2(BaseOptimizer):
         >>> from sklearn.linear_model import SGDClassifier
         >>> from sklearn.datasets import load_iris
         >>> from sklearn.model_selection import train_test_split
-        >>> from gofast.models.optimize import Optimizer2
+        >>> from gofast.models.optimize import ThreadedOptimizer
         >>> X, y = load_iris(return_X_y=True)
         >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
         ...                                                     test_size=0.2, 
@@ -1349,7 +1350,7 @@ class Optimizer2(BaseOptimizer):
         >>> param_grids = {'SVC': {'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
         ...                'SGDClassifier': {'max_iter': [50, 100], 'alpha': 
         ...                                  [0.0001, 0.001]}}
-        >>> optimizer = Optimizer2(estimators, param_grids, strategy='GSCV', 
+        >>> optimizer = ThreadedOptimizer(estimators, param_grids, strategy='GSCV', 
         ...                        n_jobs=1)
         >>> results = optimizer.fit(X_train, y_train)
         >>> print(results)
@@ -1415,8 +1416,8 @@ class Optimizer2(BaseOptimizer):
                     joblib.dump(o[name], file_name)
                     print(f"Results saved to {file_name}")
 
-        self.summary_ = ModelSummary(descriptor="Optimizer2", **o)
-        return self.summary_.summary(o)
+        self.summary = ModelSummary(descriptor="ThreadedOptimizer", **o)
+        return self.summary.summary(o)
    
 @smartFitRun
 class ParallelOptimizer(BaseOptimizer):
@@ -1665,7 +1666,7 @@ class ParallelOptimizer(BaseOptimizer):
 
         Returns
         -------
-        summary_ : ModelSummary
+        summary : ModelSummary
             A summary object containing the results of the hyperparameter 
             optimization for each estimator.
 
@@ -1758,8 +1759,8 @@ class ParallelOptimizer(BaseOptimizer):
             )
 
         results = dict(results)
-        self.summary_ = ModelSummary(descriptor="ParallelOptimizer", **results)
-        return self.summary_.summary(results)
+        self.summary = ModelSummary(descriptor="ParallelOptimizer", **results)
+        return self.summary.summary(results)
     
 
 def optimize_search(
@@ -1789,7 +1790,7 @@ def optimize_search(
         Input features for the model.
     y : ndarray or Series
         Target variable for the model.
-   strategy : str, optional
+    strategy : str, optional
         Type of search to perform. Default is 'RSCV'.
     save_results : bool, optional
         If True, saves the results of the search to a joblib file. Default is False.
@@ -1855,7 +1856,7 @@ def optimize_search(
     summary.summary(result_dict)
     return summary
 
-def optimize_search2(
+def optimize_search_in(
     estimators: Dict[str, BaseEstimator], 
     param_grids: Dict[str, Any],
     X: ArrayLike, 
@@ -1896,7 +1897,7 @@ def optimize_search2(
     y : array-like of shape (n_samples,) or (n_samples, n_outputs)
         Target values corresponding to `X`.
 
-   strategy : str, default='GSCV'
+    strategy : str, default='GSCV'
         The optimization technique to apply. 'GSCV' refers to Grid Search 
         Cross Validation. Additionalstrategys can be implemented and 
         specified here.
@@ -1925,7 +1926,7 @@ def optimize_search2(
     >>> from sklearn.linear_model import SGDClassifier
     >>> from sklearn.datasets import make_classification
     >>> from sklearn.model_selection import train_test_split
-    >>> from gofast.models.optimize import optimize_search2
+    >>> from gofast.models.optimize import optimize_search_in
     >>> X, y = make_classification(n_samples=100, n_features=7, 
                                    random_state=42)
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, 
@@ -1934,7 +1935,7 @@ def optimize_search2(
     >>> estimators = [SVC(), SGDClassifier()]
     >>> param_grids = [{'C': [1, 10], 'kernel': ['linear', 'rbf']}, 
                        {'max_iter': [50, 100], 'alpha': [0.0001, 0.001]}]
-    >>> result = optimize_search2(estimators, param_grids, X_train, y_train, 
+    >>> result = optimize_search_in(estimators, param_grids, X_train, y_train, 
                           n_jobs=1, n_iter=10)
     >>> print(result)
                       Optimized Results                       
@@ -1991,7 +1992,7 @@ def optimize_search2(
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y)
     >>> estimators = [RandomForestClassifier()]
     >>> param_grids = [{'n_estimators': [100, 200], 'max_depth': [10, 20]}]
-    >>> result_dict=optimize_search2(estimators, param_grids, X_train, y_train)
+    >>> result_dict=optimize_search_in(estimators, param_grids, X_train, y_train)
     
     Notes
     -----
@@ -2018,7 +2019,7 @@ def optimize_search2(
         f"Optimizing {make_estimator_name(name):<{max_length}}")
         for i, name in enumerate(estimators))
     # except: 
-    #     result_dict= _optimize_search2(
+    #     result_dict= _optimize_search_in(
     #         X, y, param_grids=param_grids, estimators=estimators, 
     #          **search_kwargs)
     # else: 

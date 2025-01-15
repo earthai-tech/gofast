@@ -23,18 +23,18 @@ from sklearn.utils import shuffle
 from sklearn.utils._param_validation import StrOptions 
 
 try:from sklearn.utils import type_of_target
-except: from ..tools.coreutils import type_of_target 
-from ..tools.validator import check_X_y, check_array 
-from ..tools.validator import check_is_fitted
+except: from ..core.utils import type_of_target 
+from ..utils.validator import check_X_y, check_array 
+from ..utils.validator import check_is_fitted
 from ._adaline import BaseAdalineStochastic 
 from .util import activator 
   
 __all__= [
-        "AdalineClassifier","AdalineMixte","AdalineRegressor",
-        "AdalineStochasticRegressor","AdalineStochasticClassifier",
+        "AdalineClassifier","AdalineRegressor",
+        "SGDAdalineRegressor","SGDAdalineClassifier",
     ]
 
-class AdalineStochasticRegressor(BaseAdalineStochastic, RegressorMixin):
+class SGDAdalineRegressor(BaseAdalineStochastic, RegressorMixin):
     """
     Adaline Stochastic Gradient Descent Regressor.
 
@@ -121,7 +121,7 @@ class AdalineStochasticRegressor(BaseAdalineStochastic, RegressorMixin):
 
     Examples
     --------
-    >>> from gofast.estimators.adaline import AdalineStochasticRegressor
+    >>> from gofast.estimators.adaline import SGDAdalineRegressor
     >>> import numpy as np
     >>> from sklearn.datasets import fetch_california_housing
     >>> from sklearn.model_selection import train_test_split
@@ -139,7 +139,7 @@ class AdalineStochasticRegressor(BaseAdalineStochastic, RegressorMixin):
     >>> X_test_std = sc.transform(X_test)
 
     >>> # Initialize and fit the regressor
-    >>> ada_sgd_reg = AdalineStochasticRegressor(
+    >>> ada_sgd_reg = SGDAdalineRegressor(
     >>>     eta0=0.0001, max_iter=1000, early_stopping=True, 
     >>>     validation_fraction=0.1, tol=1e-4, verbose=True)
     >>> ada_sgd_reg.fit(X_train_std, y_train)
@@ -400,7 +400,7 @@ class AdalineStochasticRegressor(BaseAdalineStochastic, RegressorMixin):
         """ Flag to indicate that regressor is not a classifier."""
         return False  
 
-class AdalineStochasticClassifier(BaseAdalineStochastic, ClassifierMixin):
+class SGDAdalineClassifier(BaseAdalineStochastic, ClassifierMixin):
     """
     Adaptive Linear Neuron Classifier with Stochastic Gradient Descent.
 
@@ -532,7 +532,7 @@ class AdalineStochasticClassifier(BaseAdalineStochastic, ClassifierMixin):
 
     Examples
     --------
-    >>> from gofast.estimators.adaline import AdalineStochasticClassifier
+    >>> from gofast.estimators.adaline import SGDAdalineClassifier
     >>> import numpy as np
     >>> from sklearn.datasets import load_breast_cancer
     >>> from sklearn.model_selection import train_test_split
@@ -550,7 +550,7 @@ class AdalineStochasticClassifier(BaseAdalineStochastic, ClassifierMixin):
     >>> X_test_std = sc.transform(X_test)
 
     >>> # Initialize and fit the classifier
-    >>> ada_sgd_clf = AdalineStochasticClassifier(
+    >>> ada_sgd_clf = SGDAdalineClassifier(
     >>>     eta0=0.01, max_iter=1000, early_stopping=True, 
     >>>     validation_fraction=0.1, tol=1e-4, verbose=True)
     >>> ada_sgd_clf.fit(X_train_std, y_train)
@@ -662,7 +662,7 @@ class AdalineStochasticClassifier(BaseAdalineStochastic, ClassifierMixin):
     
         Examples
         --------
-        >>> from gofast.estimators.adaline import AdalineStochasticClassifier
+        >>> from gofast.estimators.adaline import SGDAdalineClassifier
         >>> import numpy as np
         >>> from sklearn.datasets import load_breast_cancer
         >>> from sklearn.model_selection import train_test_split
@@ -680,7 +680,7 @@ class AdalineStochasticClassifier(BaseAdalineStochastic, ClassifierMixin):
         >>> X_test_std = sc.transform(X_test)
     
         >>> # Initialize and fit the classifier
-        >>> ada_sgd_clf = AdalineStochasticClassifier(
+        >>> ada_sgd_clf = SGDAdalineClassifier(
         >>>     eta0=0.01, max_iter=1000, early_stopping=True, 
         >>>     validation_fraction=0.1, tol=1e-4, verbose=True)
         >>> ada_sgd_clf.fit(X_train_std, y_train)

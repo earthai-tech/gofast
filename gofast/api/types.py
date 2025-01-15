@@ -83,7 +83,7 @@ from an array:
 
     import numpy as np
     from gofast.api.types import TypeVar, DType, Array, _Sub
-    from gofast.tools.mathex import _define_conductive_zone
+    from gofast.utils.mathex import _define_conductive_zone
     _T = TypeVar('_T', float)
     erp_array: Array[_T, DType[_T]] = np.random.randn(21)
     select_zone, _ = _define_conductive_zone(erp=erp_array, auto=True)
@@ -145,6 +145,7 @@ from ..compat.types import (
     Callable,
     Union,
     Any,
+    Pattern, 
     Generic,
     Optional,
     Type,
@@ -173,6 +174,7 @@ __all__ = [
     "Iterable",
     "Callable",
     "Any",
+    "Pattern", 
     "Generic", 
     "Optional", 
     "Union", 

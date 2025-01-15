@@ -34,7 +34,8 @@ from typing import (
     NamedTuple,
     NewType,
     TypedDict,
-    Generator
+    Generator, 
+    Pattern, 
 )
 
 # Check if Python version is 3.10 or higher
@@ -83,4 +84,5 @@ __all__ = [
     "TypedDict",
     "Generator",
     "TypeGuard",
+    "Pattern"
 ]

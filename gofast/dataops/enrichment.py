@@ -15,13 +15,13 @@ import pandas as pd
 from ..api.summary import ReportFactory
 from ..api.types import List,  DataFrame, Optional, Series, Array1D 
 from ..api.types import Union, TypeGuard, Tuple, ArrayLike
-from ..api.util import get_table_size 
+from ..api.util import get_table_size
+from ..core.checks import is_iterable, exist_features
+from ..core.array_manager import to_numeric_dtypes 
 from ..decorators import isdf
-from ..tools.coreutils import is_iterable
-from ..tools.coreutils import to_numeric_dtypes, exist_features
-from ..tools.validator import  build_data_if, is_frame
-from ..tools.validator import check_consistent_length 
-from ..tools.validator import is_valid_policies
+from ..utils.validator import  build_data_if, is_frame
+from ..utils.validator import check_consistent_length 
+from ..utils.validator import is_valid_policies
 
 TW = get_table_size() 
 

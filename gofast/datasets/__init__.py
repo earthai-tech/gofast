@@ -13,8 +13,9 @@ Available Functions
 
 # Data loading functions
 from ._data_loader import (
-    load_bagoue, load_iris, load_hlogs, load_nansha, load_mxs, fetch_data, 
-    load_forensic, load_jrs_bet, load_dyspnea, load_statlog, load_hydro_metrics
+    fetch_data, load_bagoue, load_iris, load_hlogs, load_nansha, load_mxs,
+    load_forensic, load_jrs_bet, load_dyspnea, load_statlog, load_hydro_metrics,
+    load_toc, 
 )
 # Data generation functions
 from .make import (
@@ -33,13 +34,15 @@ from .simulate import (
    simulate_sentiment_analysis, simulate_weather_forecasting, 
    simulate_default_loan, simulate_traffic_flow, simulate_medical_diagnosis,
    simulate_retail_sales, simulate_landfill_capacity, simulate_climate_data, 
-   simulate_patient_data, simulate_weather_data, simulate_telecom_data
+   simulate_patient_data, simulate_weather_data, simulate_telecom_data, 
+   simulate_electricity_data, simulate_retail_data, simulate_traffic_data, 
+   simulate_transactions,
 )
 
 __all__ = [
     "load_bagoue", "load_iris", "load_hlogs", "load_nansha", "load_forensic",
     "load_jrs_bet", "load_dyspnea", "load_mxs", "fetch_data","load_hydro_metrics",
-    "load_statlog", 
+    "load_statlog", "load_toc", 
     
     "make_elogging", "make_erp","make_ert", "make_gadget_sales", 
     "make_medical_diagnosis", "make_mining_ops","make_retail_store", "make_tem",
@@ -55,6 +58,7 @@ __all__ = [
     "simulate_default_loan", "simulate_traffic_flow", "simulate_medical_diagnosis",
     "simulate_retail_sales", "simulate_landfill_capacity", "simulate_climate_data",
     "simulate_stock_prices", "simulate_transactions", "simulate_patient_data",
-    "simulate_weather_data", "simulate_clinical_trials", "simulate_telecom_data"
+    "simulate_weather_data", "simulate_clinical_trials", "simulate_telecom_data", 
+    "simulate_electricity_data", "simulate_retail_data", "simulate_traffic_data"
     
 ]

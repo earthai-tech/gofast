@@ -6,7 +6,7 @@
 including feature selection, transformation, scaling, and encoding to enhance 
 machine learning model inputs."""
 
-from __future__ import division
+from __future__ import division, annotations 
 
 import itertools 
 import warnings 
@@ -19,8 +19,8 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.cluster import KMeans 
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler,MinMaxScaler, OrdinalEncoder
-from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures, RobustScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, OrdinalEncoder
+from sklearn.preprocessing import PolynomialFeatures, RobustScaler
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.feature_selection import SelectFromModel
@@ -31,14 +31,18 @@ from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 
 from .._gofastlog import gofastlog 
 from ..api.types import _F, Union, Optional
+from ..compat.sklearn import OneHotEncoder 
+from ..core.array_manager import to_numeric_dtypes  
+from ..core.checks import assert_ratio, validate_feature
+from ..core.checks import is_iterable, exist_features 
+from ..core.handlers import parse_attrs, get_batch_size
+from ..core.utils import ellipsis2false, type_of_target 
 from ..exceptions import EstimatorError, NotFittedError 
-from ..tools.baseutils import detect_categorical_columns 
-from ..tools.coreutils import  parse_attrs, assert_ratio, validate_feature
-from ..tools.coreutils import  ellipsis2false, to_numeric_dtypes, is_iterable
-from ..tools.coreutils import exist_features, type_of_target
-from ..tools.validator import  get_estimator_name, check_X_y, is_frame
-from ..tools.validator import _is_arraylike_1d, build_data_if, check_array 
-from ..tools.validator import check_is_fitted, check_consistent_length 
+from ..utils.base_utils import detect_categorical_columns 
+from ..utils.data_utils import nan_ops  
+from ..utils.validator import  get_estimator_name, check_X_y, is_frame
+from ..utils.validator import _is_arraylike_1d, build_data_if, check_array 
+from ..utils.validator import check_is_fitted, check_consistent_length 
 
 __all__= [
     'FeatureImportanceSelector', 
@@ -61,13 +65,580 @@ __all__= [
     'PolynomialFeatureCombiner', 
     'DimensionalityReducer', 
     'CategoricalEncoder', 
-    'CategoricalEncoder2',
+    'CategoricalEncoderIn',
     'FeatureScaler', 
     'MissingValueImputer', 
     'ColumnSelector', 
     'LogTransformer', 
-    'CategoryFrequencyEncoder', 
+    'CategoryFrequencyEncoder',
+    'OutlierHandler', 
   ]
+
+
+class OutlierHandler(BaseEstimator, TransformerMixin):
+    r"""
+
+    Detects and handles outliers in numerical data using specified methods
+    and strategies.
+
+    Parameters
+    ----------
+    method : str, default='iqr'
+        The method to use for outlier detection. Supported methods are:
+        ``'iqr'``, ``'zscore'``, and ``'modified_zscore'``.
+
+        - ``'iqr'``: Interquartile Range method.
+        - ``'zscore'``: Standard score method.
+        - ``'modified_zscore'``: Modified z-score method.
+
+    threshold : float, default=1.5
+        The threshold to use for identifying outliers. The interpretation
+        depends on the ``method``:
+
+        - For ``'iqr'``: The multiplier of the IQR to define the inner
+          fences.
+        - For ``'zscore'`` and ``'modified_zscore'``: The number of standard
+          deviations (or modified z-scores) beyond which a data point is
+          considered an outlier.
+
+    fill_strategy : str, default='replace'
+        The strategy to handle outliers. Supported strategies are:
+        ``'replace'``, ``'interpolate'``, and ``'drop'``.
+
+        - ``'replace'``: Replace outliers with ``fill_value``.
+        - ``'interpolate'``: Replace outliers with interpolated values.
+          Only applicable when ``fill_value`` is ``np.nan``.
+        - ``'drop'``: Remove rows (or columns) containing outliers.
+
+    fill_value : float or None, default=np.nan
+        The value to replace outliers with when ``fill_strategy`` is
+        ``'replace'``. If ``fill_strategy`` is ``'interpolate'``, this
+        must be ``np.nan``.
+
+    axis : int or None, default=None
+        The axis along which to compute the statistics for outlier
+        detection. Applicable for multidimensional data (e.g., arrays
+        or DataFrames).
+
+        - If ``None``, compute over the entire array.
+        - For DataFrames, ``0`` corresponds to columns and ``1`` to rows.
+
+    interpolate_method : str, default='linear'
+        The interpolation method to use when ``fill_strategy`` is
+        ``'interpolate'``. This parameter is passed to the interpolation
+        function.
+
+    batch_size : str or int or None, default=None
+        The size of data chunks for batch processing. Useful for large
+        datasets to reduce memory usage.
+
+        - If ``'auto'``, a default batch size is used.
+        - If an integer, specifies the number of samples per batch.
+        - If ``None``, batch processing is not used.
+
+    verbose : bool, default=False
+        If ``True``, print progress messages during batch processing.
+
+    Methods
+    -------
+    fit(X, y=None)
+        Fit the outlier detector to the data.
+
+    transform(X)
+        Apply the outlier handling to the data.
+
+    fit_transform(X, y=None)
+        Fit to data, then transform it.
+
+    Examples
+    --------
+    **Example 1: Using 'replace' strategy**
+
+    >>> from gofast.transformers.feature_engineering import OutlierHandler
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> # Create sample data
+    >>> data = pd.DataFrame({
+    ...     'A': np.random.randn(100),
+    ...     'B': np.random.randn(100) * 10,
+    ...     'C': np.random.randn(100) * 100
+    ... })
+    >>> # Introduce outliers
+    >>> data.iloc[::10] += np.random.randn(10, 3) * 1000
+    >>> # Initialize OutlierHandler
+    >>> outlier_handler = OutlierHandler(
+    ...     method='zscore',
+    ...     threshold=3,
+    ...     fill_strategy='replace',
+    ...     fill_value=np.nan
+    ... )
+    >>> # Fit and transform the data
+    >>> clean_data = outlier_handler.fit_transform(data)
+    >>> # Compare the original and cleaned data
+    >>> print(clean_data.head())
+              A          B          C
+    0       NaN -197.63294       NaN
+    1 -0.483768   -8.30608  41.10371
+    2  0.946154    9.16224 -82.16336
+    3 -1.049766  -10.51188  44.40243
+    4  0.806867  -11.49177  44.89874
+
+    In this example, outliers identified using the Z-score method with a
+    threshold of 3 are replaced with `np.nan`.
+
+    **Example 2: Using 'interpolate' strategy**
+
+    >>> from gofast.transformers.feature_engineering import OutlierHandler
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> # Create sample data
+    >>> data = pd.DataFrame({
+    ...     'A': np.random.randn(100),
+    ...     'B': np.random.randn(100) * 10,
+    ...     'C': np.random.randn(100) * 100
+    ... })
+    >>> # Introduce outliers
+    >>> data.iloc[::10] += np.random.randn(10, 3) * 1000
+    >>> # Initialize OutlierHandler
+    >>> outlier_handler = OutlierHandler(
+    ...     method='zscore',
+    ...     threshold=3,
+    ...     fill_strategy='interpolate',
+    ...     fill_value=np.nan
+    ... )
+    >>> # Fit and transform the data
+    >>> clean_data = outlier_handler.fit_transform(data)
+    >>> # Compare the original and cleaned data
+    >>> print(clean_data.head())
+              A          B          C
+    0 -0.203553   2.101645  -5.672305
+    1 -0.203553   2.101645  -5.672305
+    2 -0.624296  -8.252069  41.709293
+    3  1.076217   4.629819  86.024825
+    4  0.043463  -1.606437  14.477575
+
+    In this example, outliers are replaced using interpolation. Note that
+    interpolation may not fill NaN values at the beginning or end of the
+    data unless the `limit_direction` parameter is set appropriately.
+
+    **Important Note:**
+
+    When using the 'interpolate' strategy, if outliers are at the beginning
+    or end of the DataFrame or Series, pandas' `interpolate` method may not
+    fill these NaN values unless you specify the `limit_direction` parameter.
+    You can modify the `interpolate_method` parameter to include this, for
+    example:
+
+    >>> outlier_handler = OutlierHandler(
+    ...     method='zscore',
+    ...     threshold=3,
+    ...     fill_strategy='interpolate',
+    ...     fill_value=np.nan,
+    ...     interpolate_method='linear',
+    ...     axis=0
+    ... )
+    >>> clean_data = outlier_handler.fit_transform(data)
+    >>> # Now interpolate with limit_direction
+    >>> clean_data = clean_data.interpolate(
+    ...     method='linear', axis=0, limit_direction='both'
+    ... )
+    >>> print(clean_data.head())
+              A          B          C
+    0 -0.203553   2.101645  -5.672305
+    1 -0.203553   2.101645  -5.672305
+    2 -0.624296  -8.252069  41.709293
+    3  1.076217   4.629819  86.024825
+    4  0.043463  -1.606437  14.477575
+
+    In this adjusted example, the NaN values at the beginning and end are
+    interpolated correctly.
+
+    Notes
+    -----
+    **Outlier Detection Methods:**
+
+    The Interquartile Range (IQR) method identifies outliers as data points
+    that fall below the first quartile minus :math:`k` times the IQR or
+    above the third quartile plus :math:`k` times the IQR, where :math:`k`
+    is the ``threshold``.
+
+    .. math::
+
+        \text{IQR} = Q_3 - Q_1 \\
+        \text{Lower Bound} = Q_1 - k \times \text{IQR} \\
+        \text{Upper Bound} = Q_3 + k \times \text{IQR}
+
+    The Z-score method identifies outliers as data points with a standard
+    score (z-score) less than :math:`-k` or greater than :math:`k`, where
+    :math:`k` is the ``threshold``.
+
+    .. math::
+
+        z = \frac{X - \mu}{\sigma}
+
+    The Modified Z-score method uses the median and median absolute
+    deviation (MAD) instead of mean and standard deviation, which is more
+    robust to outliers.
+
+    .. math::
+
+        \text{Modified Z-score} = 0.6745 \times \frac{X - \text{Median}}{\text{MAD}}
+
+    **Handling NaN Values During Interpolation:**
+
+    When using the 'interpolate' strategy, if outliers are at the edges
+    of the data (beginning or end), the default interpolation may not fill
+    these NaN values. To address this, you can specify the `limit_direction`
+    parameter as 'both' in the `interpolate` method.
+
+    References
+    ----------
+    .. [1] Rousseeuw, P.J., and C. Croux. "Alternatives to the Median
+       Absolute Deviation." Journal of the American Statistical Association,
+       vol. 88, no. 424, 1993, pp. 1273–1283.
+
+    See Also
+    --------
+    sklearn.preprocessing.StandardScaler : Standardize features by removing
+        the mean and scaling to unit variance.
+
+    sklearn.preprocessing.RobustScaler : Scale features using statistics
+        that are robust to outliers.
+
+    """
+
+    def __init__(
+        self,
+        method: str = 'iqr',
+        threshold: float = 1.5,
+        fill_strategy: str = 'replace',
+        fill_value: Optional[float] = np.nan,
+        axis: Optional[int] = None,
+        interpolate_method: str = 'linear',
+        batch_size: Optional[Union[str, int]] = None,
+        verbose: bool = False,
+    ):
+        self.method = method.lower()
+        self.threshold = threshold
+        self.fill_strategy = fill_strategy.lower()
+        self.fill_value = fill_value
+        self.axis = axis
+        self.interpolate_method = interpolate_method
+        self.batch_size = batch_size
+        self.verbose = verbose
+
+        # Internal variables to be set during fit
+        self._lower_bound = None
+        self._upper_bound = None
+        self._mean = None
+        self._std = None
+        self._median = None
+        self._mad = None
+        self._is_fitted = False
+        
+    def fit(self, X: Union[np.ndarray, pd.Series, pd.DataFrame], y=None):
+        """
+        Fit the outlier detector to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The data to fit. Can be a NumPy array, pandas Series, or
+            pandas DataFrame.
+
+        y : None
+            Ignored. This parameter exists for compatibility with
+            scikit-learn's TransformerMixin.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+
+        """
+
+        if not isinstance(X, (np.ndarray, pd.Series, pd.DataFrame)):
+            raise TypeError(
+                "Input `X` must be a NumPy array, pandas Series, or pandas DataFrame."
+            )
+
+        if self.method not in {'iqr', 'zscore', 'modified_zscore'}:
+            raise ValueError(
+                f"Unsupported method '{self.method}'. Supported methods are:"
+                " 'iqr', 'zscore', 'modified_zscore'."
+            )
+
+        if self.fill_strategy not in {'replace', 'interpolate', 'drop'}:
+            raise ValueError(
+                f"Unsupported fill_strategy '{self.fill_strategy}'."
+                " Supported strategies are: 'replace', 'interpolate', 'drop'."
+            )
+
+        if self.fill_strategy == 'interpolate' and not np.isnan(self.fill_value):
+            raise ValueError(
+                "When `fill_strategy` is 'interpolate', `fill_value` must be np.nan."
+            )
+
+        if isinstance(X, pd.DataFrame):
+            self._fit_dataframe(X)
+        elif isinstance(X, pd.Series):
+            self._fit_series(X)
+        elif isinstance(X, np.ndarray):
+            self._fit_ndarray(X)
+        else:
+            raise TypeError(
+                "Unsupported data type. `X` must be a NumPy array, pandas"
+                " Series, or pandas DataFrame."
+            )
+
+        self._is_fitted = True
+    
+        
+        return self
+    
+    def transform(self, X: Union[np.ndarray, pd.Series, pd.DataFrame]):
+        """
+        Apply the outlier handling to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The data to transform. Can be a NumPy array, pandas Series,
+            or pandas DataFrame.
+
+        Returns
+        -------
+        X_transformed : array-like of shape (n_samples, n_features)
+            The transformed data with outliers handled according to the
+            specified strategy.
+
+        """
+        if not self._is_fitted:
+            raise NotFittedError(
+                "This OutlierHandler instance is not fitted yet."
+                " Call 'fit' before using this method."
+                )
+
+        if not isinstance(X, (np.ndarray, pd.Series, pd.DataFrame)):
+            raise TypeError(
+                "Input `X` must be a NumPy array, pandas Series, or pandas DataFrame."
+            )
+
+        if isinstance(X, pd.DataFrame):
+            return self._transform_dataframe(X)
+        elif isinstance(X, pd.Series):
+            return self._transform_series(X)
+        elif isinstance(X, np.ndarray):
+            return self._transform_ndarray(X)
+        else:
+            raise TypeError(
+                "Unsupported data type. `X` must be a NumPy array, pandas"
+                " Series, or pandas DataFrame."
+            )
+
+    def _fit_dataframe(self, df: pd.DataFrame):
+        self.axis = self.axis or 0 
+        
+        if self.method == 'iqr':
+            Q1 = df.quantile(0.25, axis=self.axis)
+            Q3 = df.quantile(0.75, axis=self.axis)
+            IQR = Q3 - Q1
+            self._lower_bound = Q1 - self.threshold * IQR
+            self._upper_bound = Q3 + self.threshold * IQR
+        elif self.method == 'zscore':
+            self._mean = df.mean(axis=self.axis)
+            self._std = df.std(axis=self.axis)
+        elif self.method == 'modified_zscore':
+            self._median = df.median(axis=self.axis)
+            self._mad = df.mad(axis=self.axis)
+
+    def _fit_series(self, series: pd.Series):
+        if self.method == 'iqr':
+            Q1 = series.quantile(0.25)
+            Q3 = series.quantile(0.75)
+            IQR = Q3 - Q1
+            self._lower_bound = Q1 - self.threshold * IQR
+            self._upper_bound = Q3 + self.threshold * IQR
+        elif self.method == 'zscore':
+            self._mean = series.mean()
+            self._std = series.std()
+        elif self.method == 'modified_zscore':
+            self._median = series.median()
+            self._mad = series.mad()
+
+    def _fit_ndarray(self, array: np.ndarray):
+        axis = self.axis
+        if self.method == 'iqr':
+            Q1 = np.percentile(array, 25, axis=axis, keepdims=True)
+            Q3 = np.percentile(array, 75, axis=axis, keepdims=True)
+            IQR = Q3 - Q1
+            self._lower_bound = Q1 - self.threshold * IQR
+            self._upper_bound = Q3 + self.threshold * IQR
+        elif self.method == 'zscore':
+            self._mean = np.mean(array, axis=axis, keepdims=True)
+            self._std = np.std(array, axis=axis, keepdims=True)
+        elif self.method == 'modified_zscore':
+            self._median = np.median(array, axis=axis, keepdims=True)
+            self._mad = np.median(np.abs(array - self._median), 
+                                  axis=axis, keepdims=True)
+
+    def _transform_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        if self.batch_size is not None:
+            return self._batch_process(df, self._transform_dataframe_batch)
+        else:
+            return self._transform_dataframe_batch(df)
+
+    def _transform_dataframe_batch(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        if self.method == 'iqr':
+            outlier_mask = (df < self._lower_bound) | (df > self._upper_bound)
+        elif self.method == 'zscore':
+            z_scores = (df - self._mean) / self._std
+            outlier_mask = (z_scores.abs() > self.threshold)
+        else:  # modified_zscore
+            modified_z_scores = 0.6745 * (df - self._median) / self._mad
+            outlier_mask = (modified_z_scores.abs() > self.threshold)
+
+        if self.fill_strategy == 'replace':
+            df[outlier_mask] = self.fill_value
+        elif self.fill_strategy == 'interpolate':
+            df[outlier_mask] = np.nan
+            df = df.interpolate(
+                method=self.interpolate_method, axis=self.axis or 0, 
+                limit_direction='both'
+            )
+        elif self.fill_strategy == 'drop':
+            df = df[~outlier_mask.any(axis=1)]
+        return df
+
+    def _transform_series(self, series: pd.Series) -> pd.Series:
+        if self.batch_size is not None:
+            return self._batch_process(series, self._transform_series_batch)
+        else:
+            return self._transform_series_batch(series)
+
+    def _transform_series_batch(self, series: pd.Series) -> pd.Series:
+        series = series.copy()
+        if self.method == 'iqr':
+            outlier_mask = (
+                series < self._lower_bound) | (series > self._upper_bound)
+        elif self.method == 'zscore':
+            z_scores = (series - self._mean) / self._std
+            outlier_mask = (z_scores.abs() > self.threshold)
+        else:  # modified_zscore
+            modified_z_scores = 0.6745 * (series - self._median) / self._mad
+            outlier_mask = (modified_z_scores.abs() > self.threshold)
+
+        if self.fill_strategy == 'replace':
+            series[outlier_mask] = self.fill_value
+        elif self.fill_strategy == 'interpolate':
+            series[outlier_mask] = np.nan
+            series = series.interpolate(
+                method=self.interpolate_method, limit_direction='both'
+            )
+        elif self.fill_strategy == 'drop':
+            series = series[~outlier_mask]
+        return series
+
+    def _transform_ndarray(self, array: np.ndarray) -> np.ndarray:
+        if self.batch_size is not None and (self.axis == 0 or self.axis is None):
+            return self._batch_process_ndarray(array)
+        else:
+            return self._transform_ndarray_batch(array)
+
+    def _transform_ndarray_batch(self, array: np.ndarray) -> np.ndarray:
+        array = array.copy()
+        original_dtype = array.dtype
+        if self.method == 'iqr':
+            outlier_mask = (
+                array < self._lower_bound) | (array > self._upper_bound)
+        elif self.method == 'zscore':
+            z_scores = (array - self._mean) / self._std
+            outlier_mask = (np.abs(z_scores) > self.threshold)
+        else:  # modified_zscore
+            modified_z_scores = 0.6745 * (array - self._median) / self._mad
+            outlier_mask = (np.abs(modified_z_scores) > self.threshold)
+
+        if self.fill_strategy == 'replace':
+            array = array.astype(np.float64)
+            array[outlier_mask] = self.fill_value
+            array = array.astype(original_dtype)
+        elif self.fill_strategy == 'interpolate':
+            array = array.astype(np.float64)
+            array[outlier_mask] = np.nan
+            array = self._interpolate_grid(array, method=self.interpolate_method)
+            array = array.astype(original_dtype)
+        elif self.fill_strategy == 'drop':
+            if self.axis == 0 or self.axis is None:
+                array = array[~np.any(outlier_mask, axis=1)]
+            elif self.axis == 1:
+                array = array[:, ~np.any(outlier_mask, axis=0)]
+            else:
+                raise ValueError("Invalid axis for drop strategy in ndarray.")
+        return array
+
+    def _batch_process(self, data, process_func):
+        if self.batch_size == 'auto':
+            batch_size = get_batch_size(data) #  Default batch size
+        else:
+            batch_size = int(self.batch_size)
+
+        total_length = len(data)
+        chunks = []
+        for start in range(0, total_length, batch_size):
+            end = min(start + batch_size, total_length)
+            data_chunk = data.iloc[start:end]
+            processed_chunk = process_func(data_chunk)
+            chunks.append(processed_chunk)
+            if self.verbose:
+                print(f"Processed batch {start} to {end}")
+        return pd.concat(chunks).reset_index(drop=True)
+
+    def _batch_process_ndarray(self, array):
+        if self.batch_size == 'auto':
+            batch_size = get_batch_size(array)
+        else:
+            batch_size = int(self.batch_size)
+
+        total_rows = array.shape[0]
+        chunks = []
+        for start in range(0, total_rows, batch_size):
+            end = min(start + batch_size, total_rows)
+            array_chunk = array[start:end]
+            processed_chunk = self._transform_ndarray_batch(array_chunk)
+            chunks.append(processed_chunk)
+            if self.verbose:
+                print(f"Processed batch {start} to {end}")
+        return np.concatenate(chunks, axis=0)
+
+    def _interpolate_grid(self, array, method='linear'):
+        from scipy.interpolate import griddata
+
+        coords = np.indices(array.shape).reshape(array.ndim, -1).T
+        values = array.flatten()
+
+        mask = ~np.isnan(values)
+        if not np.any(mask):
+            raise ValueError("All values are NaN, cannot interpolate.")
+
+        interpolated = griddata(
+            coords[mask],
+            values[mask],
+            coords,
+            method=method
+        )
+
+        interpolated_array = interpolated.reshape(array.shape)
+        return interpolated_array
+
+    # Add 'inplace' property to control whether to modify data in place
+    @property
+    def inplace(self):
+        return getattr(self, '_inplace', False)
+
+    @inplace.setter
+    def inplace(self, value):
+        self._inplace = value
 
 class FeatureImportanceSelector(BaseEstimator, TransformerMixin):
     """
@@ -1212,9 +1783,9 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
         return X_transformed
 
 
-class CategoricalEncoder2(BaseEstimator, TransformerMixin):
+class CategoricalEncoderIn(BaseEstimator, TransformerMixin):
     """
-    CategoricalEncoder2 is a versatile transformer for encoding categorical 
+    CategoricalEncoderIn is a versatile transformer for encoding categorical 
     variables using various strategies including label encoding, one-hot 
     encoding, bin-counting, frequency encoding, and mean-target encoding.
 
@@ -1244,11 +1815,11 @@ class CategoricalEncoder2(BaseEstimator, TransformerMixin):
         `encoding='mean_target'`, and it should be provided during the fitting 
         stage to compute mean target values for each category.
 
-    detect_integer_as_categorical : bool, optional, default=True
+    integer_as_cat : bool, optional, default=True
         If True, integer columns in the input data are treated as categorical 
         features and are encoded based on the chosen encoding strategy.
 
-    detect_float_ending_with_zero : bool, optional, default=True
+    float0_as_cat : bool, optional, default=True
         If True, float columns that contain values ending in `.0` (effectively 
         representing integers) are treated as categorical variables.
 
@@ -1348,20 +1919,23 @@ class CategoricalEncoder2(BaseEstimator, TransformerMixin):
         self, 
         encoding='label', 
         target=None, 
-        detect_integer_as_categorical=True,
-        detect_float_ending_with_zero=True,
+        integer_as_cat=True,
+        float0_as_cat=True,
         min_unique_values=None,
-        max_unique_values=None
+        max_unique_values=None, 
+        handle_nan=None, 
+        verbose=0
         ):
         
         self.encoding = encoding
         self.target = target
-        self.detect_integer_as_categorical = detect_integer_as_categorical
-        self.detect_float_ending_with_zero = detect_float_ending_with_zero
+        self.integer_as_cat = integer_as_cat
+        self.float0_as_cat = float0_as_cat
         self.max_unique_values = max_unique_values
         self.min_unique_values = min_unique_values
-
-        
+        self.handle_nan=handle_nan
+        self.verbose=verbose 
+ 
     def fit(self, X, y=None):
         """
         Fit the CategoricalEncoder to the data.
@@ -1434,6 +2008,8 @@ class CategoricalEncoder2(BaseEstimator, TransformerMixin):
             Convert categorical variable(s) into dummy/indicator variables.
  
         """
+        X = self._check_nan_in(X)
+                
         self.categorical_columns_ = [] 
         self.label_encoders_ = {}
         if isinstance(X, pd.DataFrame):
@@ -1450,8 +2026,8 @@ class CategoricalEncoder2(BaseEstimator, TransformerMixin):
         
         self.categorical_columns_= detect_categorical_columns(
             X, 
-            detect_integer_as_categorical=self.detect_integer_as_categorical, 
-            detect_float_ending_with_zero=self.detect_float_ending_with_zero, 
+            integer_as_cat=self.integer_as_cat, 
+            float0_as_cat=self.float0_as_cat, 
             max_unique_values=self.max_unique_values, 
             min_unique_values=self.min_unique_values
         )
@@ -1545,6 +2121,9 @@ class CategoricalEncoder2(BaseEstimator, TransformerMixin):
     
         """
         check_is_fitted(self, 'label_encoders_')
+        
+        X = self._check_nan_in(X)
+            
         if isinstance(X, pd.DataFrame):
             return self._transform_dataframe(X)
         else:
@@ -1645,6 +2224,26 @@ class CategoricalEncoder2(BaseEstimator, TransformerMixin):
             X_df[col] = X_df[col].map(means)
         return X_df.values
 
+    def _check_nan_in (self, X): 
+        if nan_ops(X, ops='check_only'): 
+            if self.handle_nan not in {'fill', 'drop'}: 
+                warnings.warn(
+                    "NaN values detected in the input data. Consider handle"
+                    " missing values by setting `handle_nan='drop'` to remove"
+                    " rows with NaN or `handle_nan='fill'` to impute "
+                    "missing values appropriately."
+                )
+            elif self.handle_nan in {'fill', 'drop'}: 
+                X = nan_ops(
+                    X, 
+                    ops = 'sanitize', 
+                    action = self.handle_nan, 
+                    data_kind ='feature', 
+                    verbose=self.verbose 
+                ) 
+                
+        return X 
+    
 class StratifyFromBaseFeature(BaseEstimator, TransformerMixin):
     """
     Stratifies a dataset by categorizing a numerical attribute and returns 
@@ -1774,7 +2373,7 @@ class StratifyFromBaseFeature(BaseEstimator, TransformerMixin):
     def _categorize_feature(self, X):
         """Categorizes the numerical feature."""
  
-        from ..tools.mlutils import discretize_categories
+        from ..utils.mlutils import discretize_categories
         X = discretize_categories(X, in_cat=self.base_feature, 
             new_cat="class_label", divby =self.threshold_operator,
             higherclass = self.max_category
@@ -1928,7 +2527,7 @@ class CategoryBaseStratifier(BaseEstimator, TransformerMixin):
         tuple of DataFrames
             The stratified training and testing sets.
         """
-        from ..tools.mlutils import stratify_categories 
+        from ..utils.mlutils import stratify_categories 
         # stratification logic here (e.g., using pd.cut)
         strat_train_set, strat_test_set = stratify_categories(
             X, self.base_column, test_size = self.test_size, 
@@ -2062,12 +2661,12 @@ class CategorizeFeatures(BaseEstimator, TransformerMixin ):
             The transformed array with the additional combined attribute.
         
         """
-        from ..tools.mlutils import soft_encoder 
+        from ..utils.mlutils import soft_encoder 
         # -------------------------------------------
         if _is_arraylike_1d(X): 
             raise ValueError ("One-dimensional or Series is not allowed."
                               " Use sklearn.preprocessing.LabelEncoder or "
-                              " gofast.tools.smart_label_classier to encode"
+                              " gofast.utils.smart_label_classier to encode"
                               " variables.")
         X = build_data_if(X, to_frame =True, force =True,
                           raise_warning="silence", input_name='col')
@@ -3794,10 +4393,10 @@ class CategoricalEncoder(BaseEstimator, TransformerMixin):
         - 'if_binary' : drop one category if it is binary.
         - None : keep all categories.
     
-    detect_integer_as_categorical : bool, optional, default=True
+    integer_as_cat : bool, optional, default=True
         Whether integer columns should be detected as categorical features.
     
-    detect_float_ending_with_zero : bool, optional, default=True
+    float0_as_cat : bool, optional, default=True
         Whether float columns ending with `.0` (i.e., integers in float form)
         should be detected as categorical features.
     
@@ -3863,7 +4462,7 @@ class CategoricalEncoder(BaseEstimator, TransformerMixin):
     --------
     - sklearn.preprocessing.OneHotEncoder : Provides the underlying one-hot 
       encoding mechanism.
-    - gofast.tools.baseutils.detect_categorical_columns : 
+    - gofast.utils.baseutils.detect_categorical_columns : 
       Automatically detects categorical columns in a DataFrame.
     
     References
@@ -3876,16 +4475,16 @@ class CategoricalEncoder(BaseEstimator, TransformerMixin):
         self, 
         categorical_features=None, 
         drop=None, 
-        detect_integer_as_categorical=True, 
-        detect_float_ending_with_zero=True, 
+        integer_as_cat=True, 
+        float0_as_cat=True, 
         max_unique_values=None, 
         min_unique_values=None, 
         return_type="array"
     ):
         self.categorical_features = categorical_features
         self.drop = drop
-        self.detect_integer_as_categorical = detect_integer_as_categorical
-        self.detect_float_ending_with_zero = detect_float_ending_with_zero
+        self.integer_as_cat = integer_as_cat
+        self.float0_as_cat = float0_as_cat
         self.max_unique_values = max_unique_values
         self.min_unique_values = min_unique_values
         self.return_type = return_type
@@ -3914,15 +4513,16 @@ class CategoricalEncoder(BaseEstimator, TransformerMixin):
         if self.categorical_features is None: 
             self.categorical_features = detect_categorical_columns(
                 X, 
-                detect_integer_as_categorical=self.detect_integer_as_categorical, 
-                detect_float_ending_with_zero=self.detect_float_ending_with_zero, 
+                integer_as_cat=self.integer_as_cat, 
+                float0_as_cat=self.float0_as_cat, 
                 max_unique_values=self.max_unique_values, 
                 min_unique_values=self.min_unique_values
             )
         
         # Create encoders for each categorical feature
         self.encoders_ = {
-            feature: OneHotEncoder(drop=self.drop, sparse=(self.return_type == 'sparse')) 
+            feature: OneHotEncoder(
+                drop=self.drop, sparse=(self.return_type == 'sparse')) 
             for feature in self.categorical_features
         }
         

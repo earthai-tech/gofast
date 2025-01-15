@@ -30,9 +30,9 @@ from sklearn.utils.multiclass import type_of_target
 from ..api.types import Tuple,_F, ArrayLike, NDArray, Dict, Union, Any
 from ..api.types import  List, Optional, Type, DataFrame, Series 
 from ..api.summary import ModelSummary 
-from ..tools.coreutils import smart_format
-from ..tools.validator import get_estimator_name, check_X_y 
-from ..tools.depsutils import import_optional_dependency 
+from ..core.utils import smart_format
+from ..utils.validator import get_estimator_name, check_X_y 
+from ..utils.deps_utils import import_optional_dependency 
 
 from .._gofastlog import gofastlog
 
@@ -221,7 +221,7 @@ class NoneHandler:
             'gamma': 'scale',  # Default value for gamma in SVMs
             'n_estimators': 100,  # Common default for ensemble methods
             'learning_rate': 0.1,  # Common default for boosting methods
-            # Add more common hyperparameters as needed
+            # more common hyperparameters as needed
         }
         return default_values.get(param, None)
     
@@ -884,7 +884,6 @@ def validate_strategy(strategy: Union[str, _F]) -> str:
         'GradientSearchCV': ['GBSCV', 'GradientSearchCV'], 
         'GeneticSearchCV': ['GENSCV', 'GeneticSearchCV']
     }
-
 
     strategy_name = strategy if isinstance(
         strategy, str) else get_estimator_name(strategy)

@@ -26,12 +26,12 @@ from sklearn.covariance import LedoitWolf
 from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import StandardScaler
 
-from ..backends.selector import BackendSelector 
 from ..api.docstring import _core_docs
 from ..api.types import ArrayLike , Union, Iterable 
 from ..api.util import to_snake_case 
-from ..tools.validator import check_array, validate_positive_integer
-from ..tools.validator import ensure_2d, parameter_validator 
+from ..backends.selector import BackendSelector 
+from ..utils.validator import check_array, validate_positive_integer
+from ..utils.validator import ensure_2d, parameter_validator 
 
 __all__=[ 
     "ledoit_wolf_score",  

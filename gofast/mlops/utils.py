@@ -26,10 +26,10 @@ from contextlib import contextmanager
 
 import numpy as np
 
-from ..api.property import BaseClass
-from ..decorators import EnsureFileExists 
 from .._gofastlog import gofastlog 
-from ..tools.validator import parameter_validator 
+from ..api.property import BaseClass
+from ..core.io import EnsureFileExists 
+from ..utils.validator import parameter_validator 
 
 logger=gofastlog.get_gofast_logger(__name__)
 

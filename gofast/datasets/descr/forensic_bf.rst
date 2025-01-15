@@ -37,36 +37,36 @@ Forensic BF Dataset
 
     :Summary Statistics:
 
-    ============== ==== ==== ======= ===== ====================
-                    Count  Missing Values
-    ============== ==== ==== ======= ===== ====================
-    date           240   0           
-    gender         240   0           
-    age            240   0           
-    education_le   240   0           
-    occupation     240   0           
-    dna_knowledge  240   0           
-    dna_info_sour  240   0           
-    support_nati   240   0           
-    dna_db_custod  240   0           
-    dna_db_inclus  240   0           
-    dna_db_access  240   0           
-    dna_db_confid  240   0           
-    dna_db_utiliz  240   0           
-    dna_db_impact  240   0           
-    dna_data_prot  240   0           
-    dna_db_compet  240   0           
-    dna_use_terro  240   0           
-    privacy_invas  240   0           
-    voluntary_dna  240   0           
-    privacy_risk_  240   0           
-    database_misu  240   0           
-    dna_use_in_in  240   0           
-    police_lab_su  240   0           
-    forensic_dna_  240   0           
-    forensic_dna_  240   0           
-    message_to_in  81    159         
-    ============== ==== ==== ======= ===== ====================
+    ============== ======== ====================
+                   Count    Missing Values
+    ============== ======== ====================
+    date           240      0           
+    gender         240      0           
+    age            240      0           
+    education_le   240      0           
+    occupation     240      0           
+    dna_knowledge  240      0           
+    dna_info_sour  240      0           
+    support_nati   240      0           
+    dna_db_custod  240      0           
+    dna_db_inclus  240      0           
+    dna_db_access  240      0           
+    dna_db_confid  240      0           
+    dna_db_utiliz  240      0           
+    dna_db_impact  240      0           
+    dna_data_prot  240      0           
+    dna_db_compet  240      0           
+    dna_use_terro  240      0           
+    privacy_invas  240      0           
+    voluntary_dna  240      0           
+    privacy_risk_  240      0           
+    database_misu  240      0           
+    dna_use_in_in  240      0           
+    police_lab_su  240      0           
+    forensic_dna_  240      0           
+    forensic_dna_  240      0           
+    message_to_in  81       159         
+    ============== ======== ====================
 
     :Missing Attribute Values: Yes
     :Class Distribution: 
@@ -74,7 +74,7 @@ Forensic BF Dataset
     A DNA database will improve investigations.           0.004167
     ...
 
-    :Creator: Kouadio K. Laurent (etanoyau@gmail.com)
+    :Creator: LKouadio (etanoyau@gmail.com)
 	:Donor: Zeye, Moutanou Modeste Judes et al. (zeyemodeste@gmail.com) 
     :Source: "Forensic DNA database and criminal investigation in the Sahel region, a need to update the National Security Policy?"
     :Publisher: Oxford University Press

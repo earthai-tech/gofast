@@ -10,15 +10,20 @@ including CSV and text files, as well as dataset descriptions.
 import os 
 import csv 
 import shutil 
-import numpy as np 
-import pandas as pd 
+import warnings 
 from pathlib import Path 
 from importlib import resources
 from collections import namedtuple
+from typing import Union, List, Optional, Tuple, Any
+from urllib.parse import urljoin
+from gofast.utils.base_utils import check_file_exists, fancier_downloader
+
+import numpy as np 
+import pandas as pd 
+
 from ..api.structures import Boxspace  
-from ..tools.baseutils import is_readable 
-from ..tools.coreutils import random_state_validator, is_iterable
-from ..tools.coreutils import exist_features
+from ..core.checks import random_state_validator, is_iterable, exist_features
+from ..utils.base_utils import is_readable 
 
 __all__=[
     'csv_data_loader',
@@ -31,8 +36,12 @@ __all__=[
 DMODULE = "gofast.datasets.data" ; DESCR = "gofast.datasets.descr"
 
 # create a namedtuple for remote data and url 
-RemoteMetadata = namedtuple("RemoteMetadata", ["file", "url", "checksum"])
+RemoteMetadata = namedtuple("RemoteMetadata", ["file", "url", "checksum", "descr", "module"])
 RemoteDataURL ='https://raw.githubusercontent.com/earthai-tech/gofast/master/gofast/datasets/data/'
+
+RemoteMetadata.descr =DESCR 
+RemoteMetadata.url= RemoteDataURL 
+RemoteMetadata.module = DMODULE 
 
 def get_data(data =None) -> str: 
     if data is None:
@@ -73,8 +82,116 @@ def remove_data(data=None): #clear
     data = get_data(data)
     shutil.rmtree(data)
 
+def download_file_if(
+    metadata: Optional[RemoteMetadata],
+    package_name: str = DMODULE,
+    error: str = 'raise',
+    verbose: bool = True
+) -> None:
+    """
+    Download a file from a remote URL if it does not exist in the specified package.
 
-def _to_dataframe(data, target_names=None, feature_names=None, target=None):
+    Parameters
+    ----------
+    metadata : Optional[RemoteMetadata]
+        Metadata of the remote file. If a string is provided instead of a 
+        `RemoteMetadata` instance, it is treated as the filename, and other 
+        attributes are set to default values.
+    
+    package_name : str, default=DMODULE
+        The name of the package where the file should be stored.
+    
+    error : str, default='raise'
+        Determines the behavior when a download fails. 
+        - `'warn'`: Emit a warning and continue.
+        - `'raise'`: Raise an exception.
+    
+    verbose : bool, default=True
+        If `True`, prints messages about the download status.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If the `error` parameter is not set to `'warn'` or `'raise'`.
+    RuntimeError
+        If the download fails and `error` is set to `'raise'`.
+    """
+    # Validate the 'error' parameter
+    if error not in ['warn', 'raise', 'ignore']:
+        raise ValueError("`error` parameter must be either 'warn' or 'raise'.")
+
+    # If metadata is a string, convert it to a RemoteMetadata instance with default values
+    if isinstance(metadata, str):
+        metadata = RemoteMetadata(
+            file=metadata,            # Set 'file' to the provided string
+            url=RemoteDataURL,        # Use the default remote data URL
+            checksum='',              # Default checksum (can be updated as needed)
+            descr=DESCR,              # Default description
+            module=DMODULE            # Default module path
+        )
+    
+    # Ensure metadata is now a RemoteMetadata instance
+    if not isinstance(metadata, RemoteMetadata):
+        raise TypeError("`metadata` must be a string or a RemoteMetadata instance.")
+    
+    # Check if the specified file already exists within the given package
+    file_exists = check_file_exists(package_name, metadata.file)
+    
+    if not file_exists:
+        try:
+            # Construct the full path to the file within the package using importlib.resources
+            package_path = str(resources.files(package_name).joinpath(metadata.file))
+            
+            # Determine the directory where the file should be saved
+            destination_dir = os.path.dirname(package_path)
+            
+            # Ensure the destination directory exists to prevent errors during download
+            os.makedirs(destination_dir, exist_ok=True)
+            
+            # Construct the full URL to download the file by joining the base URL and filename
+            file_url = urljoin(metadata.url, metadata.file)
+            
+            # Download the file using the fancier_downloader utility
+            fancier_downloader(
+                url=file_url,               # URL from which to download the file
+                filename=metadata.file,     # Name of the file to save
+                dstpath=destination_dir,     # Destination directory path
+                check_size=True, 
+                verbose=False, 
+            )
+            
+            # Inform the user about the successful download if verbose is True
+            if verbose:
+                print(
+                    f"\nSuccessfully downloaded '{metadata.file}' "
+                    f"to '{destination_dir}'."
+                )
+        except Exception as e:
+            # Handle errors based on the 'error' parameter
+            if error == 'warn':
+                # Emit a warning without stopping the program
+                warnings.warn(
+                    f"\nFailed to download '{metadata.file}'. Error: {e}"
+                )
+            elif error == 'raise':
+                # Raise a RuntimeError with the original exception as context
+                raise RuntimeError(
+                    f"Failed to download '{metadata.file}'. Check your "
+                    "connection and retry."
+                ) from e
+    else:
+        # Inform the user that the file already exists and skip the download
+        if verbose:
+            warnings.warn(
+                f"File '{metadata.file}' already exists in package '{package_name}'. "
+                "Skipping download."
+            )
+
+def to_dataframe(data, target_names=None, feature_names=None, target=None):
     """
     Refines input data into a structured DataFrame, distinguishing between
     features and targets based on specified column names or a separate target array.
@@ -83,7 +200,7 @@ def _to_dataframe(data, target_names=None, feature_names=None, target=None):
     ----------
     data : str, path-like object, DataFrame, or array-like
         Source data, which can be a file path, a DataFrame, or an array-like object.
-    tnames : list of str, optional
+    target_names : list of str, optional
         Column names in `data` designated as targets. If specified, these columns
         are separated into the target DataFrame `y`.
     feature_names : list of str, optional
@@ -91,7 +208,7 @@ def _to_dataframe(data, target_names=None, feature_names=None, target=None):
         all columns except those specified in `tnames` are used.
     target : ndarray, pd.Series, pd.DataFrame, or None, optional
         Explicit target data. If provided, this will be used as the target DataFrame `y`,
-        potentially in addition to any targets specified in `tnames`.
+        potentially in addition to any targets specified in `target_names`.
 
     Returns
     -------
@@ -127,7 +244,7 @@ def _to_dataframe(data, target_names=None, feature_names=None, target=None):
     1      1
     2      0
     """
-    
+    print(data.columns )
     if isinstance(data, (str, bytes)):
         data = is_readable(data)  # Assumes CSV; adjust as necessary.
     elif isinstance(data, np.ndarray) or isinstance(data, list):
@@ -136,20 +253,25 @@ def _to_dataframe(data, target_names=None, feature_names=None, target=None):
         except: data =pd.DataFrame(data )
         
     if target_names is not None: 
-        target_names = is_iterable (target_names, exclude_string=True, transform=True)
-        
-    feature_data = data.drop(columns=target_names, errors='ignore') if target_names else data
+        target_names = is_iterable (
+            target_names, exclude_string=True, transform=True)
+    print(data.columns )
+    feature_data = data.drop(
+        columns=target_names, errors='ignore') if target_names else data
     try:
         exist_features(data, target_names) # check whether tnames is on data 
-    except: target_from_data= pd.DataFrame()
+    except:
+        target_from_data= pd.DataFrame()
     else: 
         target_from_data = data[target_names] if target_names else pd.DataFrame()
-
+    
     if target is not None:
         if isinstance(target, (pd.Series, pd.DataFrame, np.ndarray)):
             if isinstance(target, np.ndarray):
-                target = pd.DataFrame(target, columns=target_names
-                                      ) if target_names else pd.DataFrame(target)
+                target = pd.DataFrame(
+                    target, columns=target_names
+                    ) if target_names else pd.DataFrame(target)
+   
             elif isinstance(target, pd.Series):
                 target = pd.DataFrame(target)
             # No need to filter out duplicates here, as we've preemptively handled them.
@@ -178,65 +300,318 @@ def _to_dataframe(data, target_names=None, feature_names=None, target=None):
                             " pd.Series, pd.DataFrame, or None.")
     else:
         target = target_from_data
-        
+
     # for consistency, recheck the feature data. 
-    feature_data = feature_data [
-        feature_names] if feature_names is not None else feature_data 
+    feature_data =( 
+        feature_data [feature_names] 
+        if feature_names is not None else feature_data 
+        )
     # Ensure that `target` is either a DataFrame or None for 
     # consistent return types
     target = target if not target.empty else None
-    combined = pd.concat([feature_data, target], axis=1
-                         ) if target is not None else feature_data
+    combined = pd.concat(
+        [feature_data, target], axis=1) if target is not None else feature_data
 
     return combined, feature_data, target
 
-
-def __to_dataframe(data, tnames=None , feature_names =None, target =None ): 
-    """ Validate that data is readable by pandas rearder and parse the data.
-     then separate data from training to target. Be sure that the target 
-     must be included to the dataframe columns 
-     
-    :param data: str, or path-like object 
-        data file to read or dataframe
-    :param tnames: list of str 
-        name of target that might be a column of the target frame. 
-        
-    :param feature_names: List of features to selects. Preferably 
-        should be include in the dataframe columns 
-    :params target: Ndarray or array-like, 
-        A target for supervised learning . Can be ndarray -for muliclass 
-        output and array-like for singular label 
-    
-    :returns: 
-        dataframe combined and X, y (X= features frames, y = target frame)
+def _to_dataframe(
+    data: Union[str, Path, pd.DataFrame, np.ndarray, List[Any]],
+    target_names: Optional[List[str]] = None,
+    feature_names: Optional[List[str]] = None,
+    target: Optional[Union[np.ndarray, pd.Series, pd.DataFrame]] = None, 
+    error: str = 'warn'
+) -> Tuple[pd.DataFrame, pd.DataFrame, Optional[pd.DataFrame]]:
     """
-    # if a ndarray is given ,then convert to dataframe 
-    # by adding feature names. 
-    d0, y = None , None 
-    if isinstance (data, np.ndarray ):
-        d0 = pd.DataFrame(data = data, columns = feature_names)
-    else : 
-        # read with pandas config parsers including the target 
-        df = is_readable(data)  
-    # if tnames are given convert the array 
-    # of target  to a target frame 
-    if  ( 
-        d0 is not None 
-        and tnames is not None 
-        and target is not None
-            ) : 
-        
-        tnames = is_iterable(tnames, exclude_string= True, transform =True)
-        target = pd.DataFrame(data =target , columns =tnames ) 
-        # if target is not None: 
-        df = pd.concat ([d0, target], axis =1 )# stack to columns 
+    Refines input data into structured DataFrames for features and targets.
 
-    X = df[feature_names ]  
-    
-    if tnames is not None :
-        y = df [tnames[0]] if len(tnames)==1 else df [tnames]
-    
-    return df, X, y 
+    This function processes input data, distinguishing between features and targets
+    based on specified column names or a separate target array. It ensures that
+    the resulting DataFrames are well-structured, free of duplicate columns,
+    and align with the provided feature and target specifications.
+
+    Parameters
+    ----------
+    data : str, Path, pd.DataFrame, np.ndarray, list
+        Source data, which can be:
+        - A file path (string or Path object) pointing to a CSV file.
+        - A pandas DataFrame.
+        - An array-like object (e.g., list or NumPy array).
+    target_names : list of str, optional
+        Column names in `data` designated as targets. If specified, these columns
+        are separated into the target DataFrame `y`.
+    feature_names : list of str, optional
+        Column names to retain as features in the output DataFrame `X`. If not provided,
+        all columns except those specified in `target_names` are used.
+    target : np.ndarray, pd.Series, pd.DataFrame, optional
+        Explicit target data. If provided, this will be used as the target DataFrame `y`,
+        potentially in addition to any targets specified in `target_names`.
+
+    error: {'raise', 'warn', 'ignore'}, default ='warn' 
+        Error policy for managing the data and target transformations. 
+        - if ``error=='raise'``, raise (ValueError or TypeError) if target, the 
+          target columns or the data does not meet any conditions of their 
+          structures. 
+        - if ``error='warn', find solution to handle it and continue processing 
+        - if ``error='ignore'`` continue runing silently. 
+        
+    Returns
+    -------
+    combined : pd.DataFrame
+        The combined DataFrame including both features and target(s), if applicable.
+    X : pd.DataFrame
+        The features DataFrame.
+    y : pd.DataFrame or None
+        The target DataFrame, if targets are specified either through
+        `target_names` or `target`. Returns `None` if no target is specified.
+
+    Raises
+    ------
+    ValueError
+        If input data cannot be interpreted as a DataFrame.
+        If specified `target_names` or `feature_names` are not present in the data.
+        If `target` is provided but its dimensions or columns are incompatible.
+    TypeError
+        If `target` is not an instance of `np.ndarray`, `pd.Series`,
+        `pd.DataFrame`, or `None`.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({
+    ...     'feature1': [1, 2, 3],
+    ...     'feature2': [4, 5, 6],
+    ...     'target': [0, 1, 0]
+    ... })
+    >>> feature_names = ['feature1', 'feature2']
+    >>> target_names = ['target']
+    >>> combined, X, y = to_dataframe(data, target_names, feature_names)
+    >>> X
+       feature1  feature2
+    0         1         4
+    1         2         5
+    2         3         6
+    >>> y
+       target
+    0      0
+    1      1
+    2      0
+
+    >>> # Using separate target
+    >>> data = pd.DataFrame({
+    ...     'feature1': [1, 2, 3],
+    ...     'feature2': [4, 5, 6]
+    ... })
+    >>> target = pd.Series([0, 1, 0], name='target')
+    >>> combined, X, y = to_dataframe(data, target=target)
+    >>> X
+       feature1  feature2
+    0         1         4
+    1         2         5
+    2         3         6
+    >>> y
+       target
+    0      0
+    1      1
+    2      0
+
+    >>> # Loading from CSV file
+    >>> combined, X, y = to_dataframe(
+    ...    'data.csv', target_names=['target'],
+    ...     feature_names=['feature1', 'feature2']
+    ...  )
+    """
+
+    # Step 1: Load data into DataFrame
+    if isinstance(data, (str, Path, bytes)):
+        path = Path(data)
+        data_df = is_readable(path)
+    elif isinstance(data, pd.DataFrame):
+        data_df = data.copy()
+    elif isinstance(data, (np.ndarray, list)):
+        if feature_names is not None:
+            if isinstance(data, list) and not all(
+                isinstance(row, (list, tuple, np.ndarray))
+                for row in data
+            ):
+                # Reshape if list of scalars
+                data = np.array(data).reshape(-1, 1)
+            elif isinstance(data, np.ndarray) and data.ndim == 1:
+                data = data.reshape(-1, 1)
+            if len(feature_names) != data.shape[1]:
+                raise ValueError(
+                    f"Length of 'feature_names' ({len(feature_names)}) "
+                    f"does not match number of columns in 'data' "
+                    f"({data.shape[1]})."
+                )
+            try:
+                data_df = pd.DataFrame(data, columns=feature_names)
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to convert array-like data to DataFrame "
+                    f"with provided 'feature_names': {e}"
+                )
+        else:
+            try:
+                data_df = pd.DataFrame(data)
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to convert array-like data to DataFrame: {e}"
+                )
+    else:
+        raise TypeError(
+            "The 'data' parameter must be a file path (str or Path), "
+            "a pandas DataFrame, or an array-like object."
+        )
+
+    # Step 2: Separate target columns if target_names are provided
+    if target_names is not None:
+        target_names = is_iterable(
+            target_names, exclude_string=True, transform=True
+        )
+        missing_targets = [
+            name for name in target_names if name not in data_df.columns
+        ]
+        if missing_targets:
+            err_msg = (
+                f"The following target columns are not in data: "
+                f"{missing_targets}"
+            )
+            if error == 'raise':
+                raise ValueError(err_msg)
+            elif error == 'warn':
+                warnings.warn(err_msg)
+        # Keep only valid target_names
+        valid_target_names = [
+            name for name in target_names if name in data_df.columns
+        ]
+        y_from_data = data_df[valid_target_names].copy()
+        X = data_df.drop(columns=valid_target_names)
+    else:
+        y_from_data = pd.DataFrame()
+        X = data_df.copy()
+
+    # Step 3: Select feature columns if feature_names are provided
+    if feature_names is not None:
+        feature_names = is_iterable(
+            feature_names, exclude_string=True, transform=True
+        )
+        missing_features = [
+            name for name in feature_names if name not in X.columns
+        ]
+        if missing_features:
+            err_msg = (
+                f"The following feature columns are not in data: "
+                f"{missing_features}"
+            )
+            if error == 'raise':
+                raise ValueError(err_msg)
+            elif error == 'warn':
+                warnings.warn(err_msg)
+        # Keep only valid feature_names
+        valid_feature_names = [
+            name for name in feature_names if name in X.columns
+        ]
+        X = X[valid_feature_names].copy()
+
+    # Step 4: Handle separate target if provided
+    if target is not None:
+        if not isinstance(
+            target, (np.ndarray, pd.Series, pd.DataFrame)
+        ):
+            if error == 'raise':
+                raise TypeError(
+                    "The 'target' must be an ndarray, pd.Series, "
+                    "pd.DataFrame, or None."
+                )
+            elif error == 'warn':
+                warnings.warn(
+                    f"The 'target' {type(target).__name__!r} detected. "
+                    "Should be converted to numpy array."
+                )
+                target = np.array(target)
+        
+        if isinstance(target, np.ndarray):
+            if target_names is not None:
+                if target.ndim == 1 and len(target_names) == 1:
+                    target_df = pd.DataFrame(
+                        target, columns=target_names
+                    )
+                elif target.ndim == 2 and target.shape[1] == len(target_names):
+                    target_df = pd.DataFrame(
+                        target, columns=target_names
+                    )
+                else:
+                    if error == 'raise':
+                        raise ValueError(
+                            "Shape of 'target' does not match 'target_names'."
+                        )
+                    elif error == 'warn':
+                        warnings.warn(
+                            "Shape of 'target' does not match 'target_names'."
+                        )
+                        target_df = pd.DataFrame(target)
+            else:
+                target_df = pd.DataFrame(target)
+        elif isinstance(target, pd.Series):
+            target_df = target.to_frame()
+            if target_names is not None:
+                if len(target_names) != 1:
+                    raise ValueError(
+                        "Length of 'target_names' must be 1 when "
+                        "target is a pd.Series."
+                    )
+                target_df.columns = target_names
+        elif isinstance(target, pd.DataFrame):
+            if target_names is not None:
+                missing_target_cols = [
+                    name for name in target_names if name not in target.columns
+                ]
+                if missing_target_cols:
+                    err_msg = (
+                        f"The following target columns are missing in 'target' "
+                        f"DataFrame: {missing_target_cols}"
+                    )
+                    if error == 'raise':
+                        raise ValueError(err_msg)
+                    elif error == 'warn':
+                        warnings.warn(err_msg)
+                # Keep only valid target_names
+                valid_target_cols = [
+                    name for name in target_names if name in target.columns
+                ]
+                target_df = target[valid_target_cols].copy()
+            else:
+                target_df = target.copy()
+        
+        # Combine y_from_data and target_df
+        if not y_from_data.empty:
+            overlapping = y_from_data.columns.intersection(target_df.columns)
+            if not overlapping.empty:
+                y_from_data = y_from_data.drop(
+                    columns=overlapping
+                )
+            y_combined = pd.concat(
+                [y_from_data, target_df], axis=1
+            )
+        else:
+            y_combined = target_df.copy()
+    else:
+        y_combined = y_from_data.copy()
+
+    # Step 5: Final checks and return
+    if not y_combined.empty:
+        y_final = y_combined.copy()
+    else:
+        y_final = None
+
+    # Combine X and y_final
+    if y_final is not None:
+        combined = pd.concat([X, y_final], axis=1)
+    else:
+        combined = X.copy()
+
+    return combined, X, y_final
+
 
 def csv_data_loader(
     data_file,*, data_module=DMODULE, descr_file=None, descr_module=DESCR,
@@ -244,10 +619,10 @@ def csv_data_loader(
 ):
     feature_names= None # expect to extract features as the head columns 
     cat_feature_exist = False # for homogeneous feature control
-    #with resources.files(data_module).joinpath(
-    #        data_file).open('r', encoding='utf-8') as csv_file: #python >3.8
-    with resources.open_text(data_module, data_file, 
-                             encoding='utf-8') as csv_file: # Python 3.8
+    with resources.files(data_module).joinpath(
+            data_file).open('r', encoding='utf-8') as csv_file: #python >3.8
+    # with resources.open_text(data_module, data_file, 
+    #                          encoding='utf-8') as csv_file: # Python 3.8
         data_file = csv.reader(csv_file)
         temp = next(data_file)
         n_samples = int(temp[0]) ; n_features = int(temp[1])
@@ -473,7 +848,7 @@ allowed_extensions : list of str, default=None
 
 Returns
 -------
-data : :class:`~gofast.tools.Boxspace`
+data : :class:`~gofast.utils.Boxspace`
     Dictionary-like object, with the following attributes.
     data : list of str
       Only present when `load_content=True`.

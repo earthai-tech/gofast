@@ -4,7 +4,7 @@
 """
 Optimize Base Classes
 """
-
+from __future__ import annotations  
 import joblib
 from joblib import Parallel, delayed
 from tqdm import tqdm 
@@ -17,8 +17,9 @@ from sklearn.base import BaseEstimator
 from ..api.summary import ModelSummary, ResultSummary
 from ..api.property import BaseClass 
 from ..api.types import Any, Dict, List,Union, Tuple, Optional, ArrayLike
-from ..tools.coreutils import get_params, smart_format
-from ..tools.validator import filter_valid_kwargs, get_estimator_name
+from ..core.handlers import get_params 
+from ..core.utils import smart_format 
+from ..utils.validator import filter_valid_kwargs, get_estimator_name
 from .utils import get_strategy_method, align_estimators_with_params
 
 
@@ -154,7 +155,7 @@ class BaseOptimizer(BaseClass):
         self.save_results = save_results
         self.n_jobs = n_jobs
         self.search_kwargs = search_kwargs
-        self.summary_ = None
+        self.summary= None
         
     def _control_strategy(self):
         """
@@ -252,12 +253,12 @@ class BaseOptimizer(BaseClass):
     
         Returns
         -------
-        summary_ : ModelSummary
+        summary : ModelSummary
             The constructed `ModelSummary` object.
         """
-        self.summary_ = ModelSummary(descriptor=descriptor, **results_dict)
-        self.summary_.summary(results_dict)
-        return self.summary_
+        self.summary= ModelSummary(descriptor=descriptor, **results_dict)
+        self.summary.summary(results_dict)
+        return self.summary
     
     def get_estimator_shortname(self, estimator, existing_short_names):
         """
@@ -373,7 +374,7 @@ class BaseOptimizer(BaseClass):
         str
             A string representation of the BaseOptimizer object.
         """
-        if self.summary_ is None:
+        if self.summary is None:
             param_values = get_params(self)
             summary = ResultSummary(name=self.__class__.__name__, mute_note=True)
             summary.add_results(param_values)
@@ -381,7 +382,7 @@ class BaseOptimizer(BaseClass):
                        " object to get tuning results.]")
             return summary.__str__() + "\n\n" + message
 
-        return self.summary_.__repr__()
+        return self.summary.__repr__()
 
     def __str__(self):
         """
@@ -397,10 +398,10 @@ class BaseOptimizer(BaseClass):
         str
             A detailed string representation of the BaseOptimizer object.
         """
-        if self.summary_ is None:
+        if self.summary is None:
             return f"<{self.__class__.__name__}: Object with no summary yet.>"
 
-        return self.summary_.__str__()
+        return self.summary.__str__()
 
 def _optimize_search2(
     X: ArrayLike,

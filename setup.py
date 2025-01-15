@@ -60,7 +60,7 @@ KEYWORDS = "machine learning, algorithm, processing"
 # Package data specification
 PACKAGE_DATA = {
     'gofast': [
-        'tools/_openmp_helpers.pxd',
+        'utils/_openmp_helpers.pxd',
         'geo/espg.npy',
         'etc/*',
         '_gflog.yml',
@@ -77,16 +77,14 @@ PACKAGE_DATA = {
 
 # List of specific files to compile
 pyx_files_to_build = [
-    'coreutils.py',
     'validator.py',
-    'mlutils.py',
     'descriptive.py',
-    'mathex.py',
+    'mathext.py',
     'optimize.py',
     'cluster_based.py',
     '_cluster_based.py',
-    'funcutils.py',
-    'baseutils.py',
+    'func_utils.py',
+    'base_utils.py',
     'feature_engineering.py'
 ]
 
@@ -128,7 +126,7 @@ def collect_all_pyx_modules(base_package_paths, specific_files=None, rename=Fals
 
 base_package_paths = [
     'gofast/estimators',
-    'gofast/tools',
+    'gofast/utils',
     'gofast/stats',
     'gofast/transformers',
     'gofast/models',

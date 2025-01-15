@@ -13,10 +13,20 @@ License: BSD-3-Clause
 import re
 from warnings import warn
 
-from .load import (load_bagoue, load_iris, load_hlogs, load_nansha, load_mxs,
-                   load_forensic, load_jrs_bet, load_dyspnea, load_statlog, 
-                   load_hydro_metrics)
-from ..tools.coreutils import listing_items_format
+from .load import (
+    load_bagoue, 
+    load_iris, 
+    load_hlogs, 
+    load_nansha, 
+    load_mxs,
+    load_forensic,
+    load_jrs_bet, 
+    load_dyspnea,
+    load_statlog, 
+    load_hydro_metrics,
+    load_toc,
+)
+from ..core.utils import listing_items_format
 from ..exceptions import DatasetError
 from .._gofastlog import gofastlog
 
@@ -25,11 +35,11 @@ _logger = gofastlog().get_gofast_logger(__name__)
 __all__ = [
     "load_bagoue", "load_iris", "load_hlogs", "load_nansha", "fetch_data",
     "load_mxs", "load_forensic", "load_jrs_bet", "load_dyspnea", "load_statlog", 
-    "load_hydro_metrics", "DATASET"
+    "load_hydro_metrics", "load_toc",  "DATASET"
 ]
 
 _DTAGS = ("bagoue","iris" , "hlogs", "nlogs", "mxs", "forensic", "jrs_bet",
-          "dyspnea","statlog", "hydro_metrics"
+          "dyspnea","statlog", "hydro_metrics", "toc", 
           )
 
 # Error messages for different processing stages
@@ -75,7 +85,7 @@ def fetch_data(tag, **kwargs):
         'bagoue': load_bagoue, 'iris': load_iris, 'hlogs': load_hlogs,
         'nansha': load_nansha, 'mxs': load_mxs, 'forensic': load_forensic,
         'jrs_bet': load_jrs_bet, 'dyspnea': load_dyspnea,'statlog':load_statlog, 
-        'hydro_metrics':load_hydro_metrics
+        'hydro_metrics':load_hydro_metrics, 'toc': load_toc, 
     }
     tag = _parse_tag(tag, default='bagoue')
     if _fetch_data and callable(_fetch_data) and tag not in load_funcs.keys():
@@ -133,6 +143,7 @@ Gofast dataset includes various data types for software implementation, such as:
 - 'Dyspnea': Dyspnea dataset collected in Cote d'Ivoire.
 - 'Stalog': Statlog Heart Disease dataset :ref:`https://archive.ics.uci.edu/dataset/145/statlog+heart`. 
 - 'Hydro_metrics': Hydro-Meteorological dataset collected in Yobouakro, Cote d'Ivoire'.
+- 'TOC': "Total Organic Carbon dataset."
 """
 
 DATASET = type("DATASET", (), {"KIND": _DTAGS, "HOW": _DATASET_LIST, "DOC": _DATASET_DOC})

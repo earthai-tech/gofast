@@ -25,7 +25,6 @@ from sklearn.model_selection import (
     StratifiedKFold,
     cross_val_score
 )
-
 from .._gofastlog import gofastlog
 from ..api.docstring import DocstringComponents, _core_docs
 from ..api.property import BaseClass
@@ -41,11 +40,13 @@ from ..api.types import (
     Optional,
     Union
 )
+from ..core.checks import validate_ratio 
+from ..core.handlers import get_params 
+from ..core.utils import listing_items_format 
 from ..decorators import smartFitRun 
 from ..exceptions import EstimatorError, NotFittedError
-from ..tools.coreutils import get_params, listing_items_format, validate_ratio
-from ..tools.ioutils import save_job
-from ..tools.validator import (
+from ..utils.io_utils import save_job
+from ..utils.validator import (
     check_X_y,
     check_array,
     check_consistent_length,
@@ -535,7 +536,7 @@ class PerformanceTuning(BaseClass):
     fit(X, y):
         Fits the models to the data (X, y) and performs cross-validation.
     
-    _cv_performance_data_base(X, y):
+    _cv_performance_base(X, y):
         Performs base cross-validation for performance data.
     
     _cv_performance_deep(X, y):
@@ -706,11 +707,11 @@ class PerformanceTuning(BaseClass):
         if self.tuning_depth == 'deep':
             self._cv_performance_deep(X, y)
         else:
-            self._cv_performance_data_base(X, y)
+            self._cv_performance_base(X, y)
         
         return self
 
-    def _cv_performance_data_base(self, X, y): 
+    def _cv_performance_base(self, X, y): 
         
         if self.estimators is None: 
             if self.param_grids is not None: 

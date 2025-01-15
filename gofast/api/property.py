@@ -98,6 +98,7 @@ Optimizer(name=SGD, iterations=100)
 """
 
 from __future__ import annotations
+import os 
 import json
 import csv
 import inspect 
@@ -116,7 +117,7 @@ import pandas as pd
 __all__ = [ 
     "GeoscienceProperties", "Property", "UTM_DESIGNATOR", "Software", 
     "Copyright", "References", "Person", "BaseClass", "PipelineBaseClass", 
-    "BaseLearner", "PandasDataHandlers", 
+    "BaseLearner", "PandasDataHandlers", "NNLearner", 
 ]
 
 # Configure logging
@@ -1116,10 +1117,10 @@ class BaseClass(metaclass=HelpMeta):
         str
             A summarized string representation of the DataFrame.
         """
-        if len(df) > self.MAX_DISPLAY_ITEMS:
-            return f"DataFrame({len(df)} rows, {len(df.columns)} columns)"
-        else:
-            return f"DataFrame: {df.to_string(index=False)}"
+        # if len(df) > self.MAX_DISPLAY_ITEMS:
+        return f"DataFrame({len(df)} rows, {len(df.columns)} columns)"
+        # else:
+        #     return f"DataFrame: {df.to_string(index=False)}"
 
     def _summarize_series(self, series: pd.Series) -> str:
         """
@@ -1136,13 +1137,242 @@ class BaseClass(metaclass=HelpMeta):
         str
             A summarized string representation of the Series.
         """
-        if len(series) > self.MAX_DISPLAY_ITEMS:
-            limited_items = ', '.join(f"{series.index[i]}: {series[i]}" 
-                                      for i in range(self.MAX_DISPLAY_ITEMS))
-            return f"Series([{limited_items}, ...])"
-        else:
-            return f"Series: {series.to_string(index=False)}"
+        # if len(series) > self.MAX_DISPLAY_ITEMS:
+        limited_items = ', '.join(f"{series.index[i]}: {series[i]}" 
+                                  for i in range(self.MAX_DISPLAY_ITEMS))
+        return f"Series([{limited_items}, ...])"
+        # else:
+        #     return f"Series: {series.to_string(index=False)}"
+
+class NNLearner(metaclass=LearnerMeta):
+    """
+    Base class for all Deep Neural Network learners in this framework,
+    designed to facilitate dynamic management of parameters, retrieval,
+    and representation.
+    """
+
+    @classmethod
+    def _get_param_names(cls):
+        """
+        Retrieve the names of the parameters defined in the constructor.
+        """
+        # Fetch the constructor or original constructor if deprecated
+        init = getattr(cls.__init__, "deprecated_original", cls.__init__)
+        if init is object.__init__:
+            # No explicit constructor to introspect
+            return []
+
+        # Introspect the constructor arguments to identify model parameters
+        init_signature = inspect.signature(init)
+        parameters = [
+            p for p in init_signature.parameters.values()
+            if p.name != "self" and p.kind != p.VAR_KEYWORD
+        ]
+        for p in parameters:
+            if p.kind == p.VAR_POSITIONAL:
+                raise RuntimeError(
+                    f"{cls.__name__} should not have variable positional arguments "
+                    f"in the constructor (no *args)."
+                )
+        # Return sorted argument names excluding 'self'
+        return sorted([p.name for p in parameters])
+
+    def get_params(self, deep=True):
+        """
+        Get the parameters for this learner.
+        """
+        out = {}
+        for key in self._get_param_names():
+            value = getattr(self, key, None)
+            # Retrieve nested parameters if `deep=True`
+            if deep and hasattr(value, "get_params") and not isinstance(value, type):
+                deep_items = value.get_params().items()
+                out.update((key + "__" + k, val) for k, val in deep_items)
+            out[key] = value
+        return out
+
+    def set_params(self, **params):
+        """
+        Set the parameters of this learner.
+        """
+        if not params:
+            # Optimization for speed if no parameters are given
+            return self
+        valid_params = self.get_params(deep=True)
+        nested_params = defaultdict(dict)  # Grouped by prefix
+
+        for key, value in params.items():
+            key, delim, sub_key = key.partition("__")
+            if key not in valid_params:
+                # Raise error for invalid parameter
+                local_valid_params = self._get_param_names()
+                raise ValueError(
+                    f"Invalid parameter {key!r} for learner {self}. "
+                    f"Valid parameters are: {local_valid_params!r}."
+                )
+            if delim:
+                nested_params[key][sub_key] = value
+            else:
+                setattr(self, key, value)
+                valid_params[key] = value
+
+        # Set parameters for nested objects
+        for key, sub_params in nested_params.items():
+            valid_params[key].set_params(**sub_params)
+
+        return self
+
+    def __repr__(self, N_CHAR_MAX=700):
+        """
+        Return a string representation of the learner, showing key parameters.
+        """
+        params = self.get_params()
+        param_str = ", ".join(f"{key}={value!r}" for key, value in params.items())
+        # Truncate if exceeds max character length
+        if len(param_str) > N_CHAR_MAX:
+            param_str = param_str[:N_CHAR_MAX] + "..."
+        return f"{self.__class__.__name__}({param_str})"
+
+    def __getstate__(self):
+        """
+        Prepare the object for pickling by saving the current state.
+        """
+        state = {}
+        version = getattr(self, "_version", "1.0.0")  # Default version
+
+        for key, value in self.__dict__.items():
+            # Exclude non-serializable attributes
+            if key.startswith("_") or callable(value):
+                continue
+            try:
+                # Test serializability of the attribute
+                _ = pickle.dumps(value)
+                state[key] = value
+            except (pickle.PicklingError, TypeError):
+                print(f"Warning: Unable to pickle attribute '{key}'. Excluded.")
+
+        # Add version information
+        state["_version"] = version
+        return state
+
+    def __setstate__(self, state):
+        """
+        Restore the object's state after unpickling, with version 
+        checks and handling for missing attributes.
+        """
         
+        logger = logging.getLogger(__name__)
+        expected_version = getattr(self, "_version", "1.0.0")
+
+        # Check if state version matches expected version
+        version = state.get("_version", "unknown")
+        if version != expected_version:
+            logger.warning(
+                f"Version mismatch: loaded state version '{version}' "
+                f"does not match expected '{expected_version}'."
+            )
+
+        # Restore only valid attributes
+        for key, value in state.items():
+            try:
+                setattr(self, key, value)
+            except Exception as e:
+                logger.error(f"Could not set attribute '{key}': {e}")
+
+        # Set missing attributes as needed
+        if not hasattr(self, "_initialized"):
+            self._initialized = True
+
+    def summary(self):
+        """
+        Provide a summary of the learner's parameters.
+        """
+        params = self.get_params(deep=False)
+        summary_str = "\n".join(f"{k}: {v}" for k, v in params.items())
+        return f"{self.__class__.__name__} Summary:\n{summary_str}"
+
+    def save(
+        self,
+        file_path: Optional[str] = None,
+        format: str = 'pickle',
+        overwrite: bool = False,
+        validate_func: Optional[Callable[[Any], bool]] = None,
+        **kwargs
+    ) -> bool:
+        """
+        Save the learner's state to a specified file in the desired format.
+        """
+        logger = logging.getLogger(__name__)
+
+        if validate_func is not None:
+            if not validate_func(self):
+                logger.error("Validation failed. The learner's"
+                             " state is not valid for saving.")
+                return False
+
+        if file_path is None:
+            raise ValueError("file_path must be specified.")
+
+        if os.path.exists(file_path) and not overwrite:
+            raise FileExistsError(
+                f"The file {file_path} already exists"
+                " and overwrite is set to False."
+            )
+
+        try:
+            if format == 'json':
+                # Save the parameters as JSON
+                params = self.get_params(deep=True)
+                with open(file_path, 'w') as f:
+                    json.dump(params, f, default=lambda o: '<not serializable>')
+            elif format == 'pickle':
+                # Save the entire learner object using pickle
+                with open(file_path, 'wb') as f:
+                    pickle.dump(self, f)
+            else:
+                raise ValueError(f"Unsupported format: {format}")
+
+            logger.info("Learner saved successfully to"
+                        f" {file_path} in format {format}.")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save learner: {e}")
+            return False
+
+    def load(
+        self,
+        file_path: str,
+        format: str = 'pickle',
+        **kwargs
+    ) -> bool:
+        """
+        Load the learner's state from a specified file in the desired format.
+        """
+        logger = logging.getLogger(__name__)
+
+        if not os.path.exists(file_path):
+            logger.error(f"The file {file_path} does not exist.")
+            return False
+
+        try:
+            if format == 'pickle':
+                # Load the entire learner object
+                with open(file_path, 'rb') as f:
+                    loaded_self = pickle.load(f)
+                self.__dict__.update(loaded_self.__dict__)
+            else:
+                raise ValueError(f"Unsupported format: {format}")
+
+            logger.info("Learner loaded successfully from"
+                        f" {file_path} in format {format}.")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to load learner: {e}")
+            return False
+
+
 class BaseLearner(metaclass=LearnerMeta):
     """
     Base class for all learners in this framework, designed to facilitate 
@@ -1639,7 +1869,6 @@ class BaseLearner(metaclass=LearnerMeta):
         summary_str = "\n".join(f"{k}: {v}" for k, v in params.items())
         return f"{self.__class__.__name__} Summary:\n{summary_str}"
     
-    
     def execute(self, *args, **kwargs):
         """
         Execute `fit` or `run` method if either is implemented in the subclass. 
@@ -1842,7 +2071,7 @@ class BaseLearner(metaclass=LearnerMeta):
             logger.exception(f"An error occurred while saving data: {e}")
             return False
         
-        
+
 class BasePlot(BaseClass): 
     r""" Base class  deals with Machine learning and conventional Plots. 
     
@@ -2446,6 +2675,7 @@ class PandasDataHandlers(BaseClass):
             ".pkl": pd.read_pickle,
             ".sas": pd.read_sas,
             ".spss": pd.read_spss,
+            ".txt": pd.read_csv
         }
 
     @staticmethod

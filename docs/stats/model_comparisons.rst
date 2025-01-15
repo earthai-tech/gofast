@@ -1,7 +1,7 @@
 .. _model_comparisons:
 
 Model Comparisons
-===============
+====================
 
 .. currentmodule:: gofast.stats.model_comparisons
 

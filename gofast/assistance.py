@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# License: BSD-3-Clause
+# Author: LKouadio <etanoyau@gmail.com>
 
 """Provides tools for assisting users with navigating and utilizing the features
  of the `gofast` library, including direct support and exploration functions."""
@@ -7,7 +9,7 @@ import importlib
 import textwrap
 import pkgutil
 import warnings
-import gofast.tools 
+import gofast.utils 
 import gofast.dataops
 from gofast.api.summary import ReportFactory, assemble_reports
 from gofast.api.util import remove_extra_spaces, get_table_size 
@@ -155,7 +157,7 @@ TASK_DESCRIPTIONS = {
 def assist_me(*tasks: str, on_error='warn'):
     """
     Provides some tool recommendations for specified tasks using the 
-    :mod:`gofast.tools` or :mod:`gofast.dataops` library.
+    :mod:`gofast.utils` or :mod:`gofast.dataops` library.
 
     Function dynamically fetches some tools related to user-specified tasks and
     organizes them into categories. It returns detailed descriptions and 
@@ -203,16 +205,16 @@ def assist_me(*tasks: str, on_error='warn'):
 
     if not tasks:
         return ("No valid tasks provided. Unable to proceed. Please provide at"
-                " least one valid task. Available tasks are: {', '.join(valid_tasks)}.")
+                f" least one valid task. Available tasks are: {', '.join(valid_tasks)}.")
 
     task_tool_mapping = {}
     for task in tasks:
         tools = TASK_MAPPING.get(task, [])
         module_dict = {}
         for tool in tools: 
-            module = 'tools' if hasattr(gofast.tools, tool) else 'dataops'
-            value = getattr(gofast.tools, tool) if hasattr(
-                gofast.tools, tool) else getattr(gofast.dataops, tool)
+            module = 'utils' if hasattr(gofast.utils, tool) else 'dataops'
+            value = getattr(gofast.utils, tool) if hasattr(
+                gofast.utils, tool) else getattr(gofast.dataops, tool)
             module_dict[f'gofast.{module}.{tool}'] = remove_extra_spaces( 
                 value.__doc__.split(".")[0].strip().replace("\n", '')
                 )
@@ -274,7 +276,7 @@ def explore(package_path, /,  exclude_names=None):
     --------------------------------------------------------------------------------
     gofast.stats.descriptive          : See More in :ref:`User Guide`.
     gofast.stats.inferential          : See More in :ref:`User Guide`.
-    gofast.stats.model_comparisons    : See More in :ref:`User Guide`.
+    gofast.stats.comparisons          : See More in :ref:`User Guide`.
     gofast.stats.probs                : These functions offer a range of
                                         probability utilities suitable for large
                                         datasets, leveraging the power of NumPy
@@ -310,13 +312,13 @@ def explore(package_path, /,  exclude_names=None):
     """
 
     default_exclusion = [
-        'setup', 'seed_control', 'coreutils', 'funcutils', "test_res_api", 
-        'tests', 'thread', 'version', 'validator', 'config']
+        'setup', 'seed_control', 'coreutils', 'func_utils', "test_res_api", 
+        'tests', 'thread', 'version', 'validator', 'config', 'tools']
     
     exclude_names = exclude_names or default_exclusion
     exclude_names = [exclude_names] if isinstance (exclude_names, str) else exclude_names
     
-    if str(package_path)=="gofast": 
+    if str(package_path)=="gofast" or str(package_path)=="gf": 
         return _get_gofast_package_descriptions ()
     
     # Exclude 'gofast.' in package path if exists
@@ -360,44 +362,57 @@ def explore(package_path, /,  exclude_names=None):
 
 def _get_gofast_package_descriptions(include_private=False):
     descriptions = {
-        "_build": "Contains build scripts and configurations for the package.",
+        # "_build": "Contains build scripts and configurations for the package.",
+        # "cli": "Command-line interface tools and scripts.",
+        # "externals": "External dependencies and third-party integrations.",
+        # "gflogs": "Logging utilities specific to the gofast framework.",
+        # "pyx": "Python extension modules for performance enhancement.",
+        # "config[m]": "Configuration settings and utilities.",
+        
         "analysis": "Includes modules for data analysis and statistical computations.",
         "api": "Provides API interfaces and methods for external integration.",
         "backends": "Houses different backend implementations for various operations.",
         "callbacks": "Callbacks for data operations and model training.",
-        "cli": "Command-line interface tools and scripts.",
         "compat": "Ensures compatibility with different versions and dependencies.",
         "dataops": "Data operations and management utilities.",
         "datasets": "Contains datasets and data loading utilities.",
         "estimators": "Machine learning estimators and related utilities.",
         "experimental": "Experimental features and modules under development.",
-        "externals": "External dependencies and third-party integrations.",
         "geo": "Geospatial data processing and analysis tools.",
-        "gflogs": "Logging utilities specific to the gofast framework.",
         "mlops": "Tools and modules for Machine Learning Operations",
         "models": "Defines various machine learning models.",
         "nn": "Neural network models, data processing, training, and hyperparameter tuning tools.",
         "plot": "Plotting and visualization tools.",
-        "pyx": "Python extension modules for performance enhancement.",
         "stats": "Statistical functions and analysis tools.",
         "tools": "Miscellaneous tools and utilities for the package.",
         "transformers": "Transformers and preprocessing modules for data transformation.",
+        "utils": "Miscellaneous tools and utilities for the package.",
         "__init__[m]": "Initialization file for the package.",
         "_dep_config[m]": "Dependency configuration settings.",
         "_distributor_init[m]": "Initialization for distribution setup.",
         "_gofastlog[m]": "Logging configurations and settings for gofast.",
-        "_public[m]": "Public API definitions and exports.",
+        "_public_api[m]": "Public API definitions, Initializations and exports.",
+        "adaline[m]": "Implements ADALINE (Adaptive Linear Neuron) -based algorithms.",
         "assistance[m]": "Helper functions and assistance utilities.",
-        "base[m]": "Base classes and core functionalities.",
-        "config[m]": "Configuration settings and utilities.",
+        "benchmark[m]": "Performance benchmarking utilities and stress tests for algorithms.",
+        "boosting[m]": "Implements boosting tree-based algorithms.",
+        "cluster_based[m]": "Clustering algorithms and data partitioning techniques.",
         "decorators[m]": "Decorators for various functionalities within the package.",
+        "decomposition[m]": "Methods for matrix decomposition, such as PCA, SVD, and factor analysis.",
+        "dimensionality[m]": "Dimensionality reduction techniques for high-dimensional datasets.",
+        "ensemble[m]": "Ensemble learning methods that combine multiple models for robust performance.",
         "exceptions[m]": "Custom exceptions and error handling.",
+        "factors[m]": "Advanced factor extraction and factor analysis for feature transformation.",
+        "feature_selection[m]": "Tools for feature selections and contribution analyses.",
         "metrics[m]": "Performance metrics and evaluation tools.",
+        "metrics_special[m]": "Specialized metrics for model evaluation.",
         "model_selection[m]": "Tools for model selection and validation.",
+        "perceptron[m]": "Perceptron-based algorithms and linear classification and regression methods.",
+        "preprocessing[m]": "Tools for quick preprocesssing  data and processor built.",
         "query[m]": "Query utilities for data retrieval and manipulation.",
-        "util[m]": "Base package initialization utility functions."
+        "tree[m]": "Decision tree-based methods for classification, regression, and ensemble approaches."
     }
-    
+
     if not include_private:
         descriptions = {k: v for k, v in descriptions.items() if not k.startswith('_')}
     
@@ -438,7 +453,7 @@ def _assist_me(help_task):
         "I provide basic tools. For a deeper dive, use the explorer tools with the "
         "following commands:\n\n"
         "    >>> import gofast as gf\n"
-        "    >>> gf.config.PUBLIC= True  # make sure to set as True\n"
+        "    >>> gf.config.public= True  # make sure to set as True\n"
         "    >>> gf.explore('gofast.package.module_name')\n\n"
         "See the table below for tasks I can quickly perform or help you handle with your data."
     )

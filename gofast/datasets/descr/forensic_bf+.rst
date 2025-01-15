@@ -37,39 +37,40 @@ Forensic BF+ Dataset
 
     :Summary Statistics:
 
-    ============== ==== ==== ======= ===== ====================
-                    Count  Missing Values
-    ============== ==== ==== ======= ===== ====================
-    date           472   0           
-    gender         472   0           
-    age            472   0           
-    education_lev  472   0           
-    occupation     472   0           
-    dna_knowledge  472   0           
-    dna_info_sour  472   0           
-    support_natio  472   0           
-    dna_db_custod  472   0           
-    dna_db_inclus  472   0           
-    include_crime  472   0           
-    offense_type_  472   0           
-    dna_storage_d  472   0           
-    dna_use_famil  472   0           
-    dna_use_disas  472   0           
-    dna_use_inter  472   0           
-    dna_use_terro  472   0           
-    privacy_invas  472   0           
-    voluntary_dna  472   0           
-    privacy_risk_  472   0           
-    database_misu  472   0           
-    dna_use_in_in  472   0           
-    police_lab_su  472   0           
-    forensic_dna_  472   0           
-    forensic_dna_  472   0           
-    message_to_in  117   355         
-    ============== ==== ==== ======= ===== ====================
+    ============== ======== ====================
+                   Count    Missing Values
+    ============== ======== ====================
+    date           472      0           
+    gender         472      0           
+    age            472      0           
+    education_lev  472      0           
+    occupation     472      0           
+    dna_knowledge  472      0           
+    dna_info_sour  472      0           
+    support_natio  472      0           
+    dna_db_custod  472      0           
+    dna_db_inclus  472      0           
+    include_crime  472      0           
+    offense_type_  472      0           
+    dna_storage_d  472      0           
+    dna_use_famil  472      0           
+    dna_use_disas  472      0           
+    dna_use_inter  472      0           
+    dna_use_terro  472      0           
+    privacy_invas  472      0           
+    voluntary_dna  472      0           
+    privacy_risk_  472      0           
+    database_misu  472      0           
+    dna_use_in_in  472      0           
+    police_lab_su  472      0           
+    forensic_dna_  472      0           
+    forensic_dna_  472      0           
+    message_to_in  117      355         
+    ============== ======== ====================
 
     :Missing Attribute Values: Yes
-    :Creator: Zeye, Moutanou Modeste Judes et al.
+    :Creator: LKouadio (etanoyau@gmail.com)
+    :Donor: Zeye, Moutanou Modeste Judes et al.
     :Source: "Forensic DNA database and criminal investigation in the Sahel region, a need to update the National Security Policy?"
     :Publisher: Oxford University Press
     :DOI: https://doi.org/10.1093/fsr/owad056

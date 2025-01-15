@@ -20,7 +20,7 @@ from .._gofastlog import gofastlog
 from ..decorators import RunReturn, smartFitRun 
 from ..api.property import BaseClass
 from ..compat.sklearn import validate_params, Interval 
-from ..tools.depsutils import ensure_pkg 
+from ..utils.deps_utils import ensure_pkg 
 
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 

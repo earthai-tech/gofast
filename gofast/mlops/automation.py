@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from .._gofastlog import gofastlog 
 from ..api.property import BaseLearner
 from ..compat.sklearn import validate_params 
-from ..tools.depsutils import ensure_pkg 
+from ..utils.deps_utils import ensure_pkg 
 
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 
