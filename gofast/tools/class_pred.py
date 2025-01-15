@@ -134,7 +134,7 @@ import sys
 import logging
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
+import seaborn as sns # noqa 
 
 from sklearn.model_selection import train_test_split
 from sklearn.svm import SVC
@@ -160,13 +160,17 @@ from gofast.core.io import (
     show_usage
 )
 from gofast.core.checks import check_datetime
-from gofast.dataops import handle_unique_identifiers, data_assistant 
+from gofast.dataops import ( 
+    handle_unique_identifiers, 
+    data_assistant,  
+    corr_engineering_in 
+)
 from gofast.utils.base_utils import (
-    nan_ops,
     extract_target,
     select_features, 
     map_values, 
 )
+from gofast.utils.data_utils import nan_ops 
 from gofast.utils.ml.preprocessing import (
     build_data_preprocessor,
     soft_encoder, 
@@ -276,7 +280,7 @@ def class_pred_app(
         
     target, data = nan_ops(
         target,
-        witness_data = data,
+        auxi_data= data,
         ops = 'sanitize',
         data_kind = 'target',
         process = 'do',
@@ -348,35 +352,48 @@ def class_pred_app(
             )
 
     # (10) Optionally show correlation heatmap.
+    # drop the correlated features and eretrun
+    data= corr_engineering_in(
+            data,
+            analysis='dual_merge', 
+            action='drop',  
+            threshold=0.8, 
+            cmap ='coolwarm',
+            show_corr_results=False,
+            view=show_fig, 
+            linewidths=2
+        )
+    
     if show_fig:
         if verbose >= 2:
             logger.info("Generating correlation heatmap using %s method.",
-                        corr_method)
-        corr_mat = data_enc.corr(method=corr_method)
-        plt.figure(figsize=(10, 8))
-        sns.heatmap(
-            corr_mat,
-            annot=True,
-            cmap='coolwarm',
-            fmt=".2f",
-            linewidths=2
+                        corr_method
         )
-        plt.title("Correlation Heatmap")
-        plt.show()
+        # corr_mat = data_enc.corr(method=corr_method)
+        # plt.figure(figsize=(10, 8))
+        # sns.heatmap(
+        #     corr_mat,
+        #     annot=True,
+        #     cmap='coolwarm',
+        #     fmt=".2f",
+        #     linewidths=2
+        # )
+        # plt.title("Correlation Heatmap")
+        # plt.show()
 
     # (11) Select relevant features based on correlation threshold w.r.t. target.
     if verbose >= 2:
         logger.info("Selecting relevant features with threshold=%.2f using %s.",
                     threshold, corr_method)
     relevant_features = select_relevant_features(
-        data = data_enc,
+        data = data,
         target = target,
         threshold=threshold,
         method = corr_method
     )
 
     # (12) Keep only the relevant columns in data.
-    processed_data = data[relevant_features]
+    processed_data = data[relevant_features] if relevant_features else data 
     y = target
     
     # XXX let try to handle minory classes if few members are detected.

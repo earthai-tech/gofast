@@ -116,7 +116,8 @@ from gofast.api.util import to_snake_case
 from gofast.core.array_manager import to_numeric_dtypes, to_array, to_series
 from gofast.core.io import read_data, export_data, print_script_info, show_usage
 from gofast.core.checks import check_datetime
-from gofast.utils.base_utils import nan_ops, extract_target, select_features
+from gofast.utils.base_utils import extract_target, select_features
+from gofast.utils.data_utils import nan_ops, filter_data 
 from gofast.utils.ml.preprocessing import build_data_preprocessor
 from gofast.utils.ml.feature_selection import select_relevant_features
 from gofast.utils.io_utils import save_job
@@ -207,13 +208,12 @@ def reg_pred_app(
     # 7) Remove rows with NaN in target or features, ensuring data integrity.
     target, data = nan_ops(
         target,
-        witness_data=data,
+        auxi_data=data,
         ops='sanitize',
         data_kind='target',
         process='do',
         action='drop'
     )
-
     # 8) Determine target type via sklearn's type_of_target or fallback.
     #    Raise an error if it's not recognized as continuous, because
     #    this script is for regression tasks only.
@@ -241,6 +241,10 @@ def reg_pred_app(
             "Details: %s", e
         )
 
+    # 9e ) Filter data to remove noise in the data using filter_data 
+    
+    data =filter_data (data, )
+    
     # 10) Optionally show a correlation heatmap if `show_fig` is True.
     if show_fig:
         corr_mat = data.corr(method=corr_method)

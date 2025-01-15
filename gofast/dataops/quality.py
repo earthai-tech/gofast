@@ -2039,6 +2039,9 @@ def corr_analysis(
     cmap='Blues',
     fig_size=(10, 8),
     view=False,
+    annot=True, 
+    fmt=".2f",
+    linewidths=0, 
     verbose=0
 ):
     """
@@ -2146,6 +2149,21 @@ def corr_analysis(
     view : bool, default=False
         If True, displays heatmaps of the correlation matrices, either
         numeric, categorical, or merged, depending on `<analysis>`.
+        
+    annot : bool, default=True
+        If ``True``, displays numeric correlation values within each
+        cell of the heatmap. Passed to ``annot`` parameter in
+        :func:`seaborn.heatmap`.
+
+    fmt : str, default=".2f"
+        String formatting code for the annotation text displayed
+        within cells. E.g., ``".2f"`` displays floating-point
+        numbers with two decimals.
+
+    linewidths : float, default=0
+        The width of the lines that will divide each cell in the
+        heatmap. Passed to ``linewidths`` in
+        :func:`seaborn.heatmap`.
 
     verbose : int, default=0
         Controls the amount of logging or warning messages printed.
@@ -2372,7 +2390,11 @@ def corr_analysis(
         view=view,
         verbose=verbose,
         fig_size=fig_size,
-        cmap=cmap
+        cmap=cmap, 
+        annot=annot, 
+        fmt=fmt,
+        linewidths=linewidths
+        
         )
     
     # return the computed correlation matrices if requested
@@ -2445,63 +2467,94 @@ def _plot_correlation_heatmaps(
     categorical_corr=None,
     merged_corr=None,
     view=True,
-    verbose=1,
     fig_size=(10, 8),
-    cmap="coolwarm"
+    cmap="coolwarm",
+    annot=True,
+    fmt=".2f",
+    linewidths=2,
+    verbose=1,
 ):
     """
     Plot correlation heatmaps for numeric, categorical, or merged data.
 
-    This helper function is designed to be called by higher-level routines
-    that compute correlation matrices. It conditionally displays heatmaps
-    based on the value of ``analysis``, which can be one of:
+    This helper function is designed to be called by higher-level
+    routines that compute correlation matrices. It conditionally
+    displays heatmaps based on the value of ``analysis``, which
+    can be one of:
 
-    - `'numeric'`: Plots a single heatmap for numeric correlation.
-    - `'category'`: Plots a single heatmap for categorical correlation.
-    - `'dual'`: Plots two separate heatmaps side by side (one numeric,
-      one categorical).
-    - `'dual_merge'`: Plots a single heatmap of a merged correlation matrix.
+    - ``'numeric'``: Plots a single heatmap for numeric correlation.
+    - ``'category'``: Plots a single heatmap for categorical
+      correlation.
+    - ``'dual'``: Plots two separate heatmaps side by side (one
+      numeric, one categorical).
+    - ``'dual_merge'``: Plots a single heatmap of a merged correlation
+      matrix.
 
     Parameters
     ----------
     analysis : str
         Specifies the type of analysis to plot. Must be one of
-        ``'numeric'``, ``'category'``, ``'dual'``, or ``'dual_merge'``.
+        ``'numeric'``, ``'category'``, ``'dual'``, or
+        ``'dual_merge'``.
 
     numeric_corr : DataFrame or None, optional
-        Numeric correlation matrix. If `None`, indicates that
+        Numeric correlation matrix. If ``None``, indicates that
         numeric correlations are not available.
 
     categorical_corr : DataFrame or None, optional
-        Categorical correlation matrix. If `None`, indicates that
+        Categorical correlation matrix. If ``None``, indicates that
         categorical correlations are not available.
 
     merged_corr : DataFrame or None, optional
-        Merged correlation matrix used in `'dual_merge'` analysis.
-        If `None`, indicates that merged correlations are not available.
+        Merged correlation matrix used in ``'dual_merge'`` analysis.
+        If ``None``, indicates that merged correlations are not
+        available.
 
     view : bool, default=True
-        If `False`, no plots will be displayed.
-
-    verbose : int, default=1
-        Level of verbosity for diagnostic messages:
-        - 0: No output messages.
-        - 1: Print basic information messages.
+        If ``False``, no plots will be displayed.
 
     fig_size : tuple of (int, int), default=(10, 8)
-        Figure size for the heatmap(s). Adjust if more or less
-        space is needed for annotations.
+        The figure size for the heatmap(s). Adjust this if more or
+        less space is needed for annotations.
 
     cmap : str, default="coolwarm"
         Colormap for the heatmaps, passed directly to
-        ``seaborn.heatmap``.
+        :func:`seaborn.heatmap`.
+
+    annot : bool, default=True
+        If ``True``, displays numeric correlation values within each
+        cell of the heatmap. Passed to ``annot`` parameter in
+        :func:`seaborn.heatmap`.
+
+    fmt : str, default=".2f"
+        String formatting code for the annotation text displayed
+        within cells. E.g., ``".2f"`` displays floating-point
+        numbers with two decimals.
+
+    linewidths : float, default=2
+        The width of the lines that will divide each cell in the
+        heatmap. Passed to ``linewidths`` in
+        :func:`seaborn.heatmap`.
+
+    verbose : int, default=1
+        The level of verbosity for diagnostic messages:
+        - 0: No output messages.
+        - 1: Print basic information messages.
 
     Returns
     -------
     None
-        Displays the correlation heatmap(s) if `view=True`. Does not
-        return any value.
+        Displays the correlation heatmap(s) if ``view=True``.
+        Does not return any value.
+
+    Notes
+    -----
+    If multiple correlation matrices (e.g., numeric and categorical)
+    are provided for a `'dual'` analysis, two separate heatmaps are
+    displayed side by side. When `'dual_merge'` is selected, a single
+    merged correlation heatmap is shown.
     """
+
     # If plotting is disabled, simply return
     if not view:
         return
@@ -2514,7 +2567,11 @@ def _plot_correlation_heatmaps(
                       "cannot be plotted.")
         else:
             plt.figure(figsize=fig_size)
-            sns.heatmap(numeric_corr, annot=True, cmap=cmap)
+            sns.heatmap(numeric_corr,  cmap=cmap,
+                        annot=annot,
+                        fmt=fmt,
+                        linewidths=linewidths
+                    )
             plt.title("Numeric Correlation")
             plt.show()
 
@@ -2526,7 +2583,10 @@ def _plot_correlation_heatmaps(
                       "cannot be plotted.")
         else:
             plt.figure(figsize=fig_size)
-            sns.heatmap(categorical_corr, annot=True, cmap=cmap)
+            sns.heatmap(categorical_corr, annot=annot, cmap=cmap, 
+                        fmt=fmt,
+                        linewidths=linewidths
+                        )
             plt.title("Categorical Correlation")
             plt.show()
 
@@ -2548,7 +2608,10 @@ def _plot_correlation_heatmaps(
                 print("Dual analysis requested, but categorical data "
                       "is not available. Plotting only numeric correlation.")
             plt.figure(figsize=fig_size)
-            sns.heatmap(numeric_corr, annot=True, cmap=cmap)
+            sns.heatmap(numeric_corr, annot=annot, cmap=cmap, 
+                        fmt=fmt,
+                        linewidths=linewidths
+                        )
             plt.title("Numeric Correlation")
             plt.show()
             return
@@ -2557,16 +2620,25 @@ def _plot_correlation_heatmaps(
                 print("Dual analysis requested, but numeric data "
                       "is not available. Plotting only categorical correlation.")
             plt.figure(figsize=fig_size)
-            sns.heatmap(categorical_corr, annot=True, cmap=cmap)
+            sns.heatmap(categorical_corr, annot=annot, cmap=cmap, 
+                        fmt=fmt,
+                        linewidths=linewidths
+                        )
             plt.title("Categorical Correlation")
             plt.show()
             return
 
         # Both numeric and categorical correlations are available
         fig, axes = plt.subplots(1, 2, figsize=(2 * fig_size[0], fig_size[1]))
-        sns.heatmap(numeric_corr, annot=True, cmap=cmap, ax=axes[0])
+        sns.heatmap(numeric_corr, annot=annot, cmap=cmap, ax=axes[0], 
+                    fmt=fmt,
+                    linewidths=linewidths
+                    )
         axes[0].set_title("Numeric Correlation")
-        sns.heatmap(categorical_corr, annot=True, cmap=cmap, ax=axes[1])
+        sns.heatmap(categorical_corr, annot=annot, cmap=cmap, ax=axes[1], 
+                    fmt=fmt,
+                    linewidths=linewidths
+                    )
         axes[1].set_title("Categorical Correlation")
         plt.tight_layout()
         plt.show()
@@ -2579,7 +2651,12 @@ def _plot_correlation_heatmaps(
                       "the merged correlation matrix.")
         else:
             plt.figure(figsize=fig_size)
-            sns.heatmap(merged_corr, annot=True, cmap=cmap)
+            sns.heatmap(merged_corr, 
+                        annot=annot, 
+                        cmap=cmap, 
+                        fmt=fmt,
+                        linewidths=linewidths
+                        )
             plt.title("Merged Correlation")
             plt.show()
 
@@ -2772,6 +2849,7 @@ def _get_feature_importances_if_auto(
 def corr_engineering_in(
     data,
     target=None,
+    method='pearson', 
     action='drop',
     threshold=0.8,
     precomputed=False,
@@ -2783,6 +2861,9 @@ def corr_engineering_in(
     view=True,
     cmap='Blues',
     fig_size=(10, 8),
+    annot=True,
+    fmt=".2f",
+    linewidths=0,
     verbose=0
 ):
     r"""
@@ -2809,6 +2890,12 @@ def corr_engineering_in(
         Target variable used when `<strategy>` is `'importance'` and
         ``feature_importances`` is `'auto'``. It helps to compute
         feature importances, typically via a random forest.
+        
+    method : {'pearson', 'spearman', 'kendall'} or str, default='pearson'
+        The correlation coefficient method passed to :math:`\\text{corr}`
+        when calculating correlation. The default is Pearson's
+        correlation. Use `'spearman'` or `'kendall'` for non-linear or
+        rank-based relationships.
 
     action : {'drop', 'pca', 'fe', 'feature_engineering',
               'pf', 'polynomial_feature'}, default='drop'
@@ -2877,6 +2964,21 @@ def corr_engineering_in(
 
     fig_size : (int, int), default=(10, 8)
         Figure size for the correlation heatmap.
+        
+    annot : bool, default=True
+        If ``True``, displays numeric correlation values within each
+        cell of the heatmap. Passed to ``annot`` parameter in
+        :func:`seaborn.heatmap`.
+
+    fmt : str, default=".2f"
+        String formatting code for the annotation text displayed
+        within cells. E.g., ``".2f"`` displays floating-point
+        numbers with two decimals.
+
+    linewidths : float, default=0
+        The width of the lines that will divide each cell in the
+        heatmap. Passed to ``linewidths`` in
+        :func:`seaborn.heatmap`.
 
     verbose : int, default=0
         Controls the verbosity of console messages. Higher values
@@ -2948,6 +3050,7 @@ def corr_engineering_in(
         # we do not display or return correlation data from corr_analysis here
         transformed_data = corr_analysis(
             data,
+            method=method, 
             analysis=analysis,
             return_corr_data=False,
             show_corr_results=show_corr_results, 
@@ -3027,6 +3130,9 @@ def corr_engineering_in(
         cmap =cmap, 
         fig_size=fig_size, 
         verbose=verbose, 
+        annot=annot, 
+        fmt=fmt, 
+        linewidths=linewidths, 
         )
     # if we are returning only the new or selected features, 
     # return 'result' otherwise return the same structure
@@ -3203,6 +3309,7 @@ def _polynomial_feature(
 def corr_engineering(
     data,
     target=None,
+    method='pearson', 
     threshold_features=0.8,
     threshold_target=0.1,
     action='drop',
@@ -3214,6 +3321,9 @@ def corr_engineering(
     view=False,
     cmap='Blues',
     fig_size=(10, 8),
+    annot=True,
+    fmt=".2f",
+    linewidths=0,
     verbose=0
 ):
     """
@@ -3250,7 +3360,13 @@ def corr_engineering(
         ``precomputed=True``). If array-like, it must align with
         `data`'s index. If None, the feature-target filtering step
         is skipped.
-
+        
+    method : {'pearson', 'spearman', 'kendall'} or str, default='pearson'
+        The correlation coefficient method passed to :math:`\\text{corr}`
+        when calculating correlation. The default is Pearson's
+        correlation. Use `'spearman'` or `'kendall'` for non-linear or
+        rank-based relationships.
+        
     threshold_features : float, default=0.8
         The cutoff for detecting highly correlated features. A pair
         of features is considered highly correlated if
@@ -3311,6 +3427,21 @@ def corr_engineering(
 
     fig_size : (int, int), default=(10, 8)
         The figure size for the correlation heatmap.
+    
+    annot : bool, default=True
+        If ``True``, displays numeric correlation values within each
+        cell of the heatmap. Passed to ``annot`` parameter in
+        :func:`seaborn.heatmap`.
+
+    fmt : str, default=".2f"
+        String formatting code for the annotation text displayed
+        within cells. E.g., ``".2f"`` displays floating-point
+        numbers with two decimals.
+
+    linewidths : float, default=0
+        The width of the lines that will divide each cell in the
+        heatmap. Passed to ``linewidths`` in
+        :func:`seaborn.heatmap`.
 
     verbose : int, default=0
         Controls the verbosity level. Higher values provide more
@@ -3387,6 +3518,7 @@ def corr_engineering(
         # of data (no correlation returned)
         transformed_data = corr_analysis(
             data,
+            method=method, 
             analysis=analysis,
             display_corrtable=False, 
             show_corr_results=show_corr_results, 
@@ -3669,6 +3801,9 @@ def corr_engineering(
         cmap =cmap, 
         fig_size=fig_size, 
         verbose=verbose, 
+        annot=annot, 
+        fmt=fmt, 
+        linewidths=linewidths, 
         )
     
     # --- Step 7: Return the appropriate output ---

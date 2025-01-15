@@ -251,6 +251,7 @@ class EnsureFileExists:
         if func is not None:
             return cls(file_param, verbose, action)(func)
         return cls(file_param, verbose, action)
+    
 
 # Allow decorator to be used without parentheses
 EnsureFileExists = EnsureFileExists.ensure_file_exists
@@ -366,46 +367,57 @@ class SaveFile:
     .. [5] Freedman, D., & Diaconis, P. (1981). On the histogram as a density estimator: 
            L2 theory. *Probability Theory and Related Fields*, 57(5), 453-476.
     """
-
     def __init__(
-        self, func=None, *, 
-        data_index: int = 0, 
+        self, 
+        # func=None, 
+        # *, 
+        data_index=0, 
         dout='.csv'
-        ):
-        self.func = func
+    ):
+        # Store the function if passed directly (no parentheses),
+        # otherwise store None until __call__ is invoked again.
+        # self.func = func
         self.data_index = data_index
-        self.dout = dout 
+        self.dout = dout
         self.data_handler = PandasDataHandlers()
 
-    def __call__(self, *args, **kwargs):
-        if self.func is None:
-            # Decorator is called with arguments
-            func = args[0]
-            return SaveFile(func, data_index=self.data_index)
+    def __call__(self, func):
+        # If self.func is None, it means the decorator is used with parentheses.
+        # The first arg in 'args' will be the actual function to decorate.
+        # if self.func is None:
+        #     func = args[0]
+        #     return SaveFile(
+        #         func,
+        #         data_index=self.data_index,
+        #         dout=self.dout
+        #     )
+        
+        # Otherwise, self.func is already set => define the real wrapper
+        @wraps(func)
+        def wrapper(*w_args, **w_kwargs):
+            # Execute the original function
+            result = func(*w_args, **w_kwargs)
 
-        @wraps(self.func)
-        def wrapper(*args, **kwargs):
-            result = self.func(*args, **kwargs)
-
-            savefile = kwargs.get('savefile', None)
+            # Check if a 'savefile' kwarg is provided
+            savefile = w_kwargs.get('savefile', None)
             if savefile is not None:
+                # Extract extension or use self.dout if none is provided
                 _, ext = os.path.splitext(savefile)
-
                 if not ext:
-                    if ( 
+                    if (
                         self.dout is not None 
-                        and isinstance (self.dout, str) 
+                        and isinstance(self.dout, str) 
                         and self.dout.startswith('.')
-                        ): 
-                        ext = self.dout.lower()  
-                    else : 
+                    ):
+                        ext = self.dout.lower()
+                    else:
                         warnings.warn(
                             "No file extension provided for `savefile`. "
                             "Cannot save the DataFrame."
                         )
                         return result
 
-                # Determine the DataFrame to save
+                # Determine which DataFrame to save
                 if isinstance(result, pd.DataFrame):
                     df_to_save = result
                 elif isinstance(result, tuple):
@@ -417,7 +429,6 @@ class SaveFile:
                             "for the returned tuple."
                         )
                         return result
-
                     if not isinstance(df_to_save, pd.DataFrame):
                         warnings.warn(
                             f"Element at `data_index` {self.data_index} "
@@ -430,10 +441,9 @@ class SaveFile:
                     )
                     return result
 
-                # Get the appropriate writer function
+                # Get the appropriate writer based on file extension
                 writers_dict = self.data_handler.writers(df_to_save)
                 writer_func = writers_dict.get(ext.lower())
-
                 if writer_func is None:
                     warnings.warn(
                         f"Unsupported file extension '{ext}'. "
@@ -441,7 +451,7 @@ class SaveFile:
                     )
                     return result
 
-                # Save the DataFrame
+                # Attempt to save the DataFrame
                 try:
                     writer_func(
                         savefile,
@@ -454,8 +464,146 @@ class SaveFile:
 
             return result
 
-        return wrapper(*args, **kwargs)
+        # Return the wrapper function
+        return wrapper
+    
+    @classmethod 
+    def save_file(
+        cls, 
+        func=None, 
+        *, 
+        data_index=0, 
+        dout='.csv'
+    ): 
+        if func is not None:
+            return cls(data_index, dout)(func)
+        return cls(data_index, dout)
+    
+    
+# Class-based decorator to save returned DataFrame(s) to file.
+# Allows usage with parentheses (e.g. @SaveFile(data_index=1)) 
+# or without parentheses (e.g. @SaveFile).
+SaveFile = SaveFile.save_file 
 
+def save_file(func=None, *, data_index=0, dout='.csv'):
+    """
+    Both save_file (function-based) and SaveFile (class-based) decorators
+    are designed to allow users to save the returned DataFrame(s) from a 
+    decorated function to a file, if needed. For more details and advanced
+    usage, please refer to the documentation of :class:`gofast.core.io.SaveFile`,
+    as both operate in a similar manner.
+    
+    * When to Use SaveFile vs. save_file? 
+    
+    - SaveFile is a class-based decorator.
+    - save_file is a function-based decorator.
+    
+    Their behavior is essentially the same, so you can choose whichever 
+    style fits your coding preference or project standards. Both will look 
+    for a savefile argument at runtime and, if present, save the DataFrame 
+    result using the rules described above.
+    
+    For full documentation and more advanced usage details, please check 
+    the documentation of :class:`gofast.core.io.SaveFile`.
+    """
+    # If called without parentheses, `func` is the function object.
+    # If called with parentheses, `func` is None on first pass
+    # and we return a decorator that expects the function later.
+    if func is None:
+        def decorator(f):
+            @wraps(f)
+            def wrapper(*args, **kwargs):
+                result = f(*args, **kwargs)
+                savefile = kwargs.get('savefile', None)
+                if savefile is not None:
+                    df_to_save, ext = _get_df_to_save (
+                        savefile, dout, result, data_index 
+                    )
+                    if df_to_save is None:
+                        return result
+                    _perform_save(df_to_save, savefile, ext)
+                return result
+            return wrapper
+        return decorator
+    else:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            result = func(*args, **kwargs)
+            savefile = kwargs.get('savefile', None)
+            if savefile is not None:
+                df_to_save, ext = _get_df_to_save (
+                    savefile, dout, result, data_index 
+                )
+                if df_to_save is None:
+                    return result
+                _perform_save(df_to_save, savefile, ext)
+            return result
+        return wrapper
+
+def _get_df_to_save (savefile, dout, result, data_index ): 
+    _, ext = os.path.splitext(savefile)
+    if not ext:
+        if dout and isinstance(dout, str) and dout.startswith('.'):
+            ext = dout.lower()
+        else:
+            warnings.warn(
+                "No file extension provided for `savefile`. "
+                "Cannot save the DataFrame."
+            )
+            return result
+    df_to_save = _extract_dataframe(result, data_index)
+    return df_to_save, ext 
+
+    
+def _extract_dataframe(result, data_index):
+    if isinstance(result, pd.DataFrame):
+        return result
+    elif isinstance(result, tuple):
+        try:
+            df = result[data_index]
+        except IndexError:
+            warnings.warn(
+                f"`data_index` {data_index} is out of range "
+                "for the returned tuple."
+            )
+            return None
+        if not isinstance(df, pd.DataFrame):
+            warnings.warn(
+                f"Element at `data_index` {data_index} is not a DataFrame."
+            )
+            return None
+        return df
+    else:
+        warnings.warn(
+            f"Return type '{type(result)}' is not a DataFrame or tuple."
+        )
+        return None
+
+def _perform_save(df_to_save, savefile, ext):
+    # map of extension to saving method
+    # Get the appropriate writer based on file extension
+    data_handler = PandasDataHandlers()
+    writers_dict= data_handler.writers(df_to_save)
+    writer_func = writers_dict.get(ext.lower())
+    
+    if writer_func is None:
+        warnings.warn(
+            f"Unsupported file extension '{ext}'. "
+            "Cannot save DataFrame."
+        )
+        return
+    # Attempt to save the DataFrame
+    try:
+        writer_func(
+            savefile,
+            index=False
+        )
+    except Exception as e:
+        warnings.warn(
+            f"Failed to save the DataFrame: {e}"
+        )
+
+save_file.__doc__= SaveFile.__doc__ 
 
 @EnsureFileExists(action ='ignore')
 def _read_data(

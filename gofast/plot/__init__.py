@@ -92,6 +92,7 @@ from .utils import (
     plot_temporal_trends, 
     plot_relationship, 
     plot_fit, 
+    plot_factory_ops, 
     )
 
 __all__= [
@@ -181,6 +182,7 @@ __all__= [
     "plot_temporal_trends", 
     'plot_relationship', 
     'plot_fit', 
+    'plot_factory_ops'
                
     ]
 

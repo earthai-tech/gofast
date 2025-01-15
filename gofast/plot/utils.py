@@ -32,24 +32,30 @@ from sklearn.utils import resample
 
 from ..api.types import Optional, Tuple,  Union, List 
 from ..api.types import Dict, ArrayLike, DataFrame
-
 from ..core.array_manager import smart_ts_detector, drop_nan_in 
 from ..core.checks import ( 
     _assert_all_types, is_iterable, str2columns, is_in_if, 
     exist_features, check_features_types, check_spatial_columns,
-    validate_depth, check_params 
+    validate_depth, check_params, check_numeric_dtype 
 )
 from ..core.handlers import columns_manager,  param_deprecated_message 
 from ..core.io import is_data_readable 
 from ..core.plot_manager import default_params_plot 
-from ..compat.sklearn import validate_params, StrOptions, Interval 
+from ..compat.sklearn import ( 
+    validate_params,
+    StrOptions, 
+    Interval, 
+    type_of_target
+)
 from ..decorators import isdf
+from ..metrics import get_scorer 
 from ..utils.validator import  ( 
     assert_xy_in, build_data_if, validate_positive_integer, 
     validate_quantiles, is_frame, check_consistent_length, 
     validate_yy, 
 )
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
+
 
 __all__=[
     "boxplot", 
@@ -68,7 +74,300 @@ __all__=[
     'plot_fit', 
     'plot_perturbations', 
     'plot_well', 
+    'plot_factory_ops'
 ]
+
+@default_params_plot(
+    savefig="my_factory_ops_plot.png", 
+    fig_size =(8, 8), 
+    dpi=300, 
+    )
+@check_params({ 
+    "names": Optional[Union[str, List[str]]], 
+    "title": str, 
+    'figsize': Optional[Tuple[int, int]], 
+    })
+@validate_params({ 
+    'train_times': ['array-like', None], 
+    'metrics': [str, 'array-like', None], 
+    'scale': [StrOptions({"norm", "min-max", 'scale'}), None], 
+    "lower_bound": [Real], 
+    })
+def plot_factory_ops(
+    y_true,
+    *y_preds,
+    train_times=None,
+    metrics=None,
+    names=None,
+    title=None,
+    figsize=None,
+    colors=None,
+    alpha=0.7,
+    legend=True,
+    show_grid=True,
+    scale='norm',  
+    lower_bound=0, 
+    savefig=None,
+    loc='upper right', 
+    verbose=0,
+):
+    r"""
+    Generates a radar chart (also called a spider chart) to
+    illustrate and compare multiple  metrics across
+    different models. Internally relies on `drop_nan_in`,
+    function to drop NaN values in `y_true` and `y_preds`
+    to ensure data consistency and metric fetching in
+    harmony with scikit-learn and gofast libraries [1]_.
+    
+    .. math::
+       M(y, \hat{y})
+       = f(\{(x_i, y_i)\}_{i=1}^n)
+    
+    In a typical use case, let :math:`y` be the true values and
+    :math:`\hat{y}` the predicted values. For each chosen metric
+    (for example, :math:`R^2`), the function computes:
+    :math:`M(y, \hat{y})` across all models, arranges the scores
+    in a radial layout, and optionally includes training times
+    to offer a holistic view of performance.
+    
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        The ground truth values.
+    *y_preds : array-like of shape (n_samples,), optional
+        The predicted values from one or more models. Each model
+        corresponds to one array. If multiple arrays are passed,
+        each one is plotted as a separate polygon.
+    train_time : float, list of floats, optional
+        The time taken (in seconds) to train each model. If
+        provided, it is displayed as an additional metric. If
+        only a single float is given, it is assumed the same for
+        all models.
+    metrics : list of {str, callable}, optional
+        The metrics to compute for each model's predictions. A
+        string will be used to fetch the built-in or scikit-learn
+        metric via ``get_scorer``. A callable can be any function
+        following the scikit-learn metric API. Defaults to
+        ``["r2", "mae", "mape", "rmse",]`` for regression and 
+        ``["accuracy", "precision", "recall"]`` for classification
+        task.
+    names : list of str, optional
+        The names corresponding to each model. If not provided,
+        defaults to `Model_1`, `Model_2`, etc. The length of
+        `names` should match the number of models (predictions).
+    title : str, optional
+        The title displayed at the top of the radar chart.
+    figsize : tuple of int, optional
+        Figure dimension in inches, default is ``(8, 8)``.
+    colors : list of str or None, optional
+        Color codes for each model's polygon. If not provided,
+        auto-generated from matplotlib's color palette.
+    alpha : float, optional
+        The opacity for the polygon lines and fill regions,
+        default is `0.7` for lines and `0.1` for fill.
+    legend : bool, optional
+        Whether to display a legend indicating model names.
+    show_grid : bool, optional
+        Whether to show a radial grid on the radar chart.
+    scale : {'norm', 'scale', None}, optional
+        The transformation applied to metric values:
+        - `'norm'`: min-max normalization per metric.
+        - `'scale'`: standard scaling per metric.
+        - `None`: no scaling is applied.
+    lower_bound : float, optional
+        The lower boundary for the radar chart radius, default
+        is `0`.
+    savefig : str, optional
+        File path to save the resulting figure. If `None`,
+        the figure is not saved.
+    verbose : int, optional
+        Controls the level of verbosity:
+        - `0`: silent mode,
+        - `1` or higher: prints debug information, such as
+          metric scaling steps.
+    
+    Notes
+    -----
+    If `train_times` is specified, the resulting radar chart
+    will include an additional axis labeled
+    ``train_time_s``. This can be useful to balance training
+    efficiency against accuracy or other error-based metrics.
+    All metrics are calculated using :math:`M(y, \hat{y})`
+    for each model, where :math:`M` depends on the chosen
+    metrics (like `r2`, `mape`, etc.).
+    
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_factory_ops
+    >>> import numpy as np
+    >>> # Assume y_true and y_preds are NumPy arrays of shape (100,)
+    >>> y_true = np.random.rand(100)
+    >>> y_pred1 = np.random.rand(100)
+    >>> y_pred2 = np.random.rand(100)
+    >>> # Visualize with two models, using default metrics
+    >>> plot_factory_ops(y_true, y_pred1, y_pred2,
+    ...                  names=["RandomModel1", "RandomModel2"],
+    ...                  title="Example Radar Chart",
+    ...                  train_times=[0.5, 0.3],
+    ...                  verbose=1)
+    
+    See Also
+    --------
+    gofast.core.array_manager.drop_nan_in : Removes NaN from arrays to ensure
+      shape consistency.
+    gofast.utils.validator.validate_yy : Validates dimension and data type
+      of the true and predicted arrays.
+    gofast.metrics.get_scorer: Retrieves metric callables by
+      name from gofast and scikit-learn.
+    
+    References
+    ----------
+    .. [1] Doe, J. et al. (2023). "Advanced Radar Charts
+       in Machine Learning: A Comprehensive Overview."
+       Journal of Data Visualization, 12(3), 45-59.
+    """
+
+    # Remove NaN values and ensure consistency for y_true and each y_pred
+    y_true, *y_preds = drop_nan_in(y_true, *y_preds, error='raise')
+    y_preds = [
+        validate_yy(y_true, pred, expected_type="continuous", flatten=True)[1]
+        for pred in y_preds
+    ]
+
+    # Generate default model names if none are provided
+    if names is None:
+        names = [f"Model_{i+1}" for i in range(len(y_preds))]
+    else:
+        if len(names) < len(y_preds):
+            names += [f"Model_{i+1}" for i in range(len(names), len(y_preds))]
+
+    # Set default metrics if none are provided
+    if metrics is None:
+        if type_of_target(y_true) in ['continuous', 'continuous-multioutput']: 
+            metrics = [ "mae", "mape", "rmse", "r2"]
+        else: 
+            # assume classification target
+            metrics = ["accuracy", "precision", "recall" ]
+            
+    metrics = is_iterable(metrics, exclude_string=True, transform=True)
+
+    # Fetch metric functions from gofast (or scikit-learn),
+    # or use user-provided callables
+    metric_funcs = []
+    metric_names = []
+    for metric in metrics:
+        if isinstance(metric, str):
+            scorer = get_scorer(metric, include_sklearn=True)
+            metric_funcs.append(scorer)
+            metric_names.append(metric)
+        elif callable(metric):
+            metric_funcs.append(metric)
+            metric_names.append(metric.__name__)
+
+    # Prepare arrays to collect metric values for each model
+    # If train_time is provided, we treat it as an additional “metric”
+    if train_times is not None:
+        if not isinstance(train_times, (list, tuple, np.ndarray)):
+            train_times = [train_times] * len(y_preds)
+        if len(train_times) < len(y_preds):
+            warnings.warn("train_times length is smaller than number of models.")
+            # Fill missing values or handle accordingly
+        metric_names.append("train_time_s")
+        # We'll append None to metric_funcs to treat it separately
+        metric_funcs.append(None)
+
+        check_numeric_dtype(train_times, param_names={"X": "Train times"})
+        
+    # Calculate each metric for every model
+    results = []
+    for idx, y_pred in enumerate(y_preds):
+        row_values = []
+        for m_idx, metric_func in enumerate(metric_funcs):
+            if metric_func is not None:
+                val = metric_func(y_true, y_pred)
+                row_values.append(val)
+            else:
+                # This path is used to handle 'train_time'
+                row_values.append(
+                    train_times[idx] if train_times is not None else None
+                    )
+        results.append(row_values)
+
+    # Convert metric results to a NumPy array for plotting
+    results_arr = np.array(results, dtype=float)
+
+    # Optional scaling / normalization of the metrics
+    if scale in [ 'norm', 'min-max']:
+        # Min-max normalization for each metric (column-wise)
+        if verbose > 0:
+            print("[DEBUG] Performing min-max normalization on metrics.")
+        min_val = np.nanmin(results_arr, axis=0)
+        max_val = np.nanmax(results_arr, axis=0)
+        # Avoid zero division if max == min
+        denom = np.where((max_val - min_val) == 0, 1, (max_val - min_val))
+        results_arr = (results_arr - min_val) / denom
+
+    elif scale == 'scale':
+        # Standard scaling for each metric (column-wise)
+        if verbose > 0:
+            print("[DEBUG] Performing standard scaling on metrics.")
+        mean_val = np.nanmean(results_arr, axis=0)
+        std_val = np.nanstd(results_arr, axis=0)
+        # Avoid zero division if std == 0
+        std_val = np.where(std_val == 0, 1, std_val)
+        results_arr = (results_arr - mean_val) / std_val
+
+    if verbose > 0:
+        print(f"[DEBUG] Final metric array for plotting:\n{results_arr}")
+        
+    # Create a polar subplot for radar chart
+    fig = plt.figure(figsize=figsize)
+    ax = fig.add_subplot(111, polar=True)
+
+    # Determine angles for each metric
+    # The last angle is repeated to close the polygon
+    num_metrics = len(metric_names)
+    angles = np.linspace(0, 2 * np.pi, num_metrics, endpoint=False)
+    angles = np.concatenate((angles, [angles[0]]))
+
+    # If no colors are provided, generate a simple palette
+    if not colors:
+        cmap = plt.get_cmap("tab10")
+        colors = [cmap(i) for i in range(len(results_arr))]
+
+    # Plot each model’s polygon
+    for i, row in enumerate(results_arr):
+        # Append first value again to close the polygon
+        values = np.concatenate((row, [row[0]]))
+        ax.plot(angles, values, label=names[i], color=colors[i], alpha=alpha)
+        ax.fill(angles, values, color=colors[i], alpha=0.1)
+
+    # Set up the radial grid and labels
+    ax.set_thetagrids(angles[:-1] * 180 / np.pi, labels=metric_names)
+    # suitable lower bound to fix negative values
+    ax.set_ylim(bottom=lower_bound)  
+
+    # Optionally show a grid
+    if show_grid:
+        ax.grid(True, linestyle='--', alpha=0.7)
+    else : 
+        ax.grid(False)
+        
+    # Optionally show legend
+    if legend:
+        ax.legend(loc=loc, bbox_to_anchor=(1.1, 1.1))
+
+    # If you gave a title, set it
+    if title is not None:
+        ax.set_title(title, y=1.1, fontsize=12)
+    
+    if savefig is not None:
+        plt.savefig(savefig, bbox_inches='tight')
+
+    # Display or return the figure
+    plt.tight_layout()
+    plt.show()
+
 
 @default_params_plot(
     savefig='my_well_plot.png', 

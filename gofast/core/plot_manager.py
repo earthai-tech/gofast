@@ -304,6 +304,7 @@ def default_params_plot(
         return wrapper
     
     return decorator
+
 def ensure_visualization_compatibility(
         result, as_frame=False, view=False, func_name=None,
         verbose=0, allow_singleton_view=False

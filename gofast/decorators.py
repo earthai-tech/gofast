@@ -983,6 +983,8 @@ class SmartProcessor:
     
         Examples
         --------
+        >>> from gofast.decorators import SmartProcessor
+        >>> import pandas as pd
         >>> @SmartProcessor(to_dataframe=True)
         ... def scale_data(data):
         ...     return (data - data.mean()) / data.std()

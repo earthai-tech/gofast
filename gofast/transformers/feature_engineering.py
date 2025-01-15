@@ -38,7 +38,8 @@ from ..core.checks import is_iterable, exist_features
 from ..core.handlers import parse_attrs, get_batch_size
 from ..core.utils import ellipsis2false, type_of_target 
 from ..exceptions import EstimatorError, NotFittedError 
-from ..utils.base_utils import detect_categorical_columns, nan_ops  
+from ..utils.base_utils import detect_categorical_columns 
+from ..utils.data_utils import nan_ops  
 from ..utils.validator import  get_estimator_name, check_X_y, is_frame
 from ..utils.validator import _is_arraylike_1d, build_data_if, check_array 
 from ..utils.validator import check_is_fitted, check_consistent_length 
