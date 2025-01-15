@@ -128,7 +128,7 @@ def plot_factory_ops(
     (for example, :math:`R^2`), the function computes:
     :math:`M(y, \hat{y})` across all models, arranges the scores
     in a radial layout, and optionally includes training times
-    to offer a holistic view of performance.
+    to offer a holistic view of performance [2]_.
     
     Parameters
     ----------
@@ -225,6 +225,11 @@ def plot_factory_ops(
     .. [1] Doe, J. et al. (2023). "Advanced Radar Charts
        in Machine Learning: A Comprehensive Overview."
        Journal of Data Visualization, 12(3), 45-59.
+    .. [2] Kenny-Jesús F. , Alejandro E., María-Luisa M.z and Pablo C.(2024).
+      "Lead-Time Prediction in Wind Tower Manufacturing: A Machine
+       Learning-Based Approach." Mathematics,12, 2347.  
+       https://doi.org/10.3390/math12152347
+       
     """
 
     # Remove NaN values and ensure consistency for y_true and each y_pred
