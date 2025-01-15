@@ -21,14 +21,20 @@ from ..api.types import Any, List, DataFrame, Optional, Series
 from ..api.types import Dict, Union, Tuple, ArrayLike, Callable
 from ..api.util import get_table_size , to_snake_case
 from ..core.utils import ellipsis2false, smart_format
+from ..compat.sklearn import type_of_target 
 from ..compat.pandas import select_dtypes 
+from ..core.array_manager import to_series 
 from ..core.checks import assert_ratio, validate_ratio, check_params  
 from ..core.io import is_data_readable 
 from ..decorators import isdf, Dataify
 from ..decorators import Extract1dArrayOrSeries 
-from ..utils.base_utils import reshape_to_dataframe, detect_categorical_columns
+from ..utils.base_utils import ( 
+    reshape_to_dataframe, detect_categorical_columns, extract_target
+    )
 from ..utils.validator import is_frame, parameter_validator, validate_numeric  
-from ..utils.validator import _is_numeric_dtype, filter_valid_kwargs
+from ..utils.validator import ( 
+    _is_numeric_dtype, filter_valid_kwargs, check_consistent_length 
+)
 
 TW = get_table_size() 
 
@@ -2032,9 +2038,184 @@ def corr_analysis(
     show_corr_results=True,
     cmap='Blues',
     fig_size=(10, 8),
-    verbose=0,
-    view=False
+    view=False,
+    verbose=0
 ):
+    """
+    Perform a flexible correlation analysis on ``data`` by detecting
+    and encoding categorical columns, selecting numeric columns, and
+    computing correlation matrices. This function is designed for both
+    numeric and categorical data, allowing various modes of analysis
+    through `<analysis>` (e.g., ``'numeric'``, ``'category'``,
+    ``'dual'``, ``'dual_merge'``). It optionally displays heatmaps and
+    can return correlation matrices if ``return_corr_data`` is True.
+
+    Parameters
+    ----------
+    data : DataFrame
+        The source dataset from which to detect and optionally encode
+        categorical columns, select numeric columns, and compute
+        correlation matrices.
+
+    method : {'pearson', 'spearman', 'kendall'} or str, default='pearson'
+        The correlation coefficient method passed to :math:`\\text{corr}`
+        when calculating correlation. The default is Pearson's
+        correlation. Use `'spearman'` or `'kendall'` for non-linear or
+        rank-based relationships.
+
+    analysis : {'numeric', 'category', 'dual', 'dual_merge'} or str,
+               default='numeric'
+        The analysis mode controlling how data is partitioned or
+        combined before correlation. Possible values:
+        - ``'numeric'``: Only numeric columns are used for correlation.
+        - ``'category'``: Only categorical columns are encoded and
+          correlated.
+        - ``'dual'``: Computes separate correlations for numeric and
+          encoded categorical features.
+        - ``'dual_merge'``: Merges numeric and encoded categorical
+          columns into a single set before computing a unified
+          correlation matrix.
+
+    encoding : {'one_hot', 'ordinal'} or str, optional
+        Determines how categorical data is encoded. Default is
+        `'ordinal'` if not specified. An unrecognized value defaults to
+        `'ordinal'` encoding.
+
+    integer_as_cat : bool, default=False
+        If True, integer columns are considered as categorical for
+        detection. This can be useful when certain integer-coded
+        variables are truly categorical.
+
+    float0_as_cat : bool, default=False
+        If True, float columns with no decimal part are treated as
+        categorical, mimicking integer-categorical behavior in some
+        datasets.
+
+    min_unique_values : int or None, optional
+        Minimum distinct values for a column to be considered numeric.
+        If the column has fewer distinct values, it is treated as
+        categorical.
+
+    max_unique_values : int or None, optional
+        Maximum distinct values for a column to be treated as
+        categorical. Columns with more distinct values are treated as
+        numeric.
+
+    handle_nan : str or None, optional
+        Strategy for dealing with missing values in columns used for
+        categorical detection or encoding. If None, no special
+        treatment is applied.
+
+    corr_type : {'all', 'strong', 'moderate'} or str, default='all'
+        Controls the categorization of correlation strength when
+        printing or storing the correlation operations summary in
+        `correlation_ops`. It does not affect the correlation
+        computation itself.
+
+    min_corr : float, default=0.5
+        The minimum absolute correlation considered in the
+        `'moderate'` category within correlation summaries.
+
+    high_corr : float, default=0.8
+        The minimum absolute correlation considered `'strong'` in the
+        correlation summaries.
+
+    min_periods : int, default=1
+        The minimum number of observations required per pair of columns
+        to compute correlation.
+
+    display_corrtable : bool, default=False
+        If True, displays a table-like summary of correlation
+        categories through `correlation_ops`.
+
+    return_corr_data : bool, default=False
+        If True, returns the computed correlation matrix (or matrices)
+        depending on `<analysis>`. Otherwise, returns a transformed
+        DataFrame ready for further operations.
+
+    show_corr_results : bool, default=True
+        If True, prints the output of `correlation_ops` to display
+        correlation summaries. Setting False hides this summary.
+
+    cmap : str, default='Blues'
+        The colormap used for displaying heatmaps when ``view`` is True.
+
+    fig_size : (int, int), default=(10, 8)
+        The width and height of the heatmap figure in inches.
+
+    view : bool, default=False
+        If True, displays heatmaps of the correlation matrices, either
+        numeric, categorical, or merged, depending on `<analysis>`.
+
+    verbose : int, default=0
+        Controls the amount of logging or warning messages printed.
+        Higher values provide more detailed output.
+
+    Returns
+    -------
+    DataFrame or Series or tuple
+        If ``return_corr_data=True``, returns the correlation matrix or
+        matrices based on `<analysis>`:
+        - ``'numeric'`` => returns the numeric correlation matrix.
+        - ``'category'`` => returns the categorical correlation matrix.
+        - ``'dual'`` => returns (numeric_corr, categorical_corr).
+        - ``'dual_merge'`` => returns the merged correlation matrix.
+
+        Otherwise, returns the transformed DataFrame after handling
+        categorical and numeric columns. This can be used directly for
+        subsequent analysis or feature selection steps.
+
+    Notes
+    -----
+    The function internally detects categorical columns using
+    `<detect_categorical_columns>` and numeric columns using
+    `<select_dtypes>`. Depending on `<analysis>`, it applies an
+    encoding strategy (`'one_hot'` or `'ordinal'`) to categorical
+    columns, then computes correlation matrices using the chosen
+    `<method>` (e.g., `'pearson'`).
+
+    The correlation strength classification in `correlation_ops`
+    places correlations in `'strong'`, `'moderate'`, or `'weak'`
+    categories based on user-provided thresholds :math:`\\text{min\\_corr}`
+    and :math:`\\text{high\\_corr}`.
+
+    .. math::
+       \\text{If } |r| \\ge \\text{high\\_corr}, \\text{the pair
+       is considered strongly correlated.} \\quad
+       \\text{If } |r| \\le \\text{min\\_corr}, \\text{the pair
+       is considered weakly correlated.}
+
+    Examples
+    --------
+    >>> from gofast.dataops.quality import corr_analysis
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'A': [1, 2, 3],
+    ...     'B': ['x', 'y', 'x'],
+    ...     'C': [0.1, 0.2, 0.3]
+    ... })
+    >>> result = corr_analysis(df, analysis='dual', view=True)
+    >>> # This example computes numeric correlations for 'A' and 'C'
+    >>> # and categorical correlations for 'B', displaying heatmaps
+    >>> # if view=True.
+
+    See also
+    --------
+    detect_categorical_columns : Identifies categorical columns
+        based on user-defined criteria.
+    select_dtypes : Filters columns by data type (e.g., numeric).
+    correlation_ops : Summarizes and classifies correlation results
+        into categories such as 'strong' or 'moderate'.
+
+    References
+    ----------
+    .. [1] Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning
+           in Python. Journal of Machine Learning Research, 12,
+           2825-2830.
+    .. [2] Gofast Documentation. Available at:
+           https://gofast.readthedocs.io/en/latest/
+    """
+
     # import required library for encoding
     from sklearn.preprocessing import LabelEncoder
 
@@ -2108,7 +2289,8 @@ def corr_analysis(
         # default to ordinal encoding if an unknown method is provided
         else:
             warnings.warn(
-                f"Unknown encoding method '{enc_method}'. Defaulting to ordinal encoding."
+                f"Unknown encoding method '{enc_method}'."
+                " Defaulting to ordinal encoding."
             )
             temp_df = df.copy()
             le = LabelEncoder()
@@ -2139,67 +2321,60 @@ def corr_analysis(
             if verbose > 1:
                 print("Computed correlation for categorical data.")
 
-    # compute merged correlation if analysis is 'dual_merge' and both data types exist
-    if (analysis == 'dual_merge'
-            and not numeric_data_missing
-            and not categorical_data_missing):
-        merged_data = pd.concat(
-            [numeric_data, encoded_categorical],
-            axis=1
-        )
-        merged_corr = merged_data.corr(method=method)
-        if verbose > 1:
-            print("Computed merged correlation for dual_merge analysis.")
+    # Compute merged correlation if analysis is 'dual_merge'
+    # and one or two data types exist
+    if analysis == 'dual_merge':
+        if numeric_data_missing and categorical_data_missing:
+            if verbose > 0:
+                print("Both numeric and categorical data are missing."
+                      " Unable to perform dual_merge analysis.")
+            # Initialize as empty DataFrame or handle as needed    
+            merged_data = pd.DataFrame()  
+    
+        elif numeric_data_missing and not categorical_data_missing:
+            merged_data = encoded_categorical.copy()
+            if verbose > 0:
+                print("Numeric data is missing. Using only encoded"
+                      " categorical data for merging.")
+    
+        elif categorical_data_missing and not numeric_data_missing:
+            merged_data = numeric_data.copy()
+            if verbose > 0:
+                print("Categorical data is missing. Using only"
+                      " numeric data for merging.")
+    
+        else:
+            # Both numeric and categorical data are present
+            merged_data = pd.concat(
+                [numeric_data, encoded_categorical],
+                axis=1
+            )
+            if verbose > 0:
+                print("Both numeric and categorical data are present."
+                      " Merging both for correlation analysis.")
+    
+        # Proceed only if merged_data is not empty
+        if not merged_data.empty:
+            merged_corr = merged_data.corr(method=method)
+            
+            if verbose > 1:
+                print("Computed merged correlation for dual_merge analysis.")
+        else:
+            if verbose > 0:
+                print("Merged data is empty. Skipping correlation computation.")
 
     # optionally display heatmaps if 'view' is True
-    if view:
-        # numeric analysis heatmap
-        if analysis == 'numeric' and numeric_corr is not None:
-            plt.figure(figsize=fig_size)
-            sns.heatmap(numeric_corr, annot=True, cmap=cmap)
-            plt.title("Numeric Correlation Matrix")
-            plt.show()
-
-        # categorical analysis heatmap
-        elif analysis == 'category' and categorical_corr is not None:
-            plt.figure(figsize=fig_size)
-            sns.heatmap(categorical_corr, annot=True, cmap=cmap)
-            plt.title("Categorical Correlation Matrix")
-            plt.show()
-
-        # separate heatmaps for numeric and categorical in 'dual' analysis
-        elif analysis == 'dual':
-            fig, axes = plt.subplots(
-                1,
-                2,
-                figsize=(2 * fig_size[0], fig_size[1])
-            )
-            if numeric_corr is not None:
-                sns.heatmap(
-                    numeric_corr,
-                    annot=True,
-                    cmap=cmap,
-                    ax=axes[0]
-                )
-                axes[0].set_title("Numeric Correlation Matrix")
-            if categorical_corr is not None:
-                sns.heatmap(
-                    categorical_corr,
-                    annot=True,
-                    cmap=cmap,
-                    ax=axes[1]
-                )
-                axes[1].set_title("Categorical Correlation Matrix")
-            plt.tight_layout()
-            plt.show()
-
-        # merged correlation heatmap for 'dual_merge'
-        elif analysis == 'dual_merge' and merged_corr is not None:
-            plt.figure(figsize=fig_size)
-            sns.heatmap(merged_corr, annot=True, cmap=cmap)
-            plt.title("Merged Correlation Matrix")
-            plt.show()
-
+    _plot_correlation_heatmaps(
+        analysis,
+        numeric_corr=numeric_corr,
+        categorical_corr=categorical_corr,
+        merged_corr=merged_corr,
+        view=view,
+        verbose=verbose,
+        fig_size=fig_size,
+        cmap=cmap
+        )
+    
     # return the computed correlation matrices if requested
     if return_corr_data:
         if analysis == 'numeric':
@@ -2264,22 +2439,502 @@ def corr_analysis(
     # return the final transformed data for further use
     return transformed_data
 
+def _plot_correlation_heatmaps(
+    analysis,
+    numeric_corr=None,
+    categorical_corr=None,
+    merged_corr=None,
+    view=True,
+    verbose=1,
+    fig_size=(10, 8),
+    cmap="coolwarm"
+):
+    """
+    Plot correlation heatmaps for numeric, categorical, or merged data.
+
+    This helper function is designed to be called by higher-level routines
+    that compute correlation matrices. It conditionally displays heatmaps
+    based on the value of ``analysis``, which can be one of:
+
+    - `'numeric'`: Plots a single heatmap for numeric correlation.
+    - `'category'`: Plots a single heatmap for categorical correlation.
+    - `'dual'`: Plots two separate heatmaps side by side (one numeric,
+      one categorical).
+    - `'dual_merge'`: Plots a single heatmap of a merged correlation matrix.
+
+    Parameters
+    ----------
+    analysis : str
+        Specifies the type of analysis to plot. Must be one of
+        ``'numeric'``, ``'category'``, ``'dual'``, or ``'dual_merge'``.
+
+    numeric_corr : DataFrame or None, optional
+        Numeric correlation matrix. If `None`, indicates that
+        numeric correlations are not available.
+
+    categorical_corr : DataFrame or None, optional
+        Categorical correlation matrix. If `None`, indicates that
+        categorical correlations are not available.
+
+    merged_corr : DataFrame or None, optional
+        Merged correlation matrix used in `'dual_merge'` analysis.
+        If `None`, indicates that merged correlations are not available.
+
+    view : bool, default=True
+        If `False`, no plots will be displayed.
+
+    verbose : int, default=1
+        Level of verbosity for diagnostic messages:
+        - 0: No output messages.
+        - 1: Print basic information messages.
+
+    fig_size : tuple of (int, int), default=(10, 8)
+        Figure size for the heatmap(s). Adjust if more or less
+        space is needed for annotations.
+
+    cmap : str, default="coolwarm"
+        Colormap for the heatmaps, passed directly to
+        ``seaborn.heatmap``.
+
+    Returns
+    -------
+    None
+        Displays the correlation heatmap(s) if `view=True`. Does not
+        return any value.
+    """
+    # If plotting is disabled, simply return
+    if not view:
+        return
+
+    # Numeric correlation analysis
+    if analysis == 'numeric':
+        if numeric_corr is None:
+            if verbose > 0:
+                print("No numeric data detected. Numeric correlation "
+                      "cannot be plotted.")
+        else:
+            plt.figure(figsize=fig_size)
+            sns.heatmap(numeric_corr, annot=True, cmap=cmap)
+            plt.title("Numeric Correlation")
+            plt.show()
+
+    # Categorical correlation analysis
+    elif analysis == 'category':
+        if categorical_corr is None:
+            if verbose > 0:
+                print("No categorical data detected. Categorical correlation "
+                      "cannot be plotted.")
+        else:
+            plt.figure(figsize=fig_size)
+            sns.heatmap(categorical_corr, annot=True, cmap=cmap)
+            plt.title("Categorical Correlation")
+            plt.show()
+
+    # Dual analysis: side-by-side numeric and categorical
+    elif analysis == 'dual':
+        # Handle cases where one or both correlation matrices are missing
+        numeric_available = numeric_corr is not None
+        categorical_available = categorical_corr is not None
+
+        if not numeric_available and not categorical_available:
+            if verbose > 0:
+                print("Dual analysis requested but neither numeric nor "
+                      "categorical data is available. No plot will be shown.")
+            return
+
+        # If only one correlation matrix is available, plot a single heatmap
+        if numeric_available and not categorical_available:
+            if verbose > 0:
+                print("Dual analysis requested, but categorical data "
+                      "is not available. Plotting only numeric correlation.")
+            plt.figure(figsize=fig_size)
+            sns.heatmap(numeric_corr, annot=True, cmap=cmap)
+            plt.title("Numeric Correlation")
+            plt.show()
+            return
+        elif categorical_available and not numeric_available:
+            if verbose > 0:
+                print("Dual analysis requested, but numeric data "
+                      "is not available. Plotting only categorical correlation.")
+            plt.figure(figsize=fig_size)
+            sns.heatmap(categorical_corr, annot=True, cmap=cmap)
+            plt.title("Categorical Correlation")
+            plt.show()
+            return
+
+        # Both numeric and categorical correlations are available
+        fig, axes = plt.subplots(1, 2, figsize=(2 * fig_size[0], fig_size[1]))
+        sns.heatmap(numeric_corr, annot=True, cmap=cmap, ax=axes[0])
+        axes[0].set_title("Numeric Correlation")
+        sns.heatmap(categorical_corr, annot=True, cmap=cmap, ax=axes[1])
+        axes[1].set_title("Categorical Correlation")
+        plt.tight_layout()
+        plt.show()
+
+    # Merged correlation analysis
+    elif analysis == 'dual_merge':
+        if merged_corr is None:
+            if verbose > 0:
+                print("No merged correlation data detected. Cannot plot "
+                      "the merged correlation matrix.")
+        else:
+            plt.figure(figsize=fig_size)
+            sns.heatmap(merged_corr, annot=True, cmap=cmap)
+            plt.title("Merged Correlation")
+            plt.show()
+
+    # If the specified analysis does not match known options
+    else:
+        if verbose > 0:
+            print(f"Unrecognized analysis type '{analysis}'. "
+                  "Valid options are 'numeric', 'category', "
+                  "'dual', or 'dual_merge'. No plot produced.")
+
+def _drop_correlated_features_in(
+    corr_pairs,
+    data=None,        
+    target=None,     
+    strategy='drop_second',
+    feature_importances=None,
+    original_data=None,
+    corr_matrix=None,
+    precomputed=False,
+    verbose=1
+):
+    # This local variable will store the final strategy to use for
+    # dropping features ('first', 'last', or 'importance').
+    # We may override it if we detect invalid conditions for 'importance'.
+    local_strategy = strategy
+
+    # This dictionary holds the final feature importances if needed.
+    # If 'importance' is valid, we'll compute or use user-provided importances.
+    final_importances = None
+
+    # Handle the 'importance' strategy logic
+    if strategy == 'importance':
+        # If user did not supply any feature_importances
+        if feature_importances is None:
+            # Fallback to drop_second or 'last', 
+            local_strategy = 'last'
+            if verbose > 0:
+                print("No feature_importances provided while strategy is "
+                      "'importance'. Falling back to 'drop_second' strategy.")
+        # If the user set feature_importances = 'auto'
+        elif isinstance(feature_importances, str
+                        ) and feature_importances.lower() == 'auto':
+            # Both data and target must be provided to compute importance
+            if data is None or target is None:
+                local_strategy = 'last'
+                if verbose > 0:
+                    print("Feature importances set to 'auto', but 'data' or "
+                          "'target' is None. Falling back to 'last'.")
+            else:
+                # Compute auto importances with a helper function
+                if verbose > 0:
+                    print("Computing feature importances automatically...")
+                
+                if isinstance (target, str): 
+                    y, X = extract_target(data, target, return_y_X =True)
+                    y =to_series (y)
+                else: 
+                    X = data.copy() 
+                    y = target 
+                    
+                check_consistent_length(X, y ) 
+                final_importances = _compute_feature_importances(
+                    X=X,
+                    y=y
+                )
+        # Otherwise, we assume it's a dictionary
+        elif isinstance(feature_importances, dict):
+            final_importances = feature_importances
+        else:
+            # Unrecognized type => fallback
+            local_strategy = 'last'
+            if verbose > 0:
+                print("Unrecognized feature_importances type. "
+                      "Falling back to drop 'last' strategy.")
+
+    # Keep track of dropped features to avoid repeated drops
+    features_to_drop = set()
+
+    # Loop through each pair of correlated features
+    for (f1, f2, val) in corr_pairs:
+        # Apply the resolved dropping strategy
+        if local_strategy == 'importance' and final_importances is not None:
+            # If importance is valid, drop the lower-importance feature
+            imp_f1 = final_importances.get(f1, 0)
+            imp_f2 = final_importances.get(f2, 0)
+            if f1 not in features_to_drop and f2 not in features_to_drop:
+                if imp_f1 < imp_f2:
+                    features_to_drop.add(f1)
+                else:
+                    features_to_drop.add(f2)
+        elif local_strategy == 'first':
+            # Drop the first feature if neither is already dropped
+            if f1 not in features_to_drop and f2 not in features_to_drop:
+                features_to_drop.add(f1)
+        else:
+            # Default or 'drop_second' or 'last', 
+            if f1 not in features_to_drop and f2 not in features_to_drop:
+                features_to_drop.add(f2)
+
+    # Once we've determined which features to drop, proceed with dropping
+    if not precomputed:
+        # If original_data is a DataFrame, drop columns from it
+        if original_data is not None:
+            dropped_data = original_data.drop(
+                columns=list(features_to_drop),
+                errors='ignore'
+            )
+            return dropped_data
+        else:
+            # Nothing to drop from if original_data is None
+            return None
+    else:
+        # If correlation matrix was precomputed, drop columns/rows from it
+        if corr_matrix is not None:
+            dropped_matrix = corr_matrix.drop(
+                columns=list(features_to_drop),
+                errors='ignore'
+            )
+            dropped_matrix = dropped_matrix.drop(
+                index=list(features_to_drop),
+                errors='ignore'
+            )
+            return dropped_matrix
+        else:
+            return None
+
+def _compute_feature_importances(X, y, random_state=42):
+    # Detect the type of target to decide on regressor or classifier
+    from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+
+    target_type = type_of_target(y)
+    
+    # Initialize a default model based on the target type
+    if target_type in ['continuous', 'continuous-multioutput']:
+        # Use a RandomForestRegressor for regression tasks
+        model = RandomForestRegressor(
+            n_estimators=50,
+            random_state=random_state,
+            n_jobs=-1
+        )
+    else:
+        # Otherwise treat as classification
+        model = RandomForestClassifier(
+            n_estimators=50,
+            random_state=random_state,
+            n_jobs=-1
+        )
+
+    # Fit the model to compute feature importances
+    model.fit(X, y)
+    
+    # Extract feature importances
+    importances = model.feature_importances_
+    
+    # Return a dictionary mapping feature -> importance
+    return {
+        col: imp for col, imp in zip(X.columns, importances)
+    }
+
+def _get_feature_importances_if_auto(
+    X, 
+    y, 
+    feature_importances, 
+    strategy='drop_second',
+    random_state=42,
+    verbose=1
+):
+    # If feature_importances is already provided, just return it
+    if feature_importances is not None:
+        return feature_importances
+
+    # If the strategy is 'importance' and user set 'auto',
+    # we compute the importances automatically
+    if strategy == 'importance' and feature_importances == 'auto':
+        if verbose > 0:
+            print("Computing feature importances automatically using a "
+                  "RandomForest model...")
+        computed_importances = _compute_feature_importances(
+            X=X,
+            y=y,
+            random_state=random_state
+        )
+        return computed_importances
+    
+    # Otherwise, we do not compute anything and return None
+    return None
 
 @is_data_readable
 @isdf
 def corr_engineering_in(
     data,
-    action='drop',   
-    threshold=0.8,  
-    precomputed=False,  
-    return_selected_features=False, 
-    strategy=None,  
-    verbose=0,      
-    view=True       
+    target=None,
+    action='drop',
+    threshold=0.8,
+    precomputed=False,
+    analysis='numeric',
+    show_corr_results=True, 
+    feature_importances=None,
+    strategy=None,
+    return_selected_features=False,
+    view=True,
+    cmap='Blues',
+    fig_size=(10, 8),
+    verbose=0
 ):
-    from sklearn.decomposition import PCA
-    from sklearn.preprocessing import PolynomialFeatures
-    
+    r"""
+    Perform correlation-based feature engineering.
+
+    This function analyzes the correlation structure of ``data`` and
+    applies a user-specified `<action>` such as `'drop'`, `'pca'`,
+    `'fe'` (feature engineering), or `'pf'` (polynomial feature) to
+    handle highly correlated features. If ``precomputed`` is ``True``,
+    ``data`` is treated as an existing correlation matrix, otherwise
+    the function computes a correlation matrix from the provided
+    DataFrame. It supports advanced strategies like `'importance'`,
+    which drops lower-importance features, as determined by
+    ``feature_importances``.
+
+    Parameters
+    ----------
+    data : DataFrame or ndarray
+        The input dataset. If ``precomputed=False``, a correlation
+        matrix is computed from this dataset. If ``precomputed=True``,
+        ``data`` is assumed to be an existing correlation matrix.
+
+    target : array-like or None, optional
+        Target variable used when `<strategy>` is `'importance'` and
+        ``feature_importances`` is `'auto'``. It helps to compute
+        feature importances, typically via a random forest.
+
+    action : {'drop', 'pca', 'fe', 'feature_engineering',
+              'pf', 'polynomial_feature'}, default='drop'
+        Defines the transformation to apply. `'drop'` removes highly
+        correlated features. `'pca'` applies PCA on correlated sets.
+        `'fe'` or `'feature_engineering'` merges correlated features
+        into a single feature. `'pf'` or `'polynomial_feature'`
+        generates polynomial expansions of correlated features.
+
+    threshold : float, default=0.8
+        The absolute correlation cutoff for deciding whether two
+        features are highly correlated. Formally:
+
+        .. math::
+           \\text{If } |r| \\ge \\text{threshold}, \\text{ then
+           the pair is considered highly correlated.}
+
+    precomputed : bool, default=False
+        If ``True``, interprets ``data`` as a correlation matrix
+        instead of raw features.
+        
+    analysis : {'numeric', 'category', 'dual', 'dual_merge'} or str,
+               default='numeric'
+        The analysis mode controlling how data is partitioned or
+        combined before correlation. Possible values:
+        - ``'numeric'``: Only numeric columns are used for correlation.
+        - ``'category'``: Only categorical columns are encoded and
+          correlated.
+        - ``'dual'``: Computes separate correlations for numeric and
+          encoded categorical features.
+        - ``'dual_merge'``: Merges numeric and encoded categorical
+          columns into a single set before computing a unified
+          correlation matrix.
+          
+    show_corr_results : bool, default=False
+        If True, displays correlation summaries through
+        `corr_analysis`. Ignored if ``precomputed=True``.
+
+    feature_importances : dict or str or None, default=None
+        Feature importance information for dropping correlated
+        features when `<strategy>` is `'importance'`. Can be:
+        - A dictionary mapping feature names to importance scores.
+        - The string ``'auto'``, which triggers automatic importance
+          computation. Requires a valid ``target``.
+        - ``None``, in which case `'importance'` reverts to dropping
+          the second feature.
+
+    strategy : str or None, default=None
+        The specific strategy for managing correlated features when
+        `<action>` is `'drop'`. For example, `'importance'` drops
+        lower-importance features, `'first'` drops the first
+        feature in each correlated pair, etc. If ``None``, defaults to
+        drop `'last'`` feature that correspond to the second.
+
+    return_selected_features : bool, default=False
+        If ``True``, returns only the transformed dataset (or updated
+        correlation matrix). Otherwise, returns the same structure
+        (DataFrame vs. correlation matrix) that was processed.
+
+    view : bool, default=True
+        If ``True``, displays a heatmap visualization of the numeric
+        correlation matrix after applying `<action>`.
+
+    cmap : str, default='Blues'
+        Colormap for the correlation heatmap.
+
+    fig_size : (int, int), default=(10, 8)
+        Figure size for the correlation heatmap.
+
+    verbose : int, default=0
+        Controls the verbosity of console messages. Higher values
+        produce more logging output.
+
+    Returns
+    -------
+    DataFrame or ndarray
+        Transformed dataset or updated correlation matrix,
+        depending on whether ``precomputed`` is ``True``. If
+        ``return_selected_features=True``, only the processed
+        structure is returned.
+
+    Notes
+    -----
+    Internally, this function calls `corr_analysis` to transform
+    the input dataset into a numeric DataFrame unless
+    ``precomputed`` is ``True``. It then identifies highly
+    correlated feature pairs as those where :math:`|r| \\ge
+    \\text{threshold}` and applies the specified `<action>`.
+    Strategies like `'importance'` leverage existing or
+    automatically computed importance scores to remove less
+    informative features.
+
+    .. math::
+       \\text{Let } C \\text{ be the correlation matrix and }
+       \\text{threshold} = t. \\
+       \\text{If } |C_{ij}| \\ge t, \\text{ then features } i \\text{ and }
+       j \\text{ are considered highly correlated.}
+
+    Examples
+    --------
+    >>> from gofast.dataops.quality import corr_engineering_in
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'A':[1,2,3,4,5],
+    ...     'B':[2,4,6,8,10],
+    ...     'C':[5,3,2,1,1]
+    ... })
+    >>> # Drop features correlated above 0.9
+    >>> result = corr_engineering_in(df, threshold=0.9, action='drop')
+    >>> result.columns
+    Index(['A', 'C'], dtype='object')
+
+    See also
+    --------
+    `corr_analysis` : Analyzes and encodes data before computing
+    correlation.
+
+    References
+    ----------
+    .. [1] Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning
+           in Python. Journal of Machine Learning Research, 12,
+           2825-2830.
+    .. [2] Gofast Documentation. Available at:
+           https://gofast.readthedocs.io/en/latest/
+    """
+
     # if 'data' is already a correlation matrix, 
     # there's no need to compute it again
     if precomputed:
@@ -2293,8 +2948,9 @@ def corr_engineering_in(
         # we do not display or return correlation data from corr_analysis here
         transformed_data = corr_analysis(
             data,
-            analysis='numeric',
+            analysis=analysis,
             return_corr_data=False,
+            show_corr_results=show_corr_results, 
             view=False,
             verbose=verbose
         )
@@ -2318,199 +2974,404 @@ def corr_engineering_in(
     if len(corr_pairs) == 0 and verbose > 0:
         print("No highly correlated features detected above the threshold.")
 
-    # define a helper function to drop correlated features
-    def drop_correlated_features():
-        # we track dropped features to avoid repeated drops
-        features_to_drop = set()
-        for (f1, f2, val) in corr_pairs:
-            # decide which feature to drop (heuristic: drop the second one)
-            # more sophisticated logic can be used here, e.g., dropping 
-            # by feature importance, for that see 
-            # 'gofast.dataops.corr_engineering' instead.
-            if f1 not in features_to_drop and f2 not in features_to_drop:
-                features_to_drop.add(f2)
-
-        if not precomputed:
-            # drop from original_data if it is a dataframe
-            dropped_data = original_data.drop(
-                columns=list(features_to_drop), 
-                errors='ignore'
-            )
-            return dropped_data
-        else:
-            # if precomputed, we remove columns/rows from the correlation matrix
-            dropped_matrix = corr_matrix.drop(
-                columns=list(features_to_drop), 
-                errors='ignore'
-            )
-            dropped_matrix = dropped_matrix.drop(
-                index=list(features_to_drop), 
-                errors='ignore'
-            )
-            return dropped_matrix
-
-    # define a helper function for pca transformation
-    # on correlated features
-    def apply_pca():
-        if not precomputed:
-            # only proceed if we have original data
-            # gather all unique features from the correlation pairs
-            all_correlated = set()
-            for (f1, f2, _) in corr_pairs:
-                all_correlated.update([f1, f2])
-
-            # subset data with the correlated features
-            subset = original_data[list(all_correlated)].copy()
-
-            # fit pca to the subset
-            pca = PCA()
-            pca_values = pca.fit_transform(subset)
-
-            # create a dataframe for the pca components
-            pca_df = pd.DataFrame(
-                pca_values, 
-                columns=[f"pca_comp_{i+1}" for i in range(pca_values.shape[1])]
-            )
-
-            # drop the original correlated columns and add the pca components
-            data_after_pca = original_data.drop(
-                columns=list(all_correlated), errors='ignore')
-            data_after_pca = pd.concat([data_after_pca, pca_df], axis=1)
-            return data_after_pca
-        else:
-            # if correlation matrix is given, we cannot apply pca meaningfully
-            # because pca requires original data
-            if verbose > 0:
-                warnings.warn(
-                    "Cannot apply PCA on a precomputed correlation matrix."
-                    )
-            return corr_matrix
-
-    # define a helper function for simple feature engineering
-    def feature_engineering():
-        # combine correlated features into a single feature, e.g., average or sum
-        if strategy is None:
-            # default to 'average'
-            eng_strategy = 'average'
-        else:
-            eng_strategy = strategy
-
-        if not precomputed:
-            data_copy = original_data.copy()
-            processed_pairs = set()
-
-            for (f1, f2, _) in corr_pairs:
-                # skip if we've already handled a pair
-                if (f1, f2) in processed_pairs or (f2, f1) in processed_pairs:
-                    continue
-
-                # combine features using the chosen strategy
-                if eng_strategy == 'average':
-                    new_feature = (data_copy[f1] + data_copy[f2]) / 2
-                elif eng_strategy == 'sum':
-                    new_feature = data_copy[f1] + data_copy[f2]
-                else:
-                    # fallback to average if unrecognized
-                    new_feature = (data_copy[f1] + data_copy[f2]) / 2
-                    if verbose > 1:
-                        warnings.warn(
-                            f"Unknown strategy '{eng_strategy}'."
-                            " Defaulting to average."
-                        )
-
-                # create a new column name
-                new_feature_name = f"{f1}_{f2}_eng"
-                data_copy[new_feature_name] = new_feature
-
-                # drop original features
-                data_copy.drop(columns=[f1, f2], errors='ignore', inplace=True)
-
-                # mark pair as processed
-                processed_pairs.add((f1, f2))
-                processed_pairs.add((f2, f1))
-
-            return data_copy
-        else:
-            # if correlation matrix is given, we cannot directly create new columns
-            if verbose > 0:
-                warnings.warn(
-                    "Cannot create engineered features from a"
-                    "precomputed correlation matrix."
-                )
-            return corr_matrix
-
-    # define a helper function for polynomial feature generation
-    def polynomial_feature():
-        if not precomputed:
-            data_copy = original_data.copy()
-            poly = PolynomialFeatures(
-                degree=2, include_bias=False, interaction_only=False
-                )
-
-            # gather all unique features from the correlation pairs
-            all_correlated = set()
-            for (f1, f2, _) in corr_pairs:
-                all_correlated.update([f1, f2])
-
-            subset = data_copy[list(all_correlated)].copy()
-            poly_data = poly.fit_transform(subset)
-            poly_feature_names = poly.get_feature_names_out(subset.columns)
-
-            # create a dataframe from polynomial features
-            poly_df = pd.DataFrame(poly_data, columns=poly_feature_names)
-
-            # drop the original correlated columns and add polynomial features
-            data_after_poly = data_copy.drop(
-                columns=list(all_correlated), errors='ignore')
-            data_after_poly = pd.concat([data_after_poly, poly_df], axis=1)
-            return data_after_poly
-        else:
-            # cannot generate polynomial features from a precomputed correlation matrix
-            if verbose > 0:
-                warnings.warn(
-                    "Cannot create polynomial features from"
-                    " a precomputed correlation matrix."
-                )
-            return corr_matrix
-
-    # apply the requested action
+    # Apply the requested action
     if action == 'drop':
-        result = drop_correlated_features()
+        # Here we call the advanced helper to drop correlated features.
+        # We pass 'strategy' and 'feature_importances' if we have them.
+        result = _drop_correlated_features_in(
+            corr_pairs=corr_pairs,
+            data=data, 
+            target=target, 
+            strategy=strategy,
+            feature_importances=feature_importances,
+            original_data=original_data,
+            corr_matrix=corr_matrix,
+            precomputed=precomputed
+        )
     elif action == 'pca':
-        result = apply_pca()
+        result = _apply_pca(
+            corr_pairs=corr_pairs, 
+            original_data=original_data,  
+            precomputed=precomputed, 
+            corr_matrix=corr_matrix,  
+            verbose=verbose 
+            ) 
+        
     elif action in ['fe', 'feature_engineering']:
-        result = feature_engineering()
+        result = _feature_engineering(
+            corr_pairs=corr_pairs, 
+            original_data=original_data, 
+            strategy=strategy, 
+            precomputed=precomputed, 
+            corr_matrix=corr_matrix, 
+            verbose=verbose,
+            )
     elif action in ['pf', 'polynomial_feature']:
-        result = polynomial_feature()
+        result = _polynomial_feature(
+            corr_pairs=corr_pairs, 
+            original_data=original_data,  
+            precomputed=precomputed, 
+            corr_matrix=corr_matrix, 
+            verbose=verbose, 
+            )
     else:
         if verbose > 1:
             warnings.warn(
                 f"Unknown action '{action}'. No transformations applied.")
         result = original_data if not precomputed else corr_matrix
 
-    # if we are returning only the new or selected features, return 'result'
-    # otherwise return the same structure based on whether
-    # we had precomputed correlation
+    _plot_correlation_heatmaps(
+        'numeric', 
+        numeric_corr = result.corr() if not precomputed else result, 
+        view =view, 
+        cmap =cmap, 
+        fig_size=fig_size, 
+        verbose=verbose, 
+        )
+    # if we are returning only the new or selected features, 
+    # return 'result' otherwise return the same structure
+    #  based on whether we had precomputed correlation
     if return_selected_features:
         return result
     else:
-        # if correlation was precomputed, return the updated correlation matrix
-        # or if not precomputed, return the updated dataframe
+        # if correlation was precomputed, return the updated 
+        # correlation matrix or if not precomputed, 
+        # return the updated dataframe
         return result
 
+def _apply_pca(
+    corr_pairs, 
+    original_data,  
+    precomputed=True, 
+    corr_matrix=None,  
+    verbose=1 
+):
+    # define a helper function for pca transformation
+    # on correlated features
+    from sklearn.decomposition import PCA
+    
+    if not precomputed:
+        # only proceed if we have original data
+        # gather all unique features from the correlation pairs
+        all_correlated = set()
+        for (f1, f2, _) in corr_pairs:
+            all_correlated.update([f1, f2])
+
+        # subset data with the correlated features
+        subset = original_data[list(all_correlated)].copy()
+
+        # fit pca to the subset
+        pca = PCA()
+        pca_values = pca.fit_transform(subset)
+
+        # create a dataframe for the pca components
+        pca_df = pd.DataFrame(
+            pca_values, 
+            columns=[f"pca_comp_{i+1}" for i in range(pca_values.shape[1])]
+        )
+
+        # drop the original correlated columns and add the pca components
+        data_after_pca = original_data.drop(
+            columns=list(all_correlated), errors='ignore')
+        data_after_pca = pd.concat([data_after_pca, pca_df], axis=1)
+        return data_after_pca
+    else:
+        # if correlation matrix is given, we cannot apply pca meaningfully
+        # because pca requires original data
+        if verbose > 0:
+            warnings.warn(
+                "Cannot apply PCA on a precomputed correlation matrix."
+                )
+        return corr_matrix
+        
+def _feature_engineering(
+    corr_pairs, 
+    original_data, 
+    strategy=None, 
+    precomputed=True, 
+    corr_matrix=None, 
+    verbose=1,
+    ):
+    # Use a default engineering strategy if none is provided
+    if strategy is None:
+        eng_strategy = 'average'
+    else:
+        eng_strategy = strategy
+
+    # Skip if we're dealing with a precomputed correlation matrix
+    if precomputed:
+        # Warn the user that feature engineering can't be performed
+        # without the original data
+        if verbose > 0:
+            warnings.warn(
+                "Cannot create engineered features from a "
+                "precomputed correlation matrix."
+            )
+        return corr_matrix
+
+    # Make a copy of the original data to avoid modifying in place
+    data_copy = original_data.copy()
+
+    # Keep track of pairs we've already processed to avoid duplication
+    processed_pairs = set()
+
+    # Iterate over the correlated feature pairs
+    for (f1, f2, _) in corr_pairs:
+        # If we've already engineered features for this pair, skip it
+        if (f1, f2) in processed_pairs or (f2, f1) in processed_pairs:
+            continue
+
+        # If either column doesn't exist in the DataFrame, skip and inform if verbose
+        if f1 not in data_copy.columns or f2 not in data_copy.columns:
+            if verbose > 0:
+                print(f"Skipping pair ('{f1}', '{f2}') because one of them "
+                      f"is not present in the dataset.")
+            continue
+
+        # Combine the two features using the selected strategy
+        if eng_strategy == 'average':
+            new_feature = (data_copy[f1] + data_copy[f2]) / 2
+        elif eng_strategy == 'sum':
+            new_feature = data_copy[f1] + data_copy[f2]
+        else:
+            # Fallback to averaging if the strategy is unrecognized
+            new_feature = (data_copy[f1] + data_copy[f2]) / 2
+            if verbose > 1:
+                warnings.warn(
+                    f"Unknown strategy '{eng_strategy}'. "
+                    "Defaulting to average."
+                )
+
+        # Construct a name for the newly engineered feature
+        new_feature_name = f"{f1}_{f2}_eng"
+
+        # Assign the new feature to the DataFrame
+        data_copy[new_feature_name] = new_feature
+
+        # Drop the original correlated features
+        data_copy.drop(columns=[f1, f2], errors='ignore', inplace=True)
+
+        # Mark this pair as processed
+        processed_pairs.add((f1, f2))
+        processed_pairs.add((f2, f1))
+
+    # Return the DataFrame with engineered features
+    return data_copy
+
+def _polynomial_feature(
+    corr_pairs, original_data,  
+    precomputed=True, 
+    verbose=1, 
+    corr_matrix=None
+    ):
+    # define a helper function for polynomial feature generation
+    from sklearn.preprocessing import PolynomialFeatures
+    if not precomputed:
+        data_copy = original_data.copy()
+        poly = PolynomialFeatures(
+            degree=2, include_bias=False, interaction_only=False
+            )
+
+        # gather all unique features from the correlation pairs
+        all_correlated = set()
+        for (f1, f2, _) in corr_pairs:
+            all_correlated.update([f1, f2])
+
+        subset = data_copy[list(all_correlated)].copy()
+        poly_data = poly.fit_transform(subset)
+        poly_feature_names = poly.get_feature_names_out(subset.columns)
+
+        # create a dataframe from polynomial features
+        poly_df = pd.DataFrame(poly_data, columns=poly_feature_names)
+
+        # drop the original correlated columns and add polynomial features
+        data_after_poly = data_copy.drop(
+            columns=list(all_correlated), errors='ignore')
+        data_after_poly = pd.concat([data_after_poly, poly_df], axis=1)
+        return data_after_poly
+    else:
+        # cannot generate polynomial features from a precomputed correlation matrix
+        if verbose > 0:
+            warnings.warn(
+                "Cannot create polynomial features from"
+                " a precomputed correlation matrix."
+            )
+        return corr_matrix
+        
 @is_data_readable
 @isdf
 def corr_engineering(
     data,
-    target=None,                
-    threshold_features=0.8, 
-    threshold_target=0.1,   
-    action='drop',               
-    strategy='average',          
-    precomputed=False,          
+    target=None,
+    threshold_features=0.8,
+    threshold_target=0.1,
+    action='drop',
+    strategy='average',
+    analysis='numeric',
+    show_corr_results=False,
+    precomputed=False,
     return_selected_features=False,
-    verbose=0,
+    view=False,
+    cmap='Blues',
+    fig_size=(10, 8),
+    verbose=0
 ):
+    """
+    Perform an extended correlation-based feature analysis to handle
+    highly correlated features and optionally remove those with low
+    correlation to the `target`.
+
+    This function first identifies features whose absolute correlation
+    surpasses ``threshold_features`` and decides which to drop based on
+    `<strategy>` and optional `target` correlation. If a valid
+    `target` is provided, any feature falling below
+    ``threshold_target`` is also removed. Supported `<action>` values
+    include ``'drop'`` for direct removal, ``'pca'`` for applying
+    PCA on correlated subsets, ``'fe'`` or
+    ``'feature_engineering'`` for merging correlated features, and
+    ``'pf'`` or ``'polynomial_feature'`` for polynomial expansion.
+
+    Compared to `corr_engineering_in`, this function includes an
+    additional step to remove features whose absolute correlation to
+    the `target` is under ``threshold_target``. Use
+    `corr_engineering_in` if you want to skip that target-based
+    filtering.
+
+    Parameters
+    ----------
+    data : DataFrame or ndarray
+        The dataset or correlation matrix (if ``precomputed=True``)
+        from which correlations are computed or utilized.
+
+    target : array-like or str or None, optional
+        Target variable used to decide feature removal based on
+        absolute correlation to the `target`. If str, attempts to
+        retrieve this column from `data` (unless
+        ``precomputed=True``). If array-like, it must align with
+        `data`'s index. If None, the feature-target filtering step
+        is skipped.
+
+    threshold_features : float, default=0.8
+        The cutoff for detecting highly correlated features. A pair
+        of features is considered highly correlated if
+        :math:`|r| \\ge \\text{threshold\\_features}`.
+
+    threshold_target : float, default=0.1
+        The minimum absolute correlation to `target` required to
+        keep a feature. Any feature falling below this threshold
+        is discarded.
+
+    action : {'drop', 'pca', 'fe', 'feature_engineering',
+              'pf', 'polynomial_feature'}, default='drop'
+        Determines how highly correlated features are handled:
+        - ``'drop'``: Removes them directly.
+        - ``'pca'``: Applies PCA to correlated subsets.
+        - ``'fe'`` or ``'feature_engineering'``: Merges correlated
+          features (e.g., averaging).
+        - ``'pf'`` or ``'polynomial_feature'``: Generates polynomial
+          expansions of correlated subsets.
+
+    strategy : {'average', 'sum'} or str, default='average'
+        The method used in `<action>` = ``'fe'`` to combine correlated
+        features. If unrecognized, defaults to `'average'`.
+
+    analysis : {'numeric', 'category', 'dual', 'dual_merge'} or str,
+               default='numeric'
+        The analysis mode controlling how data is partitioned or
+        combined before correlation. Possible values:
+        - ``'numeric'``: Only numeric columns are used for correlation.
+        - ``'category'``: Only categorical columns are encoded and
+          correlated.
+        - ``'dual'``: Computes separate correlations for numeric and
+          encoded categorical features.
+        - ``'dual_merge'``: Merges numeric and encoded categorical
+          columns into a single set before computing a unified
+          correlation matrix.
+
+    show_corr_results : bool, default=False
+        If True, displays correlation summaries through
+        `corr_analysis`. Ignored if ``precomputed=True``.
+
+    precomputed : bool, default=False
+        Indicates whether `data` is already a correlation matrix.
+        If True, no transformations occur, and correlation-based
+        operations proceed directly.
+
+    return_selected_features : bool, default=False
+        If True, returns only the processed DataFrame or matrix
+        after dropping or transforming features. Otherwise,
+        returns the same structure that was processed.
+
+    view : bool, default=False
+        If True, displays a heatmap of the numeric correlation
+        matrix after the chosen `<action>`.
+
+    cmap : str, default='Blues'
+        Colormap for the correlation heatmap.
+
+    fig_size : (int, int), default=(10, 8)
+        The figure size for the correlation heatmap.
+
+    verbose : int, default=0
+        Controls the verbosity level. Higher values provide more
+        messages about the processing steps.
+
+    Returns
+    -------
+    DataFrame or ndarray
+        The updated dataset or correlation matrix, depending on
+        whether ``precomputed`` is False or True, respectively.
+        If `return_selected_features` is True, only the final
+        transformed structure is returned; otherwise, the same
+        structure that was processed is returned.
+
+    Notes
+    -----
+    The following correlation thresholds are applied:
+    .. math::
+       |r_{ij}| \\ge \\text{threshold\\_features}
+       \\quad \\Longrightarrow \\text{features i,j are highly correlated}.
+    .. math::
+       |r_{i,\\text{target}}| \\ge \\text{threshold\\_target}
+       \\quad \\Longrightarrow \\text{feature i is retained}.
+
+    This function implements more flexible handling of correlated
+    features by optionally filtering out low-correlation features
+    with respect to the `target`. In contrast, `corr_engineering_in`
+    does not drop features solely based on `target` correlation.
+
+    Examples
+    --------
+    >>> from gofast.dataops.quality import corr_engineering
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'A': [1, 2, 3, 4, 5],
+    ...     'B': [2, 4, 6, 8, 10],
+    ...     'C': [5, 3, 2, 1, 1]
+    ... })
+    >>> # Drop features correlated above 0.9
+    >>> # and also remove features with low correlation ( < 0.1 ) to target
+    >>> result = corr_engineering(df, target='C',
+    ...                           threshold_features=0.9,
+    ...                           threshold_target=0.1,
+    ...                           action='drop')
+    >>> result.columns
+    Index(['A', 'C'], dtype='object')
+
+    See also
+    --------
+    `corr_analysis` : Transforms the dataset before correlation
+    computation.
+
+    References
+    ----------
+    .. [1] Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning
+           in Python. Journal of Machine Learning Research, 12,
+           2825-2830.
+    .. [2] Gofast Documentation. Available at:
+           https://gofast.readthedocs.io/en/latest/
+    """
+
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import PolynomialFeatures
     
@@ -2522,10 +3383,13 @@ def corr_engineering(
     if precomputed:
         corr_matrix = data
     else:
-        # get numeric/categorical-encoded version of data (no correlation returned)
+        # get numeric/categorical-encoded version
+        # of data (no correlation returned)
         transformed_data = corr_analysis(
             data,
-            analysis='numeric',
+            analysis=analysis,
+            display_corrtable=False, 
+            show_corr_results=show_corr_results, 
             return_corr_data=False,
             view=False,
             verbose=verbose
@@ -2534,13 +3398,15 @@ def corr_engineering(
         original_data = transformed_data
 
     # if target is a string, try to retrieve its series from the dataframe
-    if (target is not None) and isinstance(target, str) and not precomputed:
+    if (target is not None) and isinstance(
+            target, str) and not precomputed:
         if target in original_data.columns:
             target_series = original_data[target]
         else:
             if verbose > 1:
                 warnings.warn(
-                    "Target is a string but not found in the dataframe columns."
+                    "Target is a string but not found"
+                    " in the dataframe columns."
                 )
     elif target is not None and not precomputed:
         # if target is array-like, convert to Series
@@ -2548,7 +3414,8 @@ def corr_engineering(
             target_series = pd.Series(target, index=original_data.index)
         except Exception as e:
             if verbose > 1:
-                warnings.warn(f"Unable to convert target to a Series: {str(e)}")
+                warnings.warn(
+                    f"Unable to convert target to a Series: {str(e)}")
 
     # --- Step 2: If we have a valid target_series, remove features
     # that have a low absolute correlation to the target ---
@@ -2615,10 +3482,12 @@ def corr_engineering(
     def apply_drop(features_to_drop):
         """Drop the specified features from data or correlation matrix."""
         if not precomputed:
-            return original_data.drop(columns=list(features_to_drop), errors='ignore')
+            return original_data.drop(
+                columns=list(features_to_drop), errors='ignore')
         else:
             # remove rows/columns for those features from corr_matrix
-            tmp = corr_matrix.drop(columns=list(features_to_drop), errors='ignore')
+            tmp = corr_matrix.drop(
+                columns=list(features_to_drop), errors='ignore')
             tmp = tmp.drop(index=list(features_to_drop), errors='ignore')
             return tmp
 
@@ -2641,8 +3510,8 @@ def corr_engineering(
             columns=list(features_to_drop), errors='ignore')
 
         # find any features that are still potentially correlated
-        # (In practice, you might want to apply PCA specifically  
-        # to a subset of correlated columns.)
+        # In practice, we might want to apply PCA specifically  
+        # to a subset of correlated columns.
         remaining_corr = data_after_drop.corr()
         still_correlated = set()
         for col_a in remaining_corr.columns:
@@ -2660,10 +3529,12 @@ def corr_engineering(
         pca = PCA()
         pca_values = pca.fit_transform(correlated_subset)
         pca_cols = [f'pca_comp_{i+1}' for i in range(pca_values.shape[1])]
-        pca_df = pd.DataFrame(pca_values, columns=pca_cols, index=correlated_subset.index)
+        pca_df = pd.DataFrame(pca_values, columns=pca_cols,
+                              index=correlated_subset.index)
 
         # drop the correlated subset and add PCA components
-        final_data = data_after_drop.drop(columns=list(still_correlated), errors='ignore')
+        final_data = data_after_drop.drop(columns=list(still_correlated),
+                                          errors='ignore')
         final_data = pd.concat([final_data, pca_df], axis=1)
         return final_data
 
@@ -2707,7 +3578,8 @@ def corr_engineering(
                 # default to average if unrecognized
                 if verbose > 1:
                     warnings.warn(
-                        f"Unknown strategy '{strategy}'. Defaulting to average.")
+                        f"Unknown strategy '{strategy}'."
+                        " Defaulting to average.")
                 new_col_data = (data_copy[f1] + data_copy[f2]) / 2
 
             new_feature_name = f"{f1}_{f2}_eng"
@@ -2780,7 +3652,8 @@ def corr_engineering(
         result = apply_polynomial_feature(all_features_to_drop)
     else:
         if verbose > 1:
-            warnings.warn(f"Unknown action '{action}'. No transformations applied.")
+            warnings.warn(f"Unknown action '{action}'."
+                          " No transformations applied.")
         if precomputed:
             result = corr_matrix
         else:
@@ -2789,6 +3662,15 @@ def corr_engineering(
                 columns=list(all_features_to_drop), errors='ignore'
             )
 
+    _plot_correlation_heatmaps(
+        'numeric', 
+        numeric_corr = result.corr() if not precomputed else result, 
+        view =view, 
+        cmap =cmap, 
+        fig_size=fig_size, 
+        verbose=verbose, 
+        )
+    
     # --- Step 7: Return the appropriate output ---
     if return_selected_features:
         # final feature set or final correlation matrix

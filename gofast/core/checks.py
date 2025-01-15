@@ -77,6 +77,7 @@ __all__= [
     'validate_axis', 
     'validate_depth',
     "check_empty", 
+    "check_numeric_dtype",
     ]
 
 class ParamsValidator:
@@ -705,7 +706,201 @@ class ParamsValidator:
                   f" value is array-like: {array_like}")
         return array_like
 
-# XXX TO RECHECK 
+def check_numeric_dtype(
+    X,
+    y=None,
+    ops='check_only',
+    param_names=None,
+    coerce=False,
+    error='raise',
+    return_X_y=False
+):
+    """
+    Validate or coerce the numeric data type of ``X`` and ``y``.
+
+    The `<check_numeric_dtype>` function ensures that the provided
+    arguments ``X`` and (optionally) ``y`` are valid numeric types. If
+    `<coerce>` is set to True, attempts are made to convert them to
+    numeric formats. If conversion fails or detects non-numeric
+    content, behavior depends on `<error>` (e.g., `'raise'` will throw
+    an exception).
+
+    Parameters
+    ----------
+    X : array-like, DataFrame, or Series
+        The primary data structure to validate or coerce. This
+        parameter is expected to be numeric. If `<coerce>` is True,
+        an attempt is made to convert it to numeric.
+
+    y : array-like, DataFrame, or Series or None, optional
+        A secondary data structure that, if provided, is also
+        validated or coerced. If None, no checks are performed on
+        `y`. Otherwise, it follows the same logic as ``X``.
+
+    ops : {'check_only', 'validate'}, default='check_only'
+        Determines the function's return behavior:
+        - ``'check_only'``: Checks (and possibly coerces) but
+          returns None unless `<return_X_y>` is True.
+        - ``'validate'``: Checks (and possibly coerces) and returns
+          the resulting numeric structures.
+
+    param_names : dict or None, optional
+        A dictionary mapping internal names of parameters to
+        user-friendly labels for error messages. For example,
+        ``{'X': 'Data', 'y': 'Target'}``.
+
+    coerce : bool, default=False
+        If True, attempts to convert `<X>` (and `<y>`, if
+        provided) to numeric type. If False, leaves them as is.
+        If coercion fails, behavior is governed by `<error>`.
+
+    error : {'raise', 'warn', 'ignore'}, default='raise'
+        The error policy applied when encountering non-numeric or
+        uncoercible values:
+        - ``'raise'``: Raises a ValueError if checks fail.
+        - ``'warn'``: Issues a warning but allows execution to
+          continue.
+        - ``'ignore'``: Ignores errors or warnings, although
+          non-numeric data might lead to further issues.
+
+    return_X_y : bool, default=False
+        If True, forces the return of the processed `(X, y)`,
+        regardless of `<ops>`. If `<ops>` is `'check_only'`
+        and `<return_X_y>` is False, nothing is returned unless
+        coercion fails.
+
+    Returns
+    -------
+    None or DataFrame or Series or tuple of (DataFrame or Series)
+        Depending on `<ops>` and `<return_X_y>`:
+        - If `<ops>` is `'check_only'` and `<return_X_y>` is False,
+          returns None.
+        - If `<ops>` is `'check_only'` and `<return_X_y>` is True,
+          returns `(X_converted, y_converted)`.
+        - If `<ops>` is `'validate'`, returns `(X_converted, y_converted)`
+          if `y` is provided, otherwise returns only `X_converted`.
+
+    Notes
+    -----
+    The function checks each array using a numeric detection utility
+    that tests whether the underlying dtype is numeric. If
+    :math:`X` or :math:`y` fails to meet this criterion:
+    .. math::
+       \\text{non\\_numeric}(X) \\Longrightarrow \\text{action based on}\\
+       \\langle error \\rangle
+    If `<coerce>` is True, an attempt is made to cast the array into
+    numeric form. If casting fails and `<error>` is `'raise'`, a
+    ``ValueError`` is thrown.
+
+    Examples
+    --------
+    >>> from gofast.core.checks import check_numeric_dtype
+    >>> import numpy as np
+    >>> X = [1, 2, '3', 4]
+    >>> # Check without coercion
+    >>> check_numeric_dtype(X, coerce=False, error='warn')
+    # Warns about non-numeric if present, no return
+    >>> # Validate with coercion
+    >>> result = check_numeric_dtype(X, ops='validate', coerce=True,
+    ...                              return_X_y=True)
+    >>> result
+    (0    1.0
+     1    2.0
+     2    3.0
+     3    4.0
+     dtype: float64, None)
+
+    See also
+    --------
+    `is_numeric_dtype` : Internal function that detects numeric
+    types in arrays.
+
+    References
+    ----------
+    .. [1] Gofast Documentation. Available at:
+           https://gofast.readthedocs.io/en/latest/
+    """
+    # Retrieve custom names if provided, else defaults
+    names = param_names or {}
+    x_name = names.get('X', 'X')
+    y_name = names.get('y', 'y')
+
+    # Function to handle error messages or warnings
+    def _handle_error(msg):
+        if error == 'raise':
+            raise ValueError(msg)
+        elif error == 'warn':
+            warnings.warn(msg)
+        # if 'ignore', do nothing
+
+    # Helper to attempt coercing to numeric if coerce=True
+    def _try_coerce_to_numeric(arr, arr_name):
+        try:
+            return pd.to_numeric(arr, errors='coerce')
+        except Exception as e:
+            _handle_error(
+                f"Failed to coerce {arr_name} to numeric: {str(e)}"
+            )
+            return arr
+
+    # Check or validate X
+    X_converted = X
+    if X is not None:
+        if not is_numeric_dtype(X, to_array=True):
+            try:
+                _ = np.asarray(X)
+            except Exception as e:
+                _handle_error(
+                    f"Cannot interpret {x_name} as numeric: {str(e)}"
+                )
+            # If coerce is True, try to coerce
+            if coerce:
+                X_converted = _try_coerce_to_numeric(X, x_name)
+            else:
+                _handle_error(
+                    f"Non-numeric {x_name} detected. "
+                    "Consider setting 'coerce=True' to attempt conversion."
+                )
+
+    # Check or validate y if provided
+    y_converted = y
+    if y is not None:
+        if not is_numeric_dtype(y, to_array=True):
+            try:
+                _ = np.asarray(y)
+            except Exception as e:
+                _handle_error(
+                    f"Cannot interpret {y_name} as numeric: {str(e)}"
+                )
+            if coerce:
+                y_converted = _try_coerce_to_numeric(y, y_name)
+            else:
+                _handle_error(
+                    f"Non-numeric {y_name} detected. "
+                    "Consider setting 'coerce=True' to attempt conversion."
+                )
+
+    # If ops='check_only', we do not alter X or y, just return None or None
+    # If ops='validate', we return the (possibly coerced) X or X,y
+    if ops == 'check_only':
+        if return_X_y:
+            return X_converted, y_converted
+        return None
+    elif ops == 'validate':
+        if return_X_y:
+            return X_converted, y_converted
+        # if y is None, return only X
+        if y is None:
+            return X_converted
+        return X_converted, y_converted
+    else:
+        # Unrecognized operation
+        _handle_error(
+            f"Unknown operation '{ops}' in check_numeric_dtype."
+        )
+        return None
+
+        
 def check_empty(
     params: Optional[List[str]] = None,
     allow_none: bool = True,

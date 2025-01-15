@@ -146,12 +146,8 @@ from sklearn.metrics import (
     recall_score
 )
 
-try:
-    from sklearn.utils.multiclass import type_of_target
-except ImportError:
-    from gofast.core.utils import type_of_target
-
 from gofast.api.util import to_snake_case
+from gofast.compat.sklearn import type_of_target 
 from gofast.core.array_manager import (
     to_numeric_dtypes,
     to_array,
@@ -170,11 +166,11 @@ from gofast.utils.base_utils import (
     extract_target,
     select_features, 
     map_values, 
-    handle_minority_classes 
 )
 from gofast.utils.ml.preprocessing import (
     build_data_preprocessor,
-    soft_encoder
+    soft_encoder, 
+    handle_minority_classes 
 )
 from gofast.utils.ml.feature_selection import select_relevant_features
 from gofast.utils.io_utils import save_job
@@ -277,13 +273,14 @@ def class_pred_app(
     # (7) Remove any rows with NaN in target or features.
     if verbose >= 3:
         logger.info("Dropping rows with NaN values in target/features.")
+        
     target, data = nan_ops(
         target,
         witness_data = data,
         ops = 'sanitize',
         data_kind = 'target',
-        process   = 'do',
-        action  = 'drop', 
+        process = 'do',
+        action = 'drop', 
         verbose=verbose, 
     )
     # Then suppress the unique idenfifiers in the data snce it is not usefull 
@@ -301,9 +298,9 @@ def class_pred_app(
         data_assistant(data)
         # after assitant has 
         raise ValueError (
-            "Too much identifiers found in all dataframes." 
-            " Consider revisiting the whole dataframe and follow recommendations"
-            " details proposed by assistant tool above."
+            "Too much identifiers found in the dataframe." 
+            " Consider revisiting the whole dataframe and follow "
+            " recommendations details proposed by assistant tool above."
             )
         
     data = data_n.copy() # remake the copy to redefine the data for next steps 
