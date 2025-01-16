@@ -3255,7 +3255,7 @@ def isdf(func):
                 raise ValueError(
                     f"Unable to convert {type(data).__name__!r} to DataFrame: {e}"
                 )
-            
+            data.columns = data.columns.astype(str)
             # Update the bound arguments with the new data
             bound_args.arguments[data_param_name] = data
         
@@ -3885,6 +3885,10 @@ class Dataify:
         If True, the decorator will not raise an exception if the conversion 
         fails, and will instead pass the original data to the function. 
         Defaults to False.
+        
+    start_incr_at : int, optional
+        Starting index for auto-generated columns when
+        ``force=True``. Defaults to ``0``.
 
     Examples
     --------
@@ -3940,7 +3944,8 @@ class Dataify:
         prefix='col_', 
         columns=None, 
         ignore_mismatch=False, 
-        fail_silently=False
+        fail_silently=False, 
+        start_incr_at=0
         ):
         self.enforce_df = enforce_df
         self.auto_columns = auto_columns
@@ -3948,6 +3953,7 @@ class Dataify:
         self.columns = columns
         self.ignore_mismatch = ignore_mismatch
         self.fail_silently = fail_silently
+        self.start_incr_at=start_incr_at 
 
     def __call__(self, func):
 
@@ -4017,12 +4023,15 @@ class Dataify:
         """
         # implement the new parameters here
         columns = kwargs.get('columns', self.columns)
+        prefix=kwargs.get('prefix', kwargs.get('col_prefix', self.prefix)) 
+        start_incr_at = kwargs.get('start_incr_at', self.start_incr_at)
+        
         if isinstance (columns, str): 
             columns =[columns]
         # Automatically generate column names if required
         if self.auto_columns and columns is None:
             num_cols = np.shape(data)[1] if np.ndim(data) > 1 else 1
-            columns = [f"{self.prefix}{i}" for i in range(num_cols)]
+            columns = [f"{prefix}{i+start_incr_at}" for i in range(num_cols)]
 
         try:
             # Construct DataFrame, auto-generating column names if needed

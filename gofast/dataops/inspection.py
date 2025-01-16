@@ -4,23 +4,31 @@
 
 """Performs broad data checks and preprocessing of the data."""
 from __future__ import annotations, print_function 
+import datetime
 import numpy as np 
 
 from ..api.formatter import MultiFrameFormatter
-from ..api.summary import ReportFactory
+from ..api.summary import ReportFactory, ResultSummary
 from ..api.summary import assemble_reports
 from ..api.types import Any, DataFrame
 from ..api.types import Dict, Tuple
 from ..api.util import get_table_size 
+from ..compat.pandas import select_dtypes 
 from ..core.array_manager import to_numeric_dtypes
+from ..core.io import is_data_readable 
 from ..decorators import isdf
 from ..utils.validator import is_frame
 
 TW = get_table_size() 
 
 __all__= [ "verify_data_integrity", "inspect_data",]
-
-def verify_data_integrity(data: DataFrame, /) -> Tuple[bool, dict]:
+ 
+@is_data_readable 
+@isdf 
+def verify_data_integrity(
+    data: DataFrame, 
+    display:bool=False, 
+) -> Tuple[bool, dict]:
     """
     Verifies the integrity of data within a DataFrame. 
     
@@ -35,7 +43,9 @@ def verify_data_integrity(data: DataFrame, /) -> Tuple[bool, dict]:
     ----------
     data : pd.DataFrame
         The DataFrame to verify.
-
+    display: bool, default=False 
+        Print the integrity report. 
+        
     Returns
     -------
     Tuple[bool, Report]
@@ -69,42 +79,178 @@ def verify_data_integrity(data: DataFrame, /) -> Tuple[bool, dict]:
       or where more sophisticated methods are required.
     - The function does not modify the original DataFrame.
     """
-    report = {}
-    is_valid = True
-    # check whether dataframe is passed
-    is_frame (data, df_only=True, raise_exception=True )
+    # Check that `data` is indeed a DataFrame, raising an
+    # exception if not (via `is_frame` from gofast). 
+    # In fact no need, since decorator handle the case. 
+    # But just here for consistency in case decorator failed.
+    
+    is_frame(
+        data,
+        df_only=True,
+        raise_exception=True, 
+        objname='Data'
+    )
     data = to_numeric_dtypes(data)
-    # Check for missing values
+    # Initialize a report dictionary and a flag to track integrity status.
+    report   = {}
+
+    is_valid = True
+
+    # Check for missing values per column.
     missing_values = data.isnull().sum()
     report['missing_values'] = missing_values
     if missing_values.any():
         is_valid = False
 
-    # Check for duplicates
+    # Check for duplicate rows.
     duplicates = data.duplicated().sum()
     report['duplicates'] = duplicates
     if duplicates > 0:
         is_valid = False
 
-    # Check for potential outliers
-    outlier_report = {}
-    for col in data.select_dtypes(include=['number']).columns:
-        Q1 = data[col].quantile(0.25)
-        Q3 = data[col].quantile(0.75)
-        IQR = Q3 - Q1
-        lower_bound = Q1 - 1.5 * IQR
-        upper_bound = Q3 + 1.5 * IQR
-        outliers = data[(data[col] < lower_bound) | (data[col] > upper_bound)]
-        outlier_report[col] = len(outliers)
-        if len(outliers) > 0:
-            is_valid = False
-
-    report['outliers'] = outlier_report
-    report['integrity_checks']='Passed' if is_valid else 'Failed'
-    # make a report obj 
-    report_obj= ReportFactory(title ="Data Integrity", **report )
-    report_obj.add_mixed_types(report, table_width= TW)
+    # Prepare structures to capture outlier information for numeric columns.
+    outlier_report        = {}
+    outlier_values_report = {}
+    numeric_cols = select_dtypes(
+        data,
+        dtypes="numeric",
+        return_columns=True
+    )
     
+    if numeric_cols: 
+        report['n_numeric_columns']= f"{len(numeric_cols)}" 
+        # IQR-based outlier check for numeric columns.
+        for col in numeric_cols:
+            # Calculate IQR-based thresholds
+            Q1  = data[col].quantile(0.25)
+            Q3  = data[col].quantile(0.75)
+            IQR = Q3 - Q1
+    
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            
+            # Identify rows that fall outside the IQR bounds 
+            outliers = data[
+                (data[col] < lower_bound)
+                | (data[col] > upper_bound)
+            ]
+            outlier_report[col] = len(outliers)
+            
+            # Create a list of strings "index__value" for outlier rows
+            if len(outliers)==0: 
+                # no need to keep the value in col 
+                continue 
+            
+            outlier_values_report[col] = [
+                f"{idx}__{data.at[idx, col]}"
+                for idx in outliers.index
+            ]
+            if len(outliers) > 0:
+                is_valid = False
+        # Store numeric outlier info in the main report.
+        # into nice ResulSummary report like example: 
+        # Create specialized summaries for outlier results
+        OutVal = ResultSummary("OutlierValues")
+        OutNum = ResultSummary("OutliersDetected")
+        
+        # Attach them to the report
+        report['outliers'] = OutNum.add_results(outlier_report)
+        report['outlier_values'] = OutVal.add_results(outlier_values_report)
+
+    # Prepare additional checks for non-numeric columns.
+    # For instance, track unique value counts, frequency, etc.
+    cat_cols = select_dtypes(
+        data,
+        dtypes="object",
+        return_columns=True
+    )
+    if cat_cols: 
+        report['n_categorical_columns']= f"{len(cat_cols)}" 
+    
+        # Initialize list for categorical checks.
+        cat_report = {}
+        n_unique_report={} 
+        freq_table_report={}
+        
+        # Examine each categorical column
+        
+        for col in cat_cols:
+            # Get unique count and frequency distribution for this column.
+            unique_vals = data[col].unique()
+            freq_table  = data[col].value_counts(dropna=False)
+    
+            cat_report[col] = {
+                'n_unique'   : len(unique_vals),
+                'freq_table' : freq_table
+            }
+            n_unique_report [col]= len(unique_vals) 
+            freq_table_report[col]= freq_table.to_dict()
+            
+            # Potentially degrade `is_valid` if needed. For example:
+            if len(unique_vals) == 1:  # Only one category
+                is_valid = False
+            
+        # Store results in the main report using specialized summaries
+        report['categorical_analysis'] = cat_report
+        
+        nUnique = ResultSummary("UniqueReport")
+        report['n_unique']     = nUnique.add_results(n_unique_report)
+
+        CatFreqCount = ResultSummary("CatFrequencyCount")
+        report['freq_counts']  = CatFreqCount.add_results(freq_table_report)
+
+    # Check for datetime columns
+    dt_cols = select_dtypes (
+        data, 
+        incl=['datetime64[ns]', 'datetime64[ns, UTC]'], 
+        return_columns=True 
+        )
+    
+    if dt_cols:
+        # If there's at least one datetime column, gather some info
+        dt_report = {}
+        for col in dt_cols:
+            # Retrieve min, max, and unique count for the datetime column
+            dt_min       = data[col].min()
+            dt_max       = data[col].max()
+            dt_nunique   = data[col].nunique()
+
+            dt_report[col] = {
+                'min_datetime' : dt_min,
+                'max_datetime' : dt_max,
+                'n_unique'     : dt_nunique
+            }
+            # Optionally degrade `is_valid` if suspicious
+            # e.g., all identical timestamps => not necessarily an error
+            if dt_nunique <= 1: 
+                is_valid=False
+
+        # Summarize datetime analysis in a dedicated structure
+        dtSummary = ResultSummary("DateTimeAnalysis")
+        report['datetime_analysis'] = dtSummary.add_results(dt_report)
+        
+    # Mark overall integrity as passed or failed.
+    report['integrity_checks'] = (
+        'Passed' if is_valid else 'Failed'
+    )
+
+    # Build a `ReportFactory` object to store these details.
+    report_obj = ReportFactory(
+        title="Data Integrity",
+        **report
+    )
+    # Possibly add a mixed-type table or structure
+    # representation to the report
+    report_obj.add_mixed_types(
+        report,
+        table_width=TW
+    )
+    
+    if display: 
+        print(report_obj)
+        
+    # Return whether the data passed integrity checks
+    # and the assembled report object
     return is_valid, report_obj
 
 @isdf
@@ -292,11 +438,22 @@ def inspect_data(
         stats['max'] = numeric_cols.max()
 
         return stats
-    report ={}
-    recommendations ={}
+    
     is_frame( data, df_only=True, raise_exception=True,
              objname="Data for inspection")
+    
+    report ={}
+    # Get the current datetime
+    current_datetime = datetime.datetime.now()
+    formatted_datetime = current_datetime.strftime(
+        "%d %B %Y %H:%M:%S"
+        )
+    report ['Date']=formatted_datetime
+    # Make a collection for recommendation.
+    recommendations ={}
+    
     is_valid, integrity_report = verify_data_integrity(data)
+
     stats_report = calculate_statistics(data)
     if stats_report and include_stats_table: 
         # contruct a multiframe objects from stats_report  
@@ -321,10 +478,14 @@ def inspect_data(
         if integrity_report['duplicates'] > 0:
             recommendations['rec_duplicates']=(
                 "- Check for and remove duplicate rows to ensure data uniqueness.")
-        if any(count > 0 for count in integrity_report['outliers'].values()):
-            recommendations['rec_outliers']=(
-                "- Investigate potential outliers. Consider removal or transformation.")
         
+        if 'outliers' in integrity_report.keys(): 
+            if any(count > 0 for count in integrity_report[
+                    'outliers'].results.values()):
+                recommendations['rec_outliers']=(
+                    "- Investigate potential outliers."
+                    " Consider removal or transformation.")
+            
         # Additional checks and recommendations
         # Check for columns with a single unique value
         single_value_columns = [col for col in data.columns if 

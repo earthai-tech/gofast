@@ -1060,10 +1060,10 @@ def display_feature_contributions(
     estimator: Optional[BaseEstimator] = None,
     threshold: Union[float, str] = 0.1,
     prefit: bool = True,
-    return_summary: bool = False,
     pkg: Optional[str] = None,
     view: bool = False, 
     show_grid: bool=True, 
+    return_selector: bool=False, 
     verbose: int = 0,
     **kwargs
 ) -> Union[Dict[str, float], Tuple[Dict[str, float], Union[
@@ -1121,9 +1121,11 @@ def display_feature_contributions(
         Whether the estimator is expected to be prefit. If True, 
         estimator should already be fitted; otherwise, it will be fitted 
         on X and y.
-    return_summary : bool, default=False
-        Whether to return the :class:`gofast.api.summary.Summary' object 
-        instead.
+    return_selector: 
+        If ``return_selector=True`` allows users to access the 
+        underlying selector object, which can be useful for inspecting
+        feature support or integrating into pipelines.
+          
     verbose : int, default=0
         Controls the verbosity: the higher, the more messages.
         
@@ -1132,13 +1134,13 @@ def display_feature_contributions(
     
     Returns
     -------
-    None or gofast.api.summary.Summary object 
+    gofast.api.summary.Summary object 
         Collect the selector and feature importance dictionnary
-        - summary.feature_importance_dict_:
+        - summary.feature_importances_:
             - Returns a dictionary where keys are feature names and values 
               are their corresponding importances (if y is provided) or variances
               (if y is None).
-        - summary.selector_:
+        - summary.selector:
             - Returns a selector object.
     
     Raises
@@ -1152,26 +1154,28 @@ def display_feature_contributions(
     Examples
     --------
     >>> from sklearn.datasets import load_iris 
-    >>> from gofast.utils.mlutils import display_feature_contributions
+    >>> from gofast.utils.ml.feature_selection import display_feature_contributions
     >>> data = load_iris()
     >>> X = data['data']
     >>> y = data['target']
     >>> feature_names = data['feature_names']
-    >>> feature_importances = display_feature_contributions(X, y=y, view=True, pkg='shap')
-    >>> print(feature_importances)
-    {'sepal length (cm)': 0.112, 'sepal width (cm)': 0.032, 
-     'petal length (cm)': 0.423, 'petal width (cm)': 0.433}
+    >>> summary = display_feature_contributions(X, y=y, view=True, return_summary=True)
+    >>> print(summary.feature_importances_)
+    {'feature_0': 0.10612761987750428,
+     'feature_1': 0.02167809317736852,
+     'feature_2': 0.4361295069034437,
+     'feature_3': 0.43606478004168353}
     
     >>> # Using `return_selector=True` to get the selector object:
     >>> feature_importances, selector = display_feature_contributions(
-    ...     X, y=y, view=True, pkg='shap', return_selector=True)
+    ...     X, y=y, view=True, prefit=False, return_selector=True)
     >>> selector.get_support()
     array([ True, False, ..., True])
     
     >>> # Performing unsupervised feature selection based on variance:
     >>> from sklearn.datasets import make_blobs
     >>> X_unsup, _ = make_blobs(n_samples=500, n_features=8, centers=3, cluster_std=1.0)
-    >>> feature_variances = display_feature_contributions(
+    >>> display_feature_contributions(
     ...     X=X_unsup, y=None, view=True, pkg='matplotlib', threshold=1.0, verbose=2)
     >>> print(feature_variances)
     {'feature1': 1.2, 'feature3': 1.5, 'feature5': 1.3}
@@ -1182,8 +1186,7 @@ def display_feature_contributions(
       verbose=2, return_selector=True)
     >>> selector_variance.get_support()
     array([ True, False, True, False, True, False, False, False])
-    ```
-    # noqa: E501
+
     
     Notes
     -----
@@ -1255,11 +1258,12 @@ def display_feature_contributions(
            https://pandas.pydata.org/pandas-docs/stable/
     """
     # Set default pkg to 'matplotlib' if not provided
-    pkg = 'matplotlib' if pkg is None else str(pkg).lower()
+    pkg = 'matplotlib' if pkg in [ "matplotlib", "mpl", None
+                                  ] else str(pkg).lower()
     
     # Validate data types (assumed to be imported from gofast)
     validate_data_types(X, nan_policy="raise", error="raise")
-    
+
     # Initialize the estimator if not provided and y is given
     if y is not None:
         if estimator is None:
@@ -1320,6 +1324,7 @@ def display_feature_contributions(
         feature_names = X.columns if isinstance(X, pd.DataFrame) else [
             f'feature_{i}' for i in range(X.shape[1])]
         feature_importance_dict = dict(zip(feature_names, importances))
+
         
     else:
         # Unsupervised feature selection using VarianceThreshold
@@ -1357,8 +1362,7 @@ def display_feature_contributions(
                 explainer = shap.TreeExplainer(estimator)
                 shap_values = explainer.shap_values(X)
                 shap.summary_plot(shap_values, X, feature_names=feature_names)
-            elif pkg == "matplotlib":
-                import matplotlib.pyplot as plt
+            elif pkg =="matplotlib":
                 plt.figure(figsize=(10, 5))
                 
                 # Sort features by importance
@@ -1387,8 +1391,8 @@ def display_feature_contributions(
                     "Supported packages are 'shap' and 'matplotlib'.",
                     UserWarning)
         else:
-            if pkg == "matplotlib":
-                import matplotlib.pyplot as plt
+            if pkg =="matplotlib":
+
                 plt.figure(figsize=(10, 5))
                 
                 # Sort features by variance
@@ -1421,13 +1425,16 @@ def display_feature_contributions(
     # Create and print summary using ReportFactory 
     summary = ReportFactory(title="Feature Contributions Table").add_mixed_types(
         feature_importance_dict)
-    summary.feature_importance_dict_=feature_importance_dict
-    summary.selector_ = selector if y is None else estimator 
+    summary.feature_importances_=feature_importance_dict
+    summary.selector = selector if y is None else estimator 
     
-    print(summary)
+    if verbose >0:
+        print(summary)
+
+    if return_selector:
+        return summary.selector
     
-    # Return the dict, or the dict and selector
-    if return_summary:
-        return summary 
+    return summary 
+
     
 

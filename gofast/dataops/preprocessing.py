@@ -1686,9 +1686,13 @@ class Features(BaseClass):
             return self 
              
         pca = PCA(n_components=n_components, **pca_kws)
-        self.data = pca.fit_transform(self.data)
-        
-
+        data = pca.fit_transform(self.data)
+        self.data = build_data_if(
+            data, 
+            col_prefix ='component_', 
+            start_incr_at=1,
+            force=True, 
+            )
         return self
 
     def correlation(
