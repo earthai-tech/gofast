@@ -629,7 +629,6 @@ Distributed under the [BSD-3 Clause License](https://github.com/earthai-tech/gof
 
 For any inquiries, suggestions, or support, please reach out to us at [contact@gofast.org](mailto:etanoyau@gmail.com).
 See more about the developer [here](https://earthai-tech.github.io/).
----
 
 Stay tuned for the official launch of the **gofast** documentation and embark on a streamlined,
 efficient machine learning journey with us!
