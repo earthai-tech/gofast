@@ -1324,6 +1324,8 @@ def flex_df_formatter(
     needs and contexts.
     """
     df = validate_data(df )
+    # make sure input has string value 
+    df.columns = df.columns.astype(str)
     max_rows, max_cols = resolve_auto_settings( max_rows, max_cols )
     
     df = refine_df(df, precision = precision )
@@ -2936,7 +2938,7 @@ def calculate_widths(df, max_text_length=50):
     output indicates the maximum width required for the 'usage' column and 
     the index.
     """
-
+    df.columns=df.columns.astype(str) # make sure that columns is string
     formatted_cells = df.applymap(lambda x: str(format_value(x))
                                   [:max_text_length -3] + '...' if len(
         str(x)) > max_text_length else str(format_value(x)))

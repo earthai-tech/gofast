@@ -40,7 +40,6 @@ __all__=[
      'assert_all_finite',
      'assert_xy_in',
      'build_data_if',
-     'build_data_if2',
      'check_X_y',
      'check_array',
      'check_classification_targets',
@@ -5844,7 +5843,7 @@ def is_frame(
 
     # If not valid and raise_exception is True, raise TypeError
     if not obj_is_frame and raise_exception:
-        objname = objname or 'Expect'
+        objname = objname or 'Input'
         objname = f"{objname!r} parameter expects"
         expected = 'a DataFrame' if df_only else 'a DataFrame or Series'
         raise TypeError(
@@ -6697,154 +6696,154 @@ def _check_series_indexes (series, indexes, data, idx, error_policy ):
     return series 
 
 def build_data_if(
-    data, 
-    columns=None, 
-    to_frame=True, 
-    input_name='data', 
-    force=False, 
-    raise_warning=True,
-    raise_exception=False, 
-    coerce_datetime=False, 
+    data,
+    columns=None,
+    to_frame=True,
+    input_name='data',
+    col_prefix="col_",
+    force=False,
+    error="warn",
+    coerce_datetime=False,
+    coerce_numeric=True,
+    start_incr_at=0,
+    **kw
 ):
     """
-    Converts input data into a pandas DataFrame if necessary and requested,
-    applying specified columns names or generating them if the `force` parameter
-    is set.
-
-    Parameters
-    ----------
-    data : dict, list, tuple, np.ndarray, pd.DataFrame
-        The data to potentially convert to a DataFrame. Can be a dictionary,
-        list, tuple, NumPy array, or already a pandas DataFrame.
-    columns : str or list of str, optional
-        The names for the resulting DataFrame columns or the Series name.
-    to_frame : bool, default=True
-        If True, converts `data` to a DataFrame if it isn't already one.
-    input_name : str, default='data'
-        The name of the input variable, used for constructing error messages.
-    force : bool, default=False
-        Forces the conversion of `data` to a DataFrame by generating column names
-        based on `input_name` if `columns` are not provided.
-    raise_warning : bool, default=True
-        If True, raises a warning when conversion requirements are not met.
-    raise_exception : bool, default=False
-        If True, raises an exception instead of a warning when conversion
-        requirements are not met.
-    coerce_datetime : bool, default=False
-        If True, tries to convert object columns to datetime data types.
-    Returns
-    -------
-    pd.DataFrame
-        The converted DataFrame.
-
-    Raises
-    ------
-    TypeError
-        If `data` cannot be converted to a DataFrame based on the provided
-        parameters and conditions.
+    Validates and converts ``data`` into a pandas DataFrame
+    if requested, optionally enforcing consistent column
+    naming. Intended to standardize data structures for
+    downstream analysis.
+    
+    See more in :func:`gofast.utils.data_utils.build_df` for 
+    documentation details. 
+    
     """
+    
+    force =True if (force=='auto' and columns is None) else force 
+    
+    # Attempt to ensure start_incr_at is an integer
+    try:
+        start_incr_at = int(start_incr_at)
+    except ValueError:
+        # If the user provided a non-integer, handle it
+        # based on the value of `error`
+        if error == "raise":
+            raise TypeError(
+                f"Expected integer for start_incr_at, got "
+                f"{type(start_incr_at)} instead."
+            )
+        elif error == "warn":
+            warnings.warn(
+                f"Provided 'start_incr_at'={start_incr_at} is not "
+                "an integer. Defaulting to 0.",
+                UserWarning
+            )
+        # Gracefully default to 0 if error='ignore' or we
+        # just want to continue
+        start_incr_at = 0
+
+    # Convert from dict to DataFrame if needed. If it's a dict,
+    # we can directly create a DataFrame from it
     if isinstance(data, dict):
         data = pd.DataFrame(data)
+        # Overwrite columns if they come from dict's keys
         columns = list(data.columns)
+
+    # Convert list or tuple to NumPy array for uniform handling
     elif isinstance(data, (list, tuple)):
         data = np.array(data)
-    elif isinstance ( data, pd.Series): 
-        data =data.to_frame () 
-        
-    # Ensure data is two dimensional 
+
+    # If data is a Series, convert it to a DataFrame
+    elif isinstance(data, pd.Series):
+        data = data.to_frame()
+
+    # Ensure data is 2D by using a helper function
     data = ensure_2d(data)
-    # Check if data needs to be converted to a DataFrame
+    
+    # If user wants a DataFrame but we don't have one yet:
     if to_frame and not isinstance(data, pd.DataFrame):
+        # If columns are not specified and force=False,
+        # we warn or raise accordingly
         if columns is None and not force:
-            msg = (f"Conversion of {input_name} to DataFrame requires column names. "
-                   "Provide `columns` or set `force=True` to generate them automatically.")
-            if raise_exception:
-                raise TypeError(msg)
-            if raise_warning:
-                warnings.warn(msg, UserWarning)
-        # Generate column names if forced and not provided
-        if force and columns is None:
-            columns = [f"{input_name}_{i}" for i in range(data.shape[1])]
-            
-        data = pd.DataFrame(data, columns=columns)
-       
-    data =array_to_frame(
-        data, columns = columns, 
-        to_frame =to_frame, 
-        input_name=input_name,
-        force =force, 
-        )
-    if isinstance (data, pd.DataFrame): 
-        # re_check data_types 
-        data = recheck_data_types(
-            data, coerce_datetime=coerce_datetime,
-            coerce_numeric=True, return_as_numpy=False
+            msg = (
+                f"Conversion of '{input_name}' to DataFrame requires "
+                "column names. Provide `columns` or set `force=True` to "
+                "auto-generate them."
             )
-    return data  # Return original data if conditions are not met
+            if error == "raise":
+                raise TypeError(msg)
+            elif error == "warn":
+                warnings.warn(msg, UserWarning)
 
-def build_data_if2(
-    data: Union[dict, np.ndarray, pd.DataFrame], 
-    columns=None,  
-    to_frame=True,  
-    input_name='data', 
-    force=False, 
-    **kws
-    ):
-    """ Contruct data from dict or array if necessary informations are given.
-    
-    Paramaters 
-    -------------
-    data: dict, Array-like 
-        Array to convert to frame. 
-    columns: str or list of str 
-        Series name or columns names for pandas.Series and DataFrame. 
-        
-    to_frame: str, default=False
-        If ``True`` , reconvert the array to frame using the a naive columns
-        name built from the `input_name` ortherwise no-action is performed 
-        and return the same array.
-        
-    input_name : str, default="Data"
-        The data name used to construct the error message. 
-        
-    raise_warning : bool, default=True
-        If True then raise a warning if conversion is required.
-        If ``ignore``, silence mode is triggered.
-        
-    raise_exception : bool, default=False
-        If True then raise an exception if array is not symmetric.
-        
-    force:bool, default=False
-        Force conversion array to a frame is columns is not supplied.
-        Use the combinaison, `input_name` and `X.shape[1]` range.
+        # If forced, generate column names automatically if not given
+        if force and columns is None:
+            columns = [
+                f"{col_prefix}{i + start_incr_at}"
+                for i in range(data.shape[1])
+            ]
 
-    Return 
-    --------
-    dataframe constructed. 
-    
-    """
-    if isinstance ( data, dict ) : 
-        data = pd.DataFrame ( data)
-        columns = list( data.columns)  
-    elif isinstance ( data, ( list, tuple)): 
-        data = np.array(data )
-    
-    if not is_frame ( data, df_only=True ): 
-        if not to_frame: 
-            raise TypeError("Expect a dataframe while columns is missing.")
-        if to_frame and not force: 
-            raise TypeError(
-                "Expect columns to build the data frame or set"
-                " `force` to ``True`` to create a temporary frame:"
-               f" Got {type(data).__name__!r}.")
+        # Perform final DataFrame conversion
+        data = pd.DataFrame(data, columns=columns)
 
-    return array_to_frame(
-        data, columns = columns, 
-        to_frame =to_frame, 
+    # Perform an array-to-frame conversion with potential
+    # re-checking of columns
+    data = array_to_frame(
+        data,
+        columns=columns,
+        to_frame=to_frame,
         input_name=input_name,
-        force =force, 
-        **kws
+        force=force
+    )
+
+    # Optionally apply data-type checks or conversions, like
+    # datetime or numeric coercion
+    if isinstance(data, pd.DataFrame):
+        data = recheck_data_types(
+            data,
+            coerce_datetime=coerce_datetime,
+            coerce_numeric=coerce_numeric,
+            return_as_numpy=False,
+            column_prefix=col_prefix
         )
+
+    # Convert integer column names to strings, if needed
+    data = _convert_int_columns_to_str(
+        data,
+        col_prefix=col_prefix
+    )
+
+    # Return the final validated and (optionally) converted DataFrame
+    return data
+
+def _convert_int_columns_to_str(
+    df: pd.DataFrame,
+    col_prefix: Optional[str] = 'col_'
+) -> pd.DataFrame:
+    """
+    Convert integer columns in a DataFrame to string form,
+    optionally adding a prefix.
+    """
+    # If it's not a DataFrame, just return it as-is
+    if not isinstance(df, pd.DataFrame):
+        return df
+
+    # Check if every column name is an integer
+    if all(isinstance(col, int) for col in df.columns):
+        # Copy to avoid mutating the original
+        df_converted = df.copy()
+
+        if col_prefix is None:
+            # Convert to str without prefix
+            df_converted.columns = df_converted.columns.astype(str)
+        else:
+            # Convert to str with user-provided prefix
+            df_converted.columns = [
+                f"{col_prefix}{col}" for col in df_converted.columns
+            ]
+        return df_converted
+    else:
+        # Return a copy of the original if columns are not all int
+        return df.copy()
 
 def array_to_frame(
     X, 

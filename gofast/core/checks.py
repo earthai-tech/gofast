@@ -901,7 +901,7 @@ def check_numeric_dtype(
         return None
 
         
-def check_empty(
+def check_empty0(
     params: Optional[List[str]] = None,
     allow_none: bool = True,
     none_as_empty: bool = False,
@@ -1035,8 +1035,8 @@ def check_empty(
     def _is_empty(value: Any) -> bool:
         if value is None:
             return True
-        if isinstance(value, (list, tuple, np.ndarray, 
-                              pd.Series, pd.DataFrame, str)):
+        if isinstance(
+                value, (list, tuple, np.ndarray, pd.Series, pd.DataFrame, str)):
             return len(value) == 0
         return False
 
@@ -1137,6 +1137,214 @@ def check_empty(
         return decorator(func)
     else:
         return decorator
+
+
+def check_empty(
+    func=None,
+    *,
+    params: Optional[List[str]] = None,
+    allow_none: bool = True,
+    none_as_empty: bool = False,
+    error: str = 'raise'
+) -> Callable:
+    """
+    Validate that specified parameters are not empty. Can be used
+    as both a decorator and a standalone function.
+
+    The ``check_empty`` function inspects whether certain
+    parameters within a function call are empty or ``None``,
+    depending on the provided configuration. This ensures data
+    integrity by preventing further execution if crucial inputs
+    are invalid.
+
+    Parameters
+    ----------
+    params : list of str, optional
+        A list of parameter names to validate. If provided, only
+        these parameters are checked. If ``None``, all positional
+        arguments of the decorated function are validated.
+    allow_none : bool, default=True
+        Determines whether ``None`` values are permitted for the
+        specified parameters. If set to ``False``, parameters must
+        not be ``None``.
+    none_as_empty : bool, default=False
+        If ``True``, treats ``None`` as empty regardless of
+        ``allow_none``. This triggers an error or warning if
+        encountered in the specified parameters.
+    error : {'raise', 'warn', 'ignore'}, default='raise'
+        Strategy upon detecting empty parameters.
+        - ``'raise'`` : Raises a ``ValueError``.
+        - ``'warn'``  : Issues a warning but continues.
+        - ``'ignore'``: No action taken.
+
+    Returns
+    -------
+    Callable
+        A decorator that can validate parameters when applied to
+        other functions, or a callable for manual checks.
+
+    Examples
+    --------
+    As a decorator:
+    >>> from gofast.core.checks import check_empty
+    >>> @check_empty(params=['data'], allow_none=False)
+    ... def process_data(data):
+    ...     print("Processing:", data)
+
+    As a standalone function:
+
+    >>> def process_data(data):
+    ...     check_empty(params=['data'], allow_none=False)(
+    ...         data=data
+    ...     )
+    ...     print("Processing:", data)
+    """
+
+    # CASE 1: Decorator *without* parentheses:
+    #    @check_empty
+    #    def some_func(...):
+    #        ...
+    #
+    # => 'func' is actually the user function, and so we
+    #    must wrap it directly, ignoring the other args.
+    if func is not None and callable(func):
+        # Wrap directly and return
+        return _make_wrapper(
+            func         = func,
+            params       = None,        # Not provided
+            allow_none   = True,        # Default
+            none_as_empty= False,       # Default
+            error        = 'raise'      # Default
+        )
+
+    # -------------------------------------------
+    # CASE 2: Decorator *with* parentheses OR
+    # CASE 3: Standalone usage.
+    #
+    # We return a 'decorator' function. The user might do:
+    #   @check_empty(params=['x'])
+    #   def f(x): ...
+    #
+    # or:
+    #   check_empty(params=['x'])(x=...)
+    #
+    # We'll handle both via the same object.
+    # -------------------------------------------
+    def decorator(user_func: Callable) -> Callable:
+        """ This is the real decorator function. """
+        return _make_wrapper(
+            func = user_func,
+            params = params,
+            allow_none = allow_none,
+            none_as_empty= none_as_empty,
+            error= error
+        )
+
+    # Add a __call__ method to handle standalone usage
+    def standalone_checker(**kwargs) -> None:
+        """
+        For standalone usage, e.g.:
+            check_empty(params=['x'], allow_none=False)(x=my_data)
+        """
+        _evaluate_params(
+            arguments = kwargs,
+            params = params,
+            allow_none = allow_none,
+            none_as_empty= none_as_empty,
+            error = error
+        )
+
+    # We attach the standalone checker to 'decorator' so that
+    # calling check_empty(...)(**kwargs) performs a direct check.
+    decorator.__call__ = standalone_checker
+    return decorator
+
+def _make_wrapper(
+    func: Callable,
+    params: Optional[List[str]],
+    allow_none: bool,
+    none_as_empty: bool,
+    error: str
+) -> Callable:
+    """
+    Wraps the user-provided function and runs the
+    parameter checks before execution.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs) -> Any:
+        # Obtain the signature to bind the arguments
+        sig = inspect.signature(func)
+        bound_args = sig.bind(*args, **kwargs)
+        bound_args.apply_defaults()
+
+        # If user provided explicit `params`, check those.
+        # Otherwise, check all arguments.
+        actual_params = params if params else list(bound_args.arguments.keys())
+
+        # Evaluate the specified parameters
+        _evaluate_params(
+            arguments = bound_args.arguments,
+            params = actual_params,
+            allow_none = allow_none,
+            none_as_empty= none_as_empty,
+            error = error
+        )
+        # Proceed with the original function
+        return func(*bound_args.args, **bound_args.kwargs)
+
+    return wrapper
+
+def _evaluate_params(
+    arguments: dict,
+    params: List[str],
+    allow_none: bool,
+    none_as_empty: bool,
+    error: str
+):
+    """
+    Core logic to check whether specified parameters are empty
+    or None based on the given settings.
+    """
+    for p in params:
+        if p not in arguments:
+            # If not in the call, skip
+            continue
+        value = arguments[p]
+
+        # Check if None is permitted
+        if value is None:
+            if none_as_empty or not allow_none:
+                _handle_error(
+                    param_name = p,
+                    error= error,
+                    message= f"Parameter '{p}' cannot be None."
+                )
+
+        # Check if empty (for lists, tuples, strings, DataFrame, etc.)
+        
+        elif hasattr(value, '__len__') and len(value) == 0:
+            _handle_error(
+                param_name= p,
+                error = error,
+                message= f"Parameter '{p}' is empty."
+            )
+
+
+def _handle_error(param_name: str, error: str, message: str):
+    """
+    Dispatches error handling based on `error` setting:
+    raises, warns, or ignores.
+    """
+    if error == 'raise':
+        raise ValueError(
+            f"[check_empty] {message}"
+        )
+    elif error == 'warn':
+        warnings.warn(
+            f"[check_empty] {message}",
+            UserWarning
+        )
+    # If 'ignore', do nothing.
 
 
 def find_closest(arr, values):

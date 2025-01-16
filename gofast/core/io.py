@@ -1008,9 +1008,25 @@ def read_data(
         return f
     elif isinstance(f, pd.Series):
         return f
-    elif _is_array_like(f):
+    
+    elif isinstance (f, (list, tuple, np.ndarray)): 
+    # elif _is_array_like(f):
         # For array-like objects, return as numpy array
         return np.asarray(f)
+    
+    elif isinstance(f, dict):
+        try:
+            # Attempt to convert dict to DataFrame
+            f = to_frame_if(f, df_only=False)  
+        except Exception as e:
+            emsg = (
+                "Failed to convert the provided dictionary to a DataFrame. "
+                "Please ensure that dictionary values are all array-like"
+                " and have consistent lengths. "
+            )
+            raise ValueError(emsg) from e
+        
+        return f 
     
     # Initialize the PandasDataHandlers to get available parsers
     data_handlers = PandasDataHandlers()
@@ -1896,8 +1912,9 @@ def to_frame_if(
         except Exception as e: 
             # Raise an error if the input is not a recognized type
             raise ValueError(
-                "Unsupported data type. The input must be a file path,"
-                " pandas Series, numpy array, list, or pandas DataFrame."
+                "Unsupported data type {type(data).__name__!r}. The input"
+                " must be a file path, pandas Series, numpy array, list,"
+                " dict, or pandas DataFrame."
                 ) from e 
 
 @check_params ( 

@@ -262,51 +262,12 @@ def miv_score(
     ...     X=X_iris, 
     ...     y=y_iris, 
     ...     plot_type='bar', 
-    ...     verbose=2,
     ...     percent=True,     # Display MIV in percentage
     ...     relative=True,    # Compute MIV relative to original predictions
     ... )
-    >>> print(miv_results)
+    >>> print(miv_results.feature_contributions_)
     {'sepal length (cm)': 5.12, 'sepal width (cm)': 1.23, 
      'petal length (cm)': 15.43, 'petal width (cm)': 18.76}
-
-    >>> # Using `return_selector=True` to get the selector object
-    >>> miv_results, selector = miv_score(
-    ...     X=X_iris, 
-    ...     y=y_iris, 
-    ...     plot_type='barh', 
-    ...     verbose=2,
-    ...     percent=True,
-    ...     relative=False,
-    ... )
-    >>> print(selector.get_support())
-    array([ True, False, True, True])
-
-    >>> # Performing unsupervised feature selection based on variance
-    >>> from sklearn.datasets import make_blobs
-    >>> X_unsup, _ = make_blobs(n_samples=500, n_features=8, centers=3, cluster_std=1.0)
-    >>> miv_results_unsup = miv_score(
-    ...     X=X_unsup, 
-    ...     y=None, 
-    ...     plot_type='pie', 
-    ...     verbose=1,
-    ...     percent=True,
-    ... )
-    >>> print(miv_results_unsup)
-    {'feature_0': 12.34, 'feature_2': 15.67, 'feature_4': 13.89}
-
-    >>> # Using `relative=True` and a scatter plot
-    >>> miv_results_scatter = miv_score(
-    ...     X=X_unsup, 
-    ...     y=None, 
-    ...     plot_type='scatter', 
-    ...     verbose=1,
-    ...     percent=False,
-    ... )
-    >>> print(miv_results_scatter)
-    {'feature_0': 0.123, 'feature_1': 0.045, 'feature_2': 0.156, 
-     'feature_3': 0.078, 'feature_4': 0.134, 'feature_5': 0.067, 
-     'feature_6': 0.089, 'feature_7': 0.054}
 
     Notes
     -----

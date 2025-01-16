@@ -59,6 +59,8 @@ MODULE_MAPPING = {
         'pop_labels_in', 
         'truncate_data', 
         'filter_data', 
+        'nan_ops', 
+        'build_df', 
         
     ], 
     'io_utils':[ 

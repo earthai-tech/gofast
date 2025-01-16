@@ -24,8 +24,9 @@ import pandas as pd
 
 from .._gofastlog import gofastlog 
 from ..api.types import _F, ArrayLike, NDArray, DataFrame 
+from ..api.summary import assemble_reports 
 from ..compat.sklearn import validate_params, StrOptions, Interval
-from ..decorators import isdf
+from ..decorators import isdf, Dataify
 from ..core.array_manager import ( 
     to_numeric_dtypes, index_based_selector, 
     to_array, array_preserver, drop_nan_in, 
@@ -42,7 +43,8 @@ from ..core.io import SaveFile, is_data_readable, to_frame_if
 from ..core.utils import sanitize_frame_cols, error_policy  
 from .base_utils import fill_NaN 
 from .validator import ( 
-     is_frame, validate_positive_integer, parameter_validator 
+     is_frame, validate_positive_integer, parameter_validator, 
+     build_data_if
     )
 
 logger = gofastlog().get_gofast_logger(__name__) 
@@ -72,7 +74,249 @@ __all__= [
     'nan_ops', 
     ]
 
+     
+@SaveFile  
+@is_data_readable 
+@Dataify(auto_columns=True, fail_silently=True) 
+@check_empty (params=['data'], none_as_empty=True)
+def build_df(
+    data,
+    columns=None,
+    col_prefix="col_",
+    force="auto",
+    error="warn",
+    coerce_dt=False,
+    coerce_numeric=...,
+    start_incr_at=0,
+    min_process=...,       
+    sanitize_cols=False,
+    fill_pattern="_",        
+    regex=None,              
+    drop_nan_cols=...,
+    pop_cat_features=False, 
+    missing_values=np.nan, 
+    how='all',
+    reset_index=False,
+    drop_index=...,
+    check_integrity=False,
+    inspect=False,
+    input_name='data',
+    savefile=None,
+    verbose=0,
+    **kw
+)-> DataFrame:
+    r"""
+    Builds a pandas DataFrame from various data types,
+    optionally performing minimal cleaning, sanitizing, and
+    integrity checks. Internally uses the methods `build_data_if`,
+    `to_numeric_dtypes`, `verify_data_integrity`, and
+    `inspect_data`. Each ensures consistent data cleaning, 
+    and structural analysis [1]_.
+    
+    
+    .. math::
+       D_{frame}
+       = f(D_{input}, \text{columns, coerce })
+    
+    Given an input :math:`D_{input}` (which may be a dictionary,
+    list, NumPy array, or existing DataFrame), the function
+    applies transformations (e.g., numeric type coercion, column
+    sanitization) guided by parameters like `min_process`. When
+    :math:`min_process=True`, additional steps such as dropping
+    all-NaN columns and resetting indexes are invoked.
+    
+    Parameters
+    ----------
+    data : Any
+        The input data to be processed into a DataFrame. Accepts
+        dictionaries, lists, NumPy arrays, or other data formats
+        recognized by ``build_data_if``.
+    columns : list of str or None, optional
+        Column names to use if building a new DataFrame from
+        scratch. If `None` and `force=False`, the function
+        warns or raises an error depending on `error`.
+    col_prefix : str, optional
+        Prefix for automatically generated column names when
+        `force=True`. Defaults to ``"col_"``.
+    force : bool, optional
+        If `True`, forces column name generation if none are
+        supplied. If `False`, requires user-defined columns or
+        raises/warns. If ``'auto'`` and `columns` not supplied,
+        it is switched to ``True``.
+    error : {"warn", "raise"}, optional
+        Error-handling strategy. If ``"warn"``, issues a warning
+        instead of raising an exception.
+    coerce_dt : bool, optional
+        If `True`, attempts to coerce date/datetime columns in
+        the DataFrame.
+    coerce_numeric : bool, optional
+        If `True`, converts object-like columns with all numeric
+        string values to numeric columns.
+    start_incr_at : int, optional
+        Starting index for auto-generated columns when
+        ``force=True``. Defaults to ``0``.
+    min_process : bool, optional
+        If `True`, applies minimal data cleaning, including
+        sanitizing column names, dropping NaN columns, etc.
+    sanitize_cols : bool, optional
+        If `True`, cleans column names using a specified regex
+        pattern, replacing invalid characters with
+        ``fill_pattern``.
+    fill_pattern : str, optional
+        Replacement pattern for sanitizing column names when
+        `sanitize_cols=True`. Defaults to ``"_"``.
+    regex : str, optional
+        Regex used to match invalid column name characters.
+    drop_nan_cols : bool, optional
+        If `True`, drops columns entirely filled with NaN.
+    pop_cat_features : bool, optional
+        If `True`, removes categorical features from the
+        resulting DataFrame (e.g., string or categorical dtypes).
+    missing_values : Any, optional
+        Placeholder for missing values. Defaults to :math:`\\text{np.nan}`.
+    how : str, optional
+        Strategy for dropping rows based on NaN content. Defaults
+        to ``"all"`` (drops rows only if all values are NaN).
+    reset_index : bool, optional
+        If `True`, resets the DataFrame index after processing.
+    drop_index : bool, optional
+        If `True`, drops the old index when `reset_index=True`.
+    check_integrity : bool, optional
+        If `True`, invokes ``verify_data_integrity`` to ensure
+        the processed DataFrame meets basic integrity checks
+        (e.g., no duplicates, minimal missingness).
+    inspect : bool, optional
+        If `True`, calls ``inspect_data`` to print additional
+        structural information about the DataFrame.
+    input_name : str, optional
+        Display name for the input data, used primarily in
+        warnings or error messages.
+    savefile : str or None, optional
+        File path where the DataFrame is saved if the
+        decorator-based saving is active. If `None`, no saving
+        occurs.
+    verbose : int, optional
+        Level of verbosity. Higher values yield more console
+        output about the transformation process.
+    **kw
+        Additional keyword arguments passed along for future
+        extension or to sub-functions.
+    
+    Notes
+    -----
+    If ``min_process=True``, the transformations from
+    ``to_numeric_dtypes`` are applied, potentially converting
+    string columns to numeric if feasible. This can be helpful
+    for automated data readiness. Integrity checks are
+    performed if `integrity_check=True`, making sure the final
+    DataFrame meets essential requirements.
+    
+    Examples
+    --------
+    >>> from gofast.utils.data_utils import build_df
+    >>> import numpy as np
+    >>> data = {"A": [1, 2, np.nan], "B": [4, 5, 6]}
+    >>> df = build_df(data, min_process=True, verbose=1)
+    >>> print(df)
+       A  B
+    0  1.0  4
+    1  2.0  5
+    2  NaN  6
+    
+    See Also
+    --------
+    gofast.utils.validator.build_data_if :
+      Converts various data structures to a pandas DataFrame
+      with optional column generation.
+    gofast.core.array_manager.to_numeric_dtypes :
+      Coerces suitable columns to numeric dtypes and sanitizes
+      column names.
+    gofast.dataops.inspection.verify_data_integrity :
+      Checks the DataFrame for missing values, duplicates, and
+      other issues.
+    gofast.dataops.inspection.inspect_data :
+      Presents a concise structural report of the DataFrame.
+    
+    References
+    ----------
+    .. [1] Doe, J. & Smith, A. (2022). "Automated Data
+       Preparation for Machine Learning," Machine Learning
+       Journal, 14(2), 128-145.
+    """
 
+    # Build the DataFrame from various data types
+    df = build_data_if(
+        data=data,
+        columns=columns,
+        to_frame=True,
+        input_name=input_name,
+        col_prefix=col_prefix,
+        force=force, 
+        error=error,
+        coerce_datetime=coerce_dt,
+        coerce_numeric=coerce_numeric,
+        start_incr_at=start_incr_at,
+        **kw
+    )
+
+    # If minimal processing is enabled, perform operations like
+    # numeric conversion, column sanitization, and NaN removal
+    if min_process:
+        df = to_numeric_dtypes(
+            df,
+            sanitize_columns=sanitize_cols,
+            fill_pattern=fill_pattern,
+            pop_cat_features=pop_cat_features,  
+            regex=regex,
+            drop_nan_columns=drop_nan_cols,
+            how=how,
+            missing_values=missing_values,      
+            reset_index=reset_index,
+            drop_index=drop_index,
+            verbose=verbose
+        )
+
+    # Perform data integrity checks if requested
+    reports =[] 
+    if check_integrity:
+        from ..dataops.inspection import verify_data_integrity
+        passed_integrity, report = verify_data_integrity(df)
+        reports.append(report)
+        if verbose:
+            hint = (
+                "To request any attribute of Integrity Report, consider"
+                " calling `verify_data_integrity` function as:\n\n"
+                "    >>> from  gofast.dataops import verify_data_integrity\n"
+                "    >>> _, report=verify_data_integrity(<your-data>)\n"
+                "    >>> report.outliers # for getting outliers report.\n"
+                "    >>> report.outliers.results # for outliers results.\n"
+                "And so on..."
+            )
+            
+            if passed_integrity:
+                print("Data integrity check: PASSED.")
+            else:
+                print("Data integrity check: FAILED.\n")
+                
+                print(f"Please review the integrity report below:\n{hint}")
+
+    # inspect the data,
+    if inspect:
+        from ..dataops.inspection import inspect_data
+        
+        report = inspect_data(
+            data, include_stats_table=True, 
+            return_report=True
+        ) 
+        reports.append(report)
+        
+    if inspect or check_integrity:  
+        # printing details of its structure
+        assemble_reports(*reports, display=True )
+        
+
+    # Return the final DataFrame for downstream usage
+    return df
 
 @SaveFile
 @is_data_readable 

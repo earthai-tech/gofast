@@ -337,6 +337,7 @@ def class_pred_app(
         raise ValueError(
             f"Detected target_type='{target_type}'. Only 'binary' or "
             "'multiclass' are supported for classification."
+            " For the regression task use script 'reg_pred' instead."
         )
 
     # (9) Convert column names to snake_case for consistency.

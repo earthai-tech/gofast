@@ -1071,7 +1071,6 @@ def _validate_parameters(
 
     return method, fill_strategy
 
-
 def remove_outliers(
     ar: Union[ArrayLike,DataFrame],  
     method: str = 'IQR',
@@ -1740,7 +1739,8 @@ def fillNaN(
         
     if name_or_columns is not None: 
         arr = pd.Series ( arr.squeeze(), name = name_or_columns) if isinstance (
-            name_or_columns, str ) else pd.DataFrame(arr, columns = name_or_columns)
+            name_or_columns, str ) else pd.DataFrame(
+                arr, columns = name_or_columns)
         
     return arr 
 
@@ -4844,7 +4844,8 @@ def _handle_non_numeric(data, action='normalize'):
     it contains only numeric data.
     
     Parameters:
-    data (pandas.Series, pandas.DataFrame, numpy.ndarray): Input data to process.
+    data (pandas.Series, pandas.DataFrame, numpy.ndarray):
+        Input data to process.
     
     Returns:
     numpy.ndarray: An array containing only numeric data.
@@ -4865,10 +4866,12 @@ def _handle_non_numeric(data, action='normalize'):
         # For pandas data structures, select only numeric data types.
         if numeric_data.empty:
             raise ValueError(f"No numeric data to {action}.")
+            
     elif isinstance(data, np.ndarray):
         # For numpy arrays, ensure the dtype is numeric.
         if not np.issubdtype(data.dtype, np.number):
-            # Attempt to convert non-numeric numpy array to a numeric one by coercion
+            # Attempt to convert non-numeric numpy
+            # array to a numeric one by coercion
             try:
                 numeric_data = data.astype(np.float64)
             except ValueError:
@@ -4877,7 +4880,10 @@ def _handle_non_numeric(data, action='normalize'):
         else:
             numeric_data = data
     else:
-        raise TypeError("Input must be a pandas Series, DataFrame, or a numpy array.")
+        raise TypeError(
+            "Input must be a pandas Series,"
+            " DataFrame, or a numpy array."
+        )
     
     # Check if resulting numeric data is empty
     if numeric_data.size == 0:
@@ -5092,7 +5098,7 @@ def normalizer(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.utils.baseutils import normalizer 
+    >>> from gofast.utils.base_utils import normalizer 
     >>> arr = np.array([10, 20, 30, 40, 50])
     >>> normalizer(arr, method='01', scaler='naive')
     array([0. , 0.25, 0.5 , 0.75, 1. ])
@@ -5132,9 +5138,8 @@ def normalizer(
                 arr_max = np.max(arr, axis=axis, keepdims=True)
 
             if method == '01':
-                
                 scaled = (arr - arr_min) / (arr_max - arr_min)
-            elif method == 'zscore':
+            elif method in [ 'z-score', 'zscore']:
                 mean = np.mean(arr, axis=axis, keepdims=True)
                 std = np.std(arr, axis=axis, keepdims=True)
                 scaled = (arr - mean) / std
@@ -5148,7 +5153,8 @@ def normalizer(
         # revert back to series or dataframe is given as it 
         if name_or_columns is not None: 
             scaled = pandas_manager(
-                scaled, todo='set', name_or_columns=name_or_columns, 
+                scaled, todo='set', 
+                name_or_columns=name_or_columns, 
                 index= index 
                 )
 
@@ -5161,7 +5167,7 @@ def normalizer(
         arr = _handle_non_numeric(arr)
         normalized = _normalize_array(arr, method, scaler)
         normalized_arrays.append(normalized)
-
+    
     return normalized_arrays[0] if len(normalized_arrays) == 1 else normalized_arrays
 
 def smooth1d(

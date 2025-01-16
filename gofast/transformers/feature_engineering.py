@@ -1045,7 +1045,7 @@ class FloatCategoricalToInt(BaseEstimator, TransformerMixin):
         original_type = 'pd.DataFrame'
         if isinstance(X, np.ndarray): 
             original_type = 'np.ndarray'
-        X = build_data_if(X, input_name=self.col_prefix, raise_exception=True,
+        X = build_data_if(X, col_prefix=self.col_prefix, raise_exception=True,
                           force=True)
 
         # Identify columns to transform based on their unique values
@@ -2669,7 +2669,7 @@ class CategorizeFeatures(BaseEstimator, TransformerMixin ):
                               " gofast.utils.smart_label_classier to encode"
                               " variables.")
         X = build_data_if(X, to_frame =True, force =True,
-                          raise_warning="silence", input_name='col')
+                          raise_warning="silence", col_prefix='col')
         X, self.num_columns_, self.cat_columns_ = to_numeric_dtypes(
             X, return_feature_types=True
             )
@@ -3463,7 +3463,7 @@ class FrameUnionFlex(BaseEstimator, TransformerMixin):
             return arr, frameobj.columns 
         
         # Construct a Frame if not aleardy dataframe 
-        X = build_data_if ( X, to_frame=True, input_name='fu', force=True, 
+        X = build_data_if ( X, to_frame=True, col_prefix='fu', force=True, 
                            raise_exception= True )
         # Validate and adjust the scale_mode parameter
         self.scale_mode = self.scale_mode if self.scale_mode in [
@@ -3623,7 +3623,7 @@ class FrameUnion(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         # if not dataframe construct 
-        X= build_data_if(X, to_frame=True, input_name='col',
+        X= build_data_if(X, to_frame=True, col_prefix='col',
                          force=True, raise_exception=True  )
         # Validate and auto-detect attributes
         self._validate_attributes(X)
@@ -4668,7 +4668,7 @@ class FeatureScaler(BaseEstimator, TransformerMixin):
             DataFrame with standardized numeric features.
 
         """
-        X = build_data_if(X, input_name='scale_col', force=True, 
+        X = build_data_if(X, col_prefix='scale_col', force=True, 
                           raise_exception= True )
         
         if self.numeric_features is None: 
@@ -5200,7 +5200,7 @@ class CategoryFrequencyEncoder(BaseEstimator, TransformerMixin):
 
         """
         X = build_data_if (X, to_frame=True, force =True, 
-                           raise_warning='mute', input_name='cf')
+                           raise_warning='mute', col_prefix='cf')
         self.frequency_maps_ = {
             feature: X[feature].value_counts(normalize=True).to_dict() 
             for feature in self.categorical_features

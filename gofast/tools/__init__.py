@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 # List of modules that require TensorFlow
 _TENSORFLOW_REQUIRED_MODULES = {
     'xtft_point',
-    'tft_batch_p',
+    # 'tft_batch_p',
     'xtft_proba_p',
     'xtft_proba',
 }
