@@ -24,7 +24,12 @@ from ..core.utils import ellipsis2false, smart_format
 from ..compat.sklearn import type_of_target 
 from ..compat.pandas import select_dtypes 
 from ..core.array_manager import to_series 
-from ..core.checks import assert_ratio, validate_ratio, check_params  
+from ..core.checks import ( 
+    assert_ratio, 
+    validate_ratio, 
+    check_params, 
+    is_numeric_dtype
+    )
 from ..core.io import is_data_readable 
 from ..decorators import isdf, Dataify
 from ..decorators import Extract1dArrayOrSeries 
@@ -3505,6 +3510,7 @@ def corr_engineering(
 
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import PolynomialFeatures
+    from gofast.utils.ml.preprocessing import encode_target 
     
     # --- Step 1: Validate and extract target if provided ---
     original_data = None
@@ -3548,6 +3554,26 @@ def corr_engineering(
             if verbose > 1:
                 warnings.warn(
                     f"Unable to convert target to a Series: {str(e)}")
+    
+    if target_series is not None and not precomputed: 
+        # check target types 
+        if not is_numeric_dtype (target_series, to_array=True): 
+            msg = (
+                "A non-numeric target has been detected. It is assumed to be"
+                " a categorical target and will be automatically encoded as"
+                " such. The resulting encoding can be visualized using the"
+                " 'map_codes' output to inspect the mapping. If the automatic"
+                " encoding is not suitable, please provide the target in a "
+                "numeric format or use the 'gofast.preprocessing.encode_target'"
+                " function to perform a custom encoding before passing it"
+                " to this function."
+            )
+            warnings.warn(msg)
+            target_series, map_codes = encode_target(
+                target_series, to_continuous=True, 
+                show_cat_codes= True 
+                )
+            warnings.warn(msg)
 
     # --- Step 2: If we have a valid target_series, remove features
     # that have a low absolute correlation to the target ---

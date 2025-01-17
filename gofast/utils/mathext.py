@@ -23,26 +23,54 @@ from scipy.signal import argrelextrema
 from sklearn.metrics import confusion_matrix, roc_curve, roc_auc_score
 from sklearn.utils.multiclass import unique_labels
 from sklearn.preprocessing import label_binarize, LabelEncoder, MinMaxScaler
-
+from sklearn.ensemble import ( 
+    RandomForestClassifier, 
+    GradientBoostingClassifier,
+    RandomForestRegressor, 
+    GradientBoostingRegressor
+)
 from .._gofastlog import gofastlog
 from ..api.types import ( 
-    ArrayLike, DataFrame, Dict, List, Optional, Tuple, Union, NDArray, 
+    ArrayLike,
+    DataFrame, 
+    Dict, 
+    List, 
+    Optional, 
+    Tuple, 
+    Union, 
+    NDArray, 
+    Callable, 
+    Any, 
 )
 from ..api.summary import ResultSummary
 from ..compat.pandas import select_dtypes 
-from ..compat.sklearn import validate_params, InvalidParameterError, HasMethods 
+from ..compat.sklearn import ( 
+    validate_params,
+    InvalidParameterError, 
+    HasMethods, 
+    type_of_target
+    ) 
 from ..core.array_manager import ( 
-    to_numeric_dtypes, concat_array_from_list, extract_array_from, to_arrays 
+    to_numeric_dtypes, 
+    concat_array_from_list, 
+    extract_array_from, 
+    to_arrays, 
 )
 from ..core.checks  import  ( 
-    _assert_all_types, validate_name_in, exist_features, is_iterable 
+    _assert_all_types, 
+    validate_name_in,
+    exist_features, 
+    is_iterable, 
+    check_params, 
 ) 
 from ..core.handlers import ( 
-    columns_manager, param_deprecated_message, delegate_on_error
-  )
+    columns_manager, 
+    param_deprecated_message, 
+    delegate_on_error
+)
 from ..core.io import is_data_readable 
-from ..core.utils import normalize_string, type_of_target, smart_format 
-
+from ..core.utils import normalize_string, smart_format 
+from .deps_utils import ensure_pkg, is_module_installed  
 from .validator import (
     _is_numeric_dtype,
     validate_multioutput,
@@ -61,10 +89,10 @@ from .validator import (
     validate_scores,
     ensure_2d,
     contains_nested_objects,
-    get_estimator_name
+    get_estimator_name, 
+    has_methods
 )
 
-# Configure logging
 _logger = gofastlog.get_gofast_logger(__name__)
 
 mu0 = 4 * np.pi * 1e-7 
@@ -114,7 +142,207 @@ __all__=[
      'compute_coverage', 
      'compute_coverages', 
      'get_preds', 
+     'compute_importances'
    ]
+
+@check_params ( { 
+    'models': Optional[Union[Dict[str, object], List[object]]], 
+    'xai_methods': Optional[Callable[..., Any]]
+    })
+@validate_params ({ 
+    'X': ['array-like', None], 
+    'y': ['array-like', None], 
+    })
+@ensure_pkg(
+    "shap", 
+    extra="SHapley Additive exPlanations(SHAP) is required when 'pkg'='shap'.", 
+    partial_check=True, 
+    condition=lambda *args, **kws: kws.get('pkg')=='shap' 
+)
+def compute_importances(
+    models=None, 
+    X=None, 
+    y=None, 
+    prefit=False, 
+    pkg=None, 
+    as_frame=True, 
+    xai_methods=None, 
+    return_rank=True, 
+    normalize=False, 
+    keep_mean_importance=False, 
+):
+    # Force pkg='sklearn' if the user uses any sklearn label
+    pkg = 'sklearn' if pkg in [ 
+        None, 'sklearn', 'scikit-learn', 'skl'
+    ] else pkg
+    
+    target_type =None 
+    
+    if y is not None: 
+        target_type = type_of_target (y) 
+    
+    task= 'reg' if target_type in [
+        'continuous', 'continous-multioutput'] else ( 
+        'clf' if target_type in [
+            'binary', 'multiclass'] else target_type 
+        ) 
+    
+    if ( target_type is None 
+        and models is None 
+        and not prefit 
+        ): 
+        # This probably refers to unsupervised task
+        # which is not allow for this version of code
+        raise ValueError(
+            "Unsupervised tasks are not supported. Provide y for supervised tasks,"
+            " or use pre-trained models (prefit=True)."
+        )
+        
+    # If no models are passed, define defaults
+    if models is None:
+        models = {
+            "Random Forest"     : ( 
+                RandomForestRegressor() if task=='reg' 
+                else RandomForestClassifier()
+                ),
+            "Gradient Boosting" : ( 
+                GradientBoostingRegressor() if task=='reg' 
+                else GradientBoostingClassifier()
+                ),
+        }
+        # If XGBoost is installed, add to default models
+        if is_module_installed('xgboost'):
+            from xgboost import XGBClassifier, XGBRegressor
+            models["XGBoost"] = ( XGBRegressor() if task =='reg' else XGBClassifier(
+                # use_label_encoder=False, 
+                eval_metric='logloss')
+        )
+        
+    # If data is passed, determine feature names from DataFrame columns or numeric indices
+    # If prefit=True, assume models are already trained and share identical feature structure
+    if X is not None:
+        feature_names = (
+            X.columns 
+            if hasattr(X, 'columns') 
+            else np.arange(X.shape[1])
+        )
+    else:
+        feature_names = None  # Will handle post-computation if needed
+    
+    # Dictionary to hold each model's feature importances
+    feature_importances = {}
+    
+    if not isinstance (models, dict): 
+        # Assume model is given as list
+        models = {get_estimator_name(m): m for m in models}
+    
+    # Fit models if prefit=False, and compute the feature importances
+    for model_name, model in models.items():
+        # If the model is not already trained, fit with (X, y)
+        if not prefit:
+            has_methods(model, methods= ['fit'])
+            
+            if X is None or y is None:
+                raise ValueError(
+                    "X and y must be provided when prefit=False."
+                )
+            
+            model.fit(X, y)
+        
+        # If using shap for feature importances
+        if pkg == 'shap':
+            import shap
+            explainer    = shap.Explainer(model, X)
+            shap_values  = explainer(X)
+            importances  = np.abs(shap_values.values).mean(axis=0)
+        
+        # If using sklearn built-in feature_importances_ or coef_
+        elif pkg == 'sklearn':
+            if hasattr(model, "feature_importances_"):
+                importances = model.feature_importances_
+            elif hasattr(model, "coef_"):
+                importances = np.abs(model.coef_).flatten()
+            else:
+                extra_msg = (
+                    "This error occurs because you did not provided a"
+                    " fitted estimator. To use the default estimator,"
+                    " set ``prefit=False``."
+                )
+                raise ValueError(
+                    f"Model {model_name} does not support sklearn"
+                    f" feature importances. {extra_msg}"
+                )
+        
+        # If using custom xai_methods
+        elif xai_methods:
+            importances = xai_methods(model, X, y)
+        
+        else:
+            raise ValueError(
+                "Invalid pkg specified. Use 'shap', 'sklearn',"
+                " or provide xai_methods."
+            )
+        
+        # Store each model's importances in dictionary
+        feature_importances[model_name] = importances
+    
+    # If models are prefit and no X is provided to name features, 
+    # try to retrieve feature names from any model with such attribute
+    # otherwise, default to numeric indices
+    if feature_names is None:
+        # Attempt to retrieve feature names from model, or set them as indices
+        any_model = next(iter(models.values()))
+        try:
+            feature_names = any_model.feature_names_in_
+        except AttributeError:
+            # Fallback if no attribute is found
+            # (By now we assume user knows the model must share same #features)
+            # We guess the number of features from the length of the importances
+            n_features    = len(list(feature_importances.values())[0])
+            feature_names = np.arange(n_features)
+    
+    # Convert importances to a DataFrame
+    importances_df = pd.DataFrame(feature_importances, index=feature_names)
+    if normalize : 
+        from .mathext import normalize as normalizer 
+        importances_df = normalizer (importances_df)
+        
+    # If multiple models exist, compute the average feature importance across them
+    if len(feature_importances) > 1:
+        importances_df["mean_importance"] = importances_df.mean(axis=1)
+    
+    # Compute ranking per model, descending order
+    # Higher importance gets rank 1, next gets 2, etc.
+    ranking_matrix = importances_df.rank(
+        ascending=False, 
+        axis=0
+    ).astype(int)
+    
+    # If multiple models exist, also rank by mean_importance
+    if len(feature_importances) > 1:
+        ranking_matrix["mean_rank"] = importances_df["mean_importance"].rank(
+            ascending=False
+        ).astype(int)
+    # Then drop mean_importances and mean_rank 
+    if not keep_mean_importance: 
+        importances_df.drop (
+            columns =["mean_importance"], 
+            errors='ignore', 
+            inplace=True
+            )
+        ranking_matrix.drop(
+            columns =['mean_rank', "mean_importance"], 
+            errors='ignore', 
+            inplace=True
+        )
+    
+    # Return either the rank matrix or the importances,
+    # depending on user request
+    if return_rank:
+        return ranking_matrix if as_frame else ranking_matrix.values
+ 
+    return importances_df if as_frame else importances_df.values
+        
 
 @validate_params ({ 
     'y_true': ['array-like', None], 
@@ -3525,7 +3753,6 @@ def compute_sunburst_data(
     return [x for x in sunburst_data if not (
         tuple(x.items()) in seen or seen.add(tuple(x.items())))]
 
-
 def compute_effort_yield(
         d: ArrayLike,  reverse: bool = True
         ) -> Tuple[ArrayLike, np.ndarray]:
@@ -4094,7 +4321,6 @@ def count_local_minima(arr,  method='robust', order=1):
         # The number of local minima is the length of the indices array
         return len(local_minima_indices)
     
-
 def _manage_colors (c, default = ['ok', 'ob-', 'r-']): 
     """ Manage the ohmic-area plot colors """
     c = c or default 
@@ -4104,7 +4330,6 @@ def _manage_colors (c, default = ['ok', 'ob-', 'r-']):
     
     return c [:3] # return 3colors 
      
-
 def compute_errors (
     arr,  
     error ='std', 
@@ -4225,8 +4450,6 @@ def compute_errors (
         err_lower = arr.mean() - ( 1.96 * err ) 
         err_upper = arr.mean() + ( 1.96 * err )
     return err if not return_confidence else ( err_lower, err_upper)  
-
-
 
 def gradient_descent(
     z: ArrayLike, 
@@ -4355,15 +4578,15 @@ def _kind_of_model(degree, x, y) :
     w= init_weights(x=x, y=y)
     return x, w  # Return the matrix x and the weights vector w 
 
-
-
 def gradient_boosting_regressor(
         X, y, n_estimators=100, learning_rate=0.1, max_depth=1):
     """
     Implement a simple version of Gradient Boosting Regressor.
 
-    Gradient Boosting builds an additive model in a forward stage-wise fashion. 
-    At each stage, regression trees are fit on the negative gradient of the loss function.
+    Gradient Boosting builds an additive model in a forward stage-wise 
+    fashion. 
+    At each stage, regression trees are fit on the negative gradient
+    of the loss function.
 
     Parameters
     ----------
@@ -4402,8 +4625,10 @@ def gradient_boosting_regressor(
 
     References
     ----------
-    - J. H. Friedman, "Greedy Function Approximation: A Gradient Boosting Machine," 1999.
-    - T. Hastie, R. Tibshirani, and J. Friedman, "The Elements of Statistical Learning," Springer, 2009.
+    - J. H. Friedman, "Greedy Function Approximation: A Gradient Boosting
+      Machine," 1999.
+    - T. Hastie, R. Tibshirani, and J. Friedman, "The Elements of Statistical
+      Learning," Springer, 2009.
 
     Examples
     --------
@@ -4437,10 +4662,8 @@ def gradient_boosting_regressor(
     
         # Update the model
         F_m += learning_rate * stump.predict(X)
-    
-
+  
     return F_m
-
 
 def linkage_matrix(
     df: DataFrame ,

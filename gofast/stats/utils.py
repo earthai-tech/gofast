@@ -236,13 +236,13 @@ def fix_rm_anova_dataset(
 def cumulative_ops(
     df: pd.DataFrame,
     checkpoint: Optional[Union[str, int]]=None,
-    operation: str = 'sum', 
+    ops: str = 'sum', 
     reverse: bool = False, 
     direction: str = 'left_to_right',  
-    error: str = 'warn' , 
+    error: str = 'raise' , 
     savefile: Optional[str]=None, 
 ) -> pd.DataFrame:
-    """
+    r"""
     Perform Cumulative and De-cumulative Operations on a DataFrame.
 
     The `cumulative_ops` function allows users to perform cumulative 
@@ -279,7 +279,7 @@ def cumulative_ops(
         towards the specified direction. If ``None``, the first column of 
         the dataframe is used instead.
 
-    operation : str, default='sum'
+    ops : str, default='sum'
         The type of cumulative operation to perform. 
         
         - ``'sum'``: Performs a cumulative sum across the specified direction.
@@ -308,7 +308,7 @@ def cumulative_ops(
         
         Raises a `ValueError` if an unsupported direction is provided.
 
-    error : str, default='warn'
+    error : str, default='raise'
         Defines how the function handles errors encountered during processing.
         
         - ``'warn'``: Issues a warning and continues execution.
@@ -327,7 +327,7 @@ def cumulative_ops(
     Raises
     ------
     ValueError
-        - If `operation` is not ``'sum'`` or ``'product'``.
+        - If `ops` is not ``'sum'`` or ``'product'``.
         - If `direction` is neither ``'left_to_right'`` nor ``'right_to_left'``.
         - If `error` is neither ``'warn'`` nor ``'raise'``.
         - If the `checkpoint` index is out of range.
@@ -373,7 +373,7 @@ def cumulative_ops(
     >>> df_cum = cumulative_ops(
     ...     df=df,
     ...     checkpoint='A',
-    ...     operation='sum',
+    ...     ops='sum',
     ...     reverse=False,
     ...     direction='left_to_right',
     ...     error='warn'
@@ -390,7 +390,7 @@ def cumulative_ops(
     >>> df_decum = cumulative_ops(
     ...     df=df_cum,
     ...     checkpoint='A',
-    ...     operation='sum',
+    ...     ops='sum',
     ...     reverse=True,
     ...     direction='left_to_right',
     ...     error='warn'
@@ -407,7 +407,7 @@ def cumulative_ops(
     >>> df_cum_prod = cumulative_ops(
     ...     df=df,
     ...     checkpoint='D',
-    ...     operation='product',
+    ...     ops='product',
     ...     reverse=False,
     ...     direction='right_to_left',
     ...     error='warn'
@@ -459,9 +459,9 @@ def cumulative_ops(
     dff = df.copy() 
     
     # Validate operation
-    if operation not in {'sum', 'product'}:
+    if ops not in {'sum', 'product'}:
         msg = (
-            "`operation` must be either 'sum' or 'product'"
+            "Operation `ops` must be either 'sum' or 'product'"
         )
         if error== 'warn':
             warnings.warn(msg)
@@ -598,9 +598,9 @@ def cumulative_ops(
                 prev_col = col
     else:
         # Perform cumulative operations
-        if operation == 'sum':
+        if ops == 'sum':
             func = lambda prev, current: prev + current
-        elif operation == 'product':
+        elif ops == 'product':
             func = lambda prev, current: prev * current
         
         if direction == 'left_to_right':

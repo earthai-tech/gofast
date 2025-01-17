@@ -49,13 +49,13 @@ from ..compat.sklearn import (
 )
 from ..decorators import isdf
 from ..metrics import get_scorer 
+from ..utils.mathext import compute_importances  
 from ..utils.validator import  ( 
     assert_xy_in, build_data_if, validate_positive_integer, 
     validate_quantiles, is_frame, check_consistent_length, 
     validate_yy, 
 )
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
-
 
 __all__=[
     "boxplot", 
@@ -74,12 +74,156 @@ __all__=[
     'plot_fit', 
     'plot_perturbations', 
     'plot_well', 
-    'plot_factory_ops'
+    'plot_factory_ops', 
+    'plot_ranking'
 ]
+
+@validate_params ({ 
+    'plot_type': [StrOptions({"auto", "ranking", "importance"}), None], 
+    'features': [str, 'array-like', None]
+    })
+def plot_ranking(
+    X,
+    y=None,
+    models=None,
+    features=None,
+    precomputed=False,
+    xai_methods=None,
+    plot_type=None,
+    prefit=True,
+    annot=True,
+    pkg=None,
+    normalize=False,
+    fmt="d",
+    cmap="Purples_r",
+    figsize=(4, 12),
+    cbar='off', 
+    **kw
+):
+    # Check whether the data is already precomputed (ranking or importances)
+    # or if it needs to be computed using the provided models
+    if not precomputed:
+        # Decide whether to retrieve ranking or feature importances 
+        # based on the user-specified plot_type
+        return_rank = (plot_type is None or plot_type == 'ranking')
+        
+        # Compute importances or rankings using gofast utility
+        df_result = compute_importances(
+            models      = models,
+            X           = X,
+            y           = y,
+            prefit      = prefit,
+            pkg         = pkg,
+            as_frame    = True,
+            xai_methods = xai_methods,
+            return_rank = return_rank,
+            normalize   = normalize
+        )
+        # If we computed ranking, the dataframe is already ranking_matrix
+        # Otherwise, it's the importances
+        matrix_to_plot = df_result
+        
+        # Determine if the matrix is ranking or importances for labeling
+        matrix_kind = 'ranking' if return_rank else 'importance'
+    
+    else:
+        # If data is precomputed, we interpret X directly
+        # If data_kind='auto', guess by dtype: integer => ranking, float => importances
+        # If data_kind is explicitly 'ranking' or 'importances', use that
+        matrix_kind = plot_type or "auto"
+        
+        # If 'auto', check the dtype to guess if ranking or importances
+        if matrix_kind == 'auto':
+            if np.issubdtype(np.array(X).dtype, np.integer):
+                matrix_kind = 'ranking'
+            else:
+                matrix_kind = 'importance'
+        
+        # Convert to DataFrame for easier handling
+        matrix_to_plot = (
+            X if isinstance(X, pd.DataFrame)
+            else pd.DataFrame(X)
+        )
+        
+        # If user gave explicit feature names, try to apply them
+        if features is not None:
+            features= columns_manager(features, empty_as_none= True)
+            # If shape mismatch occurs, fallback with a warning or ignore
+            if len(features) == matrix_to_plot.shape[0]:
+                matrix_to_plot.index = features
+            else:
+                # warn the user here if lengths don't match
+                warnings.warn(
+                    "The length of the provided 'features' does not"
+                    " match the number of rows in the matrix"
+                    f" (features: {len(features)}, rows:"
+                    f" {matrix_to_plot.shape[0]}). Index will not"
+                    " be renamed."
+                )
+    
+        # If user provided model columns or a single string
+        # and shape matches, rename columns
+        if isinstance(models, list) and len(models) == matrix_to_plot.shape[1]:
+            matrix_to_plot.columns = models
+        elif isinstance(models, str):
+            # Potentially rename a single column if shape is 1
+            if matrix_to_plot.shape[1] == 1:
+                matrix_to_plot.columns = [models]
+            else:
+                # warn the user here if mismatch
+                warnings.warn(
+                    "The length of the provided 'models' list does"
+                    " not match the number of columns in the matrix"
+                    f" (models: {len(models)}, columns:"
+                    f" {matrix_to_plot.shape[1]}). Column names"
+                    " will not be renamed." 
+                )
+                
+        elif isinstance(models, (list, dict)):
+            # Potentially handle dict keys as column names if lengths match
+            if isinstance(models, dict) and len(models) == matrix_to_plot.shape[1]:
+                matrix_to_plot.columns = list(models.keys())
+            else:
+                # Fallback as we can't rename properly
+                warnings.warn(
+                "A single model name was provided as a string,"
+                " but the matrix has multiple columns (columns:"
+                f" {matrix_to_plot.shape[1]}). Column names will"
+                " not be renamed. "
+             )
+    # Prepare the heatmap to visualize either ranking or importances
+    plt.figure(figsize=figsize)
+    
+    # If matrix is of ranking, we typically use integer fmt
+    # If matrix is importances, we might prefer a float format
+    plot_title = (
+        "Feature Rankings Across Models" if matrix_kind in ['ranking', 'rank']
+        else "Feature Importances Across Models"
+    )
+    
+    # Create the heatmap using Seaborn
+    sns.heatmap(
+        matrix_to_plot,
+        annot = annot,
+        fmt = fmt,
+        cmap = cmap,
+        cbar= False if cbar in ['off', False] else True, 
+        **kw
+    )
+    # Label the axes
+    plt.xlabel("Models")
+    plt.ylabel("Features")
+    
+    # Add a title reflecting the plotted data type
+    plt.title(plot_title)
+    
+    # Display the plot
+    plt.tight_layout()
+    plt.show()
 
 @default_params_plot(
     savefig="my_factory_ops_plot.png", 
-    fig_size =(8, 8), 
+    fig_size =(10, 8), 
     dpi=300, 
     )
 @check_params({ 

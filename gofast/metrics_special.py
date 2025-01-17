@@ -74,6 +74,7 @@ __all__= [
  ]
 
 # --------- doc templates -----------------------------------------------------
+
 _shared_doc_kwargs= { 
     "model_desc": ( 
         "A trained model with a `.predict()` method. The model"
@@ -91,7 +92,7 @@ _shared_doc_kwargs= {
         ), 
     "plot_type_desc": ( 
         "The type of plot to generate for the sensitivity results. If `None`,"
-        "no plot is generated. Available plot styles include:"
+        " no plot is generated. Available plot styles include:"
         "- `'hist'`: A histogram of relative sensitivities with a KDE."
         "- `'line'`: A line plot of relative sensitivities for each feature."
         "- `'bar'`: A bar plot of relative sensitivities."
@@ -131,8 +132,7 @@ interpret : bool, default=False
     "plot_type": [
         StrOptions({'barh', 'bar', 'pie', 'scatter'}), None],
     "max_iter": [Interval(Integral, 1, None, closed='left')]
-   }, 
-)
+})
 def miv_score(
     X, 
     y, 
@@ -187,8 +187,8 @@ def miv_score(
         is initialized based on the nature of ``y``.
 
     perturbation : float, default=0.05
-        The magnitude of perturbation applied to each feature during MIV c
-        omputation.
+        The magnitude of perturbation applied to each feature during MIV 
+        computation.
         A value of ``0.05`` corresponds to a 5% perturbation of the feature's
         original value.
 

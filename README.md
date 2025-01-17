@@ -17,15 +17,15 @@ productivity and accuracy in your machine learning endeavors.
 
 ## 📈 Table of Contents
 
-- [Features](#features)
-- [Project Goals](#project-goals)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Usage Examples](#usage-examples)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
-- [License](#license)
-- [Acknowledgments](#acknowledgments)
+- [Features](#-features)
+- [Project Goals](#-project-goals)
+- [Installation](#-installation)
+- [Quick Start](#-quick-start)
+- [Usage Examples](#-usage-examples)
+- [Documentation](#-documentation)
+- [Contributing](#-contributing)
+- [License](#-license)
+- [Acknowledgments](#-acknowledgments)
 
 ---
 
@@ -103,7 +103,7 @@ to understand how **gofast** can enhance your machine learning workflow by simpl
 data integrity verification and model optimization.
 
 First, ensure that **gofast** is installed. Since it's not yet available on PyPI, 
-install it directly from the [GitHub repository](#installing-from-Source)
+install it directly from the [GitHub repository](#-installing-from-Source)
 
 
 ### 🧰 Import Required Libraries
