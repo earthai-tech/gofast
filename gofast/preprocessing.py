@@ -38,7 +38,8 @@ from gofast.utils.ml.preprocessing import (
     soft_encoder,
     soft_imputer,
     soft_scaler,  
-    handle_minority_classes
+    handle_minority_classes, 
+    encode_target, 
     )
 
 __all__ = [
@@ -56,4 +57,5 @@ __all__ = [
     'soft_imputer',
     'soft_scaler',
     'handle_minority_classes', 
+    'encode_target'
 ]

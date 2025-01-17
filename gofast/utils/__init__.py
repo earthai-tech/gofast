@@ -36,7 +36,8 @@ MODULE_MAPPING = {
          'smooth1d',
          'smoothing',
          'soft_bin_stat',
-         'speed_rowwise_process'
+         'speed_rowwise_process', 
+         'map_values', 
     ],
     'data_utils': [ 
         'cleaner',
@@ -118,6 +119,8 @@ MODULE_MAPPING = {
         'rescale_data', 
         'compute_coverage', 
         'compute_coverages',
+        'compute_importances', 
+        'get_preds', 
     ],
     'ml': [
         'bi_selector', 
@@ -151,7 +154,8 @@ MODULE_MAPPING = {
         'soft_imputer', 
         'soft_scaler', 
         'stats_from_prediction',
-        'stratify_categories'
+        'stratify_categories', 
+        'encode_target',
     ], 
     'sys_utils': [
         'WorkflowOptimizer',

@@ -123,7 +123,7 @@ def extract_zones_from(
     show_grid=True,        
     **kwargs                 
 ):
-    """
+    r"""
     Extracts specific zones by filtering an input array or arrays
     using a threshold criterion. This function applies a logical
     mask to the values and retains those which satisfy a chosen
@@ -233,10 +233,10 @@ def extract_zones_from(
     
     Examples
     --------
-    >>> from gofast.utils.spatial_utils import extract_zones
+    >>> from gofast.utils.spatial_utils import extract_zones_from
     >>> import numpy as np
     >>> z_data = np.array([0, 2, 5, 10, 15, 20])
-    >>> result = extract_zones(z=z_data, threshold=10,
+    >>> result = extract_zones_from(z=z_data, threshold=10,
     ...                        condition='above')
     >>> print(result)
 
@@ -611,8 +611,8 @@ def extract_coordinates(
     Examples
     --------
     >>> import gofast as gf
-    >>> from gofast.utils.datautils import extract_coordinates
-    >>> testdata = gf.datasets.make_erp(n_stations=7, seed=42).frame
+    >>> from gofast.utils.spatial_utils import extract_coordinates
+    >>> testdata = gf.datasets.make_erp(samples=7, seed=42, as_frame=True)
 
     # Extract midpoint coordinates
     >>> xy, d, xynames = extract_coordinates(testdata)
@@ -698,8 +698,9 @@ def extract_coordinates(
 @Deprecated(reason=( 
     "This function is deprecated and will be removed in future versions. "
     "Please use `extract_coordinates` instead, which provides enhanced "
-    "flexibility and robustness for coordinate extraction.")
+    "flexibility and robustness for coordinates extraction.")
 )
+@isdf 
 def get_xy_coordinates(
         df, as_frame=False, drop_xy=False, raise_exception=True, verbose=0
     ):
@@ -737,8 +738,8 @@ def get_xy_coordinates(
     Examples 
     ----------
     >>> import gofast as gf 
-    >>> from gofast.utils.datautils import get_xy_coordinates 
-    >>> testdata = gf.make_erp ( n_stations =7, seed =42 ).frame 
+    >>> from gofast.utils.spatial_utils import get_xy_coordinates 
+    >>> testdata = gf.datasets.make_erp ( samples =7, seed =42 , as_frame=True)
     >>> xy, d, xynames = get_xy_coordinates ( testdata,  )
     >>> xy , xynames 
     ((110.48627946874444, 26.051952363176344), ('longitude', 'latitude'))

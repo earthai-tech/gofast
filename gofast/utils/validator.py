@@ -78,6 +78,7 @@ __all__=[
      'normalize_array',
      'parameter_validator',
      'to_dtype_str',
+     'to_iterable',
      'validate_and_adjust_ranges',
      'validate_batch_size', 
      'validate_comparison_data',
@@ -5852,7 +5853,6 @@ def is_frame(
 
     return obj_is_frame
 
-
 def check_array(
     array,
     *,
@@ -6369,8 +6369,8 @@ def check_y(y,
 
 def validate_dtype_selector(dtype_selector: str) -> str:
     """
-    Validates and categorizes the dtype_selector using regex, including handling 
-    cases where 'only' is specifically included.
+    Validates and categorizes the dtype_selector using regex, including
+    handling cases where 'only' is specifically included.
     
     Parameters:
     - dtype_selector (str): The input dtype selector string.
@@ -6623,7 +6623,6 @@ def build_series_if(
          
     return arr
 
-
 def _check_series_names(series_names, data_len, error_policy):
     """
     Helper function to check if the length of series_names matches the
@@ -6634,7 +6633,7 @@ def _check_series_names(series_names, data_len, error_policy):
         if error_policy == "raise":
             raise ValueError(msg)
         elif error_policy == "warn":
-            print(f"Warning: {msg}")
+            warnings.warn(f"{msg}")
         # Optionally extend series names if needed
         elif error_policy == "ignore":
             series_names +=[None] * (data_len - len(series_names) )
@@ -6645,10 +6644,12 @@ def _validate_and_convert_data(data):
     """
     Helper function to validate and convert input data to a compatible form.
     - Converts a list or tuple into a numpy array.
-    - If a pandas DataFrame with a single column is passed, converts it to a Series.
+    - If a pandas DataFrame with a single column is passed, converts
+      it to a Series.
     - If a numpy array with shape (1, N) is passed, squeezes to a 1D array.
     - If the input is a scalar, converts it to a 1D numpy array.
-    - If the input is a 2D array (not a single-column DataFrame), raises a ValueError.
+    - If the input is a 2D array (not a single-column DataFrame),
+      raises a ValueError.
     
     Parameters:
     data: The input data to be validated and converted.

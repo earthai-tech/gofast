@@ -41,13 +41,17 @@ from ...compat.sklearn import (
     Interval, HasMethods, StrOptions, type_of_target
     ) 
 from ...compat.pandas import select_dtypes 
-from ...core.array_manager import to_numeric_dtypes, to_array, to_series 
+from ...core.array_manager import ( 
+    to_numeric_dtypes, 
+    to_array, to_series, 
+    array_preserver 
+    )
 from ...core.checks import (
     is_in_if, is_iterable, validate_feature, exist_features, 
     check_empty, check_numeric_dtype, validate_ratio
 )
 from ...core.handlers import get_valid_kwargs, columns_manager
-from ...core.io import is_data_readable
+from ...core.io import is_data_readable, to_frame_if 
 from ...core.utils import smart_format, contains_delimiter, error_policy 
 from ...decorators import SmartProcessor, Dataify
 from ..base_utils import select_features, extract_target
@@ -79,6 +83,7 @@ __all__ = [
     'soft_imputer',
     'soft_scaler',
     'handle_minority_classes', 
+    'encode_target', 
 ]
 
 
@@ -750,6 +755,137 @@ def _clean_data_tomek_enn(
         data_cleaned=None 
 
     return y_cleaned, data_cleaned
+
+# XXX TODO: DOCUM THE FUNCTION. 
+
+@validate_params ({
+    'target': ['array-like'], 
+    'categorize_strategy': [StrOptions({'quantile','uniform', 'auto'}), None], 
+    })
+def encode_target(
+    target: Union[np.ndarray, pd.Series, pd.DataFrame],
+    to_categorical: Optional[bool] = None,  # Transform numeric to categorical
+    to_continuous: Optional[bool] = None,   # Transform categorical to numeric
+    bins: Optional[int] = None,            # Binning strategy for numeric to categorical
+    return_cat_codes: bool = False,        # Return mapping of category codes
+    categorize_strategy: str = 'auto',     # Binning strategy for numeric targets
+    show_cat_codes=False,  # Display nice cat code. 
+    verbose=0, 
+) -> Union[
+    np.ndarray,  # Encoded target
+    Tuple[np.ndarray, Dict],  # Encoded target + mapping (if return_cat_codes=True)
+]:
+    # collect the array properties to help recover later. 
+    collected = array_preserver (target, action = 'collect')
+    
+    # Ensure target is a pandas DataFrame or Series for consistent processing
+    target = to_frame_if (to_array(target), df_only=True)
+    # Function to detect if a column is numeric
+    def is_numeric(series):
+        return pd.api.types.is_numeric_dtype(series)
+
+    # Initialize mapping dictionary for categorical codes
+    map_codes = {}
+
+    # Process each column in the target DataFrame
+    encoded_columns = []
+    for col in target.columns:
+        col_data = target[col]
+        # Case 1: Transform numeric to categorical
+        if to_categorical and is_numeric(col_data):
+            if bins is None:
+                bins = 5  # Default to 5 bins if none specified
+                
+                if verbose >=2 : 
+                    print("Bining strategy not specified. Reset to 5 (default).")
+                
+            if verbose >= 3:
+                print(f"Processing column '{col}' for numeric-to-categorical"
+                      " transformation...")
+                print(f"Binning strategy: {categorize_strategy}, Bins: {bins}")
+
+            if categorize_strategy == 'quantile':
+                categorized, bins = pd.qcut(
+                    col_data, bins, 
+                    retbins=True, 
+                    duplicates='drop'
+                )
+            elif categorize_strategy == 'uniform':
+                categorized, bins = pd.cut(
+                    col_data, bins, retbins=True
+                )
+            else:  # Default to 'auto'
+                categorized, bins = pd.qcut(
+                    col_data, bins, 
+                    retbins=True, 
+                    duplicates='drop'
+                )
+            encoded = categorized.cat.codes
+            map_codes[col] = {k: v for k, v in enumerate(
+                categorized.cat.categories)}
+            
+            if verbose >= 2:
+                print(f"Categorized column '{col}': {map_codes[col]}")
+                
+        # Case 2: Transform categorical to numeric
+        elif to_continuous and not is_numeric(col_data):
+            
+            if verbose >= 3:
+                print(f"Processing column '{col}' for "
+                      "categorical-to-numeric transformation..."
+                     )
+                
+            col_data = col_data.astype('category')  # Ensure it's treated as categorical
+            encoded = col_data.cat.codes
+            map_codes[col] = {k: v for k, v in enumerate(
+                col_data.cat.categories)}
+            
+            if verbose >= 2:
+                print(f"Encoded column '{col}': {map_codes[col]}")
+
+        # Case 3: Column is already numeric or categorical, no transformation
+        else:
+            if col_data.dtype.name == 'category':
+                encoded = col_data.cat.codes
+                map_codes[col] = {k: v for k, v in enumerate(
+                    col_data.cat.categories)}
+            else:
+                encoded = col_data
+            
+            if verbose >= 2:
+                print(f"Column '{col}' requires no transformation.")
+
+        # Append encoded column to results
+        encoded_columns.append(encoded)
+
+    # Combine encoded columns into a DataFrame
+    encoded_target = pd.concat(encoded_columns, axis=1)
+    
+    collected ['processed']=[encoded_target] 
+    try: 
+        encoded_target = array_preserver (
+            collected, 
+            solo_return =True, 
+            action='restore', 
+            deep_restore=True 
+        ) 
+    except : 
+        encoded_target = encoded_target.to_numpy()
+
+    if show_cat_codes: 
+        # print nice dictionay 
+        summary = ResultSummary(
+            name="CatCodes", 
+            flatten_nested_dicts=False 
+            ).add_results(map_codes) 
+        
+        print(summary) 
+        
+    # Return results
+    if return_cat_codes:
+        return encoded_target, map_codes
+    return encoded_target
+
 
 @is_data_readable
 @validate_params({

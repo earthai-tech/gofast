@@ -62,7 +62,8 @@ from .preprocessing import (
     resampling,
     soft_encoder,
     soft_imputer,
-    soft_scaler,  
+    soft_scaler,
+    encode_target, 
     )
 from .utils import ( 
     smart_split,
@@ -111,5 +112,6 @@ __all__ = [
     'soft_imputer',
     'soft_scaler',
     'stats_from_prediction',
-    'stratify_categories', 
+    'stratify_categories',
+    'encode_target', 
 ]
