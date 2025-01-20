@@ -41,7 +41,7 @@ from ..api.types import (
 from ..compat.pandas import select_dtypes 
 from ..core.array_manager import  ( 
     to_numeric_dtypes, reshape, to_array, array_preserver, 
-    drop_nan_in
+    drop_nan_in, to_series
 )
 from ..core.checks import( 
     _assert_all_types,  is_iterable, exist_features, validate_feature,
@@ -59,6 +59,7 @@ from .validator import (
     array_to_frame, build_data_if, _is_numeric_dtype, check_y, 
     check_consistency_size, is_categorical, is_valid_policies, 
     contains_nested_objects, parameter_validator, normalize_array, 
+    is_frame
 )
 
 __all__ = [
@@ -70,6 +71,7 @@ __all__ = [
     'rename_labels_in', 'scale_y', 'select_features', 
     'smooth1d', 'smoothing', 'soft_bin_stat', 'speed_rowwise_process', 
     'nan_to_mode', 'handle_outliers', 'fill_NaN', 'map_values',
+    'validate_target_in', 
 ]
 
 @is_data_readable 
@@ -6312,8 +6314,69 @@ def update_df(
     
     return updated_df
 
+def validate_target_in(df, target, error='raise', verbose=0): 
+    """
+    Validate and process the target variable, ensuring it is consistent
+    with the features in the DataFrame.
+    
+    Parameters:
+    - df: pandas DataFrame
+        The DataFrame containing the features (X) and possibly the target column.
+    - target: str, pandas Series, or pandas DataFrame
+        The target variable to validate and process.
+    - error: {'raise', 'warn', 'ignore'}, optional (default: 'raise')
+        Defines behavior if there are issues with target validation.
+        - 'raise': Raise an error if validation fails.
+        - 'warn': Issue a warning and continue.
+        - 'ignore': Ignore any issues.
+    - verbose: int, optional (default: 0)
+        Verbosity level for logging.
+        - 0: No output.
+        - 1: Basic info.
+        - 2: Detailed info.
 
+    Returns:
+    - target: pandas Series
+        The processed target variable.
+    - df: pandas DataFrame
+        The DataFrame containing the features and target.
+    """
+    is_frame(df, df_only=True, raise_exception =True, objname="Data 'df'" )
+    # If target is a string, try to extract the corresponding column from the DataFrame
+    if isinstance(target, str):
+        if verbose >= 1:
+            print(f"Target is a string: Extracting '{target}'"
+                  " column from the DataFrame.")
+        target, df = extract_target(df, target_names=target, return_y_X=True)
+        
+    # If target is a DataFrame, attempt to convert it to a pandas Series (if it has a single column)
+    if isinstance(target, pd.DataFrame):
+        if target.shape[1] == 1:
+            if verbose >= 1:
+                print("Target is a DataFrame with a single column."
+                      " Converting to Series.")
+            target = to_series(target)
+        else:
+            if error == 'raise':
+                raise ValueError("If 'target' is a DataFrame, it"
+                                 " must have a single column.")
+            elif error == 'warn':
+                warnings.warn("Target DataFrame has more than one column."
+                      " Using the first column.")
+                target = target.iloc[:, 0]  # Use the first column as the target
+            else:
+                # Default behavior: use the" first column if there are multiple columns
+                target = target.iloc[:, 0]  
 
+    # If target is a pandas Series, just use it as-is
+    if isinstance(target, pd.Series):
+        if verbose >= 1:
+            print("Target is a pandas Series. Proceeding with it directly.")
+    
+    # Check that the length of the target matches the length of the DataFrame
+    check_consistent_length(df, target)
+    
+    return target, df
 
         
         

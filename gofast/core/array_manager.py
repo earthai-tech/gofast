@@ -61,7 +61,8 @@ __all__ = [
     'drop_nan_in', 
     'to_array', 
     'to_arrays', 
-    'array_preserver'
+    'array_preserver', 
+    'return_if_preserver_failed', 
     ]
 
 def to_array(
@@ -873,17 +874,18 @@ def to_arrays(
 
 def smart_ts_detector(
     df,
-    date_col,
+    dt_col,
     return_types='format',
     to_datetime=None,
     error='raise',
+    as_index=False, 
     verbose=0
 ):
     r"""
     Intelligently determine the temporal resolution or format of a 
     given date/time column in a DataFrame, and optionally convert 
     it to a proper datetime representation. The function can detect 
-    if `<date_col>` is already a datetime-like column, infer time 
+    if `<dt_col>` is already a datetime-like column, infer time 
     frequency if possible, or guess the temporal granularity from 
     numeric values (e.g., treating them as years, months, weeks, 
     minutes, etc.) when no datetime format is found.
@@ -894,27 +896,28 @@ def smart_ts_detector(
     or `second`, based on the range and nature of these values. 
     Formally, if `d` is datetime-like, we attempt to infer frequency 
     using heuristics. If numeric, we decide the format by the value 
-    ranges (e.g., values ≤ 12 might suggest months, values ≤ 52 
+    ranges (e.g., values = 12 might suggest months, values = 52 
     might suggest weeks, etc.). If `to_datetime` is provided, the 
     function attempts to convert the column accordingly.
 
     Parameters
     ----------
     df : pandas.DataFrame
-        The DataFrame containing the `<date_col>`. This column is 
+        The DataFrame containing the `<dt_col>`. This column is 
         expected to either be datetime-like, numeric, or convertible 
         to a known temporal format.
-    date_col : str
+    dt_col : str
         The name of the column in `df` representing date or 
         time-related data. If not found, handling depends on `<error>`.
-    return_types: {'format', 'date_col', 'df'}, optional
+    return_types: {'format', 'dt_col', 'df'}, optional
         Determines the return value:
         
         - ``'format'``: Returns a string representing the inferred 
           date/time format (e.g., 'years', 'months', 'weeks', 'datetime').
-        - ``'date_col'``: Returns the transformed or original date column.
-        - ``'df'``: Returns the entire DataFrame with the `<date_col>` 
+        - ``'dt_col'``: Returns the transformed or original date column.
+        - ``'df'``: Returns the entire DataFrame with the `<dt_col>` 
           modified if necessary.
+          
     to_datetime : {None, 'auto', 'Y', 'M', 'W', 'D', 'H', 'min', 's'}, optional
     
         Controls how the column is converted if not already datetime:
@@ -923,12 +926,16 @@ def smart_ts_detector(
         - Explicit codes like 'Y', 'M', 'W', 'min', 's' attempt to 
           convert according to those units.
     error : {'raise', 'ignore', 'warn'}, optional
-        Defines behavior if `<date_col>` is not found or cannot be 
+        Defines behavior if `<dt_col>` is not found or cannot be 
         interpreted:
         
         - 'raise': Raise a ValueError.
         - 'ignore': Return without modification or raise.
         - 'warn': Issue a warning and proceed (if possible).
+    as_index: bool, 
+       Whether to return the entire dataset and set as index the `dt_col`. This 
+       is done when `return_types='df'. 
+       
     verbose : int, optional
         Verbosity level for logging:
         
@@ -944,13 +951,13 @@ def smart_ts_detector(
         
         - If `'format'`, returns a string like `'years'`, `'months'`,
           `'weeks'`, `'datetime'`, etc.
-        - If `'date_col'`, returns the possibly converted date column.
-        - If `'df'`, returns the entire DataFrame with `<date_col>` 
+        - If `'dt_col'`, returns the possibly converted date column.
+        - If `'df'`, returns the entire DataFrame with `<dt_col>` 
           modified accordingly.
 
     Notes
     -----
-    If `<date_col>` is already a datetime-like column (np.datetime64),
+    If `<dt_col>` is already a datetime-like column (np.datetime64),
     this function attempts to infer frequency using `pd.infer_freq` 
     or heuristics. If `<to_datetime>` is 'auto', it tries to guess 
     the best format. If numeric, the function deduces format based 
@@ -959,7 +966,7 @@ def smart_ts_detector(
     handles them according to `<error>`.
 
     Handling missing or non-convertible values depends on `<error>`. 
-    If 'raise', errors are raised when conversion fails or `<date_col>` 
+    If 'raise', errors are raised when conversion fails or `<dt_col>` 
     is absent. If 'warn', issues a warning. If 'ignore', quietly 
     returns what is possible.
 
@@ -999,18 +1006,18 @@ def smart_ts_detector(
         # if ignore, do nothing
         
     are_all_frames_valid(df)
-    # Check if date_col in df
-    if date_col not in df.columns:
-        handle_error(f"Column {date_col!r} not found in DataFrame.", e='raise')
+    # Check if dt_col in df
+    if dt_col not in df.columns:
+        handle_error(f"Column {dt_col!r} not found in DataFrame.", e='raise')
         # If ignoring, just return None or df as is
         if return_types=='df':
             return df
-        elif return_types=='date_col':
-            return df[date_col] if date_col in df else None
+        elif return_types=='dt_col':
+            return df[dt_col] if dt_col in df else None
         else:
             return None
 
-    series = df[date_col]
+    series = df[dt_col]
     
     # validate to_datetime format is passed
     valid_formats ={'auto', 'Y', 'M', 'W', 'D', 'H', 'min', 's'}
@@ -1106,7 +1113,7 @@ def smart_ts_detector(
             # else error
             if to_datetime is None:
                 handle_error(
-                    "date_col is not datetime or numeric and to_datetime is None.")
+                    "dt_col is not datetime or numeric and to_datetime is None.")
                 dt_format='unknown'
             else:
                 dt_format=to_datetime
@@ -1176,11 +1183,14 @@ def smart_ts_detector(
     # if return_types is 'format', return dt_format
     if return_types=='format':
         return dt_format
-    elif return_types=='date_col':
+    elif return_types=='dt_col':
         return series
     elif return_types=='df':
         df = df.copy()
-        df[date_col] = series
+        df[dt_col] = series
+        if as_index: 
+            df.set_index (dt_col, inplace=True)
+            
         return df
     else:
         return dt_format
@@ -4333,3 +4343,56 @@ def to_series(
     raise ValueError(
         f"Cannot convert data of type {type(data)} to a Series."
     )
+    
+def return_if_preserver_failed(
+    d, to_numpy=False, 
+    error="ignore", 
+    verbose=0
+    ):
+    """ Return processed data types as is if failed to convert to its original 
+    types with :func:`array_preserver`."""
+    
+    
+    emsg =("Array preserver failed to properly revert the processed"
+          f" data type {type(d).__name__!r} to its original types.")
+    
+    if error =='raise': 
+        raise TypeError(emsg) 
+    elif error=='warn': 
+        warnings.warn(emsg) 
+        
+    # Check for DataFrame input    
+    if isinstance(d, pd.DataFrame): 
+        if d.shape[1] == 1: 
+            if verbose > 0:
+                print("Converting DataFrame with 1 column to Series.")
+            d = to_series(d)  # Convert DataFrame with 1 column to Series
+            
+        # Handle numpy conversion
+        if to_numpy:
+            if verbose > 0:
+                print("Converting to numpy array.")
+            return d.to_numpy() if not isinstance(d, np.ndarray) else d
+        return d
+    
+    # Handle non-DataFrame inputs and conversion to numpy
+    if to_numpy:
+        if verbose > 0:
+            print("Converting input to numpy array.")
+        return np.asarray(d) if not isinstance(d, np.ndarray) else d
+    
+    # Handle invalid types with error handling
+    if not isinstance(d, (np.ndarray, pd.Series, pd.DataFrame, list, tuple)):
+        msg = "Invalid input type: Expected a DataFrame, Series, ndarray, or list."
+        
+        if verbose > 0:
+            print(f"{msg}")
+        
+        if error == "raise":
+            raise ValueError(msg)
+        elif error == "warn":
+            warnings.warn(msg, UserWarning)
+        elif error == "ignore":
+            return d  # Return the original value if error is ignored
+    
+    return d

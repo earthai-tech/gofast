@@ -53,7 +53,7 @@ from ..utils.mathext import compute_importances
 from ..utils.validator import  ( 
     assert_xy_in, build_data_if, validate_positive_integer, 
     validate_quantiles, is_frame, check_consistent_length, 
-    validate_yy, 
+    validate_yy, filter_valid_kwargs
 )
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
@@ -202,6 +202,7 @@ def plot_ranking(
     )
     
     # Create the heatmap using Seaborn
+    kw = filter_valid_kwargs(sns.heatmap, kw)
     sns.heatmap(
         matrix_to_plot,
         annot = annot,
@@ -6847,7 +6848,7 @@ def plot_prediction_intervals(
     })
 def plot_temporal_trends(
     df,
-    date_col,
+    dt_col,
     value_cols,
     agg_func='mean',
     freq=None,
@@ -6870,7 +6871,7 @@ def plot_temporal_trends(
     r"""
     Plot temporal trends of aggregated values over time, allowing 
     flexible input data handling, aggregation, and optional conversion 
-    of date columns to a datetime format. By grouping data by `date_col` 
+    of date columns to a datetime format. By grouping data by `dt_col` 
     and applying an aggregation function `agg_func`, this function 
     derives time-based trends that can be visualized using different 
     plot styles.
@@ -6878,8 +6879,8 @@ def plot_temporal_trends(
     Parameters
     ----------
     df : pandas.DataFrame
-        The DataFrame containing `date_col` and `value_cols`.
-    date_col : str
+        The DataFrame containing `dt_col` and `value_cols`.
+    dt_col : str
         The name of the column in `df` representing the temporal axis.
         If `to_datetime` is provided, the column may be converted to 
         a datetime format.
@@ -6896,10 +6897,10 @@ def plot_temporal_trends(
         Reserved for future use or advanced frequency adjustments. 
         Currently not implemented.
     to_datetime : {None, 'auto', 'Y','M','W','D','H','min','s'}, optional
-        Controls conversion of `<date_col>` to datetime if not already 
+        Controls conversion of `<dt_col>` to datetime if not already 
         in datetime format:
         
-        - None: No conversion, date_col used as-is.
+        - None: No conversion, dt_col used as-is.
         - 'auto': Attempt automatic detection and conversion via 
           `smart_ts_detector`.
         - Explicit codes (e.g. 'Y','M','W','min','s') instruct how 
@@ -6924,7 +6925,7 @@ def plot_temporal_trends(
     title : str, optional
         The title of the plot. Default "Temporal Trends".
     xlabel : str or None, optional
-        Label for the x-axis. If None, uses `date_col`.
+        Label for the x-axis. If None, uses `dt_col`.
     ylabel : str or None, optional
         Label for the y-axis. If None, defaults to "Value".
     legend : bool, optional
@@ -6954,12 +6955,12 @@ def plot_temporal_trends(
        T(t) = \text{agg_func}(\{v_i | d_i = t\}),
 
     where `agg_func` (e.g. `mean`) is applied to subsets of 
-    `<value_cols>` grouped by each unique time unit in `<date_col>`. 
+    `<value_cols>` grouped by each unique time unit in `<dt_col>`. 
     The resulting series :math:`T(t)` highlights how `<value_cols>` 
     evolve over time.
     
     If `to_datetime` is not None, `smart_ts_detector` may be used 
-    internally to guess and convert `date_col` into a datetime 
+    internally to guess and convert `dt_col` into a datetime 
     object. For example, if `to_datetime='Y'` and the column 
     contains integers like 2020, 2021, they are interpreted as years 
     and converted accordingly.
@@ -6989,16 +6990,16 @@ def plot_temporal_trends(
     """
     is_frame(df, df_only=True, raise_exception =True, objname='df')
     
-    # If to_datetime is specified, use smart_ts_detector to convert date_col
+    # If to_datetime is specified, use smart_ts_detector to convert dt_col
     if to_datetime is not None:
         # We will call smart_ts_detector with appropriate parameters to 
         # handle the conversion return_types='df' to get a converted df back
         if verbose >= 2:
-            print(f"Converting {date_col!r} using smart_ts_detector"
+            print(f"Converting {dt_col!r} using smart_ts_detector"
                   f" with to_datetime={to_datetime}")
         df = smart_ts_detector(
             df=df,
-            date_col=date_col,
+            dt_col=dt_col,
             return_types='df',
             to_datetime=to_datetime,
             error='raise',  # Raise error if something goes wrong
@@ -7010,8 +7011,8 @@ def plot_temporal_trends(
     # checks whether columns exist
     exist_features(df, features= value_cols, name ='Value columns')
 
-    # Perform grouping by date_col and aggregation
-    grouped = df.groupby(date_col)[value_cols]
+    # Perform grouping by dt_col and aggregation
+    grouped = df.groupby(dt_col)[value_cols]
 
     if isinstance(agg_func, str):
         # If a string is given, we assume it's a known aggregation function
@@ -7052,7 +7053,7 @@ def plot_temporal_trends(
 
     # Set plot titles and labels
     plt.title(title)
-    plt.xlabel(xlabel if xlabel else date_col)
+    plt.xlabel(xlabel if xlabel else dt_col)
     plt.ylabel(ylabel if ylabel else "Value")
     plt.xticks(rotation=xrotation)
 
@@ -7070,4 +7071,3 @@ def plot_temporal_trends(
 
     # Show the plot
     plt.show()
-

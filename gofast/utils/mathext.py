@@ -145,6 +145,7 @@ __all__=[
      'compute_importances'
    ]
 
+
 @check_params ( { 
     'models': Optional[Union[Dict[str, object], List[object]]], 
     'xai_methods': Optional[Callable[..., Any]]
@@ -160,9 +161,9 @@ __all__=[
     condition=lambda *args, **kws: kws.get('pkg')=='shap' 
 )
 def compute_importances(
-    models=None, 
     X=None, 
     y=None, 
+    models=None, 
     prefit=False, 
     pkg=None, 
     as_frame=True, 
@@ -323,6 +324,19 @@ def compute_importances(
         ranking_matrix["mean_rank"] = importances_df["mean_importance"].rank(
             ascending=False
         ).astype(int)
+        
+    if 'mean_rank' in ranking_matrix.columns: 
+        # Sort the DataFrame by 'Random Forest' column 
+        # in ascending order (smallest values on top)
+        ranking_matrix = ranking_matrix.sort_values(
+            by='mean_rank', axis=0, ascending=True
+            )
+    else: 
+        # sorted based on first columns 
+        ranking_matrix = ranking_matrix.sort_values(
+            by=ranking_matrix.columns[0], axis=0, 
+            ascending=True
+            )
     # Then drop mean_importances and mean_rank 
     if not keep_mean_importance: 
         importances_df.drop (

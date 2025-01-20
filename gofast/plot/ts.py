@@ -58,7 +58,7 @@ class TimeSeriesPlotter(BasePlot):
         self.figsize = figsize
         self.fontsize = fontsize 
 
-    def fit(self, data, date_col=None, value_col=None, **fit_params):
+    def fit(self, data, dt_col=None, value_col=None, **fit_params):
         """
         Fit the TimeSeriesPlotter with a time series dataset, preparing it for
         further plotting and analysis. The method adjusts the DataFrame to
@@ -69,7 +69,7 @@ class TimeSeriesPlotter(BasePlot):
         ----------
         data : pandas.DataFrame
             The time series dataset to be processed.
-        date_col : str, optional
+        dt_col : str, optional
             The name of the column in `data` that contains the date/time
             information. If `None`, the DataFrame's index is checked and
             converted to a date column, if it is not already a datetime type.
@@ -91,7 +91,7 @@ class TimeSeriesPlotter(BasePlot):
         ------
         ValueError
             If the index cannot be converted to datetime or if the specified
-            `date_col` does not exist or cannot be converted to datetime.
+            `dt_col` does not exist or cannot be converted to datetime.
     
         Examples
         --------
@@ -110,10 +110,10 @@ class TimeSeriesPlotter(BasePlot):
     
         Notes
         -----
-        - If `date_col` is `None` and the DataFrame's index is not a datetime type,
+        - If `dt_col` is `None` and the DataFrame's index is not a datetime type,
           an attempt will be made to convert it to datetime and use it as a new
           date column in the DataFrame. If the index has no name, it will be named 'date'.
-        - If `date_col` is provided but the column is not in datetime format,
+        - If `dt_col` is provided but the column is not in datetime format,
           an attempt will be made to convert this column to datetime using
           `format_to_datetime`.
         - This method does not handle time zones or other more complex datetime
@@ -128,39 +128,39 @@ class TimeSeriesPlotter(BasePlot):
             raise ValueError(
                 "The DataFrame is empty. Please provide a DataFrame with data."
                 )
-        # Handling when date_col is None and ensuring the DataFrame's index is datetime
-        if date_col is None:
+        # Handling when dt_col is None and ensuring the DataFrame's index is datetime
+        if dt_col is None:
             if not pd.api.types.is_datetime64_any_dtype(data.index):
                 try:
                     data.index = pd.to_datetime(data.index)
                     if data.index.name is None:
-                        data.index.name = 'date'
-                    date_col = data.index.name
+                        data.index.name = 'dt'
+                    dt_col = data.index.name
                     data.reset_index(level=0, inplace=True)
                 except Exception as e:
                     raise ValueError(
-                        "'date_col' is None and the DataFrame index is not in"
+                        "'dt_col' is None and the DataFrame index is not in"
                         " datetime format. Ensure that the DataFrame index is"
                         " a datetime index before calling 'fit', or provide a"
-                        " 'date_col' name that exists in the DataFrame and can"
+                        " 'dt_col' name that exists in the DataFrame and can"
                         " be converted to datetime format. Error converting"
                         f" index to datetime: {e}")
             else:
-                data.index.name = data.index.name or 'date'
-                date_col = data.index.name 
+                data.index.name = data.index.name or 'dt'
+                dt_col = data.index.name 
                 data.reset_index(level=0, inplace=True)
    
-        # Convert date_col to datetime if not already done
-        if not pd.api.types.is_datetime64_any_dtype(data[date_col]):
-            data = format_to_datetime(data, date_col)
+        # Convert dt_col to datetime if not already done
+        if not pd.api.types.is_datetime64_any_dtype(data[dt_col]):
+            data = format_to_datetime(data, dt_col)
     
         # Verify if data is time series
-        is_time_series(data, time_col=date_col)
+        is_time_series(data, time_col=dt_col)
         
         # Set the class attributes
         self.data = data
-        self.date_col = date_col
-        self.value_col = value_col or data.columns[data.columns != date_col][0]
+        self.dt_col = dt_col
+        self.value_col = value_col or data.columns[data.columns != dt_col][0]
         
         return self
     
@@ -218,7 +218,7 @@ class TimeSeriesPlotter(BasePlot):
         ...     'Value': np.random.randn(100).cumsum()
         ... })
         >>> plotter = TimeSeriesPlotter() 
-        >>> plotter.fit(data=data, date_col='Date', value_col='Value')
+        >>> plotter.fit(data=data, dt_col='Date', value_col='Value')
         >>> plotter.plotRollingMeanStd(window=30, title='30-Day Rolling Mean & Std Dev')
     
         Notes
@@ -237,9 +237,9 @@ class TimeSeriesPlotter(BasePlot):
         rolstd = self.data[self.value_col].rolling(window=window).std()
     
         # Generate the rolling mean and standard deviation plots
-        ax.plot(self.data[self.date_col], rolmean, label='Rolling Mean',
+        ax.plot(self.data[self.dt_col], rolmean, label='Rolling Mean',
                 color=mean_color, **plot_kws)
-        ax.plot(self.data[self.date_col], rolstd, label='Rolling Std',
+        ax.plot(self.data[self.dt_col], rolstd, label='Rolling Std',
                 color=std_color, **plot_kws)
     
         # Set the plot title and configure additional aesthetics
@@ -433,7 +433,7 @@ class TimeSeriesPlotter(BasePlot):
         >>> data = pd.Series([1, 2, 3, 4, 5, 6] * 4,
                              index=pd.date_range(start="2020-01-01", periods=24, freq='M'))
         >>> plotter = TimeSeriesPlotter() 
-        >>> plotter.fit(data=pd.DataFrame({'Value': data}), date_col='index')
+        >>> plotter.fit(data=pd.DataFrame({'Value': data}), dt_col='index')
         >>> plotter.plotDecomposition(model='additive', freq=12, 
                                       title='Monthly Data Decomposition')
     
@@ -450,8 +450,8 @@ class TimeSeriesPlotter(BasePlot):
         from statsmodels.tsa.seasonal import seasonal_decompose
         
         # Ensure data is appropriately indexed by date
-        if not self.data.index.equals(pd.to_datetime(self.data[self.date_col])):
-            self.data.set_index(pd.to_datetime(self.data[self.date_col]), inplace=True)
+        if not self.data.index.equals(pd.to_datetime(self.data[self.dt_col])):
+            self.data.set_index(pd.to_datetime(self.data[self.dt_col]), inplace=True)
         
         result = seasonal_decompose(self.data[self.value_col], model=model, period=freq, 
                                     **decompose_kws)
@@ -524,7 +524,7 @@ class TimeSeriesPlotter(BasePlot):
             The title of the plot. Provides context and description for the plot.
         xlabel : str, optional
             The label for the x-axis. If not provided, defaults to the class attribute
-            `date_col` or a generic label if `date_col` is not set.
+            `dt_col` or a generic label if `dt_col` is not set.
         ylabel : str, optional
             The label for the y-axis. If not provided, defaults to 'Cumulative Value'
             or the class attribute `value_col` if set.
@@ -545,7 +545,7 @@ class TimeSeriesPlotter(BasePlot):
         ...     'Value': np.random.rand(100).cumsum()
         ... })
         >>> plotter = TimeSeriesPlotter()
-        >>> plotter.fit(data=data, date_col='Date', value_col='Value')
+        >>> plotter.fit(data=data, dt_col='Date', value_col='Value')
         >>> plotter.plotCumulativeLine(title='Total Growth Over Time', color='green')
     
         Notes
@@ -561,7 +561,7 @@ class TimeSeriesPlotter(BasePlot):
         fig, ax = self._get_figure_and_axis(figsize=figsize)
     
         # Plot the cumulative sum of the value column
-        ax.plot(self.data[self.date_col], self.data[self.value_col].cumsum(),
+        ax.plot(self.data[self.dt_col], self.data[self.value_col].cumsum(),
                 color=color or 'Cumulative Line Plot', **plot_kws)
     
         # Set the plot title and configure grid and labels
@@ -675,7 +675,7 @@ class TimeSeriesPlotter(BasePlot):
             scatter plot.
         xlabel : str, optional
             The label for the x-axis. If not provided, defaults to the class 
-            attribute `date_col`.
+            attribute `dt_col`.
         ylabel : str, optional
             The label for the y-axis. If not provided, defaults to the class 
             attribute `value_col`.
@@ -698,7 +698,7 @@ class TimeSeriesPlotter(BasePlot):
         ...     'Value': np.random.rand(100).cumsum()
         ... })
         >>> plotter = TimeSeriesPlotter() 
-        >>> plotter.fit(data=data, date_col='Date', value_col='Value')
+        >>> plotter.fit(data=data, dt_col='Date', value_col='Value')
         >>> plotter.plotScatterWithTrendline(figsize=(10, 6), title='Growth Trend Analysis')
     
         Notes
@@ -714,12 +714,12 @@ class TimeSeriesPlotter(BasePlot):
         fig, ax = self._get_figure_and_axis(figsize=figsize)
         
         # Check if the date column is of datetime type
-        if pd.api.types.is_datetime64_any_dtype(self.data[self.date_col]):
+        if pd.api.types.is_datetime64_any_dtype(self.data[self.dt_col]):
             # Convert the datetime data to numeric data for regression analysis
-            numeric_dates = mdates.date2num(self.data[self.date_col])
+            numeric_dates = mdates.date2num(self.data[self.dt_col])
             x_values = numeric_dates
         else:
-            x_values = self.data[self.date_col]
+            x_values = self.data[self.dt_col]
         
         # Generate the scatter plot with a regression trendline
         sns.regplot(x=x_values, y=self.value_col, data=self.data,
@@ -729,7 +729,7 @@ class TimeSeriesPlotter(BasePlot):
         ax.set_title(title or 'Scatter Plot with Trendline', 
                      fontsize=self.fontsize + 2)
         
-        if pd.api.types.is_datetime64_any_dtype(self.data[self.date_col]):
+        if pd.api.types.is_datetime64_any_dtype(self.data[self.dt_col]):
             # Configure the x-axis to show date labels instead of numeric values
             ax.xaxis.set_major_locator(mdates.AutoDateLocator())
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
@@ -768,7 +768,7 @@ class TimeSeriesPlotter(BasePlot):
             The title of the plot. Provides context and description for the bar plot.
         xlabel : str, optional
             The label for the x-axis. If not provided, defaults to the class attribute
-            `date_col`.
+            `dt_col`.
         ylabel : str, optional
             The label for the y-axis. If not provided, defaults to 'Value'.
         rotation : int, default 0
@@ -787,7 +787,7 @@ class TimeSeriesPlotter(BasePlot):
         ...     'Value': [1, 2, 3, 4, 5, 4, 3, 2, 1, 0]
         ... })
         >>> plotter = TimeSeriesPlotter()
-        >>> plotter.fit(data=data, date_col='Date', value_col='Value')
+        >>> plotter.fit(data=data, dt_col='Date', value_col='Value')
         >>> plotter.plotBar(title='Monthly Data Bar Plot', color='blue')
     
         Notes
@@ -802,7 +802,7 @@ class TimeSeriesPlotter(BasePlot):
         fig, ax = self._get_figure_and_axis(figsize=figsize)
     
         # Generate the bar plot
-        self.data.plot(kind='bar', x=self.date_col, y=self.value_col, color=color, 
+        self.data.plot(kind='bar', x=self.dt_col, y=self.value_col, color=color, 
                        ax=ax, **plot_kws)
     
         # Set the plot title and configure additional aesthetics
@@ -848,16 +848,16 @@ class TimeSeriesPlotter(BasePlot):
           and configures the plot to display dates in a human-readable format.
         """
         # Check if the date column is of datetime type and prepare x_values accordingly
-        if pd.api.types.is_datetime64_any_dtype(self.data[self.date_col]):
+        if pd.api.types.is_datetime64_any_dtype(self.data[self.dt_col]):
             # Convert the datetime data to numeric data for regression analysis
-            numeric_dates = mdates.date2num(self.data[self.date_col])
+            numeric_dates = mdates.date2num(self.data[self.dt_col])
             x_values = numeric_dates
     
             # Configure the x-axis to show date labels instead of numeric values
             ax.xaxis.set_major_locator(mdates.AutoDateLocator())
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         else:
-            x_values = self.data[self.date_col]
+            x_values = self.data[self.dt_col]
     
         return x_values
 
@@ -889,7 +889,7 @@ class TimeSeriesPlotter(BasePlot):
             The title of the plot. Provides context and description for the area plot.
         xlabel : str, optional
             The label for the x-axis. If not provided, defaults to the class attribute
-            `date_col`.
+            `dt_col`.
         ylabel : str, optional
             The label for the y-axis. If not provided, defaults to 'Value'.
         rotation : int, default 0
@@ -905,7 +905,7 @@ class TimeSeriesPlotter(BasePlot):
         ...     'Value': np.random.rand(100).cumsum()
         ... })
         >>> plotter = TimeSeriesPlotter () 
-        >>> plotter.fit(data=data, date_col='Date', value_col='Value')
+        >>> plotter.fit(data=data, dt_col='Date', value_col='Value')
         >>> plotter.plotStackedArea(title='Cumulative Growth Over Time')
     
         Notes
@@ -920,7 +920,7 @@ class TimeSeriesPlotter(BasePlot):
         fig, ax = self._get_figure_and_axis(figsize=figsize)
     
         # Generate the stacked area plot
-        ax.stackplot(self.data[self.date_col], self.data[self.value_col],
+        ax.stackplot(self.data[self.dt_col], self.data[self.value_col],
                      colors=color, **stack_kws)
     
         # Set the plot title and configure additional aesthetics
@@ -963,7 +963,7 @@ class TimeSeriesPlotter(BasePlot):
             violin plot.
         xlabel : str, optional
             The label for the x-axis. If not provided, defaults to the class 
-            attribute `date_col`.
+            attribute `dt_col`.
         ylabel : str, optional
             The label for the y-axis. If not provided, defaults to 'Value'.
         rotation : int, default 45
@@ -983,7 +983,7 @@ class TimeSeriesPlotter(BasePlot):
         ...     'Value': np.random.rand(10)
         ... })
         >>> plotter = TimeSeriesPlotter()
-        >>> plotter.fit(data=data, date_col='Date', value_col='Value')
+        >>> plotter.fit(data=data, dt_col='Date', value_col='Value')
         >>> plotter.plotViolin(title='Distribution of Values')
     
         Notes
@@ -998,7 +998,7 @@ class TimeSeriesPlotter(BasePlot):
         fig, ax = self._get_figure_and_axis(figsize=figsize)
     
         # Generate the violin plot
-        sns.violinplot(x=self.data[self.date_col], 
+        sns.violinplot(x=self.data[self.dt_col], 
                        y=self.data[self.value_col], 
                        color=color,
                        ax=ax, 
@@ -1010,7 +1010,7 @@ class TimeSeriesPlotter(BasePlot):
         # Configure grid settings and labels
         self._configure_grid(ax)
         self._configure_axes_and_labels(
-            ax, xlabel or 'Date', ylabel or 'Value', rotation)
+            ax, xlabel or 'Date/Time', ylabel or 'Value', rotation)
     
         plt.show()
 
@@ -1110,7 +1110,7 @@ class TimeSeriesPlotter(BasePlot):
         Raises
         ------
         ValueError
-            If the DataFrame is empty or does not contain the specified `date_col`
+            If the DataFrame is empty or does not contain the specified `dt_col`
             or `value_col`.
     
         Examples
@@ -1126,7 +1126,7 @@ class TimeSeriesPlotter(BasePlot):
     
         Notes
         -----
-        This method is part of a class that assumes `data`, `date_col`, and `value_col`
+        This method is part of a class that assumes `data`, `dt_col`, and `value_col`
         have been predefined as attributes of the instance. The `smart_rotation` function
         is called to handle overlapping x-axis labels automatically, enhancing the 
         readability of the plot, especially when dealing with dense date labels.
@@ -1136,16 +1136,16 @@ class TimeSeriesPlotter(BasePlot):
             raise ValueError("The DataFrame is empty. Please provide a "
                              "DataFrame with data.")
     
-        if self.date_col not in self.data.columns or self.value_col not in self.data.columns:
+        if self.dt_col not in self.data.columns or self.value_col not in self.data.columns:
             raise ValueError(f"DataFrame must contain specified columns"
-                             f" '{self.date_col}' and '{self.value_col}'")
+                             f" '{self.dt_col}' and '{self.value_col}'")
     
         if self.ax is None: 
             fig, ax = plt.subplots(figsize=figsize or self.figsize )
         else:
             ax = self.ax
             
-        sns.lineplot(data=self.data, x=self.date_col, y=self.value_col,
+        sns.lineplot(data=self.data, x=self.dt_col, y=self.value_col,
                      ax=ax, color=color or 'blue', **lineplot_kws)
         ax.set_title(title or 'Time Series Line Plot')
         # Apply smart rotation to adjust tick labels dynamically
@@ -1243,7 +1243,7 @@ class TimeSeriesPlotter(BasePlot):
             The title of the plot. If None, defaults to 'Time Series Box Plot'.
         xlabel : str, optional
             The label for the x-axis. If None, defaults to the column name
-            specified by `date_col`.
+            specified by `dt_col`.
         ylabel : str, optional
             The label for the y-axis. If None, defaults to the column name 
             specified by `value_col`.
@@ -1255,7 +1255,7 @@ class TimeSeriesPlotter(BasePlot):
         Raises
         ------
         ValueError
-            If the DataFrame is empty or does not contain the specified `date_col`
+            If the DataFrame is empty or does not contain the specified `dt_col`
             or `value_col`.
     
         Examples
@@ -1265,13 +1265,13 @@ class TimeSeriesPlotter(BasePlot):
         >>> dates = pd.date_range(start="2020-01-01", periods=10, freq='M')
         >>> values = np.random.rand(10)
         >>> df = pd.DataFrame({'Date': dates, 'Value': values})
-        >>> plotter = TimeSeriesPlotter().fit(df, date_col='Date', value_col='Value')
+        >>> plotter = TimeSeriesPlotter().fit(df, dt_col='Date', value_col='Value')
         >>> plotter.plotBox(title='Monthly Value Distribution', xlabel='Month',
                             ylabel='Value')
     
         Notes
         -----
-        This method is part of a class that assumes `data`, `date_col`, and `value_col`
+        This method is part of a class that assumes `data`, `dt_col`, and `value_col`
         have been predefined as attributes of the instance. It uses seaborn to create
         the box plot and matplotlib to customize the plot aesthetics.
         """
@@ -1279,21 +1279,21 @@ class TimeSeriesPlotter(BasePlot):
         if self.data.empty:
             raise ValueError("The DataFrame is empty. Please provide a DataFrame with data.")
     
-        if self.date_col not in self.data.columns or self.value_col not in self.data.columns:
+        if self.dt_col not in self.data.columns or self.value_col not in self.data.columns:
             raise ValueError(f"DataFrame must contain specified columns"
-                             f" '{self.date_col}' and '{self.value_col}'")
+                             f" '{self.dt_col}' and '{self.value_col}'")
     
         if self.ax is None: 
             fig, ax = plt.subplots(figsize=figsize or self.figsize )
         else:
             ax = self.ax
  
-        sns.boxplot(data=self.data, x=self.date_col, y=self.value_col, ax=ax, 
+        sns.boxplot(data=self.data, x=self.dt_col, y=self.value_col, ax=ax, 
                     **boxplot_kws )
     
         # Set the title and labels
         ax.set_title(title or 'Time Series Box Plot', fontsize = self.fontsize  +2 )
-        ax.set_xlabel(xlabel or self.date_col, fontsize = self.fontsize )
+        ax.set_xlabel(xlabel or self.dt_col, fontsize = self.fontsize )
         ax.set_ylabel(ylabel or self.value_col, fontsize = self.fontsize )
     
         # Improve date formatting on x-axis
@@ -1339,7 +1339,7 @@ class TimeSeriesPlotter(BasePlot):
             not specified.
         xlabel : str, optional
             The label text for the x-axis. Defaults to the class attribute
-            `date_col` if not provided.
+            `dt_col` if not provided.
         ylabel : str, optional
             The label text for the y-axis. Defaults to the class attribute
             `value_col` if not provided.
@@ -1353,14 +1353,14 @@ class TimeSeriesPlotter(BasePlot):
         Raises
         ------
         ValueError
-            If `self.data` is empty or if `self.date_col` or `self.value_col`
+            If `self.data` is empty or if `self.dt_col` or `self.value_col`
             are not columns in `self.data`.
 
         Examples
         --------
         >>> from gofast.plot.ts import TimeSeriesPlotter
         >>> plotter = TimeSeriesPlotter()
-        >>> plotter.fit(data=df, date_col='Date', value_col='Value')
+        >>> plotter.fit(data=df, dt_col='Date', value_col='Value')
         >>> plotter.plotArea(figsize=(12, 6), title='My Area Plot',
                              xlabel='Time', ylabel='Observations',
                              color='lightgreen', alpha=0.5)
@@ -1372,15 +1372,15 @@ class TimeSeriesPlotter(BasePlot):
         - The x-axis labels will be automatically rotated if they are
           determined to overlap, enhancing readability.
         - This method should be used after the `fit` method, which prepares
-          `self.data`, `self.date_col`, and `self.value_col` for plotting.
+          `self.data`, `self.dt_col`, and `self.value_col` for plotting.
         """
         self.inspect 
         if self.data.empty:
             raise ValueError("The DataFrame is empty. Please provide a DataFrame with data.")
     
-        if self.date_col not in self.data.columns or self.value_col not in self.data.columns:
+        if self.dt_col not in self.data.columns or self.value_col not in self.data.columns:
             raise ValueError("DataFrame must contain specified columns"
-                             f" '{self.date_col}' and '{self.value_col}'")
+                             f" '{self.dt_col}' and '{self.value_col}'")
     
         # Use self.ax if it has been defined, else create a new axis
         if self.ax is None:
@@ -1389,12 +1389,12 @@ class TimeSeriesPlotter(BasePlot):
             ax = self.ax
     
         # Plot the area chart
-        ax.fill_between(self.data[self.date_col], self.data[self.value_col],
+        ax.fill_between(self.data[self.dt_col], self.data[self.value_col],
                         color=color or 'skyblue', alpha=alpha or 0.4)
     
         # Set the title and labels with a default font size from self.fontsize
         ax.set_title(title or 'Time Series Area Plot', fontsize=self.fontsize + 2)
-        ax.set_xlabel(xlabel or self.date_col, fontsize=self.fontsize)
+        ax.set_xlabel(xlabel or self.dt_col, fontsize=self.fontsize)
         ax.set_ylabel(ylabel or self.value_col, fontsize=self.fontsize)
         
         # configure grid 
@@ -1420,7 +1420,7 @@ class TimeSeriesPlotter(BasePlot):
             The Axes object for which to set labels and properties.
         xlabel : str, optional
             The label for the x-axis. If None, defaults to the class attribute
-            `date_col`. The font size is set to the class attribute `fontsize`.
+            `dt_col`. The font size is set to the class attribute `fontsize`.
         ylabel : str, optional
             The label for the y-axis. If None, defaults to the class attribute
             `value_col`. The font size is set to the class attribute `fontsize`.
@@ -1436,7 +1436,7 @@ class TimeSeriesPlotter(BasePlot):
         label rotation if needed.
         """
         # Set axis labels and their font size
-        ax.set_xlabel(xlabel or self.date_col, fontsize=self.fontsize)
+        ax.set_xlabel(xlabel or self.dt_col, fontsize=self.fontsize)
         ax.set_ylabel(ylabel or self.value_col, fontsize=self.fontsize)
     
         # Adjust x-axis label rotation
@@ -1683,7 +1683,7 @@ class TimeSeriesPlotter(BasePlot):
             The rotation angle (in degrees) for the x-axis tick labels.
         xlabel : str, optional
             The label for the x-axis. If None, defaults to the class attribute
-            `date_col`.
+            `dt_col`.
         ylabel : str, optional
             The label for the y-axis. If None, defaults to the class attribute
             `value_col`.
@@ -1716,7 +1716,7 @@ class TimeSeriesPlotter(BasePlot):
         fig, ax = self._get_figure_and_axis(figsize=figsize)
     
         # Plot scatter using additional keyword arguments
-        ax.scatter(self.data[self.date_col], self.data[self.value_col], 
+        ax.scatter(self.data[self.dt_col], self.data[self.value_col], 
                    color=color, **scatter_kws)
     
         # Setting the title and configuring axes labels
@@ -1771,7 +1771,7 @@ class TimeSeriesPlotter(BasePlot):
             in cases of closely spaced or long text labels.
         xlabel : str, optional
             Label for the x-axis. If not provided, defaults to the class attribute
-            `date_col` if applicable.
+            `dt_col` if applicable.
         ylabel : str, optional
             Label for the y-axis. Defaults to 'Cumulative Probability' if not provided.
         **hist_kws : dict
@@ -1843,7 +1843,7 @@ class TimeSeriesPlotter(BasePlot):
             The dimensions for the figure as `(width, height)` in inches.
             If not provided, defaults to the class attribute `figsize` or (10, 6).
         xlabel : str, optional
-            The label for the x-axis. If None, defaults to the class attribute `date_col`.
+            The label for the x-axis. If None, defaults to the class attribute `dt_col`.
         ylabel : str, optional
             The label for the y-axis. If None, defaults to 'Total'.
         rotation : int, optional
@@ -1859,7 +1859,7 @@ class TimeSeriesPlotter(BasePlot):
         ...     'Sales': [200, 240, 310, 400],
         ...     'Costs': [150, 190, 250, 300]
         ... })
-        >>> plotter = TimeSeriesPlotter().fit(data=data, date_col='Date',
+        >>> plotter = TimeSeriesPlotter().fit(data=data, dt_col='Date',
         ...                                   value_col='Sales')
         >>> plotter.plotStackedBar(
         ...     secondary_col='Costs',
@@ -1884,7 +1884,7 @@ class TimeSeriesPlotter(BasePlot):
         fig, ax = self._get_figure_and_axis(figsize=figsize)
         
         # Plot the data
-        self.data.groupby(self.date_col)[[self.value_col, secondary_col]].sum().plot(
+        self.data.groupby(self.dt_col)[[self.value_col, secondary_col]].sum().plot(
             kind='bar', stacked=True, ax=ax
         )
         
@@ -1929,7 +1929,7 @@ class TimeSeriesPlotter(BasePlot):
             hexbin plot.
         xlabel : str, optional
             The label for the x-axis. If not provided, defaults to the class 
-            attribute `date_col`.
+            attribute `dt_col`.
         ylabel : str, optional
             The label for the y-axis. If not provided, defaults to 'Value'.
         rotation : int, default 0
@@ -1940,7 +1940,7 @@ class TimeSeriesPlotter(BasePlot):
             of the plot.
         adjust_date_ticks : bool, default True
             If True, adjusts the x-axis to display formatted date labels when 
-            the `date_col` contains datetime type data. This setting enables 
+            the `dt_col` contains datetime type data. This setting enables 
             the x-axis to present human-readabledate formats instead of numeric
             ordinal values, enhancing the interpretability of the
             plot. This adjustment is particularly useful when the datetime 
@@ -1959,7 +1959,7 @@ class TimeSeriesPlotter(BasePlot):
         ...     'Value': np.random.randn(100).cumsum()
         ... })
         >>> plotter = TimeSeriesPlotter() 
-        >>> plotter.fit(data=data, date_col='Date', value_col='Value')
+        >>> plotter.fit(data=data, dt_col='Date', value_col='Value')
         >>> plotter.plotHexbin(title='Density of Data Points')
     
         Notes
@@ -1976,10 +1976,10 @@ class TimeSeriesPlotter(BasePlot):
         fig, ax = self._get_figure_and_axis(figsize=figsize)
     
         # Convert dates to ordinal numbers if they are datetime objects
-        if pd.api.types.is_datetime64_any_dtype(self.data[self.date_col]):
-            x_values = self.data[self.date_col].apply(lambda x: x.toordinal())
+        if pd.api.types.is_datetime64_any_dtype(self.data[self.dt_col]):
+            x_values = self.data[self.dt_col].apply(lambda x: x.toordinal())
         else:
-            x_values = self.data[self.date_col]
+            x_values = self.data[self.dt_col]
     
         # Generate the hexbin plot
         ax.hexbin(x_values, self.data[self.value_col], gridsize=gridsize, 
@@ -1989,7 +1989,7 @@ class TimeSeriesPlotter(BasePlot):
         ax.set_title(title, fontsize=self.fontsize + 2)
         
         # if adjust_date_ticks: 
-        #     if pd.api.types.is_datetime64_any_dtype(self.data[self.date_col]):
+        #     if pd.api.types.is_datetime64_any_dtype(self.data[self.dt_col]):
         #         # Configure the x-axis to show date labels instead of toordinal values
         #         # Automatically adjust date ticks
         #         ax.xaxis.set_major_locator(mdates.AutoDateLocator())  
@@ -1998,7 +1998,7 @@ class TimeSeriesPlotter(BasePlot):
         #         # Optionally, you could use a more specific formatter if needed:
         #         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         if adjust_date_ticks and pd.api.types.is_datetime64_any_dtype(
-                self.data[self.date_col]):
+                self.data[self.dt_col]):
             ax.xaxis.set_major_locator(mdates.AutoDateLocator())
             ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(
                 mdates.AutoDateLocator()))
@@ -2138,7 +2138,7 @@ class TimeSeriesPlotter(BasePlot):
         ...     'Value': np.random.randn(100).cumsum()
         ... })
         >>> plotter = TimeSeriesPlotter() 
-        >>> plotter.fit(data=data, date_col='Date', value_col='Value')
+        >>> plotter.fit(data=data, dt_col='Date', value_col='Value')
         >>> plotter.plotStep(title='Cumulative Changes Over Time')
     
         Notes
@@ -2154,7 +2154,7 @@ class TimeSeriesPlotter(BasePlot):
         fig, ax = self._get_figure_and_axis(figsize=figsize)
     
         # Generate the step plot
-        ax.step(self.data[self.date_col], self.data[self.value_col],
+        ax.step(self.data[self.dt_col], self.data[self.value_col],
                 color=color, linestyle=linestyle or self.ls,
                 linewidth=linewidth or self.lw, **step_kws)
     
@@ -2226,7 +2226,7 @@ class TimeSeriesPlotter(BasePlot):
         ... })
         >>> yerr = np.random.rand(100) * 0.5  # Random errors
         >>> plotter = TimeSeriesPlotter() 
-        >>> plotter.fit(data=data, date_col='Date', value_col='Value')
+        >>> plotter.fit(data=data, dt_col='Date', value_col='Value')
         >>> plotter.plotErrorBar(yerr=yerr, title='Measurement Uncertainty')
     
         Notes
@@ -2242,7 +2242,7 @@ class TimeSeriesPlotter(BasePlot):
         fig, ax = self._get_figure_and_axis(figsize=figsize)
     
         # Generate the error bar plot
-        ax.errorbar(self.data[self.date_col], self.data[self.value_col], 
+        ax.errorbar(self.data[self.dt_col], self.data[self.value_col], 
                     yerr=yerr, fmt='o', color=color, ecolor=ecolor, 
                     elinewidth=elinewidth, capsize=capsize, **errorbar_kws)
     
@@ -2302,7 +2302,7 @@ class TimeSeriesPlotter(BasePlot):
         ...     'Secondary': np.random.randn(100).cumsum()
         ... })
         >>> plotter = TimeSeriesPlotter() 
-        >>> plotter.fit(data=data, date_col='Date', value_col='Value')
+        >>> plotter.fit(data=data, dt_col='Date', value_col='Value')
         >>> plotter.plotStackedLine(secondary_col='Secondary', title='Comparison of Growth')
     
         Notes
@@ -2317,12 +2317,12 @@ class TimeSeriesPlotter(BasePlot):
         fig, ax = self._get_figure_and_axis(figsize=figsize)
     
         # Generate the primary line plot
-        ax.plot(self.data[self.date_col], self.data[self.value_col],
+        ax.plot(self.data[self.dt_col], self.data[self.value_col],
                 label='Primary', **line_kws)
     
         # Generate the secondary line plot
         line_kws.setdefault('linestyle', '--')  # Default secondary line style if not specified
-        ax.plot(self.data[self.date_col], self.data[secondary_col], 
+        ax.plot(self.data[self.dt_col], self.data[secondary_col], 
                 label='Secondary', **line_kws)
     
         # Set the plot title and configure additional aesthetics
@@ -2393,7 +2393,7 @@ class TimeSeriesPlotter(BasePlot):
         ...     'Size': np.random.rand(100) * 100
         ... })
         >>> plotter = TimeSeriesPlotter() 
-        >>> plotter.fit(data=data, date_col='Date', value_col='Value')
+        >>> plotter.fit(data=data, dt_col='Date', value_col='Value')
         >>> plotter.plotBubble(bubble_size_col='Size', title='Market Volume and Price')
     
         Notes
@@ -2409,7 +2409,7 @@ class TimeSeriesPlotter(BasePlot):
         fig, ax = self._get_figure_and_axis(figsize=figsize)
     
         # Generate the bubble plot
-        ax.scatter(self.data[self.date_col], self.data[self.value_col],
+        ax.scatter(self.data[self.dt_col], self.data[self.value_col],
                    s=self.data[bubble_size_col] * scale_factor, alpha=alpha,
                    **scatter_kws)
     
@@ -2716,7 +2716,7 @@ class TimeSeriesPlotter(BasePlot):
         ...     'Value': [100, -50, 150, -100, 200]
         ... })
         >>> plotter = TimeSeriesPlotter() 
-        >>> plotter.fit(data=data, date_col='Date', value_col='Value')
+        >>> plotter.fit(data=data, dt_col='Date', value_col='Value')
         >>> plotter.plotWaterfall(title='Monthly Cash Flow')
     
         Notes
@@ -2736,7 +2736,7 @@ class TimeSeriesPlotter(BasePlot):
         colors = self.data[self.value_col].apply(lambda x: color_map[x >= 0])
     
         # Generate the waterfall plot
-        ax.bar(self.data[self.date_col], self.data[self.value_col],
+        ax.bar(self.data[self.dt_col], self.data[self.value_col],
                width=1, color=colors, **bar_kws)
     
         # Set the plot title and configure additional aesthetics
@@ -2884,7 +2884,7 @@ class TimeSeriesPlotter(BasePlot):
             TimeSeriesPlotter instance.
         """
         # Ensure essential attributes are defined, else use placeholder '<N/A>'
-        date_col = getattr(self, 'date_col', '<N/A>')
+        dt_col = getattr(self, 'dt_col', '<N/A>')
         value_col = getattr(self, 'value_col', '<N/A>')
         data_repr = getattr(self, 'data', '<No data loaded>')
     
@@ -2896,10 +2896,10 @@ class TimeSeriesPlotter(BasePlot):
     
         # Create a formatted string that includes class name and attributes
         return (
-            "<{class_name}: date_col={date_col!r}, value_col={value_col!r},"
+            "<{class_name}: dt_col={dt_col!r}, value_col={value_col!r},"
             " data={data_str}>").format(
             class_name=self.__class__.__name__,
-            date_col=date_col,
+            dt_col=dt_col,
             value_col=value_col,
             data_str=data_str
         )
@@ -2914,7 +2914,7 @@ Attributes
 ----------
 data : pandas.DataFrame
     The DataFrame provided by the user, containing the data to be plotted.
-date_col : str
+dt_col : str
     The name of the column in `data` that represents the time dimension.
     This column is used to order data chronologically in time-based plots.
 value_col : str
@@ -2959,7 +2959,7 @@ Examples
 ...     'Value': range(100)
 ... })
 >>> plotter = TimeSeriesPlotter(figsize=(12, 8), fontsize=14)
->>> plotter.fit(data=data, date_col='Date', value_col='Value')
+>>> plotter.fit(data=data, dt_col='Date', value_col='Value')
 >>> plotter.plotLine(title='Sample Time Series Line Plot')
 
 Notes

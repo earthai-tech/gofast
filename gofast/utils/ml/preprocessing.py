@@ -44,7 +44,8 @@ from ...compat.pandas import select_dtypes
 from ...core.array_manager import ( 
     to_numeric_dtypes, 
     to_array, to_series, 
-    array_preserver 
+    array_preserver, 
+    return_if_preserver_failed, 
     )
 from ...core.checks import (
     is_in_if, is_iterable, validate_feature, exist_features, 
@@ -870,7 +871,10 @@ def encode_target(
             deep_restore=True 
         ) 
     except : 
-        encoded_target = encoded_target.to_numpy()
+        encoded_target = return_if_preserver_failed(
+            encoded_target, warn="ignore", 
+            verbose=verbose 
+            )
 
     if show_cat_codes: 
         # print nice dictionay 
