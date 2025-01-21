@@ -2,32 +2,46 @@
 """ Times-series utilities. """
 
 import warnings
+from numbers import Real, Integral 
+
+from scipy.fft import fft
+from scipy.stats import pearsonr
+from scipy.stats import zscore
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.fft import fft
 import seaborn as sns 
+
 from sklearn.preprocessing import StandardScaler, MinMaxScaler 
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.decomposition import PCA
 
 try: 
     import statsmodels.api as sm
     from statsmodels.tsa.stattools import adfuller, kpss
-    from statsmodels.graphics.tsaplots import plot_acf
+    from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
     from statsmodels.tsa.seasonal import STL, seasonal_decompose
+
 except: 
     pass 
 
+from gofast.api.summary import ResultSummary 
+from gofast.compat.sklearn import Interval, StrOptions, validate_params 
 from gofast.core.array_manager import smart_ts_detector
-from gofast.utils.validator import is_time_series, is_frame
-from gofast.core.checks import exist_features 
+from gofast.core.checks import exist_features, validate_ratio, is_in_if
+from gofast.core.handlers import columns_manager 
 from gofast.core.io import to_frame_if  
-from gofast.utils.base_utils import validate_target_in 
-
+from gofast.utils.base_utils import validate_target_in, select_features  
+from gofast.utils.deps_utils import ensure_pkg 
+from gofast.utils.validator import is_time_series, is_frame
 
 __all__= [ 
     'decompose_ts','infer_decomposition_method',
-    'prepare_time_series','trend_analysis','trend_ops',
-    'ts_engineering','ts_validator','visual_inspection' 
+    'prepare_ts_df','trend_analysis','trend_ops',
+    'ts_engineering','ts_validator','visual_inspection', 
+    'ts_corr_analysis', 'transform_stationarity','ts_split', 
+    'ts_outlier_detector', 'create_lag_features', 
+    'select_and_reduce_features'
  ]
 
 def ts_validator(
@@ -36,8 +50,9 @@ def ts_validator(
     to_datetime=None, 
     as_index="auto", 
     error ='raise', 
-    verbose=0, 
     return_dt_col=False,
+    ensure_order=False,
+    verbose=0, 
     ) : 
     """
     Validate and preprocess time series data, ensuring the datetime 
@@ -70,6 +85,7 @@ def ts_validator(
        Whether to return the entire dataset and set as index the `dt_col`. This 
        is done when `return_types='df'. 
        
+    
     verbose : int, optional
         Verbosity level for logging:
         
@@ -83,6 +99,7 @@ def ts_validator(
     - df: DataFrame with `dt_col` processed and optionally set as the index.
     
     """
+
     # Validate input is a DataFrame
     df = to_frame_if(df, df_only=True)
     # If no datetime column is specified, check index
@@ -160,13 +177,23 @@ def ts_validator(
             verbose=verbose,
             to_datetime=to_datetime,
         )
-
+        
+    if ensure_order: # ensure temporal order 
+    
+        is_index_already =False 
+        if dt_col in df.index : 
+            df.reset_index (inplace =True)
+            is_index_already=True 
+        df = df.sort_values(by=dt_col)  # Ensure temporal order
+        if is_index_already:  # revert back to the index as 
+            df.set_index (dt_col, inplace =True )
+            
     return (df, dt_col) if return_dt_col else df 
 
 
 def trend_analysis(
     df, 
-    target,     
+    value_col,     
     dt_col=None, 
     view=False, 
     check_stationarity=True, 
@@ -187,7 +214,7 @@ def trend_analysis(
     
     Parameters:
     - df: DataFrame containing the time series data.
-    - target: Column name or series of the target variable to forecast.
+    - value_col: Column name or series of the target variable to forecast.
     - dt_col: Column name of the time series data (datetime-related column).
     - view: Whether to visualize the data and trend detection.
     - check_stationarity: Whether to test for stationarity using ADF or KPSS.
@@ -215,7 +242,7 @@ def trend_analysis(
         verbose=verbose
     )
     # Validate and process the time series DataFrame and datetime column
-    target,_= validate_target_in(df, target, error=error, verbose=verbose) 
+    target,_= validate_target_in(df, value_col, error=error, verbose=verbose) 
 
     # Step 1: Check if the data is stationary using the chosen test (ADF or KPSS)
     p_value = None
@@ -314,7 +341,7 @@ def trend_analysis(
 def trend_ops(
     df, 
     dt_col, 
-    target,
+    value_col,
     ops=None, 
     check_stationarity=True, 
     trend_type='both', 
@@ -332,7 +359,7 @@ def trend_ops(
 
     Parameters:
     - df: DataFrame containing the time series data.
-    - target: Column name or series of the target variable to forecast.
+    - value_col: Column name or series of the target variable to forecast.
     - dt_col: Column name of the time series data (datetime-related column).
     - ops: Operation to perform. Options: ['remove_upward', 'remove_downward', 'remove_both', 'detrend', 'none']
     - check_stationarity: Whether to check the stationarity of the series using ADF/KPSS.
@@ -355,14 +382,14 @@ def trend_ops(
     
     # Step 1: Use trend_analysis to detect trends and stationarity
     trend, p_value = trend_analysis(
-        df, target=target, dt_col=dt_col, 
+        df, value_col=value_col, dt_col=dt_col, 
         check_stationarity=check_stationarity, 
         trend_type=trend_type, view=False, 
         strategy=strategy, 
         **kw
     )
     # Step 2: Validate and process the target using validate_target_in
-    target, _ = validate_target_in(df, target, error=error, verbose=verbose) 
+    target, _ = validate_target_in(df, value_col, error=error, verbose=verbose) 
     tname= target.name 
     
     df.set_index (dt_col, inplace =True)
@@ -471,7 +498,7 @@ def trend_ops(
 
 
 def visual_inspection(
-    df, target, 
+    df, value_col, 
     dt_col=None, 
     window=12,  # Window size for rolling statistics (adjustable)
     seasonal_period=None,  # Specify seasonal period if known (e.g., 12 for monthly data with yearly seasonality)
@@ -492,7 +519,7 @@ def visual_inspection(
     # is_time_series(df, time_col=dt_col, check_time_interval=False)
     
     # Extract the time series
-    ts, _ = validate_target_in(df, target, error='raise', verbose=0) 
+    ts, _ = validate_target_in(df, value_col, error='raise', verbose=0) 
     tname= ts.name 
     # ts = df[dt_col]
 
@@ -747,7 +774,7 @@ def infer_decomposition_method(
     return best_method 
 
 def decompose_ts(
-    df, target, dt_col=None,  
+    df, value_col, dt_col=None,  
     method='additive',
     strategy='STL', 
     seasonal_period=12,
@@ -772,7 +799,7 @@ def decompose_ts(
     
     # Validate the input
     # Extract the time series
-    ts, _ = validate_target_in(df, target, error='raise', verbose=0) 
+    ts, _ = validate_target_in(df, value_col, error='raise', verbose=0) 
     tname= ts.name 
 
     # ts = df[dt_col]
@@ -819,7 +846,7 @@ def decompose_ts(
     return decomposed_df
 
 def ts_engineering(
-    df, target, 
+    df, value_col, 
     dt_col=None, 
     lags=5, 
     window=7, 
@@ -852,7 +879,7 @@ def ts_engineering(
     """
     
     # Extract the time series
-    ts, _ = validate_target_in(df, target, error='raise', verbose=0) 
+    ts, _ = validate_target_in(df, value_col, error='raise', verbose=0) 
     tname= ts.name 
 
     
@@ -905,12 +932,13 @@ def ts_engineering(
     return df
 
 
-def prepare_time_series(
-    df, time_col=None, 
+def prepare_ts_df(
+    df, dt_col=None, 
     set_index=True, 
-    error='raise', 
+    error='raise',
+    use_smart_ts_formatter=False, 
     verbose=0, 
-        ):
+    ):
     """
     Prepares the DataFrame for time series operations by ensuring the index
     is a datetime type.
@@ -932,24 +960,42 @@ def prepare_time_series(
     # 1. Check if the index is already a datetime
     if pd.api.types.is_datetime64_any_dtype(df.index):
         print("Index is already a datetime object.")
+        if not set_index: 
+            df.reset_index (inplace=True) 
+            
         return df  # No need to change anything
     
+    if use_smart_ts_formatter: # mean use_smart_ts_formatter 
+        # Step 2: Validate and extract the target column
+        df= ts_validator(
+            df, dt_col=dt_col, 
+            to_datetime='auto', 
+            as_index=set_index, 
+            error=error,
+            return_dt_col=False, 
+            verbose=verbose
+        )
+        return df 
+    
     # 2. If the index is not datetime, check if a time column is specified
-    if time_col is not None:
-        if time_col not in df.columns:
-            raise ValueError(f"Column '{time_col}' not found in the DataFrame.")
+    if dt_col is not None:
+                
+        if dt_col not in df.columns:
+            raise ValueError(f"Column '{dt_col}' not found in the DataFrame.")
         
         # Set the specified column as the index and convert to datetime
-        df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
+        df[dt_col] = pd.to_datetime(df[dt_col], errors='coerce')
         
-        if df[time_col].isnull().any():
-            raise ValueError(f"Column '{time_col}' contains invalid date"
+        if df[dt_col].isnull().any():
+            raise ValueError(f"Column '{dt_col}' contains invalid date"
                              " formats that could not be converted.")
         
         if set_index:
-            df.set_index(time_col, inplace=True)
-        print(f"Column '{time_col}' has been set as the"
-              " index and converted to datetime.")
+            df.set_index(dt_col, inplace=True)
+        
+        if verbose>=1:
+            print(f"Column '{dt_col}' has been set as the"
+                  " index and converted to datetime.")
         return df
 
     # 3. If no time_col is specified, we need to handle the
@@ -958,14 +1004,824 @@ def prepare_time_series(
         raise ValueError("The index is not a datetime object,"
                          " and no 'time_col' was specified.")
     elif error == 'warn':
-        print("Warning: The index is not a datetime object, and no"
+        warnings.warn("The index is not a datetime object, and no"
               " 'time_col' was specified. Default behavior will apply.")
     elif error == 'ignore':
-        print("Index is not a datetime, but no action will be taken.")
+        # print("Index is not a datetime, but no action will be taken.")
         return df
     
     # 4. If no valid datetime column found and the user didn’t specify a"
     # time column, return the original df
-    print("No datetime index or time column found. Returning the DataFrame as is.")
+    if verbose>0:
+        print("No datetime index or time column found."
+              " Returning the DataFrame as is.")
     return df
+
+def ts_corr_analysis(
+    df, 
+    dt_col, 
+    value_col, 
+    lags=40,  # Number of lags for ACF/PACF
+    features=None,  # External features for cross-correlation
+    view_acf_pacf=True,  # Whether to visualize ACF and PACF
+    view_cross_corr=True,  # Whether to visualize cross-correlation
+    fig_size=(14, 6),  # Size of ACF/PACF plots
+    verbose=0,  # Verbosity level
+    show_grid=True,  # Grid option for plots
+    cross_corr_on_sep=False  # Whether to plot cross-corr on a separate figure
+):
+    """
+    Perform correlation analysis on a time series dataset, including ACF/PACF
+    and cross-correlation analysis with external features.
+
+    Parameters:
+    - df: pandas.DataFrame
+        Input DataFrame containing the time series data.
+    - dt_col: str
+        Column name representing the datetime-based series (e.g., 'time').
+    - value_col: str
+        Column name of the target variable (e.g., 'sales').
+    - lags: int, optional (default=40)
+        Number of lags for ACF/PACF analysis.
+    - features: list, optional
+        List of external features for cross-correlation.
+    - view_acf_pacf: bool, optional (default=True)
+        Whether to visualize ACF and PACF.
+    - view_cross_corr: bool, optional (default=True)
+        Whether to visualize cross-correlation with external features.
+    - fig_size: tuple, optional (default=(14, 6))
+        Figure size for ACF/PACF plots.
+    - verbose: int, optional (default=0)
+        Verbosity level.
+    - show_grid: bool, optional (default=True)
+        Whether to show gridlines in the plots.
+    - cross_corr_on_sep: bool, optional (default=False)
+        Whether to plot cross-correlation on a separate figure.
+
+    Returns:
+    - results: dict
+        Dictionary containing:
+        - 'acf_values': ACF values up to the specified lags.
+        - 'pacf_values': PACF values up to the specified lags.
+        - 'cross_corr': Cross-correlation coefficients with external features.
+    """
+    # Step 1: Validate input DataFrame
+    is_frame(df, df_only=True, raise_exception=True, objname="DataFrame 'df'")
+    # Step 2: Validate target column and extract it
+    target, df = validate_target_in(df, value_col, verbose=verbose )
+    
+    # Step 3: Ensure datetime column is valid
+    df, dt_col = ts_validator(
+        df, dt_col=dt_col, 
+        to_datetime='auto', 
+        as_index=False, 
+        error="raise",
+        return_dt_col= True, 
+        verbose=verbose
+    )
+    
+    # Step 4: ACF and PACF analysis
+    if verbose >= 1:
+        print("Performing ACF and PACF analysis...")
+
+    # Step 4: Validate and process features for cross-correlation
+    features = columns_manager (features, empty_as_none= True )
+    if features is not None:
+        exist_features(df, features=features, name="Features for cross-correlation")
+    else:
+        features = [col for col in df.columns if col != value_col and col != dt_col]
+
+    if verbose >= 1:
+        print(f"Target variable: {value_col}")
+        print(f"Datetime column: {dt_col}")
+        if features:
+            print(f"Cross-correlation features: {features}")
+
+    # Step 5: Perform ACF and PACF analysis
+    acf_values, pacf_values = None, None
+    if view_acf_pacf:
+        # Subplot configuration based on cross_corr_on_sep
+        if view_cross_corr and not cross_corr_on_sep:
+            fig = plt.figure(figsize=(fig_size[0], fig_size[1] * 1.5))
+            gs = fig.add_gridspec(2, 2, height_ratios=[1, 0.7])  # GridSpec for flexible layout
+            
+            # ACF and PACF plots in the first row
+            ax_acf = fig.add_subplot(gs[0, 0])
+            ax_pacf = fig.add_subplot(gs[0, 1])
+            ax_cross_corr = fig.add_subplot(gs[1, :])  # Cross-corr spans the second row
+            
+        else:
+            fig, axes = plt.subplots(1, 2, figsize=fig_size)
+            ax_acf, ax_pacf = axes
+            ax_cross_corr = None
+        
+        # ACF plot
+        plot_acf(target, lags=lags, ax=ax_acf)
+        ax_acf.set_title("Autocorrelation Function (ACF)")
+        ax_acf.set_xlabel("Lags")
+        ax_acf.set_ylabel("ACF")
+        ax_acf.grid(show_grid, linestyle=":", alpha=0.7)
+
+        # PACF plot
+        plot_pacf(target, lags=lags, ax=ax_pacf, method='ywm')
+        ax_pacf.set_title("Partial Autocorrelation Function (PACF)")
+        ax_pacf.set_xlabel("Lags")
+        ax_pacf.set_ylabel("PACF")
+        ax_pacf.grid(show_grid, linestyle=":", alpha=0.7)
+
+        
+        if show_grid: 
+            ax_acf.grid(show_grid, linestyle=":", alpha=0.7)
+            ax_pacf.grid(show_grid, linestyle=":", alpha=0.7)
+        else: 
+            ax_acf.grid(False)
+            ax_pacf.grid(False)
+
+        # Extract ACF and PACF values
+        acf_values = pd.Series(
+            np.correlate(target, target, mode='full')[-lags:], index=range(lags)
+            )
+        pacf_values = None  # PACF values can be separately computed if needed
+
+    # Step 6: Perform cross-correlation analysis
+    cross_corr_results = {}
+    if features:
+        if verbose >= 1:
+            print("Performing cross-correlation analysis...")
+        
+        for feature in features:
+            correlation, p_value = pearsonr(target, df[feature])
+            cross_corr_results[feature] = {'correlation': correlation, 'p_value': p_value}
+
+            if verbose >= 2:
+                print(f"Cross-correlation with {feature}: Correlation"
+                      f" = {correlation:.4f}, p-value = {p_value:.4f}")
+        
+        # Cross-correlation plot
+        if view_cross_corr:
+            if cross_corr_on_sep:
+                # Separate cross-correlation figure
+                fig_cross_corr, ax_cross_corr_sep = plt.subplots(
+                    figsize=(fig_size[0], fig_size[1] // 2))
+                ax_cross_corr_sep.bar(features, [cross_corr_results[f]['correlation'] 
+                                                 for f in features], color='skyblue')
+                ax_cross_corr_sep.set_title("Cross-Correlation with External Features")
+                ax_cross_corr_sep.set_xlabel("Features")
+                ax_cross_corr_sep.set_ylabel("Correlation Coefficient")
+                ax_cross_corr_sep.grid(show_grid, linestyle=":", alpha=0.7)
+                plt.xticks(rotation=45)
+                
+            elif ax_cross_corr is not None:
+                # Cross-correlation on the same figure
+                ax_cross_corr.bar(features, [cross_corr_results[f]['correlation'] 
+                                             for f in features], color='skyblue')
+                ax_cross_corr.set_title("Cross-Correlation with External Features")
+                ax_cross_corr.set_xlabel("Features")
+                ax_cross_corr.set_ylabel("Correlation Coefficient")
+                ax_cross_corr.grid(show_grid, linestyle=":", alpha=0.7)
+                plt.xticks(rotation=45)
+         
+    # Adjust layout and show plot
+    if view_acf_pacf:
+        plt.tight_layout()
+        plt.show()
+
+    # Step 7: Compile results
+    results = {
+        'acf_values': acf_values,
+        'pacf_values': pacf_values,
+        'cross_corr': cross_corr_results
+    }
+
+    summary = ResultSummary("CrossCorrResults",flatten_nested_dicts=False) 
+    summary.add_results(results['cross_corr']) 
+    
+    if verbose>=1: 
+        print(summary)
+        
+    return results
+
+def transform_stationarity(
+    df,
+    dt_col=None,  # Datetime column
+    value_col=None,  # Target column (time series variable)
+    method="differencing",  # Transformation method: 'differencing', 'log', 'sqrt', or 'detrending'
+    order=1,  # Order of differencing (1 for first difference, 2 for second, etc.)
+    seasonal_period=None,  # Seasonal period for seasonal differencing
+    detrend_method="linear",  # Detrending method: 'linear' or 'stl'
+    view=True,  # Whether to visualize the transformations
+    fig_size=(12, 6),  # Size of the visualization plot
+    show_grid=True,  # Grid option for the plots
+    drop_original=True, 
+    reset_index=False, 
+    verbose=0  # Verbosity level
+):
+    """
+    Perform stationarity transformations on a time series dataset, including differencing,
+    variance stabilization, and detrending.
+
+    Parameters:
+    - df: pandas.DataFrame
+        The input DataFrame containing the time series data.
+    - dt_col: str, optional
+        Column name representing the datetime-based series (e.g., 'time').
+    - value_col: str, required
+        Column name of the target variable (e.g., 'sales').
+    - method: str, optional (default='differencing')
+        The transformation method to apply:
+        - 'differencing': Apply differencing to stabilize the mean.
+        - 'log': Apply logarithmic transformation to stabilize variance.
+        - 'sqrt': Apply square root transformation to stabilize variance.
+        - 'detrending': Remove the trend using linear regression or STL decomposition.
+    - order: int, optional (default=1)
+        The order of differencing (only applies if `method='differencing'`).
+    - seasonal_period: int, optional
+        Seasonal period for seasonal differencing (e.g., 12 for monthly data).
+    - detrend_method: str, optional (default='linear')
+        Method to use for detrending:
+        - 'linear': Fit a linear trend using regression and subtract it.
+        - 'stl': Use STL decomposition to remove the trend.
+    - view: bool, optional (default=True)
+        Whether to visualize the original and transformed data.
+    - fig_size: tuple, optional (default=(12, 6))
+        Size of the visualization plot.
+    - show_grid: bool, optional (default=True)
+        Whether to show gridlines on the plots.
+    - verbose: int, optional (default=0)
+        Verbosity level.
+
+    Returns:
+    - transformed_df: pandas.DataFrame
+        DataFrame containing the transformed time series data.
+    """
+    # Step 1: Validate the input DataFrame
+    is_frame(df, df_only=True, raise_exception=True, objname="DataFrame 'df'")
+    
+    # Step 2: Validate and extract the target column
+    target, df = validate_target_in(df, value_col )
+    tname = target.name  # Get the name of the target variable
+    
+    # Step 3: Ensure datetime column is valid
+    df, dt_col = ts_validator(
+        df, dt_col=dt_col, 
+        to_datetime='auto', 
+        as_index=True, 
+        error="raise",
+        return_dt_col= True, 
+        verbose=verbose
+    )
+    target.index = df.index 
+    
+    if verbose >= 1:
+        print(f"Target variable: {tname}")
+        print(f"Datetime column: {dt_col}")
+        print(f"Transformation method: {method}")
+
+    # Step 4: Perform the selected transformation
+    if method == "differencing":
+        if seasonal_period:
+            if verbose >= 1:
+                print(f"Applying seasonal differencing with period={seasonal_period}.")
+            transformed_data = target.diff(seasonal_period).dropna()
+        else:
+            if verbose >= 1:
+                print(f"Applying first-order differencing with order={order}.")
+            transformed_data = target.diff(order).dropna()
+
+    elif method == "log":
+        if verbose >= 1:
+            print("Applying logarithmic transformation.")
+        if (target <= 0).any():
+            raise ValueError("Log transformation cannot be applied to non-positive values.")
+        transformed_data = np.log(target)
+
+    elif method == "sqrt":
+        if verbose >= 1:
+            print("Applying square root transformation.")
+        if (target < 0).any():
+            raise ValueError("Square root transformation cannot be applied to negative values.")
+        transformed_data = np.sqrt(target)
+
+    elif method == "detrending":
+        if detrend_method == "linear":
+            if verbose >= 1:
+                print("Applying linear detrending.")
+            time_index = np.arange(len(target)).reshape(-1, 1)
+            trend = np.polyfit(time_index.flatten(), target.values, 1)  # Linear regression
+            trend_line = np.polyval(trend, time_index)
+            transformed_data = target - trend_line.flatten()
+        elif detrend_method == "stl":
+            if verbose >= 1:
+                print("Applying STL detrending.")
+            stl = STL(target, period=seasonal_period or 7)  # Default weekly seasonality if not specified
+            result = stl.fit()
+            transformed_data = result.resid
+        else:
+            raise ValueError(f"Invalid detrend_method: {detrend_method}")
+    else:
+        raise ValueError(f"Invalid method: {method}")
+
+    # Step 5: Visualize the transformation (if enabled)
+    if view:
+        plt.figure(figsize=fig_size)
+        
+        # Plot original data
+        plt.subplot(2, 1, 1)
+        plt.plot(target, label="Original Data", color="blue")
+        plt.title("Original Time Series")
+        plt.xlabel("Time")
+        plt.ylabel(tname)
+        if show_grid:
+            plt.grid(True, linestyle=":", alpha=0.7)
+        else: 
+            plt.grid(False)
+        # Plot transformed data
+        plt.subplot(2, 1, 2)
+        plt.plot(transformed_data, label=f"Transformed Data ({method})", color="green")
+        plt.title(f"Transformed Time Series ({method})")
+        plt.xlabel("Time")
+        plt.ylabel(f"{tname} (Transformed)")
+        if show_grid:
+            plt.grid(True, linestyle=":", alpha=0.7)
+        else: 
+            plt.grid(False)
+            
+        plt.tight_layout()
+        plt.show()
+
+    # Step 6: Return the transformed DataFrame
+    transformed_df = df.copy()
+    
+    if not drop_original: 
+        transformed_df [tname]=target 
+        
+    transformed_df[f"{tname}_transformed"] = transformed_data
+    
+    if reset_index: 
+        transformed_df.reset_index (inplace =True )
+
+    return transformed_df
+
+def ts_split(
+    df, 
+    dt_col=None,  # Column representing the datetime
+    value_col=None,  # Target column for splitting
+    split_type="simple",  # 'simple' or 'cv' (cross-validation)
+    test_ratio=None,  # Size of the test set (number of rows or fraction)
+    n_splits=5,  # Number of splits for cross-validation
+    gap=0,  # Gap between train and test sets in cross-validation
+    train_start=None,  # Start date for training set (only for simple split)
+    train_end=None,  # End date for training set (only for simple split)
+    verbose=0  # Verbosity level
+):
+    """
+    Perform a time-based split on a time series dataset.
+
+    Parameters:
+    - df: pandas.DataFrame
+        The input DataFrame containing the time series data.
+    - dt_col: str, optional
+        Column name representing the datetime (required for simple splits with train_start/train_end).
+    - value_col: str, optional
+        Column name of the target variable (e.g., sales, temperature).
+    - split_type: str, optional (default='simple')
+        The type of split to perform:
+        - 'simple': Simple time-based train-test split.
+        - 'cv': Cross-validation with TimeSeriesSplit.
+    - test_ratio: str or float, optional
+        - For 'simple' split: Number of rows or fraction of the dataset for the test set.
+        - For 'cv': Not applicable (determined by n_splits).
+    - n_splits: int, optional (default=5)
+        Number of splits for cross-validation (only applicable for 'cv').
+    - gap: int, optional (default=0)
+        Gap between train and test sets for cross-validation (only applicable for 'cv').
+    - train_start: str or None, optional
+        Start date for the training set (only for 'simple' split with datetime-based filtering).
+    - train_end: str or None, optional
+        End date for the training set (only for 'simple' split with datetime-based filtering).
+    - verbose: int, optional (default=0)
+        Verbosity level for logging.
+
+    Returns:
+    - splits: tuple or generator
+        - For 'simple': A tuple `(train_df, test_df)`.
+        - For 'cv': A generator yielding `(train_idx, test_idx)` for each split.
+    """
+    # Step 1: Validate the input DataFrame
+    is_frame(df, df_only=True, raise_exception=True, objname="DataFrame 'df'")
+
+    # Step 2: Validate and process the datetime column
+    df, dt_col = ts_validator(
+        df, dt_col=dt_col, 
+        to_datetime='auto', 
+        as_index=False, 
+        error="raise",
+        return_dt_col= True, 
+        verbose=verbose
+    )
+
+    # Step 3: Handle 'simple' time-based split
+    if split_type == "simple":
+        if train_start or train_end:
+            # Perform date-based filtering
+            if verbose >= 1:
+                print(f"Performing simple split with train_start={train_start}, train_end={train_end}.")
+            train_df = df.loc[
+                (df[dt_col] >= pd.to_datetime(train_start)) & (df[dt_col] <= pd.to_datetime(train_end))
+            ] if train_start and train_end else df.loc[df[dt_col] <= pd.to_datetime(train_end)]
+
+            test_df = df.loc[df[dt_col] > pd.to_datetime(train_end)] if train_end else pd.DataFrame()
+
+        elif test_ratio is not None:
+            # Perform row-based split
+            test_ratio = validate_ratio(
+                test_ratio, bounds=(0, 1), param_name="Test Ratio", exclude=0 ) 
+            test_ratio = int(len(df) * test_ratio)
+           
+            split_idx = len(df) - test_ratio
+            if verbose >= 1:
+                print(f"Performing simple split: Train size={split_idx}, Test size={test_ratio}.")
+            train_df = df.iloc[:split_idx]
+            test_df = df.iloc[split_idx:]
+        else:
+            raise ValueError("`test_size` or `train_end` must be specified for a simple split.")
+
+        return train_df, test_df
+
+    # Step 4: Handle cross-validation split
+    elif split_type == "cv":
+        if verbose >= 1:
+            print(f"Performing cross-validation split with n_splits={n_splits}, gap={gap}.")
+        tscv = TimeSeriesSplit(n_splits=n_splits, gap=gap)
+        splits = tscv.split(df)
+
+        # Log splits if verbose
+        if verbose >= 2:
+            for i, (train_idx, test_idx) in enumerate(splits):
+                print(f"Split {i}: Train indices={train_idx}, Test indices={test_idx}")
+
+        return splits
+
+    else:
+        raise ValueError(f"Invalid split_type: {split_type}. Choose 'simple' or 'cv'.")
+
+
+def ts_outlier_detector(
+    df,
+    dt_col=None,  # Datetime column
+    value_col=None,  # Target column for outlier detection
+    method="zscore",  # Outlier detection method: 'zscore' or 'iqr'
+    threshold=3,  # Threshold for Z-Score or IQR multiplier
+    view=False,  # Whether to visualize the outliers
+    fig_size=(10, 5),  # Size of the visualization plot
+    show_grid=True,  # Whether to show gridlines in the plots
+    drop=False,  # Whether to drop outliers from the DataFrame
+    verbose=0  # Verbosity level
+):
+    """
+    Detect outliers in a time series dataset using Z-Score or IQR method.
+
+    Parameters:
+    - df: pandas.DataFrame
+        The input DataFrame containing the time series data.
+    - dt_col: str, optional
+        Column name representing the datetime-based series (e.g., 'time').
+    - value_col: str, required
+        Column name of the target variable (e.g., sales).
+    - method: str, optional (default='zscore')
+        The outlier detection method to use:
+        - 'zscore': Use Z-Score to detect outliers.
+        - 'iqr': Use Interquartile Range (IQR) to detect outliers.
+    - threshold: int or float, optional (default=3)
+        - For Z-Score: Z-Score threshold to classify outliers.
+        - For IQR: Multiplier for the IQR to classify outliers.
+    - view: bool, optional (default=True)
+        Whether to visualize the original series with outliers highlighted.
+    - fig_size: tuple, optional (default=(12, 6))
+        Size of the visualization plot.
+    - show_grid: bool, optional (default=True)
+        Whether to show gridlines in the plots.
+    - drop: bool, optional (default=False)
+        Whether to drop the outliers from the DataFrame.
+    - verbose: int, optional (default=0)
+        Verbosity level.
+
+    Returns:
+    - result: pandas.DataFrame
+        DataFrame containing the original data with an additional column 'is_outlier',
+        or the DataFrame without outliers if `drop=True`.
+    """
+    # Step 1: Validate the input DataFrame
+    is_frame(df, df_only=True, raise_exception=True,
+             objname="DataFrame 'df'") 
+    
+    # Step 2: Validate and process the datetime column
+    df, dt_col = ts_validator(
+        df, dt_col=dt_col, 
+        to_datetime='auto', 
+        as_index=False, 
+        error="raise",
+        return_dt_col=True, 
+        verbose=verbose
+    )
+    # Step 2: Validate and extract the target column
+    target, _= validate_target_in(df, value_col)
+    tname = target.name  # Get the name of the target variable
+    
+    if verbose >= 1:
+        print(f"Target variable: {tname}")
+        print(f"Datetime column: {dt_col}")
+        print(f"Outlier detection method: {method}, Threshold: {threshold}")
+
+    # Step 4: Detect outliers using the chosen method
+    if method == "zscore":
+        if verbose >= 1:
+            print("Detecting outliers using Z-Score...")
+        z_scores = zscore(target)
+        outliers = np.abs(z_scores) > threshold
+
+    elif method == "iqr":
+        if verbose >= 1:
+            print("Detecting outliers using IQR...")
+        q1 = target.quantile(0.25)
+        q3 = target.quantile(0.75)
+        iqr = q3 - q1
+        lower_bound = q1 - (threshold * iqr)
+        upper_bound = q3 + (threshold * iqr)
+        outliers = (target < lower_bound) | (target > upper_bound)
+    else:
+        raise ValueError(f"Invalid method: {method}. Choose 'zscore' or 'iqr'.")
+
+    # Add outlier information to the DataFrame
+    df['is_outlier'] = outliers
+
+    if verbose >= 1:
+        num_outliers = outliers.sum()
+        print(f"Number of outliers detected: {num_outliers}")
+
+    # Step 5: Visualize the outliers (if enabled)
+    if view:
+        plt.figure(figsize=fig_size)
+        plt.plot(df[dt_col], target, label="Original Data", color="blue", alpha=0.8)
+        plt.scatter(
+            df[dt_col][outliers], target[outliers], 
+            color="red", label="Outliers", zorder=5
+        )
+        plt.title(f"Outlier Detection ({method.capitalize()} Method)",
+                  fontsize=14, fontweight="bold")
+        plt.xlabel("Time", fontsize=12)
+        plt.ylabel(tname, fontsize=12)
+        if show_grid:
+            plt.grid(True, linestyle=":", alpha=0.7)
+        else:
+            plt.grid(False)
+            
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+        
+        # Step 6: Drop outliers if requested
+    if drop:
+        df = df[~df['is_outlier']].drop(columns=['is_outlier'])
+        if verbose >= 1:
+            print(f"Outliers dropped. Remaining data points: {len(df)}")
+    else:
+        if verbose >= 1:
+            print("Outliers retained in the DataFrame.")
+    # Step 6: Return the result DataFrame
+    return df
+
+
+
+def create_lag_features(
+    df,value_col,  # Target column (time series variable)
+    dt_col=None,  # Datetime column
+    lag_features=None,  # List of feature names to create lags for
+    lags=[1, 3, 7],  # List of lag intervals to create
+    dropna=True,  # Whether to drop rows with NaN values after creating lags
+    include_original=True,  # Whether to include the original features in the output
+    reset_index=True, 
+    verbose=0  # Verbosity level
+):
+    """
+    Create lag features (time-delayed versions) for time series data to 
+    capture temporal dependencies.
+
+    Parameters:
+    - df: pandas.DataFrame
+        The input DataFrame containing the time series data.
+    - dt_col: str, optional
+        Column name representing the datetime-based series (e.g., 'time').
+        # If None expect it is index columns 
+    - value_col: str, required
+        Column name of the target variable for which lag features will be created.
+    - lag_features: list, optional
+        List of additional feature names (other than the target) to create lag features for.
+        If None, only the target column (`value_col`) is used.
+    - lags: list of int, optional (default=[1, 3, 7])
+        List of lag intervals to create (e.g., [1, 3, 7] will create lag-1, lag-3, lag-7).
+    - dropna: bool, optional (default=True)
+        Whether to drop rows with NaN values introduced by lagging.
+    - include_original: bool, optional (default=True)
+        Whether to include the original features in the output DataFrame.
+    - verbose: int, optional (default=0)
+        Verbosity level for logging.
+
+    Returns:
+    - lagged_df: pandas.DataFrame
+        DataFrame containing the lag features and optionally the original features.
+    """
+    # Step 1: Validate the input DataFrame
+    is_frame(df, df_only=True, raise_exception=True, objname="DataFrame 'df'")
+    
+    # Step 2: Validate and extract the target column
+    df, dt_col = ts_validator(
+        df, dt_col=dt_col, 
+        to_datetime='auto', 
+        as_index=True, 
+        error="raise",
+        return_dt_col=True, 
+        verbose=verbose
+    )
+   # Step 3: Ensure datetime column is valid
+    target, _= validate_target_in(df, value_col)
+    tname = target.name  # Get the name of the target variable
+    if verbose >= 1:
+        print(f"Target variable: {tname}")
+        print(f"Datetime column: {dt_col}")
+        print(f"Lag intervals: {lags}")
+
+
+    lag = columns_manager(lags)  # if none, return None 
+    if lag is None: 
+        lag =[1]  # then take the default lag applied to value.  
+    
+    # Step 4: Determine the columns to create lag features for
+    # if none, return empty list 
+    lag_features = columns_manager(lag_features, empty_as_none=False ) 
+    if value_col not in lag_features:
+        lag_features.append(value_col)
+    
+    exist_features(df, features=lag_features, name="Lag features")
+
+    # Step 5: Create lag features
+    lagged_df = pd.DataFrame(index=df.index)
+    if dt_col in df.columns:
+        lagged_df[dt_col] = df[dt_col]  # Retain datetime column
+
+    for feature in lag_features:
+        if verbose >= 1:
+            print(f"Creating lag features for: {feature}")
+        for lag in lags:
+            lagged_df[f"{feature}_lag_{lag}"] = df[feature].shift(lag)
+
+    # Step 6: Optionally include the original features
+    if include_original:
+        lagged_df = pd.concat([lagged_df, df], axis=1)
+        lagged_df = lagged_df[list(set(lagged_df))] # to avoid repeating 
+        
+    # Step 7: Drop NaN values (if requested)
+    if dropna:
+        if verbose >= 1:
+            num_rows_before = len(lagged_df)
+        lagged_df = lagged_df.dropna()
+        if verbose >= 1:
+            num_rows_after = len(lagged_df)
+            print(f"Rows dropped due to NaN values: {num_rows_before - num_rows_after}")
+            
+    if reset_index: 
+        if dt_col == lagged_df.index.name: 
+            lagged_df.reset_index(inplace =True)
+    # Step 8: Return the lagged DataFrame
+    return lagged_df
+
+
+def select_and_reduce_features(
+    df,
+    target_col=None,  # Name of the target column
+    exclude_cols=None,  # Columns to exclude from feature selection
+    method="correlation",  # Method to use: 'correlation' or 'pca'
+    corr_threshold=0.9,  # Correlation threshold for CFS
+    n_components=None,  # Number of components for PCA
+    scale_data=True,  # Whether to scale data for PCA
+    return_pca=False, 
+    verbose=0,  # Verbosity level
+):
+    """
+    Perform feature selection and dimensionality reduction on a dataset.
+
+    Parameters:
+    - df: pandas.DataFrame
+        The input DataFrame containing the dataset.
+    - target_col: str, optional
+        The target column (to exclude from feature selection and reduction).
+    - exclude_cols: list, optional
+        List of columns to exclude from feature selection and reduction.
+    - method: str, optional (default='correlation')
+        The method to use:
+        - 'correlation': Correlation-based feature selection.
+        - 'pca': Principal Component Analysis for dimensionality reduction.
+    - corr_threshold: float, optional (default=0.9)
+        Threshold for correlation-based feature selection (CFS).
+    - n_components: int or float, optional
+        Number of components for PCA. If float, it represents the proportion of variance to retain.
+    - scale_data: bool, optional (default=True)
+        Whether to scale the data before applying PCA.
+    - verbose: int, optional (default=0)
+        Verbosity level for logging.
+
+    Returns:
+    - transformed_df: pandas.DataFrame
+        DataFrame with selected or reduced features.
+    - pca_model: sklearn.decomposition.PCA or None
+        The PCA model (if method='pca'), otherwise None.
+    """
+
+    # Step 1: Validate the input DataFrame
+    if not isinstance(df, pd.DataFrame):
+        raise ValueError("`df` must be a pandas DataFrame.")
+    
+    # return empty list if None or return list if str
+    target_col = columns_manager(target_col, empty_as_none=False)
+    
+    exclude_cols = columns_manager(exclude_cols, empty_as_none=False )
+    valid_cols = is_in_if(df.columns, items=exclude_cols, return_diff=True )
+
+    features = select_features (df, features = valid_cols )
+    # Step 2: Separate features and target
+    target =None 
+    if target_col is not None: 
+        target, features  = validate_target_in(features, target_col)
+    
+    pca=None 
+    if verbose >= 1:
+        print(f"Number of features before selection: {features.shape[1]}")
+        print(f"Excluded columns: {exclude_cols}")
+
+    # Step 3: Apply Correlation-based Feature Selection (CFS)
+    if method == "correlation":
+        if verbose >= 1:
+            print("Performing correlation-based feature selection...")
+        
+        corr_matrix = features.corr().abs()
+        upper_triangle = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), 
+                                                   k=1).astype(bool))
+        to_drop = [column for column in upper_triangle.columns if any(
+            upper_triangle[column] > corr_threshold)]
+        
+        if verbose >= 2:
+            print(f"Correlation matrix:\n{corr_matrix}")
+            print(f"Highly correlated features to drop (threshold={corr_threshold}): {to_drop}")
+        
+        reduced_features = features.drop(columns=to_drop, errors='ignore')
+
+        transformed_df = pd.concat(
+            [reduced_features, target], axis=1) if target_col else reduced_features
+        if return_pca: 
+            warnings.warn ("PCA is not selected as method for dimensionality"
+                           " reduction. Return only the transfromed matrix with "
+                           " correlation based instead."
+                           )
+        # columns_no_duplicated = list(set(transformed_df.columns)) 
+        
+        return transformed_df
+    
+    # Step 4: Apply Principal Component Analysis (PCA)
+    elif method == "pca":
+        if verbose >= 1:
+            print("Performing Principal Component Analysis (PCA)...")
+            if scale_data:
+                print("Standardizing data before PCA.")
+
+        # Standardize data if required
+        if scale_data:
+            scaler = StandardScaler()
+            scaled_features = scaler.fit_transform(features)
+        else:
+            scaled_features = features.values
+
+        # Apply PCA
+        pca = PCA(n_components=n_components)
+        principal_components = pca.fit_transform(scaled_features)
+
+        # Create a DataFrame for PCA components
+        if isinstance(n_components, int):
+            pca_columns = [f"PC{i+1}" for i in range(n_components)]
+        else:  # if n_components is a float (variance proportion)
+            pca_columns = [f"PC{i+1}" for i in range(pca.n_components_)]
+        pca_df = pd.DataFrame(principal_components, columns=pca_columns, index=df.index)
+
+        if verbose >= 1:
+            print(f"Explained variance ratio: {pca.explained_variance_ratio_}")
+            print(f"Number of components selected: {pca.n_components_}")
+
+        # Combine PCA components with the target (if applicable)
+        transformed_df = pd.concat([pca_df, target], axis=1) if target_col else pca_df
+        
+        # columns_no_duplicated = list(set (transformed_df.columns)) 
+        # transformed_df = transformed_df [columns_no_duplicated]
+        if return_pca: 
+             return  transformed_df, pca
+        
+        return transformed_df 
 

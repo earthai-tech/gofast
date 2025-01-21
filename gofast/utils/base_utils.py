@@ -6343,7 +6343,7 @@ def validate_target_in(df, target, error='raise', verbose=0):
     """
     is_frame(df, df_only=True, raise_exception =True, objname="Data 'df'" )
     # If target is a string, try to extract the corresponding column from the DataFrame
-    if isinstance(target, str):
+    if isinstance(target, (str, list, tuple)):
         if verbose >= 1:
             print(f"Target is a string: Extracting '{target}'"
                   " column from the DataFrame.")
