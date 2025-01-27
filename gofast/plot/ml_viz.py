@@ -49,13 +49,14 @@ from ..core.utils import make_obj_consistent_if
 from ..core.plot_manager import default_params_plot 
 from ..metrics import get_scorer 
 from ..utils.deps_utils import ensure_pkg 
-from ..utils.mathext import get_preds 
+from ..utils.mathext import get_preds #, minmax_scaler 
 from ..utils.validator import _is_cross_validated, validate_yy, validate_keras_model
 from ..utils.validator import assert_xy_in, get_estimator_name, check_is_fitted
 from ..utils.validator import check_consistent_length
 from .utils import _set_sns_style, _make_axe_multiple
 from .utils import make_plot_colors  
 from ._config import PlotConfig 
+from ._d_cms import TDG_DIRECTIONS 
 
 
 __all__= [ 
@@ -64,6 +65,7 @@ __all__= [
     'plot_confusion_matrix', 
     'plot_roc_curves',
     'plot_taylor_diagram',
+    'plot_taylor_diagram_in', 
     'plot_cv',
     'plot_confidence',
     'plot_confidence_ellipse',
@@ -78,8 +80,9 @@ __all__= [
     'plot_cm', 
     ]
 
+
 @default_params_plot(
-    savefig ='my_taylor_diagram_plot.png',
+    savefig =PlotConfig.AUTOSAVE('my_taylor_diagram_plot2.png'),
     dpi=300, 
     fig_size=(8, 8)
 )
@@ -87,7 +90,318 @@ __all__= [
     'reference': ['array-like'], 
     'names': [str, 'array-like', None ], 
     'kind': [StrOptions({'default', 'half_circle'})], 
-    'zero_location': [StrOptions({'N','NE','E','S','SW','W','NW'})], 
+    'zero_location': [StrOptions({'N','NE','E','S','SW','W','NW', 'SE'})], 
+    'direction': [Integral]
+    })
+def plot_taylor_diagram_in(
+    *y_preds,
+    reference,
+    names: Optional[List[str]] = None,
+    acov: str = None,
+    zero_location: str = 'E',
+    direction: int = -1,
+    only_points: bool = False,
+    ref_color: str = 'red',
+    draw_ref_arc: bool = True,
+    angle_to_corr: bool = True,
+    marker='o',
+    corr_steps=6,
+    cmap: str = "viridis",
+    shading='auto',
+    shading_res: int = 300,
+    cbar="off", 
+    fig_size: Optional[Tuple[int, int]]= None,
+    title: Optional[str]=None
+):
+    r"""
+    Plot a Taylor Diagram with a background color map
+    encoding the correlation domain in polar form. This
+    function provides a visually appealing layout where
+    the radial axis represents the standard deviation of
+    each prediction, while the angular axis is derived
+    from the correlation with the reference.
+
+    Parameters
+    ----------
+    *y_preds : array-like
+        One or more prediction arrays. Each array must
+        match the length of ``reference``.
+    reference : array-like
+        The reference (observed) array used to compare
+        the predictions.
+    names : list of str, optional
+        Labels for each of the arrays in ``y_preds``.
+    acov : str, optional
+        Angular coverage of the diagram. If ``'half_circle'``,
+        the maximum polar angle is :math:`\pi/2`. Otherwise,
+        uses a default full coverage of :math:`\pi`.
+    zero_location : str, optional
+        The position on the polar axis that corresponds
+        to a correlation of 1. E.g., ``'W'`` (west),
+        ``'N'`` (north), etc. Default is ``'W'``.
+    direction : int, optional
+        Rotation direction for increasing angles: ``1``
+        is counter-clockwise, ``-1`` is clockwise. Default
+        is ``-1``.
+    only_points : bool, optional
+        If ``True``, omit the radial lines from the origin
+        to each point and only plot the point markers. 
+        Default is ``False``.
+    ref_color : str, optional
+        Color of the reference standard deviation arc
+        or radial line. Default is ``'red'``.
+    draw_ref_arc : bool, optional
+        If ``True``, draws an arc at the reference's standard
+        deviation. Otherwise, draws a radial line. Default
+        is ``True``.
+    angle_to_corr : bool, optional
+        If ``True``, the angular ticks are labeled as
+        correlations from 0..1, converting angles via
+        :math:`\arccos(corr)`. Default is ``True``.
+    marker : str, optional
+        Marker style for the plot points (e.g. ``'o'``,
+        ``'^'``). Default is ``'o'``.
+    corr_steps : int, optional
+        Number of correlation tick intervals (0..1).
+        Default is 6.
+    cmap : str, optional
+        Colormap name for the background shading. 
+        Default is ``"turbo"``.
+    shading : {'auto', 'gouraud', 'nearest'}, optional
+        Shading approach for the polygon mesh. Passed
+        to Matplotlib's :func:`pcolormesh`. Default
+        is ``'auto'``.
+    shading_res : int, optional
+        Resolution for creating the background mesh
+        in both radial and angular dimensions. Default
+        is 300.
+    cbar : {'off', True, False}, optional
+        Whether to display the color bar. ``'off'`` or
+        ``False`` hides it.
+    fig_size : (float, float), optional
+        Figure size in inches. Default is (10,8).
+
+    Returns
+    -------
+    None
+        Displays the Taylor diagram with a color map
+        showing correlations and standard deviations.
+
+    Notes
+    -----
+    **Computation**:
+    - The correlation for each prediction array :math:`p`
+      with the reference :math:`r` is computed as:
+
+      .. math::
+         \rho = \text{corrcoef}(p, r)[0,1]
+
+    - Standard deviation is derived via:
+
+      .. math::
+         \sigma = \sqrt{\frac{1}{n}\sum (p_i - \bar{p})^2}
+
+    **Plot Explanation**:
+    - The radial axis is the standard deviation
+      (distance from origin).
+    - The angle :math:`\theta` is set by :math:`\arccos(\rho)`,
+      so perfect correlation :math:`\rho=1` maps to
+      :math:`\theta=0`.
+
+    **Example**:
+    >>> import numpy as np
+    >>> from gofast.plot.ml_viz import plot_taylor_diagram_in
+    >>> y_preds = [
+    ...     np.random.normal(loc=0, scale=1, size=100),
+    ...     np.random.normal(loc=0, scale=1.5, size=100)
+    ... ]
+    >>> reference = np.random.normal(loc=0, scale=1, size=100)
+    >>> plot_taylor_diagram_in(
+    ...     *y_preds,
+    ...     reference=reference,
+    ...     names=['Model A', 'Model B'],
+    ...     acov='half_circle',
+    ...     zero_location='N',
+    ...     direction=1,
+    ...     fig_size=(12, 10)
+    ... )
+
+    The background color scale highlights the correlation
+    domain, while each model is plotted at coordinates
+    corresponding to its (std. deviation, correlation).
+
+    References
+    ----------
+    - Taylor, K. E. (2001). Summarizing multiple aspects
+      of model performance in a single diagram. *Journal
+      of Geophysical Research*, 106(D7), 7183-7192.
+    """
+ 
+    # Flatten the reference and predictions
+    reference = np.ravel(reference)
+    y_preds = [np.ravel(yp) for yp in y_preds]
+    n = reference.size
+    for p in y_preds:
+        if p.size != n:
+            raise ValueError(
+                "All predictions and reference must be the same length."
+            )
+
+    # correlation & stdev
+    corrs = [np.corrcoef(p, reference)[0,1] for p in y_preds]
+    stds  = [np.std(p) for p in y_preds]
+    ref_std = np.std(reference)
+
+    # Setup figure & polar axis
+
+    fig = plt.figure(figsize=fig_size or (10,8))
+    ax  = fig.add_subplot(111, polar=True)
+
+    # Decide coverage
+    acov = acov or "half_circle"
+    if acov == "half_circle":
+        angle_max = np.pi/2
+    else:
+        angle_max = np.pi
+
+    # radial limit
+    rad_limit = max(max(stds), ref_std)*1.2
+
+    # Create a mesh for background
+    theta_grid = np.linspace(0, angle_max, shading_res)
+    r_grid     = np.linspace(0, rad_limit, shading_res)
+    TH, RR     = np.meshgrid(theta_grid, r_grid)
+
+    # correlation => cos(TH)
+    # correlation = cos(TH) if half or full circle
+    # (when angle=0 => correlation=1, angle= pi/2 => corr=0, angle= pi => corr=-1)
+    CC = np.cos(TH)  # from 1..-1 or 1..0 depending on coverage
+    # Define color values based on radial distance (normalized)
+    #CC = RR / rad_limit  # Normalizes r to range [0, 1]
+    # CC= minmax_scaler(CC, feature_range=(-1, 1))
+  
+    # plot background
+    c = ax.pcolormesh(
+        TH,
+        RR,
+        CC,
+        cmap=cmap,
+        shading=shading,
+        vmin=-1 if angle_max==np.pi else 0,
+        vmax=1
+    )
+
+    # convert each correlation to an angle
+    angles = np.arccos(corrs)
+    radii  = stds
+
+    # pick distinct colors
+    colors = plt.cm.Set1(np.linspace(0,1,len(y_preds)))
+    # plot predictions
+    for i,(ang,rd) in enumerate(zip(angles,radii)):
+        label = (names[i] if (names and i<len(names))
+                 else f"Pred {i+1}")
+        if not only_points:
+            ax.plot([ang, ang],[0,rd],
+                    color=colors[i], lw=2, alpha=0.8)
+        ax.plot(ang, rd, marker=marker,
+                color=colors[i], label=label)
+
+    # reference arc
+    if draw_ref_arc:
+        arc_t = np.linspace(0, angle_max, 300)
+        ax.plot(arc_t, [ref_std]*300,
+                color=ref_color, lw=2, label="Reference")
+    else:
+        ax.plot([0,0],[0, ref_std],
+                color=ref_color, lw=2, label="Reference")
+        ax.plot(0, ref_std, marker=marker,
+                color=ref_color)
+
+    # set coverage
+    ax.set_thetamax(np.degrees(angle_max))
+
+    # direction
+    if direction not in (-1,1):
+        warnings.warn(
+            "direction must be -1 or 1; using 1."
+        )
+        direction=1
+    ax.set_theta_direction(direction)
+    ax.set_theta_zero_location(zero_location)
+    
+    # Use coordinates and positions to avoid overlapping 
+    CORR_POS =TDG_DIRECTIONS[str(direction)]["CORR_POS"]
+    STD_POS =TDG_DIRECTIONS[str(direction)]["STD_POS"]
+    
+    corr_pos = CORR_POS.get(zero_location)[0]
+    corr_kw= CORR_POS.get(zero_location)[1]
+    std_pos = STD_POS.get(zero_location)[0]
+    std_kw = STD_POS.get(zero_location)[1]
+    
+    # angle => corr labels
+    if angle_to_corr:
+        corr_ticks = np.linspace(0,1,corr_steps)
+        angles_deg = np.degrees(np.arccos(corr_ticks))
+        ax.set_thetagrids(
+            angles_deg,
+            labels=[f"{ct:.2f}" for ct in corr_ticks]
+        )
+        ax.text(
+            *corr_pos, 
+            "Correlation",
+            ha='center', va='bottom',
+            transform=ax.transAxes, 
+            **corr_kw 
+        )
+        ax.text(
+            *std_pos,
+            'Standard Deviation',
+            ha='center', va='bottom',
+            transform=ax.transAxes, 
+            **std_kw
+        )
+        
+    else:
+        ax.text(*corr_pos, "Angle (degrees)",
+                ha='center', va='bottom',
+                transform=ax.transAxes,
+                **corr_kw 
+                )
+        
+        ax.text(
+            *std_pos,
+            'Standard Deviation',
+            ha='center', va='bottom',
+            transform=ax.transAxes, 
+            **std_kw
+
+        )
+        
+    ax.set_ylim(0, rad_limit)
+    ax.set_rlabel_position(15)
+    title = title or "Taylor Diagram"
+    ax.set_title(title, pad=60)
+ 
+    ax.legend(loc='upper right', bbox_to_anchor=(1.2,1.1))
+
+    if cbar not in ["off", False]:
+        fig.colorbar(c, ax=ax, pad=0.1, label="Correlation")
+        
+    plt.tight_layout()
+    plt.show()
+
+
+@default_params_plot(
+    savefig =PlotConfig.AUTOSAVE('my_taylor_diagram_plot.png'),
+    dpi=300, 
+    fig_size=(8, 8)
+)
+@validate_params ({
+    'reference': ['array-like'], 
+    'names': [str, 'array-like', None ], 
+    'kind': [StrOptions({'default', 'half_circle'})], 
+    'zero_location': [StrOptions({'N','NE','E','S','SW','W','NW', 'SE'})], 
     'direction': [Integral]
     })
 def plot_taylor_diagram(
@@ -104,6 +418,7 @@ def plot_taylor_diagram(
     marker='o', 
     corr_steps=6,
     fig_size: Optional[Tuple[int, int]] = None,
+    title: Optional[str]=None, 
 ):
     """
     Plots a Taylor Diagram, which is used to graphically summarize 
@@ -286,6 +601,7 @@ def plot_taylor_diagram(
        in a single diagram," Journal of Geophysical Research, vol. 106, 
        no. D7, pp. 7183-7192, 2001.
     """
+
     reference, *y_preds = to_arrays(
         reference, *y_preds, 
         accept= 'only_1d', 
@@ -355,7 +671,15 @@ def plot_taylor_diagram(
         direction = 1
     ax.set_theta_direction(direction)
     ax.set_theta_zero_location(zero_location)
-
+    
+    CORR_POS =TDG_DIRECTIONS[str(direction)]["CORR_POS"]
+    STD_POS =TDG_DIRECTIONS[str(direction)]["STD_POS"]
+    
+    corr_pos = CORR_POS.get(zero_location)[0]
+    corr_kw= CORR_POS.get(zero_location)[1]
+    std_pos = STD_POS.get(zero_location)[0]
+    std_kw = STD_POS.get(zero_location)[1]
+ 
     # Replace angle ticks with correlation values if requested
     if angle_to_corr:
         # We'll map correlation ticks [0..1] -> angle via arccos
@@ -370,19 +694,21 @@ def plot_taylor_diagram(
         ax.set_ylabel('')  # remove default 0.5, 1.06
         # XXX TODO. Create dict to map the location of for each acov 
         # rather to use fix 1. 
-        ax.text(0.5, 1., 'Correlation', ha='center', va='center', 
-                transform=ax.transAxes)
+        ax.text(*corr_pos,  'Correlation', ha='center', va='center', 
+                transform=ax.transAxes, **corr_kw)
+        ax.text(*std_pos,  'Standard Deviation', ha='center', va='center', 
+                transform=ax.transAxes, **std_kw)
     else:
         # Keep angle as degrees
         ax.set_ylabel('')  # remove default
-        ax.text(0.5, 1.06, 'Angle (degrees)', ha='center', va='center',
+        ax.text(*corr_pos, 'Angle (degrees)', ha='center', va='center',
                 transform=ax.transAxes)
 
     # Adjust radial label (std dev)
     # This tries to reduce label overlap
     ax.set_rlabel_position(22.5)
-    ax.set_title('Taylor Diagram', pad=40) #50
-    ax.set_xlabel('Standard Deviation', labelpad=15)
+    ax.set_title( title or 'Taylor Diagram', pad=60) #50
+    # ax.set_xlabel('Standard Deviation', labelpad=15)
 
     plt.legend(loc='upper right', bbox_to_anchor=(1.25, 1.05))
     # plt.subplots_adjust(top=0.8)
@@ -1105,7 +1431,7 @@ def plot_confidence_ellipse(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.plot.mlviz import plot_confidence_ellipse
+    >>> from gofast.plot.ml_viz import plot_confidence_ellipse
     >>> x = np.random.normal(size=500)
     >>> y = np.random.normal(size=500)
     >>> ax = plot_confidence_ellipse(x, y)
@@ -1202,7 +1528,8 @@ def confidence_ellipse(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.plot.mlviz import confidence_ellipse
+    >>> import matplotlib.pyplot as plt
+    >>> from gofast.plot.ml_viz import confidence_ellipse
     >>> x = np.random.normal(size=500)
     >>> y = np.random.normal(size=500)
     >>> fig, ax = plt.subplots()
@@ -1291,12 +1618,17 @@ def plot_roc_curves(
 
     Examples
     --------
-    >>> from gofast.plot.mlviz import plot_roc_curves 
+    >>> from gofast.plot.ml_viz import plot_roc_curves 
     >>> from sklearn.datasets import make_moons 
-    >>> from gofast.exlib import train_test_split, KNeighborsClassifier, SVC, XGBClassifier, LogisticRegression 
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.neighbors import KNeighborsClassifier
+    >>> from sklearn.svm import SVC 
+    >>> from sklearn.linear_model import LogisticRegression 
+    >>> from xgboost import XGBClassifier 
     >>> X, y = make_moons(n_samples=2000, noise=0.2)
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2) 
-    >>> clfs = [m().fit(X_train, y_train) for m in (KNeighborsClassifier, SVC, XGBClassifier, LogisticRegression)]
+    >>> clfs = [m().fit(X_train, y_train) for m in (
+    ...    KNeighborsClassifier, SVC, XGBClassifier, LogisticRegression)]
     >>> plot_roc_curves(clfs, X_test, y_test)
     >>> plot_roc_curves(clfs, X_test, y_test, kind='2', ncols=4, fig_size=(10, 4))
 
@@ -1324,7 +1656,8 @@ def plot_roc_curves(
 
     References
     ----------
-    .. [1] Fawcett, T. (2006). "An introduction to ROC analysis". Pattern Recognition Letters. 27 (8): 861–874.
+    .. [1] Fawcett, T. (2006). "An introduction to ROC analysis".
+          Pattern Recognition Letters. 27 (8): 861–874.
     """
 
     kind = '2' if str(kind).lower() in 'individual2single' else '1'
@@ -1342,8 +1675,7 @@ def plot_roc_curves(
             
         return fpr, tpr , auc_score
     
-    if not is_iterable ( clfs): 
-       clfs = is_iterable ( clfs, exclude_string =True , transform =True ) 
+    clfs = is_iterable ( clfs, exclude_string =True , transform =True ) 
        
     # make default_colors 
     colors = make_plot_colors(clfs, colors = colors )

@@ -1,41 +1,101 @@
-
 # -*- coding: utf-8 -*-
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
+
+"""
+Plot configuration module for gofast library.
+"""
 import matplotlib.pyplot as plt
 from ..api.property import BasePlot 
 
 class PlotConfig:
     """
-    Configuration class to manage settings for handling plot dependencies
-    within the plotting system.
+    Configuration class managing settings for plot dependencies
+    and automated saving logic in the gofast plotting system.
 
-    This class provides static variables to configure global settings for
-    automatic installation of dependencies required by the plotting functions,
-    and to determine the installation method (pip or conda).
+    This class provides both global toggles for installing missing
+    dependencies (either via pip or conda) and a mechanism to
+    automatically determine if plots should be saved.
 
     Attributes
     ----------
     install_dependencies : bool
-        If set to True, enables automatic installation of missing packages
-        required by plot functions. Defaults to False.
+        If ``True``, enables an automatic installation of
+        missing packages needed by plot functions. Defaults
+        to ``False``.
     use_conda : bool
-        If set to True, uses conda for automatic installation, otherwise uses pip.
-        Applies only if `install_dependencies` is True. Defaults to False.
+        If ``True``, uses conda for installation when
+        dependencies are missing. Otherwise, uses pip.
+        Applies only if ``install_dependencies`` is True.
+        Defaults to ``False``.
+    auto_save : bool
+        If ``True``, automatic saving of plots is enforced
+        when using :meth:`AUTOSAVE`. If ``False``, no saving
+        is performed by default, unless explicitly specified.
 
     Examples
     --------
-    To enable automatic installation of dependencies using pip:
-
     >>> from gofast.plot._config import PlotConfig
     >>> PlotConfig.install_dependencies = True
     >>> PlotConfig.use_conda = False
+    >>> PlotConfig.auto_save = True
 
-    To enable automatic installation using conda:
+    In combination with a decorator or default params:
 
-    >>> PlotConfig.install_dependencies = True
-    >>> PlotConfig.use_conda = True
+    >>> @default_params_plot(
+    ...     savefig=PlotConfig.AUTOSAVE("ranking_plot.png"),
+    ...     figsize=(4, 12),
+    ...     dpi=300
+    ... )
+    ... def plot_ranking(...):
+    ...     pass
+
+    If ``PlotConfig.auto_save`` is True, the function
+    receives ``"ranking_plot.png"`` as the save path.
+    Otherwise, it gets ``None``.
+
+    Notes
+    -----
+    This pattern can be extended to handle more advanced
+    file naming strategies or environment checks if needed.
     """
+
     install_dependencies = False
     use_conda = False
+    auto_save = False
+
+    @classmethod
+    def AUTOSAVE(cls, filename: str) -> str:
+        """
+        Conditionally returns a filename if automatic saving
+        is enabled, or returns None otherwise.
+
+        Parameters
+        ----------
+        filename : str
+            The intended file path for saving the plot.
+
+        Returns
+        -------
+        str or None
+            - If ``PlotConfig.auto_save=True``, returns
+              the given ``filename``.
+            - If ``PlotConfig.auto_save=False``, returns
+              ``None``.
+
+        Examples
+        --------
+        >>> PlotConfig.auto_save = True
+        >>> PlotConfig.AUTOSAVE("myplot.png")
+        'myplot.png'
+
+        >>> PlotConfig.auto_save = False
+        >>> PlotConfig.AUTOSAVE("myplot.png")
+        None
+        """
+        if cls.auto_save:
+            return filename
+        return None
 
 class PlotUtils(BasePlot):
     def __init__(self, **kwargs):

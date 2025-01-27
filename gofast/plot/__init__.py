@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
- 
+
+from ._config import PlotConfig 
 from .evaluate import ( 
     EvalPlotter, 
     MetricPlotter, 
@@ -61,7 +62,8 @@ from .ml_viz import (
     plot_confusion_matrix_in, 
     plot_confusion_matrix, 
     plot_roc_curves, 
-    plot_taylor_diagram, 
+    plot_taylor_diagram,
+    plot_taylor_diagram_in, 
     plot_cv, 
     plot_confidence, 
     plot_confidence_ellipse, 
@@ -97,6 +99,8 @@ from .utils import (
     )
 
 __all__= [
+    "PlotConfig", 
+    
     "MetricPlotter", 
     "EvalPlotter",
     "EasyPlotter" , 
@@ -155,6 +159,7 @@ __all__= [
     'plot_confusion_matrix', 
     'plot_roc_curves',
     'plot_taylor_diagram',
+    'plot_taylor_diagram_in', 
     'plot_cv',
     'plot_confidence',
     'plot_confidence_ellipse',

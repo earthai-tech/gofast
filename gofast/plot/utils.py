@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+
 """
 Miscellanous plot utilities. 
 """
@@ -55,6 +56,7 @@ from ..utils.validator import  (
     validate_quantiles, is_frame, check_consistent_length, 
     validate_yy, filter_valid_kwargs
 )
+from ._config import PlotConfig
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
 __all__=[
@@ -78,10 +80,16 @@ __all__=[
     'plot_ranking'
 ]
 
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE("my_ranking_plot.png"), 
+    figsize =(4, 12), 
+    dpi=300
+    )
 @validate_params ({ 
     'plot_type': [StrOptions({"auto", "ranking", "importance"}), None], 
     'features': [str, 'array-like', None]
     })
+
 def plot_ranking(
     X,
     y=None,
@@ -94,12 +102,138 @@ def plot_ranking(
     annot=True,
     pkg=None,
     normalize=False,
-    fmt="d",
+    fmt="auto",
     cmap="Purples_r",
-    figsize=(4, 12),
-    cbar='off', 
+    figsize=(4, 12), 
+    cbar='off',
+    savefig=None, 
     **kw
 ):
+    r"""
+    Visualize model-driven feature rankings or importances
+    as a heatmap. This utility can handle two scenarios:
+
+    1) **Computing** importances/ranks using
+       :func:`~gofast.utils.mathext.compute_importances`
+       if ``precomputed=False``.
+    2) **Plotting** a user-supplied matrix of importances
+       or ranks if ``precomputed=True``.
+
+    .. math::
+        \text{Rank}_{ij} = \begin{cases}
+          1 & \text{(most important feature for model $j$)} \\
+          2 & \text{(second most important)}, \ldots
+        \end{cases}
+
+    Parameters
+    ----------
+    X : array-like or pandas.DataFrame
+        Feature matrix or already computed ranking/importances
+        when ``precomputed=True``. If it is a raw dataset and
+        ``precomputed=False``, the function tries to compute
+        feature importances or ranks. If it is a precomputed
+        matrix of shape (n_features, n_models), the function
+        plots it directly.
+    y : array-like or None, optional
+        Target vector if new models are to be fitted for
+        computing feature importances, or for certain XAI
+        methods. Not used if the data is already precomputed
+        or if no model fitting is needed.
+    models : list or dict or None, optional
+        Model estimators or dictionary of named estimators.
+        If ``precomputed=False`` and models is ``None``,
+        default ones are created (e.g. random forest).
+        If ``precomputed=True``, can be used to rename
+        columns in the final plot if shapes match.
+    features : list of str or None, optional
+        Feature names. If computing importances, tries to
+        use them from ``X`` if it is a DataFrame. If the
+        matrix is already computed, you can supply them for
+        row labeling if shape matches.
+    precomputed : bool, optional
+        If ``True``, indicates ``X`` is already a
+        (ranking/importances) matrix. Otherwise, the function
+        calls :func:`~gofast.utils.mathext.compute_importances`
+        to generate them from the given models.
+    xai_methods : callable, optional
+        Custom function for computing feature importances in
+        :func:`compute_importances`. If provided, overrides
+        the built-in approaches.
+    plot_type : {'ranking', 'importance', 'auto', None}, optional
+        - ``'ranking'``: Ensures the function returns a matrix
+          of integer ranks.
+        - ``'importance'``: Produces floating-point importances.
+        - ``'auto'``: If ``precomputed=True``, tries to infer
+          from the matrix dtype (integer => rank, float =>
+          importance).
+        - ``None``: (default) the function produces ranks if it
+          is computing them from scratch.
+    prefit : bool, optional
+        If ``True``, user-provided models are assumed already
+        trained. If ``False``, the function fits them on
+        (X, y). Ignored if ``precomputed=True``.
+    annot : bool, optional
+        Whether to annotate each cell in the heatmap with its
+        value. Good for smaller matrices.
+    pkg : {'sklearn', 'shap', None}, optional
+        Backend for computing importances if not precomputed.
+        Defaults to ``'sklearn'``. If you want SHAP values,
+        choose ``'shap'``.
+    normalize : bool, optional
+        Whether to normalize columns if computing importances.
+        Each column can be scaled so its sum is 1. Ignored if
+        the matrix is precomputed.
+    fmt : str, optional
+        Format string for heatmap annotations, e.g. ``'d'``
+        for integers (for ranking visualization), ``'.2f'`` for
+        floats (for importances visualization) if ``fmt='auto'``.
+        
+    cmap : str, optional
+        Colormap for the heatmap. Default is ``"Purples_r"``.
+    figsize : tuple of (float, float), optional
+        Figure dimensions for the heatmap. Default is (4, 12),
+        a tall layout suitable for many features.
+    cbar : {'off', True, False}, optional
+        Whether to display the color bar. ``'off'`` or
+        ``False`` hides it.
+    **kw : dict, optional
+        Additional keyword arguments passed to 
+        :func:`seaborn.heatmap`. For example, ``linewidths``,
+        ``linecolor``, etc.
+
+    Notes
+    -----
+    This function primarily displays a heatmap where rows
+    correspond to features and columns to models. The cell
+    values can be either rank or raw importances. If multiple
+    models exist, you can quickly compare how each ranks or
+    values each feature [1]_.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from gofast.plot.utils import plot_ranking
+    >>> X = pd.DataFrame({
+    ...     'f1': np.random.randn(100),
+    ...     'f2': np.random.randn(100)
+    ... })
+    >>> y = np.random.randint(0, 2, size=100)
+    >>> # Plot a ranking from default models
+    >>> plot_ranking(X, y, plot_type='ranking', figsize=(4,6))
+
+    See Also
+    --------
+    compute_importances : Helper function that returns either
+        feature ranks or importances.
+
+    References
+    ----------
+    .. [1] Lundberg, S.M., & Lee, S.-I. (2017). A unified
+           approach to interpreting model predictions.
+           *Advances in Neural Information Processing
+           Systems*, 30, 4768-4777.
+    """
     # Check whether the data is already precomputed (ranking or importances)
     # or if it needs to be computed using the provided models
     if not precomputed:
@@ -107,17 +241,17 @@ def plot_ranking(
         # based on the user-specified plot_type
         return_rank = (plot_type is None or plot_type == 'ranking')
         
-        # Compute importances or rankings using gofast utility
+        # Call compute_importances from gofast mathext utilities
         df_result = compute_importances(
-            models      = models,
-            X           = X,
-            y           = y,
-            prefit      = prefit,
-            pkg         = pkg,
-            as_frame    = True,
-            xai_methods = xai_methods,
-            return_rank = return_rank,
-            normalize   = normalize
+            models=models,
+            X=X,
+            y=y,
+            prefit=prefit,
+            pkg=pkg,
+            as_frame=True,
+            xai_methods=xai_methods,
+            return_rank=return_rank,
+            normalize=normalize
         )
         # If we computed ranking, the dataframe is already ranking_matrix
         # Otherwise, it's the importances
@@ -154,11 +288,10 @@ def plot_ranking(
             else:
                 # warn the user here if lengths don't match
                 warnings.warn(
-                    "The length of the provided 'features' does not"
-                    " match the number of rows in the matrix"
-                    f" (features: {len(features)}, rows:"
-                    f" {matrix_to_plot.shape[0]}). Index will not"
-                    " be renamed."
+                    "Mismatch between 'features' length and the "
+                    "number of rows in the matrix: "
+                    f"features={len(features)}, rows="
+                    f"{matrix_to_plot.shape[0]}. Index not renamed."
                 )
     
         # If user provided model columns or a single string
@@ -172,13 +305,10 @@ def plot_ranking(
             else:
                 # warn the user here if mismatch
                 warnings.warn(
-                    "The length of the provided 'models' list does"
-                    " not match the number of columns in the matrix"
-                    f" (models: {len(models)}, columns:"
-                    f" {matrix_to_plot.shape[1]}). Column names"
-                    " will not be renamed." 
+                    "Mismatch between 'models' length and columns in matrix: "
+                    f"models=1, columns={matrix_to_plot.shape[1]}. "
+                    "Column names not renamed."
                 )
-                
         elif isinstance(models, (list, dict)):
             # Potentially handle dict keys as column names if lengths match
             if isinstance(models, dict) and len(models) == matrix_to_plot.shape[1]:
@@ -188,8 +318,8 @@ def plot_ranking(
                 warnings.warn(
                 "A single model name was provided as a string,"
                 " but the matrix has multiple columns (columns:"
-                f" {matrix_to_plot.shape[1]}). Column names will"
-                " not be renamed. "
+                f" {matrix_to_plot.shape[1]}). Column names"
+                " not renamed. "
              )
     # Prepare the heatmap to visualize either ranking or importances
     plt.figure(figsize=figsize)
@@ -202,6 +332,9 @@ def plot_ranking(
     )
     
     # Create the heatmap using Seaborn
+    if fmt=='auto': 
+        fmt="d" if matrix_kind=='ranking' else ".2f"
+    
     kw = filter_valid_kwargs(sns.heatmap, kw)
     sns.heatmap(
         matrix_to_plot,
@@ -222,14 +355,15 @@ def plot_ranking(
     plt.tight_layout()
     plt.show()
 
+
 @default_params_plot(
-    savefig="my_factory_ops_plot.png", 
+    savefig=PlotConfig.AUTOSAVE("my_factory_ops_plot.png"), 
     fig_size =(10, 8), 
     dpi=300, 
     )
 @check_params({ 
     "names": Optional[Union[str, List[str]]], 
-    "title": str, 
+    "title": Optional[str], 
     'figsize': Optional[Tuple[int, int]], 
     })
 @validate_params({ 
@@ -520,7 +654,7 @@ def plot_factory_ops(
 
 
 @default_params_plot(
-    savefig='my_well_plot.png', 
+    savefig=PlotConfig.AUTOSAVE('my_well_plot.png'), 
     fig_size=None 
  )
 @validate_params ({ 
@@ -2679,7 +2813,10 @@ def boxplot(
     plt.show()
     return bplot
 
-@default_params_plot(savefig='my_fit_plot.png', fig_size=(8, 6))
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_fit_plot.png'),
+    fig_size=(8, 6)
+  )
 @validate_params({
     "y_true": ['array-like'], 
     "y_pred": ['array-like'], 
@@ -5491,7 +5628,8 @@ def plot_spatial_distribution(
     plt.tight_layout()
     plt.show()
 
-@default_params_plot(savefig='my_distribution_plot.png')
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_distribution_plot.png'))
 @validate_params ({ 
     'df': ['array-like'], 
     'x_col': [str], 
@@ -5771,7 +5909,9 @@ def plot_dist(
     plt.show()
 
 
-@default_params_plot(savefig='my_q.distributions_plot.png')
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_q.distributions_plot.png')
+  )
 @validate_params ({ 
     'df': ['array-like'], 
     'x_col': [str], 
@@ -6436,7 +6576,7 @@ def _plot_reversed(
 
 
 @default_params_plot(
-    savefig='my_uncertainty_plot.png', 
+    savefig=PlotConfig.AUTOSAVE('my_uncertainty_plot.png'), 
     title ="Distribution of Uncertainties",
     fig_size=None 
  )
@@ -6638,7 +6778,7 @@ def plot_uncertainty(
     plt.show()
 
 @default_params_plot(
-    savefig='my_prediction_intervals_plot.png', 
+    savefig=PlotConfig.AUTOSAVE('my_prediction_intervals_plot.png'), 
     title ="Prediction Intervals",
     fig_size=(10, 6) 
  )
@@ -6835,7 +6975,7 @@ def plot_prediction_intervals(
     plt.show()
 
 @default_params_plot(
-    savefig='my_temporal_trends_plot.png', 
+    savefig=PlotConfig.AUTOSAVE('my_temporal_trends_plot.png'), 
     title ="Temporal Trends",
     fig_size=(8, 6) 
  )

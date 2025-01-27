@@ -503,7 +503,12 @@ def to_array(
 
         # Handle NumPy array dimensionality adjustments
         if isinstance(arr, np.ndarray):
-            target_dim = dim_map.get(accept.split('_')[0], None)
+            target_dim =min_dim 
+            # if only: 
+            #     target_dim = dim_map.get(accept.split('_')[1], None)
+            # else : 
+            #     target_dim = dim_map.get(accept.split('_')[0], None)
+           
             if target_dim:
                 if accept in ['1d', 'only_1d']:
                     if arr.ndim == 2:
@@ -550,7 +555,8 @@ def to_array(
     # Final validation of dimensions
     if accept:
         final_ndim = _get_ndim(arr)
-        expected_dim = dim_map.get(accept.split('_')[0], None)
+        expected_dim = min_dim # dim_map.get(accept.split('_')[0], None)
+        
         if accept.startswith('>'):
             min_dim = int(accept.strip('>d'))
             if not final_ndim > min_dim:

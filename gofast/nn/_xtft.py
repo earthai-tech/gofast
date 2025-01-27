@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
@@ -1432,7 +1431,6 @@ Examples
 ...     future_input_dim=5,
 ...     forecast_horizons=3,
 ...     quantiles=None# [0.1, 0.5, 0.9],
-
 ...     scales='auto',
 ...     final_agg='last'
 ... )
