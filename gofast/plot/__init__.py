@@ -75,7 +75,8 @@ from .ml_viz import (
     plot_residuals_vs_fitted, 
     plot_residuals_vs_leverage, 
     plot_r2, 
-    plot_cm
+    plot_cm, 
+    taylor_diagram, 
 
  )
 from .utils import ( 
@@ -172,6 +173,7 @@ __all__= [
     'plot_residuals_vs_fitted', 
     'plot_r2', 
     'plot_cm', 
+    'taylor_diagram', 
     
     "boxplot", 
     "plot_r_squared",

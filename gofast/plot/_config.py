@@ -6,9 +6,9 @@
 Plot configuration module for gofast library.
 """
 import matplotlib.pyplot as plt
-from ..api.property import BasePlot 
+from ..api.property import BasePlot, BaseClass  
 
-class PlotConfig:
+class PlotConfig (BaseClass):
     """
     Configuration class managing settings for plot dependencies
     and automated saving logic in the gofast plotting system.

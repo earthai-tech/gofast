@@ -311,6 +311,10 @@ def class_pred_app(
     
     # (7.1) Soft-encode target for classification: ensures int codes.
     target, target_map = soft_encoder(target, return_cat_codes=True)
+    if verbose >=1 and target_map.results: 
+        print("Encoded target categorical values are listed below:\n")
+        print(target_map)
+        
     # soft_encoded the data for for correlation analysis
     data_enc= soft_encoder(data)
     
@@ -322,7 +326,10 @@ def class_pred_app(
     # Convert any float categories to int
     target = FloatCategoricalToInt().fit_transform(target)
     target = to_series(target)
-
+    
+    # get the target_name 
+    target_name=target.name 
+    
     # (8) Ensure target is recognized as binary/multiclass. If not, raise error.
     try:
         target_type = type_of_target(target)
@@ -601,8 +608,9 @@ def class_pred_app(
         # Not empty dict, then map the values and add to 
         # the existing predictions  
        predictions = map_values (
-           predictions, map_dict = target_map.results,
+           predictions, map_dict = target_map.results[target_name],
            action ='append', 
+           coerce=False, 
            )
     try:
         export_data(predictions, output_pred, index=False)

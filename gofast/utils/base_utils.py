@@ -74,6 +74,7 @@ __all__ = [
     'validate_target_in', 
 ]
 
+
 @is_data_readable 
 def map_values(
     data : Union[DataFrame, Series, dict],
@@ -152,12 +153,12 @@ def map_values(
 
     Examples
     --------
-    >>> from gofast.core.base_utils import map_values
+    >>> from gofast.utils.base_utils import map_values
     >>> import pandas as pd
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': ['X', 'Y', 'Z']})
     >>> mapping = {1: 100, 'X': 'Alpha'}
     >>> # Overwrite columns in df with mapped values
-    >>> mapped_df = map_values(df, mapping, coerce=True)
+    >>> mapped_df = map_values(df, mapping, coerce=False)
     >>> mapped_df
        A      B
     0  100  Alpha
@@ -205,12 +206,14 @@ def map_values(
         data = data.to_frame()
         is_series = True
 
+    df = data.copy() # important to not change the original data 
+    
     # 3) For each column in the DataFrame, attempt to map using `map_dict`.
     #    We'll store mapped results in new_cols dict to assemble after processing.
     new_cols = {}
 
-    for col in data.columns:
-        col_data = data[col]
+    for col in df.columns:
+        col_data = df[col]
 
         # 3a) If coerce=True, try to convert col_data to numeric if possible,
         #     or to string. We'll do a best-effort approach:
@@ -277,15 +280,15 @@ def map_values(
     #    otherwise we replace the old columns with newly mapped columns.
     if action == 'append':
         for nc in new_cols:
-            data[nc] = new_cols[nc]
+            df[nc] = new_cols[nc]
     else:
         # Overwrite only the columns that exist in new_cols
         # if the user had more columns not in the old data,
         # we only keep them if they are in new_cols?
         # but logically we only mapped existing columns, so safe to do:
-        for c in data.columns:
+        for c in df.columns:
             if c in new_cols:
-                data[c] = new_cols[c]
+                df[c] = new_cols[c]
         # If action=None, the user might want to rename columns
         # to old name => we did that above.
 
@@ -294,11 +297,11 @@ def map_values(
     #    We'll do minimal approach: if is_series and not append => return the single col
     if is_series and action != 'append':
         # There's only one column, let's return it as a series
-        col_name = data.columns[0]
-        return data[col_name]
+        col_name = df.columns[0]
+        return df[col_name]
 
     # 6) Return the DataFrame
-    return data
+    return df
 
 @is_data_readable
 def detect_categorical_columns(

@@ -126,7 +126,7 @@ __all__ = [
         'oversampling', 'undersampling', 'tomeklins', 'enn'}, 
     min_version='0.8.0'
  )
-@check_empty ( ['target', 'data'])
+@check_empty ( params=['target', 'data'])
 def handle_minority_classes(
     target,
     data=None,

@@ -3685,7 +3685,8 @@ def simulate_default_loan(
             data[feature] += np.random.normal(0, noise_level, n_samples)
     
     return manage_data(
-        data=data, as_frame=as_frame, return_X_y=return_X_y,
+        data=data, as_frame=as_frame, 
+        return_X_y=return_X_y,
         target_names=target_name,
         seed=seed,
         DESCR=dataset_descr, 

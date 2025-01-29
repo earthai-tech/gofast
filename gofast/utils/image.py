@@ -31,11 +31,11 @@ try:
 except ImportError:
     cv2 = None
 
-from gofast.api.property import BaseClass 
-from gofast.compat.sklearn import StrOptions, validate_params 
-from gofast.utils.deps_utils import ensure_pkg 
-from gofast.core.checks import check_files 
-from gofast.utils.validator import validate_length_range
+from ..api.property import BaseClass 
+from ..compat.sklearn import StrOptions, validate_params 
+from ..utils.deps_utils import ensure_pkg 
+from ..core.checks import check_files 
+from ..utils.validator import validate_length_range
 
 __all__=[
     'ImageProcessor', 
@@ -1034,7 +1034,7 @@ def crop_image(
 
 @ensure_pkg(
     "PIL", 
-    extra="'PIL' is required for 'rotate_image' to proceed."
+    extra="'PIL' (Pillow) is required for 'rotate_image' to proceed."
 )
 def rotate_image(
     image_path: str,
@@ -1628,7 +1628,6 @@ def add_watermark(
             )
 
     return base.copy()
-
 
 def compress_image(
     image_path: str,

@@ -1429,7 +1429,7 @@ def get_decomposition_method(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.utils.ts_utils import infer_decomposition_method
+    >>> from gofast.utils.ts_utils import get_decomposition_method
     >>> data = {
     ...     'Date': [
     ...         '2020-01-01','2020-02-01','2020-03-01',
@@ -1440,7 +1440,7 @@ def get_decomposition_method(
     >>> df = pd.DataFrame(data)
     >>> df['Date'] = pd.to_datetime(df['Date'])
     >>> df.set_index('Date', inplace=True)
-    >>> mtype, speriod = infer_decomposition_method(
+    >>> mtype, speriod = get_decomposition_method(
     ...     df,
     ...     value_col='Sales',
     ...     method='auto',

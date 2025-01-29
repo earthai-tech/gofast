@@ -8,7 +8,7 @@ performance analysis.
 
 from __future__ import annotations 
 import warnings 
-from numbers import Integral 
+from numbers import Integral, Real 
 import numpy as np
 import pandas as pd 
 import seaborn as sns 
@@ -30,34 +30,31 @@ from sklearn.metrics import (
     mean_absolute_error 
 )
 from sklearn.model_selection import learning_curve, KFold 
-from sklearn.utils import resample
-try: 
-    from sklearn.utils.multiclass import type_of_target
-except: 
-    from ..core.utils import type_of_target 
+from sklearn.utils import resample 
 try: 
     from keras.models import Model
 except : 
     pass 
 from ..api.types import Optional, Tuple, Any, List, Union, Callable, NDArray 
 from ..api.types import Dict, ArrayLike, DataFrame, Series, SparseMatrix
-from ..compat.sklearn import validate_params, StrOptions
+from ..compat.sklearn import Interval, StrOptions
+from ..compat.sklearn import validate_params, type_of_target 
 from ..core.array_manager import drop_nan_in, to_arrays 
 from ..core.checks import is_iterable 
-from ..core.handlers import param_deprecated_message 
+from ..core.handlers import param_deprecated_message, columns_manager 
 from ..core.utils import make_obj_consistent_if
 from ..core.plot_manager import default_params_plot 
 from ..metrics import get_scorer 
 from ..utils.deps_utils import ensure_pkg 
-from ..utils.mathext import get_preds #, minmax_scaler 
+from ..utils.mathext import get_preds, minmax_scaler 
 from ..utils.validator import _is_cross_validated, validate_yy, validate_keras_model
 from ..utils.validator import assert_xy_in, get_estimator_name, check_is_fitted
-from ..utils.validator import check_consistent_length
-from .utils import _set_sns_style, _make_axe_multiple
-from .utils import make_plot_colors  
+from ..utils.validator import check_consistent_length, contains_nested_objects 
+from ..utils.validator import validate_length_range#, normalize_array  
 from ._config import PlotConfig 
 from ._d_cms import TDG_DIRECTIONS 
-
+from .utils import _set_sns_style, _make_axe_multiple
+from .utils import make_plot_colors  
 
 __all__= [ 
     'plot_confusion_matrices',
@@ -78,8 +75,422 @@ __all__= [
     'plot_residuals_vs_fitted', 
     'plot_r2', 
     'plot_cm', 
+    'taylor_diagram', 
     ]
 
+@default_params_plot(
+    savefig =PlotConfig.AUTOSAVE('my_taylor_diagram_plot_rad.png'),
+    dpi=300, 
+    fig_size=(8, 6)
+)
+@validate_params ({
+    'stddev': ['array-like', None], 
+    'corrcoef': ['array-like', None], 
+    'y_preds': ['array-like', None], 
+    'reference': ['array-like', None], 
+    'names': [str, 'array-like', None ], 
+    'radial_strategy': [
+        StrOptions({'rwf','convergence', 'center_focus', 'performance'})
+        ], 
+    'power_scaling': [Interval(Real, 0, 1, closed="right")],  
+    })
+def taylor_diagram(
+    stddev=None,
+    corrcoef=None,
+    y_preds=None,
+    reference=None,
+    names=None,
+    ref_std=1,
+    cmap=None,
+    draw_ref_arc=False,
+    radial_strategy="rwf",
+    norm_c=False,
+    power_scaling=1.0,
+    marker='o',
+    ref_props=None,
+    fig_size=None,
+    size_props=None,
+    title=None,
+    savefig=None,
+):
+    r"""
+    Plot a Taylor diagram to compare multiple predictions against
+    a reference by visualizing their correlation and standard
+    deviation. This function can accept either precomputed
+    statistics (i.e. `stddev` and `corrcoef`) or the actual arrays
+    (`y_preds` and `reference`) from which these statistics will be
+    derived.
+
+    The radial axis represents the standard deviation (std. dev.),
+    while the angular axis represents the correlation with the
+    reference (with angle :math:`\theta = \arccos(\rho)`).
+
+    Parameters
+    ----------
+    stddev : list of float or None, optional
+        List of standard deviations for each prediction. If
+        `None`, the standard deviations are computed internally
+        from `y_preds`. The length of `stddev` should match the
+        number of models if provided.
+
+    corrcoef : list of float or None, optional
+        List of correlation coefficients for each prediction
+        against the reference. If `None`, these are computed
+        internally from `y_preds`. Must match the length of
+        `stddev` if provided.
+
+    y_preds : list of array-like or None, optional
+        One or more prediction arrays (e.g. model outputs).
+        Each array must share the same length as `reference`.
+        Required if `stddev` or `corrcoef` is not provided.
+
+    reference : array-like or None, optional
+        Reference (observed) array used for computing correlation
+        and std. dev. of predictions if `stddev` or `corrcoef`
+        is not given. Must share length with each prediction in
+        `y_preds`.
+
+    names : list of str or None, optional
+        Labels for each prediction array. Must match the number
+        of models in `y_preds` or in `stddev`/`corrcoef`. If
+        `None`, default labels of the form "Model_i" are used.
+
+    ref_std : float, optional
+        Standard deviation of the reference if already known or
+        desired to be set explicitly. If predictions are provided
+        (`y_preds` and `reference`), this is computed as
+        `np.std(reference)` by default.
+
+    cmap : str or None, optional
+        Matplotlib colormap for the background shading. If not
+        `None`, a contour fill is created based on the chosen
+        `radial_strategy`, visualizing different performance
+        or weighting zones. For example, `'viridis'` or
+        `'plasma'`.
+
+    draw_ref_arc : bool, optional
+        If `True`, an arc is drawn at the reference's standard
+        deviation, highlighting that radial distance. If `False`,
+        a point is placed at angle `0` with radial distance
+        `ref_std`. Default is `False`.
+
+    radial_strategy : {'rwf', 'convergence', 'center_focus',
+                       'performance'}, optional
+        Strategy for computing the background mesh (when
+        `cmap` is not `None`):
+        * ``'rwf'``: Radial weighting function that uses
+          correlation and deviation distance in an exponential
+          form.
+        * ``'convergence'``: A simple radial function of `r`.
+        * ``'center_focus'``: Focus on a center region in the
+          (theta, r) space using an exponential decay from the
+          center.
+        * ``'performance'``: Highlight the region near the best
+          performing model (max correlation, optimal std. dev.).
+
+    norm_c : bool, optional
+        If `True`, the generated background mesh is normalized to
+        the range [0, 1] before plotting. This can highlight
+        relative differences more clearly. Default is `False`.
+
+    power_scaling : float, optional
+        When `norm_c` is `True`, the normalized background mesh
+        can be exponentiated by this factor. Useful for adjusting
+        contrast. Default is `1.0`.
+
+    marker : str, optional
+        Marker style for the points representing each prediction.
+        Defaults to `'o'`.
+
+    ref_props : dict or None, optional
+        Dictionary of reference plot properties, such as line
+        style, color, or width. Supported keys include:
+        * ``'label'``: Legend label for the reference.
+        * ``'lc'``: Line color/style for the reference arc.
+        * ``'color'``: Color/style for the reference point.
+        * ``'lw'``: Line width.
+        If not given, defaults to a green line and black point.
+
+    fig_size : (float, float) or None, optional
+        Figure size in inches, e.g. ``(width, height)``.
+        Defaults to ``(8, 6)``.
+
+    size_props : dict or None, optional
+        Optional dictionary to control tick and label sizes.
+        For instance: 
+        ``{'ticks': 12, 'labels': 14}``.
+        Can be used to adjust the font sizes of the radial and
+        angular ticks and labels.
+
+    title : str or None, optional
+        Title of the figure. If `None`, defaults to
+        ``"Taylor Diagram"``.
+
+    savefig : str or None, optional
+        Path to save the figure (e.g. ``"diagram.png"``). If
+        `None`, the figure is displayed instead of being saved.
+
+    Notes
+    -----
+
+    The Taylor diagram simultaneously shows two statistics for
+    each model prediction :math:`p` compared to a reference
+    :math:`r`:
+
+    1. **Standard Deviation**:
+       .. math::
+          \sigma_p = \sqrt{\frac{1}{n}
+          \sum_{i=1}^{n}\bigl(p_i - \bar{p}\bigr)^2}
+
+       where :math:`\bar{p}` is the mean of :math:`p`.
+
+    2. **Correlation**: :math:`\rho`
+       .. math::
+          \rho = \frac{\mathrm{Cov}(p, r)}
+          {\sigma_p \; \sigma_r}
+
+       where :math:`\mathrm{Cov}(p, r)` is the covariance between
+       :math:`p` and :math:`r`, and :math:`\sigma_r` is the
+       standard deviation of :math:`r`.
+
+    The diagram uses polar coordinates with radius corresponding
+    to the standard deviation, and the angle
+    :math:`\theta = \arccos(\rho)` representing correlation.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.plot.ml_viz import taylor_diagram
+    >>> # Generate synthetic data
+    >>> ref = np.random.randn(100)
+    >>> preds = [
+    ...     ref + 0.1 * np.random.randn(100),
+    ...     1.2 * ref + 0.5 * np.random.randn(100),
+    ... ]
+    >>> # Basic usage (auto-compute stddev and corrcoef)
+    >>> taylor_diagram(y_preds=preds, reference=ref)
+
+    See Also
+    --------
+    numpy.std : Compute standard deviation.
+    numpy.corrcoef : Compute correlation coefficients.
+
+    References
+    ----------
+    .. [1] Taylor, K. E. (2001). Summarizing multiple aspects of
+           model performance in a single diagram. *Journal of
+           Geophysical Research*, 106(D7), 7183-7192.
+    """
+
+    # Create polar subplot
+    fig, ax = plt.subplots(
+        subplot_kw={'projection': 'polar'},
+        figsize=fig_size or (8, 6)
+    )
+
+    # Handle reference properties
+    ref_props = ref_props or {}
+    ref_label = ref_props.pop('label', 'Reference')
+    ref_color = ref_props.pop('lc', 'red')
+    ref_point = ref_props.pop('color', 'k*')
+    ref_lw = ref_props.pop('lw', 2)
+
+    # Compute stddev and corrcoef from predictions if needed
+    if (stddev is None or corrcoef is None):
+        if (y_preds is None or reference is None):
+            raise ValueError(
+                "Provide either stddev and corrcoef, "
+                "or y_preds and reference."
+            )
+        if not contains_nested_objects(y_preds, strict= True): 
+            y_preds =[y_preds]
+            
+        y_preds = [
+            validate_yy(reference, pred, flatten="auto")[1] 
+            for pred in y_preds
+        ]
+        
+        stddev = [np.std(pred) for pred in y_preds]
+        corrcoef = [
+            np.corrcoef(pred, reference)[0, 1] 
+            for pred in y_preds
+        ]
+        ref_std = np.std(reference)
+    
+    # Re-check consistency
+    check_consistent_length(stddev, corrcoef)
+    
+    # Ensure `names` matches number of models
+    if names is not None:
+        names= columns_manager(names)
+        if len(names) < len(stddev):
+            additional = [
+                f"Model_{i + 1}" 
+                for i in range(len(stddev) - len(names))
+            ]
+            names = names + additional
+    else:
+        names = [
+            f"Model_{i + 1}" 
+            for i in range(len(stddev))
+        ]
+
+    # Generate background if cmap is provided
+    if cmap:
+        theta_bg, r_bg = np.meshgrid(
+            np.linspace(0, np.pi / 2, 500),
+            np.linspace(0, max(stddev) + 0.5, 500)
+        )
+
+        # Compute background based on strategy
+        if radial_strategy == "convergence":
+            background = r_bg
+        elif radial_strategy == "rwf":
+            corr_bg = np.cos(theta_bg)
+            std_diff = (r_bg - ref_std) ** 2
+            background = (
+                np.exp(-std_diff / 0.1) * 
+                corr_bg ** 2
+            )
+        elif radial_strategy == "center_focus":
+            center_std = (max(stddev) + ref_std) / 2
+            std_diff = (r_bg - center_std) ** 2
+            theta_diff = (theta_bg - np.pi / 4) ** 2
+            background = (
+                np.exp(-std_diff / 0.1) *
+                np.exp(-theta_diff / 0.2)
+            )
+        elif radial_strategy == "performance":
+            best_idx = np.argmax(corrcoef)
+            std_best = stddev[best_idx]
+            corr_best = corrcoef[best_idx]
+            theta_best = np.arccos(corr_best)
+            std_diff = (r_bg - std_best) ** 2
+            theta_diff = (theta_bg - theta_best) ** 2
+            background = (
+                np.exp(-std_diff / 0.05) *
+                np.exp(-theta_diff / 0.05)
+            )
+
+        # Normalize background if requested
+        if norm_c:
+            background = minmax_scaler(background )
+            # background = (
+            #     (background - np.min(background)) /
+            #     (np.max(background) - np.min(background))
+            # )
+            background = background ** power_scaling
+
+        # Plot the colored contour
+        ax.contourf(
+            theta_bg, 
+            r_bg, 
+            background,
+            levels=100,
+            cmap=cmap,
+            alpha=0.8
+        )
+
+    # Draw reference point or arc
+    if draw_ref_arc:
+        t_arc = np.linspace(0, np.pi / 2, 500)
+        ax.plot(
+            t_arc,
+            [ref_std] * len(t_arc),
+            ref_color,
+            linewidth=ref_lw,
+            label=ref_label
+        )
+    else:
+        ax.plot(
+            0,
+            ref_std,
+            ref_point,
+            markersize=12,
+            label=ref_label
+        )
+
+    # Plot data points
+    for i, (std_val, corr_val) in enumerate(
+        zip(stddev, corrcoef)
+    ):
+        theta_pt = np.arccos(corr_val)
+        ax.plot(
+            theta_pt,
+            std_val,
+            marker,
+            label=names[i],
+            markersize=10
+        )
+
+    # Add correlation lines (dotted radial lines)
+    t_corr = np.linspace(0, np.pi / 2, 100)
+    for r_line in np.linspace(0, 1, 11):
+        ax.plot(
+            t_corr,
+            [r_line * ref_std] * len(t_corr),
+            'k--',
+            alpha=0.3
+        )
+
+    # Add standard deviation circles
+    for r_circ in np.linspace(0, max(stddev) + 0.5, 5):
+        ax.plot(
+            np.linspace(0, np.pi / 2, 100),
+            [r_circ] * 100,
+            'k--',
+            alpha=0.3
+        )
+
+    # Set axis limits
+    ax.set_xlim(0, np.pi / 2)
+    ax.set_ylim(0, max(stddev) + 0.5)
+
+    # Set x-ticks for correlation
+    ax.set_xticks(
+        np.arccos(np.linspace(0, 1, 6))
+    )
+    ax.set_xticklabels(
+        ['1.0', '0.8', '0.6', '0.4', '0.2', '0.0']
+    )
+
+    # Axis labels
+    ax.set_xlabel("Standard Deviation", labelpad=20)
+
+    # Correlation text label on the plot
+    ax.text(
+        0.85,
+        0.7,
+        "Correlation",
+        ha='center',
+        rotation_mode="anchor",
+        rotation=-45,
+        transform=ax.transAxes
+    )
+
+    # Set size of ticks and labels if provided
+    if size_props:
+        tick_size = size_props.get('ticks', 10)
+        label_size = size_props.get('label', 12)
+        ax.tick_params(
+            axis='both',
+            labelsize=tick_size
+        )
+        # X-label
+        for label in ax.xaxis.get_label():
+            label.set_size(label_size)
+        # We might want to set radial labels if any,
+        # but let's keep it minimal. 
+        
+    # Legend and title
+    ax.legend(loc='upper right')
+    plt.title(title or 'Taylor Diagram')
+
+    # Save or show figure
+    if savefig:
+        plt.savefig(savefig, bbox_inches='tight')
+    else:
+        plt.show()
 
 @default_params_plot(
     savefig =PlotConfig.AUTOSAVE('my_taylor_diagram_plot2.png'),
@@ -96,126 +507,217 @@ __all__= [
 def plot_taylor_diagram_in(
     *y_preds,
     reference,
-    names: Optional[List[str]] = None,
-    acov: str = None,
-    zero_location: str = 'E',
-    direction: int = -1,
-    only_points: bool = False,
-    ref_color: str = 'red',
-    draw_ref_arc: bool = True,
-    angle_to_corr: bool = True,
+    names=None,
+    acov=None,
+    zero_location='E',
+    direction=-1,
+    only_points=False,
+    ref_color='red',
+    draw_ref_arc=True,
+    angle_to_corr=True,
     marker='o',
     corr_steps=6,
-    cmap: str = "viridis",
+    cmap="viridis",
     shading='auto',
-    shading_res: int = 300,
-    cbar="off", 
-    fig_size: Optional[Tuple[int, int]]= None,
-    title: Optional[str]=None
+    shading_res=300,
+    radial_strategy=None, 
+    norm_c=False, 
+    norm_range=None, 
+    cbar="off",
+    fig_size=None,
+    title=None,
+    savefig=None,
 ):
     r"""
-    Plot a Taylor Diagram with a background color map
-    encoding the correlation domain in polar form. This
-    function provides a visually appealing layout where
-    the radial axis represents the standard deviation of
-    each prediction, while the angular axis is derived
-    from the correlation with the reference.
+    Plot a Taylor Diagram with a background color map encoding the
+    correlation domain in polar form. This function provides a visually
+    appealing layout where the radial axis represents the standard
+    deviation of each prediction, while the angular axis is derived from
+    the correlation with the reference.
 
     Parameters
     ----------
     *y_preds : array-like
-        One or more prediction arrays. Each array must
-        match the length of ``reference``.
-    reference : array-like
-        The reference (observed) array used to compare
-        the predictions.
-    names : list of str, optional
-        Labels for each of the arrays in ``y_preds``.
-    acov : str, optional
-        Angular coverage of the diagram. If ``'half_circle'``,
-        the maximum polar angle is :math:`\pi/2`. Otherwise,
-        uses a default full coverage of :math:`\pi`.
-    zero_location : str, optional
-        The position on the polar axis that corresponds
-        to a correlation of 1. E.g., ``'W'`` (west),
-        ``'N'`` (north), etc. Default is ``'W'``.
-    direction : int, optional
-        Rotation direction for increasing angles: ``1``
-        is counter-clockwise, ``-1`` is clockwise. Default
-        is ``-1``.
-    only_points : bool, optional
-        If ``True``, omit the radial lines from the origin
-        to each point and only plot the point markers. 
-        Default is ``False``.
-    ref_color : str, optional
-        Color of the reference standard deviation arc
-        or radial line. Default is ``'red'``.
-    draw_ref_arc : bool, optional
-        If ``True``, draws an arc at the reference's standard
-        deviation. Otherwise, draws a radial line. Default
-        is ``True``.
-    angle_to_corr : bool, optional
-        If ``True``, the angular ticks are labeled as
-        correlations from 0..1, converting angles via
-        :math:`\arccos(corr)`. Default is ``True``.
-    marker : str, optional
-        Marker style for the plot points (e.g. ``'o'``,
-        ``'^'``). Default is ``'o'``.
-    corr_steps : int, optional
-        Number of correlation tick intervals (0..1).
-        Default is 6.
-    cmap : str, optional
-        Colormap name for the background shading. 
-        Default is ``"turbo"``.
-    shading : {'auto', 'gouraud', 'nearest'}, optional
-        Shading approach for the polygon mesh. Passed
-        to Matplotlib's :func:`pcolormesh`. Default
-        is ``'auto'``.
-    shading_res : int, optional
-        Resolution for creating the background mesh
-        in both radial and angular dimensions. Default
-        is 300.
-    cbar : {'off', True, False}, optional
-        Whether to display the color bar. ``'off'`` or
-        ``False`` hides it.
-    fig_size : (float, float), optional
-        Figure size in inches. Default is (10,8).
+        One or more prediction arrays. Each array must be of the same
+        length as `reference`. Each array-like object typically has
+        shape :math:`(n,)`, although multi-dimensional inputs can be
+        flattened internally.
 
-    Returns
-    -------
-    None
-        Displays the Taylor diagram with a color map
-        showing correlations and standard deviations.
+    reference : array-like
+        The reference (observed) array of shape :math:`(n,)`. It must
+        share the same length as each array in `*y_preds`.
+
+    names : list of str or None, optional
+        Labels for each of the arrays in `*y_preds`. If provided, must
+        match the number of prediction arrays. If `None`, each prediction
+        is labeled as "Pred i" automatically.
+
+    acov : {'default', 'half_circle'}, optional
+        Angular coverage of the diagram:
+        - ``'default'``: The diagram covers an angle of
+          :math:`\\pi` (180 degrees).
+        - ``'half_circle'``: The diagram covers an angle of
+          :math:`\\pi/2` (90 degrees).
+        If `acov` is `None`, it defaults to ``'half_circle'`` in the
+        current implementation.
+
+    zero_location : {'N','NE','E','S','SW','W','NW','SE'}, optional
+        The position on the polar axis that corresponds to a correlation
+        of :math:`1.0`. For example, ``'W'`` (west) places the
+        correlation :math:`\\rho=1` to the left on the polar plot,
+        whereas ``'N'`` (north) places it at the top.
+        Default is ``'E'``.
+
+    direction : int, optional
+        Rotation direction for increasing angles. A value of
+        ``1`` sets a counter-clockwise rotation; ``-1`` sets a clockwise
+        rotation. Default is ``-1``.
+
+    only_points : bool, optional
+        If `True`, only the point markers for each prediction are
+        plotted, omitting the radial lines that connect each marker to
+        the origin. If `False`, radial lines are drawn. Default is
+        `False`.
+
+    ref_color : str, optional
+        Color used to represent the reference standard deviation either
+        as an arc (if `draw_ref_arc` is `True`) or as a radial line (if
+        `draw_ref_arc` is `False`). Any valid matplotlib color is
+        accepted. Default is ``'red'``.
+
+    draw_ref_arc : bool, optional
+        If `True`, an arc is drawn at the reference standard deviation
+        to highlight its radial position. If `False`, a radial line is
+        drawn from the origin to the reference standard deviation.
+        Default is `True`.
+
+    angle_to_corr : bool, optional
+        If `True`, the angular axis (theta) is labeled in terms of
+        correlation values from 0 to 1 (mapping angle
+        :math:`\\theta = \\arccos(\\rho)`), so that perfect correlation
+        :math:`\\rho = 1.0` maps to :math:`\\theta = 0`. If `False`,
+        the angular axis is displayed in degrees. Default is `True`.
+
+    marker : str, optional
+        Marker style used for plotting each prediction point.
+        For example, ``'o'`` for a circle or ``'^'`` for a triangle.
+        See matplotlib marker documentation for available options.
+        Default is ``'o'``.
+
+    corr_steps : int, optional
+        Number of correlation intervals to be labeled on the angular
+        axis when `angle_to_corr` is `True`. A value of 6 creates
+        correlation tick labels from 0.00 to 1.00 in steps of 0.20.
+        Default is 6.
+
+    cmap : str, optional
+        Colormap name used for the background mesh showing the
+        correlation domain. Any valid matplotlib colormap can be used,
+        such as ``'viridis'`` or ``'turbo'``. Default is ``'viridis'``.
+
+    shading : {'auto', 'gouraud', 'nearest'}, optional
+        The shading method passed to matplotlib's ``pcolormesh`` for
+        rendering the background. Default is ``'auto'``.
+
+    shading_res : int, optional
+        Resolution factor for generating the background mesh grid in
+        both radial and angular dimensions. Larger values produce a
+        smoother background. Default is 300.
+
+    radial_strategy:  str, optional
+        Defines how the radial background is generated.
+        - `'convergence'`: Correlation is mapped using :math:`cos(theta)`,
+          where :math:`theta` represents the angular displacement. This
+          results in a color gradient converging from high correlation (1)
+          to low correlation (0 or -1, depending on the plot coverage).
+        - `'norm_r'`: Standardizes the radial distance by normalizing `r`
+          to the range `[0, 1]`, where `r` is scaled by the maximum 
+          radius (`rad_limit`).
+        - `'performance'`: Colors are mapped based on distance from 
+          the best-performing model, 
+          using an exponential decay function to highlight the 
+          best-performing region.
+        - `'rwf'` and `'center_focus'`: These are unsupported in this 
+          function. Consider using :func:`gofast.plot.taylor_diagram`
+          instead.
+
+    norm_c :bool, optional) 
+        If ``True``, normalizes the color values for a better
+        visual contrast. Ensures that the color distribution is 
+        balanced across the plot by scaling values between a
+        predefined range. Defaults to ``False``.
+
+    norm_range: tuple, optional
+        Specifies the normalization range for color scaling 
+        when ``norm_c=True``.
+        The format should be `(min_value, max_value)`, where:
+        - `min_value`: The lower bound for normalization.
+        - `max_value`: The upper bound for normalization.
+        If `None`, it defaults to `(0, 1)`.
+
+    cbar : {'off', True, False}, optional
+        Determines whether a colorbar is displayed:
+        - ``'off'`` or `False`: No colorbar is shown.
+        - `True`: A colorbar is added to the figure.
+        Default is ``'off'``.
+
+    fig_size : (float, float), optional
+        Figure size in inches, e.g., ``(width, height)``. If `None`,
+        a default size of approximately ``(10, 8)`` is used.
+
+    title : str, optional
+        Title of the diagram. If `None`, defaults to ``"Taylor Diagram"``.
+
+    savefig : str or None, optional
+        If provided with a string path such as ``"diagram.png"``, the
+        figure is saved to that path. If `None`, the figure is only
+        displayed. Default is `None`.
 
     Notes
     -----
-    **Computation**:
-    - The correlation for each prediction array :math:`p`
-      with the reference :math:`r` is computed as:
+    **Mathematical Formulation**
 
-      .. math::
-         \rho = \text{corrcoef}(p, r)[0,1]
+    The Taylor diagram displays two key statistics for each prediction
+    :math:`p` compared to the reference :math:`r`:
 
-    - Standard deviation is derived via:
+    1. **Correlation** (:math:`\\rho`):
+       .. math::
+          \\rho = \\mathrm{corrcoef}(p, r)[0,1]
 
-      .. math::
-         \sigma = \sqrt{\frac{1}{n}\sum (p_i - \bar{p})^2}
+       where :math:`\\mathrm{corrcoef}` is the Pearson correlation
+       coefficient, which can also be expressed as:
 
-    **Plot Explanation**:
-    - The radial axis is the standard deviation
-      (distance from origin).
-    - The angle :math:`\theta` is set by :math:`\arccos(\rho)`,
-      so perfect correlation :math:`\rho=1` maps to
-      :math:`\theta=0`.
+       .. math::
+          \\rho = \\frac{\\mathrm{Cov}(p, r)}{\\sigma_p \\sigma_r}
 
-    **Example**:
+       with :math:`\\mathrm{Cov}(p, r)` being the covariance, and
+       :math:`\\sigma_p`, :math:`\\sigma_r` the standard deviations of
+       :math:`p` and :math:`r`.
+
+    2. **Standard Deviation** (:math:`\\sigma`):
+       .. math::
+          \\sigma = \\sqrt{\\frac{1}{n}
+          \\sum_{i=1}^n\\left(p_i - \\bar{p}\\right)^2}
+
+       where :math:`\\bar{p}` is the mean of the prediction array
+       :math:`p`.
+
+    On the diagram, the radial distance from the origin corresponds to
+    the standard deviation of the prediction, and the polar angle
+    corresponds to :math:`\\arccos(\\rho)` when `angle_to_corr` is
+    `True`.
+
+    Examples
+    --------
     >>> import numpy as np
     >>> from gofast.plot.ml_viz import plot_taylor_diagram_in
+    >>> # Generate some synthetic data
+    >>> np.random.seed(42)
+    >>> reference = np.random.normal(0, 1, 100)
     >>> y_preds = [
-    ...     np.random.normal(loc=0, scale=1, size=100),
-    ...     np.random.normal(loc=0, scale=1.5, size=100)
+    ...     reference + np.random.normal(0, 0.3, 100),
+    ...     reference * 0.9 + np.random.normal(0, 0.8, 100)
     ... ]
-    >>> reference = np.random.normal(loc=0, scale=1, size=100)
     >>> plot_taylor_diagram_in(
     ...     *y_preds,
     ...     reference=reference,
@@ -223,20 +725,21 @@ def plot_taylor_diagram_in(
     ...     acov='half_circle',
     ...     zero_location='N',
     ...     direction=1,
-    ...     fig_size=(12, 10)
+    ...     fig_size=(8, 8)
     ... )
 
-    The background color scale highlights the correlation
-    domain, while each model is plotted at coordinates
-    corresponding to its (std. deviation, correlation).
+    See Also
+    --------
+    - :func:`numpy.corrcoef` : Function to compute correlation.
+    - :func:`numpy.std` : Function to compute standard deviation.
 
     References
     ----------
-    - Taylor, K. E. (2001). Summarizing multiple aspects
-      of model performance in a single diagram. *Journal
-      of Geophysical Research*, 106(D7), 7183-7192.
+    .. [1] Taylor, K. E. (2001). Summarizing multiple aspects of model
+           performance in a single diagram. *Journal of Geophysical
+           Research*, 106(D7), 7183-7192.
     """
- 
+
     # Flatten the reference and predictions
     reference = np.ravel(reference)
     y_preds = [np.ravel(yp) for yp in y_preds]
@@ -272,14 +775,44 @@ def plot_taylor_diagram_in(
     r_grid     = np.linspace(0, rad_limit, shading_res)
     TH, RR     = np.meshgrid(theta_grid, r_grid)
 
-    # correlation => cos(TH)
-    # correlation = cos(TH) if half or full circle
-    # (when angle=0 => correlation=1, angle= pi/2 => corr=0, angle= pi => corr=-1)
-    CC = np.cos(TH)  # from 1..-1 or 1..0 depending on coverage
+    if radial_strategy=="convergence": 
+        # correlation => cos(TH)
+        # correlation = cos(TH) if half or full circle
+        # (when angle=0 => correlation=1, angle= pi/2 => corr=0, angle= pi => corr=-1)
+        CC = np.cos(TH)  # from 1..-1 or 1..0 depending on coverage
+    elif radial_strategy =="norm_r": 
+        CC = RR / rad_limit  # Normalizes r to range [0, 1]
+    else: 
+        if radial_strategy in {'rwf', 'center_focus'}: 
+            warnings.warn(
+                f"'{radial_strategy}' is not available in the current"
+                " plot. Consider using `gofast.plot.taylor_diagram`"
+                " for better support. Alternatively, choose from"
+                " 'convergence', 'norm_r', or 'performance'."
+                " Defaulting to 'performance' visualization."
+            )
+        # Fallback to performance 
+        best_idx = np.argmax(corrs)
+        std_best = stds[best_idx]
+        corr_best = corrs[best_idx]
+        theta_best = np.arccos(corr_best)
+        std_diff = (RR - std_best) ** 2
+        theta_diff = (TH - theta_best) ** 2
+
+        CC = (
+            np.exp(-std_diff / 0.05) *
+            np.exp(-theta_diff / 0.05)
+        )
+        
     # Define color values based on radial distance (normalized)
-    #CC = RR / rad_limit  # Normalizes r to range [0, 1]
-    # CC= minmax_scaler(CC, feature_range=(-1, 1))
-  
+    if norm_c:
+        if norm_range is None: 
+            norm_range = (0, 1)
+        norm_range = validate_length_range(
+            norm_range, param_name="Normalized Range"
+            )
+        CC= minmax_scaler(CC, feature_range=norm_range)
+
     # plot background
     c = ax.pcolormesh(
         TH,
@@ -297,6 +830,7 @@ def plot_taylor_diagram_in(
 
     # pick distinct colors
     colors = plt.cm.Set1(np.linspace(0,1,len(y_preds)))
+    names= columns_manager(names, empty_as_none=False)
     # plot predictions
     for i,(ang,rd) in enumerate(zip(angles,radii)):
         label = (names[i] if (names and i<len(names))
@@ -408,7 +942,7 @@ def plot_taylor_diagram(
     *y_preds: ArrayLike,
     reference: ArrayLike,
     names: Optional[List[str]] = None,
-    acov: str = "default",
+    acov: str = "half_circle",
     zero_location: str = 'W',
     direction: int = -1,
     only_points: bool = False,
@@ -419,6 +953,7 @@ def plot_taylor_diagram(
     corr_steps=6,
     fig_size: Optional[Tuple[int, int]] = None,
     title: Optional[str]=None, 
+    savefig: Optional[str]=None, 
 ):
     """
     Plots a Taylor Diagram, which is used to graphically summarize 
@@ -453,7 +988,7 @@ def plot_taylor_diagram(
         - `"half_circle"`: The plot spans 90 degrees, which can be 
           useful for focused comparisons.
           
-        **Default:** `"default"`
+        **Default:** `"half_circle"`
 
     zero_location : `str`, optional
         Specifies the location of the zero-degree angle on the polar plot.
@@ -547,6 +1082,14 @@ def plot_taylor_diagram(
         If `set_corr_angle` is ``True``, the correlation approach is used 
         to set angle ticks automatically. This is typically used along with
         `angle_to_corr`. Default is ``True``.
+        
+    title : str, optional
+        Title of the diagram. If `None`, defaults to ``"Taylor Diagram"``.
+
+    savefig : str or None, optional
+        If provided with a string path such as ``"diagram.png"``, the
+        figure is saved to that path. If `None`, the figure is only
+        displayed. Default is `None`.
 
     Examples
     --------
@@ -621,6 +1164,12 @@ def plot_taylor_diagram(
     standard_deviations = [np.std(pred) for pred in y_preds]
     reference_std = np.std(reference)
 
+    # standard_deviations= normalize_array(
+    #     standard_deviations, normalize = "auto", method="01"
+    #     )
+    # correlations= normalize_array(
+    #     correlations, normalize = "auto", method="01"
+    #     )
     # Create figure and polar subplot
     fig = plt.figure(figsize=fig_size or (10, 8))
     ax = fig.add_subplot(111, polar=True)
@@ -715,6 +1264,7 @@ def plot_taylor_diagram(
 
     plt.tight_layout()
     plt.show()
+
 
 def plot_cost_vs_epochs(
     regs: Union[Callable, List[Callable]],
