@@ -77,8 +77,348 @@ __all__=[
     'plot_perturbations', 
     'plot_well', 
     'plot_factory_ops', 
-    'plot_ranking'
+    'plot_ranking', 
+    'plot_coverage'
 ]
+
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE("my_coverall_plot.png"), 
+    figsize =(8, 6), 
+    dpi=300
+    )
+@validate_params ({ 
+    'y_true': ['array-like'],
+    'plot_type': [StrOptions({"line", "bar", "pie", "radar"}), None], 
+    'q': [Interval(Real, 0, 1 , closed="neither"),  None]
+    })
+@check_params({
+    "names": Optional[str]
+    })
+def plot_coverage(
+    y_true,
+    *y_preds,
+    names=None,
+    q=None,
+    plot_type='line',
+    cmap='viridis',
+    pie_startangle=140,
+    pie_autopct='%1.1f%%',
+    radar_color='tab:blue',
+    radar_fill_alpha=0.25,
+    radar_line_style='o-',
+    figsize=None,
+    title=None,
+    savefig=None,
+):
+    """
+    Plot coverage scores for quantile or point forecasts and allow
+    multiple visualization styles (line, bar, pie, and radar).
+
+    This function computes and visualizes the fraction of times
+    the true values :math:`y_i` lie within predicted quantile
+    intervals or match point forecasts, for one or more models.
+    If multiple prediction arrays are passed (e.g. from different
+    models), this function compares their coverage on the same
+    figure through different plot types.
+
+    .. math::
+        \\text{coverage} = \\frac{1}{N}\\sum_{i=1}^{N}
+        1\\{\\hat{y}_{i}^{(\\ell)} \\leq y_i
+        \\leq \\hat{y}_{i}^{(u)}\\}
+
+    where :math:`\\hat{y}_{i}^{(\\ell)}` is the lower quantile
+    prediction for the :math:`i`th sample and :math:`\\hat{y}_{i}^{
+    (u)}` is the upper quantile prediction. The indicator function
+    :math:`1\\{\\cdot\\}` counts how many times the true value
+    :math:`y_i` lies within or on the boundaries of the predicted
+    interval.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        True target values.
+
+    *y_preds : one or more array-like objects, each of shape
+        (n_samples,) or (n_samples, n_quantiles)
+        Predicted values from one or more models. If a 2D array is
+        passed, its columns are considered to be predictions for
+        different quantiles. If a 1D array is passed, it is treated
+        as a point forecast.
+
+    names : list of str or None, optional
+        Names for each set of predictions. If None, default names
+        (e.g. "Model_1") are generated. If the length of `names`
+        is less than the number of prediction arrays, the rest
+        are auto-generated.
+
+    q : list of float or None, optional
+        Quantile levels for each column of the 2D prediction arrays.
+        If provided, predictions for each row are sorted in ascending
+        order, and coverage is computed between the minimum and
+        maximum quantile predictions. If None, coverage is assumed
+        to be a point forecast unless a different approach is
+        implemented by the user.
+
+    plot_type : str, optional (default='line')
+        Type of plot to use for displaying coverage. Possible
+        values are:
+        
+        - ``'line'``: Plots a line chart of coverage scores.
+        - ``'bar'``: Plots a bar chart of coverage scores.
+        - ``'pie'``: Creates a pie chart where each slice
+          corresponds to a model's coverage fraction relative
+          to the total coverage sum.
+        - ``'radar'``: Creates a radar chart placing each model's
+          coverage on a radial axis.
+
+    cmap : str, optional (default='viridis')
+        Colormap used in the pie chart. Each model slice is
+        assigned a color from this colormap. Also used more
+        generally if extended.
+
+    pie_startangle : float, optional (default=140)
+        Start angle for the pie chart in degrees.
+
+    pie_autopct : str, optional (default='%1.1f%%')
+        Format of the numeric label displayed on each pie slice.
+
+    radar_color : str, optional (default='tab:blue')
+        Main line and fill color for the radar chart.
+
+    radar_fill_alpha : float, optional (default=0.25)
+        Alpha blending value for the filled area in the radar chart,
+        controlling transparency.
+
+    radar_line_style : str, optional (default='o-')
+        Marker and line style for the coverage in the radar chart,
+        for instance ``'o-'`` or ``'-'``.
+
+    figsize : tuple of float, optional
+        Figure size (width, height) in inches passed to matplotlib.
+
+    title : str or None, optional
+        Title for the plot. If None, no title is displayed.
+
+    savefig : str or None, optional
+        Filename (and extension) for saving the figure. If None,
+        the figure is only displayed and not saved.
+
+    Returns
+    -------
+    None
+        This function renders a coverage plot and may save it,
+        depending on the `savefig` argument.
+
+    Notes
+    -----
+    - If `q` is specified and the predictions are 2D, the first
+      and last columns of the sorted prediction array determine
+      the coverage interval. Intermediate quantile columns are
+      not used directly but may be relevant in other analyses.
+    - If the predictions are 1D point forecasts, coverage is
+      computed as the fraction of exact matches
+      (:math:`\\hat{y}_i = y_i`), which typically remains 0
+      unless the data are discrete or artificially matched.
+    - Different plot types offer various perspectives:
+      - Bar or line charts present coverage per model on a
+        simple numerical scale (0 to 1).
+      - Pie charts represent each model's coverage fraction
+        out of the sum of coverages. 
+      - Radar charts place each model's coverage on a radial
+        axis for a comparative "spider" plot.
+
+    See Also
+    --------
+    other_plot_function : Related plot function in the library
+        for handling additional forecast evaluation use cases.
+
+    References
+    ----------
+    .. [1] Koenker, R. and Bassett, G. (1978). "Regression
+           quantiles." *Econometrica*, 46(1), 33–50.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.plot.utils import plot_coverage
+    >>> # True values
+    >>> y_true = np.random.rand(100)
+    >>> # 3-quantile predictions for a single model
+    >>> y_pred_q = np.random.rand(100, 3)
+    >>> q = [0.1, 0.5, 0.9]
+    >>> # Bar chart coverage
+    >>> plot_coverage(y_true, y_pred_q, q=q,
+    ...               names=['QuantModel'],
+    ...               plot_type='bar',
+    ...               title='Coverage (Bar)')
+    >>> # Multiple models with radar plot
+    >>> y_pred_q2 = np.random.rand(100, 3)
+    >>> plot_coverage(y_true, y_pred_q, y_pred_q2,
+    ...               q=q,
+    ...               names=['Model1','Model2'],
+    ...               plot_type='radar',
+    ...               title='Coverage (Radar)')
+    """
+
+    # Convert the true values to a numpy array for consistency
+    y_true = np.array(y_true)
+
+    # Count how many model predictions were passed via *y_preds.
+    num_models = len(y_preds)
+
+    # Handle model names: create or extend to match the number of models.
+    names = columns_manager(names)
+    if names is None:
+        names = [f"Model_{i + 1}" for i in range(num_models)]
+    else:
+        if len(names) < num_models:
+            extra = num_models - len(names)
+            for i in range(extra):
+                names.append(f"Model_{len(names) + 1}")
+
+    # Initialize the figure.
+    if figsize is not None:
+        plt.figure(figsize=figsize)
+    else:
+        plt.figure()
+
+    coverage_scores = []
+
+    # Compute coverage for each model in *y_preds.
+    #   - If pred has shape (n_samples, n_quantiles), we compute coverage
+    #     between min and max quantile per sample.
+    #   - If pred is 1D, treat as a point forecast and check exact match
+    #     (illustrative; typically coverage would be 0 unless data match).
+    for i, pred in enumerate(y_preds):
+        pred = np.array(pred)
+
+        if (q is not None) and (pred.ndim == 2):
+            # Sort columns to ensure ascending order of quantiles.
+            pred_sorted = np.sort(pred, axis=1)
+            lower_q = pred_sorted[:, 0]
+            upper_q = pred_sorted[:, -1]
+            in_interval = (
+                (y_true >= lower_q) & (y_true <= upper_q)
+            ).astype(int)
+            coverage = np.mean(in_interval)
+
+        elif pred.ndim == 1:
+            # Point forecast coverage as fraction of exact matches
+            matches = (y_true == pred).astype(int)
+            coverage = np.mean(matches)
+
+        else:
+            # If neither scenario applies, store None.
+            coverage = None
+
+        coverage_scores.append(coverage)
+
+    # Prepare data for plotting. Replace None with 0 for convenience.
+    valid_cov = [
+        c if c is not None else 0 for c in coverage_scores
+    ]
+    x_idx = np.arange(num_models)
+
+    # Plot according to the chosen 'plot_type'.
+    if plot_type == 'bar':
+        plt.bar(x_idx, valid_cov, color='blue', alpha=0.7)
+        for idx, val in enumerate(coverage_scores):
+            if val is not None:
+                plt.text(
+                    x=idx,
+                    y=val + 0.01,
+                    s=f"{val:.2f}",
+                    ha='center',
+                    va='bottom'
+                )
+        plt.xticks(x_idx, names)
+        plt.ylim([0, 1])
+        plt.ylabel("Coverage")
+        plt.xlabel("Models")
+
+    elif plot_type == 'line':
+        plt.plot(x_idx, valid_cov, marker='o')
+        for idx, val in enumerate(coverage_scores):
+            if val is not None:
+                plt.text(
+                    x=idx,
+                    y=val + 0.01,
+                    s=f"{val:.2f}",
+                    ha='center',
+                    va='bottom'
+                )
+        plt.xticks(x_idx, names)
+        plt.ylim([0, 1])
+        plt.ylabel("Coverage")
+        plt.xlabel("Models")
+
+    elif plot_type == 'pie':
+        # Pie chart: each slice represents a model's coverage. By default,
+        # the slice size is coverage[i] out of the sum of coverage.
+        total_cov = sum(valid_cov)
+        if total_cov == 0:
+            # Avoid a zero-coverage pie chart.
+            plt.text(
+                0.5, 0.5,
+                "No coverage to plot",
+                ha='center',
+                va='center'
+            )
+        else:
+            plt.pie(
+                valid_cov,
+                labels=names,
+                autopct=pie_autopct,
+                startangle=pie_startangle,
+                colors=plt.cm.get_cmap(cmap)(
+                    np.linspace(0, 1, num_models)
+                )
+            )
+            plt.axis('equal')  # Make the pie chart a perfect circle.
+
+    elif plot_type == 'radar':
+        # Radar chart: place each model's coverage as a radial axis.
+        N = num_models
+        angles = np.linspace(0, 2 * np.pi, N, endpoint=False)
+        angles = np.concatenate((angles, [angles[0]]))
+        coverage_radar = np.concatenate((valid_cov, [valid_cov[0]]))
+
+        ax = plt.subplot(111, polar=True)
+        ax.plot(
+            angles,
+            coverage_radar,
+            radar_line_style,
+            color=radar_color,
+            label='Coverage'
+        )
+        ax.fill(
+            angles,
+            coverage_radar,
+            alpha=radar_fill_alpha,
+            color=radar_color
+        )
+        ax.set_thetagrids(
+            angles[:-1] * 180 / np.pi,
+            labels=names
+        )
+        ax.set_ylim(0, 1)
+        plt.legend(loc='upper right')
+
+    else:
+        # Fallback: print coverage scores to the console for each model.
+        for idx, val in enumerate(coverage_scores):
+            print(f"{names[idx]} coverage: {val}")
+
+    #
+    # Add title if provided.
+    if title is not None:
+        plt.title(title)
+        
+    if savefig is not None:
+        plt.savefig(savefig, bbox_inches='tight')
+
+    plt.show()
+
 
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE("my_ranking_plot.png"), 
@@ -2771,16 +3111,16 @@ def boxplot(
     >>> np.random.seed(10)
     >>> d = [np.random.normal(0, std, 100) for std in range(1, 5)]
     >>> labels = ['s1', 's2', 's3', 's4']
-    >>> plot_custom_boxplot(d, labels, 
-    ...                     title='Class assignment (roc-auc): PsA activity',
-    ...                     y_label='roc-auc', 
-    ...                     figsize=(12, 7),
-    ...                     color="green",
-    ...                     showfliers=False, 
-    ...                     whis=2,
-    ...                     width=0.3, 
-    ...                     linewidth=1.5,
-    ...                     flierprops=dict(marker='x', color='black', markersize=5))
+    >>> boxplot(d, labels, 
+    ...      title='Class assignment (roc-auc): PsA activity',
+    ...      y_label='roc-auc', 
+    ...      figsize=(12, 7),
+    ...      color="green",
+    ...      showfliers=False, 
+    ...      whis=2,
+    ...      width=0.3, 
+    ...      linewidth=1.5,
+    ...      flierprops=dict(marker='x', color='black', markersize=5))
     Notes
     -----
     Boxplots are a standardized way of displaying the distribution of data 
@@ -2804,7 +3144,7 @@ def boxplot(
     # Set labels and title
     bplot.set_title(title)
     bplot.set_ylabel(y_label)
-    bplot.set_xticklabels(labels)
+    # bplot.set_xticklabels(labels, rotation=45)
     
     # Set the style of the plot
     sns.set_style(sns_style)
@@ -3667,7 +4007,6 @@ def plot_relationship(
 
     # Show the plot
     plt.show()
-
 
 def plot_r_squared(
     y_true, y_pred, 

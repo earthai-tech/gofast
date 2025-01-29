@@ -1011,7 +1011,7 @@ def encode_target(
             deep_restore=True
         )
     except Exception:
-        # If it fails, fallback to raw DataFrame, optional warning
+        # If it fails, fallback to raw DataFrame, optional ignore warnings
         encoded_target = return_if_preserver_failed(
             encoded_target,
             warn="ignore",
@@ -1218,7 +1218,8 @@ def one_click_prep (
     data_processed = pd.DataFrame(
         data_processed, columns=processed_columns, index=data.index)
 
-    # Attempt to use a custom transformer if available.
+    # Attempt to use a custom transformer for reverting floating
+    # point if available.
     try:
         from ..transformers import FloatCategoricalToInt
         data_processed = FloatCategoricalToInt(
@@ -1418,10 +1419,13 @@ def soft_encoder(
             raise TypeError(f"Provided func is not callable. Received: {type(func)}")
         if len(cat_columns) == 0:
             # Warn if no categorical data were found
-            warnings.warn("No categorical data were detected. To transform"
-                          " numeric values into categorical labels, consider"
-                          " using either `gofast.utils.smart_label_classifier`"
-                          " or `gofast.utils.categorize_target`.")
+            warnings.warn(
+                "No categorical data were detected. To transform"
+                " numeric values into categorical labels, consider"
+                " using either `gofast.utils.smart_label_classifier`,"
+                " `gofast.utils.categorize_target` or"
+                " `gofast.preprocessing.encode_target`."
+            )
             return df
         
         # Apply the function to each categorical column
@@ -1781,8 +1785,6 @@ def bin_counting(
                  ) 
 
     return d
-
-
 
 def _single_counts ( 
         d,  bin_column, tname, odds = "N+",

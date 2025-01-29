@@ -35,7 +35,6 @@ from ..utils.validator import check_is_runned
 from ._base import PipelineOrchestrator
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA
 
-
 logger = gofastlog.get_gofast_logger(__name__)
 
 __all__ = [
@@ -139,8 +138,8 @@ class PipelineStep(BaseLearner):
     ...     dependencies=[]
     ... )
     >>> data = [1, 2, 3]
-    >>> output = step.run(data)
-    >>> print(output)
+    >>> output = step.fit(data)
+    >>> print(output.results_)
     [2, 4, 6]
 
     See Also
@@ -171,10 +170,9 @@ class PipelineStep(BaseLearner):
         self.params = params or {}
         self.dependencies = dependencies or []
         self.outputs_ = None
-        self._is_runned = False
+        self._is_fitted = False
 
-    @RunReturn(attribute_name="outputs_")
-    def run(self, data: Any) -> Any:
+    def fit(self, data: Any) -> Any:
         """
         Runs the pipeline step and returns the output.
 
@@ -193,7 +191,7 @@ class PipelineStep(BaseLearner):
         -----
         Before execution, the method logs the name of the step being executed.
         After execution, the output is stored in the attribute ``outputs_``.
-        The method sets the ``_is_runned`` attribute to True.
+        The method sets the ``_is_fitted`` attribute to True.
 
         Examples
         --------
@@ -207,8 +205,9 @@ class PipelineStep(BaseLearner):
         """
         logger.info(f"Running step: {self.name}")
         self.outputs_ = self.func(data, **self.params)
-        self._is_runned = True
-        return self.outputs_
+        self._is_fitted = True
+        
+        return self
 
     def get_dependencies(self) -> List[str]:
         """
@@ -253,7 +252,6 @@ class PipelineStep(BaseLearner):
         
         return None
     
-
 @smartFitRun
 class Pipeline(PipelineBaseClass):
     """
@@ -332,8 +330,8 @@ class Pipeline(PipelineBaseClass):
     >>> step1 = PipelineStep(name='Preprocess', func=preprocess)
     >>> step2 = PipelineStep(name='TrainModel', func=model_train)
     >>> pipeline = Pipeline(steps=[step1, step2])
-    >>> result = pipeline.run([1, 2, 3, 4])
-    >>> print(result)
+    >>> result = pipeline.fit([1, 2, 3, 4])
+    >>> print(result.outputs_)
     5.0
 
     See Also
@@ -358,7 +356,7 @@ class Pipeline(PipelineBaseClass):
         self.steps = steps or []
         self.parallel = parallel
         self.outputs_ = None
-        self._is_runned = False
+        self._is_fitted = False
 
     def add_step(self, step: PipelineStep):
         """
@@ -386,14 +384,13 @@ class Pipeline(PipelineBaseClass):
         logger.info(f"Adding step: {step.name}")
         self.steps.append(step)
 
-    @RunReturn(attribute_name="outputs_")
-    def run(self, initial_data: Any) -> Any:
+    def fit(self, data: Any) -> Any:
         """
         Runs the pipeline from start to finish.
 
         Parameters
         ----------
-        initial_data : Any
+        data : Any
             The input data that is passed through the pipeline.
 
         Returns
@@ -416,7 +413,7 @@ class Pipeline(PipelineBaseClass):
           each receiving the same initial data. This mode assumes that
           steps are independent of each other.
 
-        The method sets the ``_is_runned`` attribute to True.
+        The method sets the ``_is_fitted`` attribute to True.
 
         Examples
         --------
@@ -428,11 +425,11 @@ class Pipeline(PipelineBaseClass):
         >>> step1 = PipelineStep(name='Step1', func=step1_func)
         >>> step2 = PipelineStep(name='Step2', func=step2_func)
         >>> pipeline = Pipeline(steps=[step1, step2])
-        >>> result = pipeline.run([1, 2, 3])
-        >>> print(result)
+        >>> result = pipeline.fit([1, 2, 3])
+        >>> print(result.outputs_)
         [2, 4, 6, 10]
         """
-        data = initial_data
+
         if self.parallel:
             # Parallel execution
             with ThreadPoolExecutor() as executor:
@@ -450,8 +447,8 @@ class Pipeline(PipelineBaseClass):
                         logger.error(f"Step {step.name} failed with error: {str(e)}")
                         raise e
             self.outputs_ = results
-            self._is_runned = True
-            return self.outputs_
+            self._is_fitted = True
+            
         else:
             # Sequential execution
             for step in self.steps:
@@ -462,8 +459,9 @@ class Pipeline(PipelineBaseClass):
                     logger.error(f"Pipeline step {step.name} failed: {str(e)}")
                     raise e
             self.outputs_ = data
-            self._is_runned = True
-            return self.outputs_
+            self._is_fitted = True
+            
+        return self
         
     @executeWithFallback
     def execute(self, *args, **kwargs):
@@ -570,7 +568,7 @@ class PipelineManager(PipelineBaseClass):
     >>> manager = PipelineManager()
     >>> manager.add_step(step1)
     >>> manager.add_step(step2)
-    >>> result = manager.run(initial_data=0)
+    >>> result = manager.fit(data=0)
     >>> print(result)
     2
 
@@ -594,7 +592,7 @@ class PipelineManager(PipelineBaseClass):
         self.step_metadata_: Dict[str, Any] = {}
         self.failed_steps_: List[str] = []
         self.outputs_: Any = None
-        self._is_runned = False
+        self._is_fitted = False
 
     def add_step(self, step: 'PipelineStep'):
         """
@@ -653,20 +651,19 @@ class PipelineManager(PipelineBaseClass):
         """
         return self.steps.get(name, None)
 
-    @RunReturn(attribute_name="outputs_")
-    def run(self, initial_data: Any) -> Any:
+    def fit(self, data: Any) -> Any:
         """
         Runs the pipeline in the correct order, respecting dependencies.
         Allows retrying failed steps if enabled.
 
         Parameters
         ----------
-        initial_data : Any
+        data : Any
             The input data to pass through the first pipeline step.
 
         Returns
         -------
-        Any
+        self
             The final output after running the pipeline.
 
         Raises
@@ -685,8 +682,8 @@ class PipelineManager(PipelineBaseClass):
 
         Examples
         --------
-        >>> result = manager.run(initial_data=1)
-        >>> print(result)
+        >>> result = manager.fit(data=1)
+        >>> print(result.outputs_)
         4
         """
         execution_sequence = self._determine_execution_order()
@@ -701,9 +698,9 @@ class PipelineManager(PipelineBaseClass):
                         input_data = [self.step_metadata_[dep]["output"]
                                       for dep in step.get_dependencies()]
                         # For simplicity, use the last dependency's output
-                        input_data = input_data[-1]
+                        input_data = data[-1]
                     else:
-                        input_data = initial_data
+                        input_data = data
 
                     logger.info(f"Running {step_name} with input: {input_data}")
                     output = step.run(input_data)
@@ -722,7 +719,8 @@ class PipelineManager(PipelineBaseClass):
         final_output = self.step_metadata_[execution_sequence[-1]]["output"]
         self.outputs_ = final_output
         self._is_runned = True
-        return final_output
+        
+        return self 
 
     def _determine_execution_order(self) -> List[str]:
         """
@@ -948,12 +946,6 @@ class PipelineManager(PipelineBaseClass):
         return None
     
 @smartFitRun
-@ensure_pkg(
-    "psutil",
-    extra="The 'psutil' package is required for this functionality.",
-    auto_install=INSTALL_DEPENDENCIES,
-    use_conda=USE_CONDA
-)
 class ResourceManager(BaseLearner):
     """
     Manages the allocation of system resources for pipeline steps.
@@ -1049,7 +1041,12 @@ class ResourceManager(BaseLearner):
     .. [1] Smith, J. (2020). "Efficient Resource Management in Pipeline Systems."
        *Journal of Systems Engineering*, 15(3), 200-215.
     """
-
+    @ensure_pkg(
+        "psutil",
+        extra="The 'psutil' package is required for this functionality.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA
+    )
     def __init__(self):
         self.available_cpu_cores_ = None
         self.available_memory_ = None
@@ -1241,12 +1238,6 @@ class ResourceManager(BaseLearner):
         }
 
 
-@ensure_pkg(
-    "psutil",
-    extra="The 'psutil' package is required for this functionality.",
-    auto_install=INSTALL_DEPENDENCIES,
-    use_conda=USE_CONDA
-)
 class ResourceMonitor(BaseLearner):
     """
     Monitors system resource usage during the execution of pipeline
@@ -1319,6 +1310,12 @@ class ResourceMonitor(BaseLearner):
        *International Journal of Data Engineering*, 8(2), 120-135.
     """
 
+    @ensure_pkg(
+        "psutil",
+        extra="The 'psutil' package is required for this functionality.",
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA
+    )
     def __init__(self):
         self.cpu_usage_: List[float] = []
         self.memory_usage_: List[int] = []
@@ -1405,7 +1402,6 @@ class ResourceMonitor(BaseLearner):
         logger.info(
             f"Current CPU Usage: {cpu:.2f}%, Memory Usage: {memory_gb:.2f} GB"
         )
-
 
 @smartFitRun
 class PipelineOptimizer(BaseLearner):

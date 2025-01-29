@@ -96,7 +96,8 @@ from .utils import (
     plot_relationship, 
     plot_fit, 
     plot_factory_ops, 
-    plot_ranking
+    plot_ranking, 
+    plot_coverage
     )
 
 __all__= [
@@ -191,7 +192,8 @@ __all__= [
     'plot_relationship', 
     'plot_fit', 
     'plot_factory_ops', 
-    'plot_ranking'
+    'plot_ranking', 
+    'plot_coverage'
                
     ]
 

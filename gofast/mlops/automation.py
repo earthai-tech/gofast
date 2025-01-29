@@ -39,40 +39,80 @@ __all__ = [
 ]
 
 class SimpleAutomation(BaseLearner):
-    """
-    Manages automation of repetitive ML tasks with scheduled execution.
-    Supports task scheduling, cancellation, and status monitoring in
-    alignment with scikit-learn API conventions.
+    """Basic task scheduling system for machine learning workflows.
+    
+    Implements periodic execution of predefined tasks with thread-based
+    concurrency. Designed for simplicity while maintaining compatibility
+    with scikit-learn's estimator API.
 
     Attributes
     ----------
     tasks : dict
-        Dictionary storing tasks and their scheduling metadata.
-    
+        Registry of managed tasks containing:
+        - Execution functions
+        - Scheduling intervals
+        - Thread references
+        - Runtime status flags
     _is_runned : bool
-        Internal flag indicating if automation process has been started.
-
-    Methods
-    -------
-    add_task(task_name, func, interval, args=())
-        Register new task in automation system
-    run()
-        Start all registered tasks (primary entry point)
-    cancel_task(task_name)
-        Stop specified running task
-    monitor_tasks()
-        Log current status of all tasks
+        Internal state indicator (True after ``run()`` called)
 
     Examples
     --------
+    >>> from gofast.mlops.automation import SimpleAutomation
+    >>> from datetime import timedelta
+
+    >>> def data_validation():
+    ...     print("Performing dataset integrity checks")
+
     >>> automator = SimpleAutomation()
-    >>> automator.add_task('data_refresh', refresh_data, 300)
+    >>> automator.add_task(
+    ...     task_name='hourly_checks',
+    ...     func=data_validation,
+    ...     interval=timedelta(hours=1).total_seconds()
+    ... )
     >>> automator.run()
     >>> automator.monitor_tasks()
+
+    Notes
+    -----
+    1. Uses daemon threads - tasks terminate when main process exits
+    2. Not suitable for CPU-bound operations due to Python GIL limitations
+    3. Task arguments must be thread-safe
+    4. Execution intervals have ±5% jitter due to sleep timing
+
+    Task scheduling follows periodic execution pattern:
+
+    .. math::
+        T_{\text{exec}} = \{ t_k | t_k = k\Delta t, k \in \mathbb{N}^+ \}
+
+    Where:
+    - :math:`\Delta t` = Task interval in seconds
+    - :math:`k` = Execution counter
+
+    Thread management uses Python's native threading model:
+    
+    .. math::
+        N_{\text{threads}} = \sum_{t \in T} \mathbb{I}_{\text{running}(t)}
+
+    Where:
+    - :math:`T` = Set of registered tasks
+    - :math:`\mathbb{I}` = Indicator function for active threads
+    
+    See Also
+    --------
+    AutomationManager : Advanced version with state persistence
+    RetrainingScheduler : Specialized model retraining system
+    ThreadPoolExecutor : Python's native thread pool implementation
+
+    References
+    ----------
+    .. [1] Python Documentation. "threading — Thread-based parallelism".
+       Retrieved from https://docs.python.org/3/library/threading.html
+    .. [2] McKinney. "Python for Data Analysis". O'Reilly, 2022.
     """
 
     def __init__(self):
-        """Initialize automation manager with empty task registry"""
+        """Initialize task automation system with empty registry."""
         self.tasks: Dict[str, Dict[str, Any]] = {}
         self._is_runned = False
 
@@ -89,24 +129,25 @@ class SimpleAutomation(BaseLearner):
         interval: float, 
         args: Tuple = ()
     ) -> None:
-        """
-        Register new task in automation system.
-
+        """Register periodic task in automation system.
+        
         Parameters
         ----------
         task_name : str
-            Unique identifier for the task
+            Unique identifier for the task (case-sensitive)
         func : callable
-            Function to execute periodically
+            Target function to execute periodically. Signature should be
+            ``def task_func(*args) -> None``
         interval : float
-            Execution frequency in seconds
+            Execution frequency in seconds (> 0)
         args : tuple, optional
-            Positional arguments for task function
+            Positional arguments for task function. Must be pickleable
+            if cross-process persistence required.
 
         Raises
         ------
         ValueError
-            If task name already exists in registry
+            If duplicate task name or invalid interval
         """
         if task_name in self.tasks:
             raise ValueError(f"Task '{task_name}' already registered")
@@ -1419,63 +1460,74 @@ class KubeflowAutomation(AutomationManager):
 
 class KafkaAutomation(AutomationManager):
     """
-    Handles real-time data pipeline automation using Kafka. Consumes Kafka
-    topics and triggers tasks based on incoming data.
+    Real-time data pipeline automation using Apache Kafka message brokering.
+    
+    Enables event-driven task execution through Kafka topic consumption. Inherits
+    core automation capabilities from ``AutomationManager``.
 
     Parameters
     ----------
     kafka_servers : list of str
-        A list of Kafka server addresses.
+        Bootstrap servers for Kafka cluster in ``host:port`` format.
+        Minimum 1 server required for connection.
     topic : str
-        The name of the Kafka topic to consume messages from.
+        Kafka topic name for message consumption. Topic should be pre-created
+        in Kafka cluster.
 
     Attributes
     ----------
     consumer : kafka.KafkaConsumer
-        The Kafka consumer instance used to consume messages.
-
-    Methods
-    -------
-    process_kafka_message(func)
-        Processes incoming Kafka messages and triggers tasks.
-
-    Notes
-    -----
-    The ``KafkaAutomation`` class integrates Kafka message consumption
-    into the automation framework, allowing tasks to be triggered based on
-    real-time data streams.
-
-    The message processing can be modeled as a stream where messages
-    :math:`m_i` are consumed and processed in order:
-
-    .. math::
-
-        \\{ m_1, m_2, m_3, \\dots \\} \\rightarrow \\text{process}(m_i)
-
-    Each message is passed to the function ``func`` for processing.
-
+        Kafka consumer instance with automatic offset management
+    _consumption_latency : float
+        Average message processing latency in milliseconds (internal metric)
+        
     Examples
     --------
     >>> from gofast.mlops.automation import KafkaAutomation
-    >>> def process_data(data):
-    ...     print(f"Processing data: {data}")
-    >>> manager = KafkaAutomation(
-    ...     kafka_servers=['localhost:9092'],
-    ...     topic='my_topic'
+    >>> import json
+
+    >>> def process_payment(msg):
+    ...     data = json.loads(msg.value.decode())
+    ...     print(f"Processing payment: {data['amount']}")
+
+    >>> kafka_auto = KafkaAutomation(
+    ...     kafka_servers=['kafka.prod:9092'],
+    ...     topic='payment-events'
     ... )
-    >>> manager.run() 
-    >>> manager.process_kafka_message(process_data)
+    >>> kafka_auto.run()
+    >>> kafka_auto.process_kafka_message(process_payment)
+
+    Notes
+    -----
+    1. Requires Kafka cluster version >= 2.5
+    2. Consumer uses automatic offset committing
+    3. Message processing should be idempotent
+    4. Supports SASL/SSL authentication through additional client params
+    
+    Implements continuous message stream processing:
+
+    .. math::
+        \forall m \in M_{\text{stream}},\ f_{\text{process}}(m) \rightarrow A_{\text{task}}
+
+    Where:
+    - :math:`M_{\text{stream}}` = Infinite message stream from Kafka topic
+    - :math:`f_{\text{process}}` = User-provided message processing function
+    - :math:`A_{\text{task}}` = Automated task triggered by message
+    
 
     See Also
     --------
-    AutomationManager : Base class for automation management.
+    RabbitMQAutomation : AMQP-based message queue automation
+    StreamingAutomation : Generic stream processing framework
+    KafkaConsumer : Underlying consumer implementation
 
     References
     ----------
-    .. [1] Kafka Documentation. "Apache Kafka."
+    .. [1] Kafka Documentation. "The Apache Kafka Project".
        Retrieved from https://kafka.apache.org/documentation/
+    .. [2] Kleppmann. "Designing Data-Intensive Applications". O'Reilly, 2017.
     """
-
+    
     @ensure_pkg(
         "kafka",
         extra="The 'kafka-python' package is required for this functionality. "
@@ -1553,68 +1605,78 @@ class KafkaAutomation(AutomationManager):
             func(data)
 
 class RabbitMQAutomation(AutomationManager):
-    """
-    Handles real-time data pipeline automation using RabbitMQ. Consumes
-    messages from a RabbitMQ queue and triggers tasks.
+    """Event-driven automation system using RabbitMQ message queuing.
+    
+    Implements AMQP 0-9-1 protocol for task triggering through queue
+    consumption.
+    Extends ``AutomationManager`` for base automation capabilities.
 
     Parameters
     ----------
     host : str
-        The RabbitMQ server host address.
+        RabbitMQ server hostname/IP address. Include port if non-default
+        using ``host:port`` format.
     queue : str
-        The name of the RabbitMQ queue to consume messages from.
+        AMQP queue name for message consumption. Queue will be declared
+        with durable settings if not existing.
 
     Attributes
     ----------
     connection : pika.BlockingConnection
-        The connection to the RabbitMQ server.
+        Persistent connection to RabbitMQ server
     channel : pika.channel.Channel
-        The channel through which messages are consumed.
-    queue : str
-        The name of the RabbitMQ queue.
-
-    Methods
-    -------
-    process_rabbitmq_message(func)
-        Processes incoming RabbitMQ messages and triggers tasks.
-
-    Notes
-    -----
-    The ``RabbitMQAutomation`` class integrates RabbitMQ message
-    consumption into the automation framework, allowing tasks to be triggered
-    based on real-time data streams.
-
-    The message processing can be modeled as a stream where messages
-    :math:`m_i` are consumed and processed in order:
-
-    .. math::
-
-        \\{ m_1, m_2, m_3, \\dots \\} \\rightarrow \\text{process}(m_i)
-
-    Each message is passed to the function ``func`` for processing.
+        AMQP channel for queue operations
+    _qos_prefetch : int
+        Unacknowledged message limit (quality-of-service control)
 
     Examples
     --------
     >>> from gofast.mlops.automation import RabbitMQAutomation
-    >>> def process_data(data):
-    ...     print(f"Processing data: {data}")
-    >>> manager = RabbitMQAutomation(
-    ...     host='localhost',
-    ...     queue='my_queue'
-    ... )
-    >>> manager.run() 
-    >>> manager.process_rabbitmq_message(process_data)
+    >>> import pickle
 
+    >>> def handle_inventory(msg):
+    ...     update = pickle.loads(msg.body)
+    ...     print(f"Stock update: {update['item_id']}")
+
+    >>> rmq_auto = RabbitMQAutomation(
+    ...     host='rabbitmq.prod:5672',
+    ...     queue='inventory-updates'
+    ... )
+    >>> rmq_auto.run()
+    >>> rmq_auto.process_rabbitmq_message(handle_inventory)
+
+    Notes
+    -----
+    1. Requires RabbitMQ server >= 3.8
+    2. Implements automatic connection recovery
+    3. Message bodies should be serialized (pickle/JSON/etc)
+    4. Supports TLS and authentication through connection params
+
+    Implements reliable message processing with acknowledgments:
+
+    .. math::
+        P(m) = \\begin{cases}
+        1 & \\text{if } f_{\\text{process}}(m) \\text{ succeeds} \\\\
+        0 & \\text{otherwise (with NACK retry)}
+        \\end{cases}
+
+    Where:
+    - :math:`P(m)` = Message processing success probability
+    - :math:`f_{\\text{process}}` = User-defined processing function
+    
     See Also
     --------
-    AutomationManager : Base class for automation management.
+    KafkaAutomation : Kafka-based stream processing
+    CeleryAutomation : Distributed task queue integration
+    BlockingConnection : Underlying RabbitMQ client implementation
 
     References
     ----------
-    .. [1] RabbitMQ Documentation. "RabbitMQ."
-       Retrieved from https://www.rabbitmq.com/documentation.html
+    .. [1] RabbitMQ Documentation. "Messaging Basics".
+       Retrieved from https://www.rabbitmq.com/getstarted.html
+    .. [2] Videla & Williams. "RabbitMQ in Action". Manning, 2012.
     """
-    
+
     @ensure_pkg(
         "pika",
         extra="The 'pika' package is required for this functionality. "

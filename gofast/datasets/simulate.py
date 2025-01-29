@@ -3501,7 +3501,6 @@ def simulate_weather_forecasting(
         FDESCR=features_descr  
     )
 
-
 def simulate_default_loan(
     *, n_samples=1000, 
     credit_score_range=None,
