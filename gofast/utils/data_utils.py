@@ -2499,7 +2499,8 @@ def read_excel_sheets(
     
     See Also
     --------
-    check_files : Function to validate file existence, format, and non-emptiness.
+    gofast.core.checks.check_files : 
+        Function to validate file existence, format, and non-emptiness.
     pandas.read_excel : Function to read Excel files into Pandas DataFrames.
     os.path.exists : Check if a path exists.
     os.path.splitext : Split the file path into root and extension.
