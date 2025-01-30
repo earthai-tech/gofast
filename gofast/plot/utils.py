@@ -33,13 +33,14 @@ from sklearn.utils import resample
 
 from ..api.types import Optional, Tuple,  Union, List 
 from ..api.types import Dict, ArrayLike, DataFrame
+from ..api.summary import ResultSummary
 from ..core.array_manager import smart_ts_detector, drop_nan_in 
 from ..core.checks import ( 
     _assert_all_types, is_iterable, str2columns, is_in_if, 
     exist_features, check_features_types, check_spatial_columns,
     validate_depth, check_params, check_numeric_dtype 
 )
-from ..core.handlers import columns_manager,  param_deprecated_message 
+from ..core.handlers import columns_manager, param_deprecated_message 
 from ..core.io import is_data_readable 
 from ..core.plot_manager import default_params_plot 
 from ..compat.sklearn import ( 
@@ -83,17 +84,19 @@ __all__=[
 
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE("my_coverall_plot.png"), 
-    figsize =(8, 6), 
+    fig_size =(8, 6), 
     dpi=300
     )
 @validate_params ({ 
     'y_true': ['array-like'],
     'plot_type': [StrOptions({"line", "bar", "pie", "radar"}), None], 
-    'q': [Interval(Real, 0, 1 , closed="neither"),  None]
     })
 @check_params({
-    "names": Optional[str]
-    })
+        "names": Optional[Union [str, List[str]]], 
+        "q": Optional[Union[float, List[float]]]
+    }, 
+    coerce=False, 
+)
 def plot_coverage(
     y_true,
     *y_preds,
@@ -106,9 +109,11 @@ def plot_coverage(
     radar_color='tab:blue',
     radar_fill_alpha=0.25,
     radar_line_style='o-',
+    cov_fill=False, 
     figsize=None,
     title=None,
     savefig=None,
+    verbose=1 
 ):
     """
     Plot coverage scores for quantile or point forecasts and allow
@@ -192,7 +197,12 @@ def plot_coverage(
     radar_line_style : str, optional (default='o-')
         Marker and line style for the coverage in the radar chart,
         for instance ``'o-'`` or ``'-'``.
-
+        
+    cov_fill : bool, default=False
+        Enable gradient fill for radar plots. For single models, creates
+        a radial gradient up to coverage value. For multiple models,
+        fills polygon areas.
+        
     figsize : tuple of float, optional
         Figure size (width, height) in inches passed to matplotlib.
 
@@ -203,6 +213,11 @@ def plot_coverage(
         Filename (and extension) for saving the figure. If None,
         the figure is only displayed and not saved.
 
+    verbose : int, default=1
+        Control coverage score printing:
+            - 0: No output
+            - 1: Print formatted coverage summary
+       
     Returns
     -------
     None
@@ -226,11 +241,20 @@ def plot_coverage(
         out of the sum of coverages. 
       - Radar charts place each model's coverage on a radial
         axis for a comparative "spider" plot.
+        
+    1. For quantile predictions (2D arrays), coverage is computed between
+       the minimum and maximum quantiles per observation
+    2. Point forecast coverage (1D arrays) measures exact matches, which
+       is typically near-zero for continuous data
+    3. Radar plots with ``cov_fill=True`` display:
+        - Gradient fill from center to coverage value (single model)
+        - Transparent polygon fill (multiple models)
+        - Red reference line at coverage level (single model)
 
     See Also
     --------
-    other_plot_function : Related plot function in the library
-        for handling additional forecast evaluation use cases.
+    gofast.plot.plot_roc : Receiver operating characteristic curve plotting
+    gofast.plot.plot_residuals : Diagnostic residual analysis plots
 
     References
     ----------
@@ -243,6 +267,7 @@ def plot_coverage(
     >>> from gofast.plot.utils import plot_coverage
     >>> # True values
     >>> y_true = np.random.rand(100)
+    >>> y_pred = np.random.rand(100, 3)
     >>> # 3-quantile predictions for a single model
     >>> y_pred_q = np.random.rand(100, 3)
     >>> q = [0.1, 0.5, 0.9]
@@ -251,6 +276,11 @@ def plot_coverage(
     ...               names=['QuantModel'],
     ...               plot_type='bar',
     ...               title='Coverage (Bar)')
+    # Single model quantile coverage
+    >>> y_pred = np.random.rand(200, 3)
+    >>> plot_coverage(y_true, y_pred, q=[0.1, 0.5, 0.9],
+    ...               plot_type='radar', names=['QModel'],
+    ...               cov_fill=True, cmap='plasma')
     >>> # Multiple models with radar plot
     >>> y_pred_q2 = np.random.rand(100, 3)
     >>> plot_coverage(y_true, y_pred_q, y_pred_q2,
@@ -267,7 +297,7 @@ def plot_coverage(
     num_models = len(y_preds)
 
     # Handle model names: create or extend to match the number of models.
-    names = columns_manager(names)
+    names = columns_manager(names, to_string=True)
     if names is None:
         names = [f"Model_{i + 1}" for i in range(num_models)]
     else:
@@ -276,14 +306,28 @@ def plot_coverage(
             for i in range(extra):
                 names.append(f"Model_{len(names) + 1}")
 
-    # Initialize the figure.
-    if figsize is not None:
-        plt.figure(figsize=figsize)
-    else:
-        plt.figure()
-
     coverage_scores = []
 
+    q= columns_manager(q)
+    # Handle quantiles
+    if q is not None:
+        q = np.array(q)
+        if q.ndim != 1:
+            raise ValueError(
+                "Parameter 'q' must be a 1D list or"
+                " array of quantile levels."
+                )
+            
+        if not np.all((0 < q) & (q < 1)):
+            raise ValueError(
+                "Quantile levels must be between 0 and 1."
+            )
+        # Sort q and get the sorted indices
+        sorted_indices = np.argsort(q)
+        q_sorted = q[sorted_indices]
+    else:
+        q_sorted = None
+        
     # Compute coverage for each model in *y_preds.
     #   - If pred has shape (n_samples, n_quantiles), we compute coverage
     #     between min and max quantile per sample.
@@ -292,9 +336,26 @@ def plot_coverage(
     for i, pred in enumerate(y_preds):
         pred = np.array(pred)
 
-        if (q is not None) and (pred.ndim == 2):
+        #if (q is not None) and (pred.ndim == 2):
+        if pred.ndim == 2:
+            if q_sorted is not None: 
+                # No need since we used the first and last for 
+                # computed coverage. 
+                # --------------------
+                # if pred.shape[1] != len(q_sorted):
+                #     raise ValueError(
+                #         f"Model {i+1} predictions have"
+                #         f"{pred.shape[1]} quantiles, "
+                #         f"but 'q' has {len(q_sorted)} levels."
+                #     )
+                # ---------------------
+                # Align predictions with sorted quantiles
+                pred_sorted = pred[:, sorted_indices]
+            else: 
+                pred_sorted = np.sort(pred, axis=1)
+                
             # Sort columns to ensure ascending order of quantiles.
-            pred_sorted = np.sort(pred, axis=1)
+            # pred_sorted = np.sort(pred, axis=1)
             lower_q = pred_sorted[:, 0]
             upper_q = pred_sorted[:, -1]
             in_interval = (
@@ -318,7 +379,13 @@ def plot_coverage(
         c if c is not None else 0 for c in coverage_scores
     ]
     x_idx = np.arange(num_models)
-
+    
+    if plot_type in {'bar', 'line', 'pipe'}: 
+        # Initialize the figure.
+        if figsize is not None:
+            plt.figure(figsize=figsize)
+        else:
+            plt.figure()
     # Plot according to the chosen 'plot_type'.
     if plot_type == 'bar':
         plt.bar(x_idx, valid_cov, color='blue', alpha=0.7)
@@ -377,13 +444,16 @@ def plot_coverage(
             plt.axis('equal')  # Make the pie chart a perfect circle.
 
     elif plot_type == 'radar':
-        # Radar chart: place each model's coverage as a radial axis.
+        # #Radar chart: place each model's coverage as a radial axis.
+
         N = num_models
         angles = np.linspace(0, 2 * np.pi, N, endpoint=False)
         angles = np.concatenate((angles, [angles[0]]))
         coverage_radar = np.concatenate((valid_cov, [valid_cov[0]]))
-
+        
         ax = plt.subplot(111, polar=True)
+        
+        # Plot main coverage line
         ax.plot(
             angles,
             coverage_radar,
@@ -391,16 +461,57 @@ def plot_coverage(
             color=radar_color,
             label='Coverage'
         )
-        ax.fill(
-            angles,
-            coverage_radar,
-            alpha=radar_fill_alpha,
-            color=radar_color
-        )
-        ax.set_thetagrids(
-            angles[:-1] * 180 / np.pi,
-            labels=names
-        )
+
+        # Handle fill based on number of models
+        if cov_fill:
+            if num_models == 1:
+                # Single model: radial gradient fill up to coverage value
+                coverage_value = valid_cov[0]
+                theta = np.linspace(0, 2 * np.pi, 100)
+                r = np.linspace(0, coverage_value, 100)
+                R, Theta = np.meshgrid(r, theta)
+                
+                # Create gradient using specified colormap
+                ax.pcolormesh(
+                    Theta, R, R, 
+                    cmap=cmap, 
+                    shading='auto', 
+                    alpha=radar_fill_alpha,
+                    zorder=0  # Place behind main plot
+                )
+                # Add red circle at coverage value
+                ax.plot(
+                    theta, 
+                    [coverage_value] * len(theta),  # Constant radius
+                    color='red', 
+                    linewidth=2, 
+                    linestyle='-',
+                    # label=f'Coverage Value ({coverage_value:.2f})'
+                )
+                
+            # Add concentric grid circles at 0.2, 0.4, 0.6, 0.8 
+            # with correct properties
+                ax.set_ylim(0, 1)
+                ax.set_yticks([0.2, 0.4, 0.6, 0.8])
+                ax.yaxis.grid(
+                    True, 
+                    color="gray", 
+                    linestyle="--", 
+                    linewidth=0.5, 
+                    alpha=0.7
+                )
+            
+            else:
+                # Multiple models: transparent fill between center and line
+                ax.fill(
+                    angles,
+                    coverage_radar,
+                    color=radar_color,
+                    alpha=radar_fill_alpha,
+                    zorder=0
+                )
+        # Final formatting
+        ax.set_thetagrids(angles[:-1] * 180/np.pi, labels=names)
         ax.set_ylim(0, 1)
         plt.legend(loc='upper right')
 
@@ -409,7 +520,15 @@ def plot_coverage(
         for idx, val in enumerate(coverage_scores):
             print(f"{names[idx]} coverage: {val}")
 
-    #
+    if verbose:
+       cov_dict = {
+           names[idx]: cov 
+           for idx, cov in enumerate(coverage_scores)
+           }
+       summary = ResultSummary(
+           "CoverageScores").add_results (cov_dict)
+       print(summary)
+       
     # Add title if provided.
     if title is not None:
         plt.title(title)

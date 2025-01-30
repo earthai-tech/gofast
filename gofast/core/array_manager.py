@@ -3334,6 +3334,9 @@ def _process_reference_array(
     """
     Process the reference array and determine its type.
     """
+    if isinstance (ref_array, (list, tuple)): 
+        ref_array = np.asarray( ref_array)
+        
     if ref_array is not None:
         if isinstance(ref_array, pd.DataFrame):
             if reset_index: 
@@ -3521,7 +3524,6 @@ def _drop_labels_from_df(
         elif error == 'ignore':
             return df.copy()
 
-
 def _convert_arrays_to_df(
     arrays: Tuple[Union[np.ndarray, pd.DataFrame, pd.Series], ...], 
     reset_index: bool=True , 
@@ -3546,6 +3548,9 @@ def _convert_arrays_to_df(
     df_arrays = []
     original_types = []
     for arr in arrays:
+        if isinstance (arr, (list, tuple)): 
+            arr = np.asarray(arr)
+            
         if isinstance(arr, pd.DataFrame):
             # If the array is already a DataFrame, make a copy to avoid
             # modifying the original data.

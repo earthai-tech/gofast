@@ -25,14 +25,18 @@ from sklearn.linear_model import LogisticRegression
 
 from ..api.types import Optional, Tuple,  List, Union 
 from ..api.types import ArrayLike, DataFrame, Series
-from ..api.summary import ReportFactory 
+from ..api.summary import ReportFactory
+from ..compat.sklearn import HasMethods, validate_params 
 from ..core.array_manager import to_numeric_dtypes 
 from ..core.checks import is_iterable 
+from ..core.plot_manager import default_params_plot 
 from ..core.utils import fill_nan_in
 from ..utils.validator import get_estimator_name
 from ..utils.validator import check_X_y, check_consistent_length
 from ..transformers import SequentialBackwardSelector 
+from ._config import PlotConfig 
 from .utils import _set_sns_style, make_mpl_properties 
+
 
 __all__=[
   'plot_importances_ranking',
@@ -40,12 +44,11 @@ __all__=[
   'plot_feature_interactions',
   'plot_variables',
   'plot_correlation_with',
-  'plot_dependences',
+  'plot_dependence',
   'plot_sbs_feature_selection',
   'plot_permutation_importance',
   'plot_regularization_path',   
 ]
-
 
 def plot_regularization_path(
     X, y, 
@@ -292,7 +295,15 @@ def plot_permutation_importance(
     
     return fig, ax
 
-def plot_dependences(
+@default_params_plot(
+    savefig =PlotConfig.AUTOSAVE('my_dependence_plot.png'),
+    dpi=300, 
+)
+@validate_params ({
+    'model': [HasMethods(['predict'])], 
+    'X': ['array-like'], 
+    })
+def plot_dependence(
     model: BaseEstimator, 
     X: Union[ArrayLike, DataFrame], 
     features: Union[List[int], List[str]], 
@@ -326,6 +337,7 @@ def plot_dependences(
     kind : str, optional
         The kind of plot to generate. 'average' generates the PDP, and 
         'individual' generates the ICE plots. Defaults to 'average'.
+        If ``both``, it combines ``'average'``
         
     grid_resolution : int, optional
         The number of evenly spaced points where the partial dependence 
@@ -359,10 +371,10 @@ def plot_dependences(
     --------
     >>> from sklearn.datasets import make_friedman1
     >>> from sklearn.ensemble import GradientBoostingRegressor
-    >>> from gofast.plot.feature_analysis import plot_dependences
+    >>> from gofast.plot.feature_analysis import plot_dependence
     >>> X, y = make_friedman1()
     >>> model = GradientBoostingRegressor().fit(X, y)
-    >>> plot_dependences(model, X, features=[0, 1], kind='average')
+    >>> plot_dependence(model, X, features=[0, 1], kind='average')
 
     See Also 
     ---------

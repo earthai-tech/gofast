@@ -14,15 +14,17 @@ import matplotlib.pyplot as plt
 from ..api.types import ArrayLike, DataFrame 
 from ..api.types import List, Tuple, Optional, Union 
 from ..core.checks import is_iterable, exist_features 
+from ..core.io import is_data_readable 
 from ..utils.validator import is_frame 
 
 __all__=[
     "pie_charts", "radar_chart", "radar_chart_in", "donut_chart"
     ]
 
+@is_data_readable
 def donut_chart(
     data,
-    values,
+    value,
     labels=None,
     aggfunc='sum',
     groupby=None,
@@ -56,10 +58,10 @@ def donut_chart(
     ----------
     data : pandas.DataFrame
         The input DataFrame containing the data to plot. It must
-        include the specified `values` column and optionally
+        include the specified `value` column and optionally
         `labels` and `groupby` columns.
 
-    values : str
+    value : str
         The column name in `data` to use for the values of the
         chart. This column must contain numerical data.
 
@@ -69,7 +71,7 @@ def donut_chart(
         `groupby` columns or the DataFrame index.
 
     aggfunc : str or callable, default ``'sum'``
-        The aggregation function to apply to the `values` column
+        The aggregation function to apply to the `value` column
         if `groupby` is specified. It can be a string such as
         ``'sum'``, ``'mean'``, or a callable function.
 
@@ -181,14 +183,14 @@ def donut_chart(
     >>> # Plot average rainfall per year
     >>> donut_chart(
     ...     data=data,
-    ...     values='rainfall',
+    ...     value='rainfall',
     ...     labels='year',
     ...     title='Average Rainfall per Year'
     ... )
     >>> # Plot total rainfall per region with custom colors
     >>> donut_chart(
     ...     data=data,
-    ...     values='rainfall',
+    ...     value='rainfall',
     ...     labels='region',
     ...     colors=['#ff9999', '#66b3ff', '#99ff99', '#ffcc99'],
     ...     title='Total Rainfall by Region',
@@ -216,7 +218,7 @@ def donut_chart(
             groupby = [groupby]
         grouped_data = (
             data
-            .groupby(groupby)[values]
+            .groupby(groupby)[value]
             .agg(aggfunc)
             .reset_index()
         )
@@ -247,7 +249,7 @@ def donut_chart(
         labels = grouped_data.index.astype(str)
 
     # Extract values to plot
-    plot_values = grouped_data[values]
+    plot_values = grouped_data[value]
 
     # Use default colors if not specified
     if colors is None:
@@ -311,9 +313,9 @@ def donut_chart(
     # Display the plot
     plt.show()
 
-
+@is_data_readable
 def pie_charts(
-    data: DataFrame, /, 
+    data: DataFrame, 
     columns: Optional[Union[str, List[str]]] = None,
     bin_numerical: bool = True,
     num_bins: int = 4,
@@ -624,7 +626,7 @@ def radar_chart(
     return fig, ax
 
 def radar_chart_in(
-    d: ArrayLike, /, 
+    d: ArrayLike, 
     categories: List[str], 
     cluster_labels: List[str], 
     title: str = "Radar plot Umatrix cluster properties"

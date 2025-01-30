@@ -1423,7 +1423,7 @@ final_agg : str, optional
 
 Examples
 --------
->>> from gofast.nn.transformers import XTFT
+>>> from gofast.nn.tft import XTFT
 >>> import tensorflow as tf
 >>> model = XTFT(
 ...     static_input_dim=10,
@@ -1458,7 +1458,7 @@ Out[8]: <keras.callbacks.History at 0x20474300640>
 
 See Also
 --------
-gofast.nn.transformers.TemporalFusionTransformer : 
+gofast.nn.tft.TemporalFusionTransformer : 
     The original TFT model for comparison.
 MultiHeadAttention : Keras layer for multi-head attention.
 LSTM : Keras LSTM layer for sequence modeling.

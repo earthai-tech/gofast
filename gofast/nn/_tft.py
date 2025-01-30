@@ -1502,7 +1502,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
             self.logger.debug("Applying Variable Selection on Future Inputs...")
             fut_embed = self.future_var_sel(future_inputs, training=training)
             self.future_variable_importances_ = self.future_var_sel.variable_importances_
-            dynamic_embedding = tf.concat([dynamic_embedding, fut_embed], axis=1)
+            dynamic_embedding = tf_concat([dynamic_embedding, fut_embed], axis=1)
 
         # 4. Positional encoding for combined sequence embedding
         #    (dynamic + future).

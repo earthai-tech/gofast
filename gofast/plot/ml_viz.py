@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
+
 """
 The `mlviz` module provides a variety of visualization tools 
 for plotting confusion matrices, ROC curves, learning curves, regression 
@@ -9,6 +12,7 @@ performance analysis.
 from __future__ import annotations 
 import warnings 
 from numbers import Integral, Real 
+
 import numpy as np
 import pandas as pd 
 import seaborn as sns 
@@ -26,7 +30,7 @@ from sklearn.metrics import (
     confusion_matrix,
     ConfusionMatrixDisplay,
     roc_curve,
-    auc, 
+    auc as auc_score, 
     mean_absolute_error 
 )
 from sklearn.model_selection import learning_curve, KFold 
@@ -37,10 +41,11 @@ except :
     pass 
 from ..api.types import Optional, Tuple, Any, List, Union, Callable, NDArray 
 from ..api.types import Dict, ArrayLike, DataFrame, Series, SparseMatrix
+from ..compat.scipy import probplot
 from ..compat.sklearn import Interval, StrOptions
 from ..compat.sklearn import validate_params, type_of_target 
 from ..core.array_manager import drop_nan_in, to_arrays 
-from ..core.checks import is_iterable 
+from ..core.checks import is_iterable, check_params 
 from ..core.handlers import param_deprecated_message, columns_manager 
 from ..core.utils import make_obj_consistent_if
 from ..core.plot_manager import default_params_plot 
@@ -50,7 +55,7 @@ from ..utils.mathext import get_preds, minmax_scaler
 from ..utils.validator import _is_cross_validated, validate_yy, validate_keras_model
 from ..utils.validator import assert_xy_in, get_estimator_name, check_is_fitted
 from ..utils.validator import check_consistent_length, contains_nested_objects 
-from ..utils.validator import validate_length_range#, normalize_array  
+from ..utils.validator import validate_length_range  
 from ._config import PlotConfig 
 from ._d_cms import TDG_DIRECTIONS 
 from .utils import _set_sns_style, _make_axe_multiple
@@ -76,6 +81,8 @@ __all__= [
     'plot_r2', 
     'plot_cm', 
     'taylor_diagram', 
+    'plot_roc', 
+    'plot_residuals'
     ]
 
 @default_params_plot(
@@ -2872,7 +2879,7 @@ def plot_cm(
                     fpr, tpr, _ = roc_curve(y_true, y_pred, pos_label=pos_label)
                 else:
                     fpr, tpr, _ = roc_curve(y_true, y_pred)
-                score_auc = auc(fpr, tpr)
+                score_auc = auc_score(fpr, tpr)
             except ValueError as e:
                 warnings.warn(
                     f"Skipping ROC for prediction {i + 1} due to error: {e}"
@@ -4230,8 +4237,10 @@ def plot_residuals_vs_fitted(
     
     References
     ----------
-    .. [1] Anscombe, F. J. (1973). Graphs in Statistical Analysis. The American Statistician, 27(1), 17-21.
-    .. [2] Chatterjee, S., & Hadi, A. S. (1988). Sensitivity Analysis in Linear Regression. New York: Wiley.
+    .. [1] Anscombe, F. J. (1973). Graphs in Statistical Analysis.
+       The American Statistician, 27(1), 17-21.
+    .. [2] Chatterjee, S., & Hadi, A. S. (1988). Sensitivity Analysis in 
+       Linear Regression. New York: Wiley.
     """
 
     if scatter_kws is None:
@@ -4261,8 +4270,448 @@ def plot_residuals_vs_fitted(
 
     return ax
 
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE("my_roc_plot.png"), 
+    fig_size =(8, 6), 
+    dpi=300
+    )
+@validate_params ({ 
+    'y_true': ['array-like'], 
+    })
+@check_params({
+        "names": Optional[Union [str, List[str]]], 
+        "colors": Optional[Union[str, List[str]]]
+    }, 
+    coerce=False, 
+)
+def plot_roc(
+    y_true,
+    *y_preds,
+    names=None,
+    colors=None,
+    linestyles=None,
+    auc=True,
+    diagonal=True,
+    figsize=None,
+    title=None,
+    savefig=None,
+    show_grid=True, 
+    verbose=1
+):
+    r"""
+    Plot Receiver Operating Characteristic (ROC) curves for binary 
+    classifiers.
+    
+    Visualizes classifier performance by plotting True Positive Rate 
+    (TPR) against False Positive Rate (FPR) at various threshold 
+    settings. Supports multiple model comparisons with Area Under 
+    Curve (AUC) quantification.
+    
+    .. math::
+        \text{TPR} = \frac{\text{TP}}{\text{TP} + \text{FN}}
+        
+        \text{FPR} = \frac{\text{FP}}{\text{FP} + \text{TN}}
+        
+        \text{AUC} = \int_{0}^{1} \text{TPR}(\text{FPR}) \, d\text{FPR}
+    
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth binary labels. Accepts (0/1) or (-1/1) encoding.
+        Must be 1D array with exactly two classes.
+        
+    *y_preds : array-like(s) of shape (n_samples,)
+        Prediction probabilities for positive class (class 1) from 
+        one or more classifiers. Each array should contain values 
+        between 0 and 1.
+        
+    names : list of str, optional
+        Model identifiers corresponding to predictions. Automatically 
+        generates ``'Model_1'``, ``'Model_2'``, etc., if not provided. 
+        Length will be extended to match number of predictions.
+        
+    colors : list of color values, optional
+        Line colors for each model's ROC curve. Follows matplotlib's 
+        default color cycle when ``None``. Length should match number 
+        of models.
+        
+    linestyles : list of str, optional
+        Line style specifiers for each model (e.g., ``'-'``, ``'--'``, 
+        ``':'``). Uses solid lines for all models if ``None``. Length 
+        should match number of models.
+        
+    auc : bool, default=True
+        Whether to display Area Under Curve values in legend entries. 
+        When ``True``, appends ``'(AUC = X.XX)'`` to model names.
+        
+    diagonal : bool, default=True
+        Toggles display of diagonal reference line representing 
+        performance of random classifier (AUC = 0.5).
+        
+    figsize : tuple of float, optional
+        Figure dimensions in inches as (width, height). Uses 
+        matplotlib default (8,6) when ``None``.
+        
+    title : str, optional
+        Descriptive text for plot title. Omitted if not provided.
+        
+    savefig : str, optional
+        Path/filename for saving figure. Supports common image formats 
+        (.png, .pdf, .svg). Does not save if ``None``.
+        
+    show_grid : bool, default=True
+        Controls display of background grid lines. Set to ``False`` for 
+        cleaner visuals.
+        
+    verbose : int, default=1
+        Verbosity level for numerical output:
+            - 0: Silent mode (no print output)
+            - 1: Prints formatted AUC scores to console
 
+    Examples
+    --------
+    >>> from gofast.plot.ml_viz import plot_roc
+    >>> import numpy as np
+    >>> y_true = np.array([0, 1, 0, 1, 1, 0, 1])
+    >>> y_pred_logreg = np.array([0.2, 0.8, 0.3, 0.7, 0.6, 0.4, 0.9])
+    >>> y_pred_rf = np.array([0.1, 0.9, 0.2, 0.8, 0.7, 0.3, 0.95])
+    >>> plot_roc(y_true, y_pred_logreg, y_pred_rf,
+    ...          names=['Logistic Regression', 'Random Forest'],
+    ...          colors=['blue', 'green'], linestyles=['-', '--'],
+    ...          title='Classifier Comparison')
 
+    Notes
+    -----
+    1. Requires binary classification probabilities - for multi-class 
+       problems, use one-vs-rest approach first
+    2. AUC values close to 1 indicate better discrimination ability 
+       [1]_
+    3. Diagonal line represents expected performance of random 
+       guessing classifier
+    4. Curves above diagonal indicate better-than-random performance
+
+    See Also
+    --------
+    plot_precision_recall : Precision-Recall curve visualization
+    plot_confusion_matrix : Classifier error matrix visualization
+    plot_coverage : Quantile forecast coverage visualization
+
+    References
+    ----------
+    .. [1] Fawcett, T. (2006). An introduction to ROC analysis. 
+       Pattern Recognition Letters, 27(8), 861-874.
+    """
+    # Remove NaN values from y_true and all y_pred arrays
+    y_true, *y_preds = drop_nan_in(
+        y_true, *y_preds, error='raise', reset_index=True)
+    
+    # Validate y_true and each y_pred to ensure consistency and continuity
+    y_preds = [
+        validate_yy(y_true, pred,flatten="auto")[1] 
+        for pred in y_preds
+    ]
+    
+    names = columns_manager(names, empty_as_none=False )
+    # Model name handling with auto-extension
+    num_models = len(y_preds)
+    names = (list(names) + [f'Model_{i+len(names)+1}' 
+            for i in range(num_models - len(names))]) if names \
+            else [f'Model_{i+1}' for i in range(num_models)]
+            
+    # Default styling initialization
+    colors = colors or [None] * num_models
+    linestyles = linestyles or ['-'] * num_models
+
+    auc_scores = []
+    
+    plt.figure(figsize=figsize or (8, 6))
+    # Main plotting loop
+    for idx, (y_pred, name, color, ls) in enumerate(
+        zip(y_preds, names, colors, linestyles)):
+        
+        # Calculate ROC coordinates
+        fpr, tpr, _ = roc_curve(y_true, y_pred)
+        roc_auc = auc_score(fpr, tpr)  # sklearn.metrics.auc
+        
+        # Label construction
+        label = (f'{name} (AUC = {roc_auc:.2f})' if auc 
+                else name)
+                
+        plt.plot(fpr, tpr, color=color, linestyle=ls,
+                 linewidth=2, label=label)
+        auc_scores.append(roc_auc)
+
+    # Reference diagonal
+    if diagonal:
+        plt.plot([0, 1], [0, 1], 'k--', linewidth=1,
+                 label='Random Guessing')
+
+    # Axis configuration
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    
+    # Grid visibility
+    plt.grid(show_grid)
+    
+    # Title and legend
+    if title:
+        plt.title(title)
+    plt.legend(loc='lower right')
+    
+    # Output handling
+    if savefig:
+        plt.savefig(savefig, bbox_inches='tight')
+        
+    if verbose:
+        print("AUC Scores:")
+        for name, score in zip(names, auc_scores):
+            print(f"{name}: {score:.3f}")
+            
+    plt.show()
+    
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE("my_residuals_plot.png"), 
+    fig_size =(8, 6), 
+    dpi=300
+    )
+@validate_params ({ 
+    'y_true': ['array-like'], 
+    'plot_type': [StrOptions({'scatter', 'hist', 'qq'})]
+    })
+@check_params({
+        "names": Optional[Union [str, List[str]]], 
+        "colors": Optional[Union[str, List[str]]]
+    }, 
+    coerce=False, 
+)
+@ensure_pkg(
+    "statsmodels", 
+    "'statsmodels' is required when  param `smooth` is set to``True``.", 
+    partial_check= True, 
+    condition =lambda *args, **kw: kw.get("smooth")==True 
+    )
+def plot_residuals(
+    y_true,
+    *y_preds,
+    names=None,
+    plot_type='scatter',
+    bins=30,
+    smooth=False,
+    zero_line=True,
+    colors=None,
+    figsize=None,
+    title=None,
+    savefig=None,
+    show_grid=False, 
+    verbose=1
+):
+    r"""
+    Visualize regression residuals through multiple diagnostic plots.
+    
+    Analyzes prediction errors using:
+    
+    .. math::
+        \text{residual} = y_{\text{true}} - y_{\text{pred}}
+    
+    Supports three visualization modes to assess error distribution,
+    heteroscedasticity, and normality assumptions [1]_.
+    
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth continuous target values. Non-finite values 
+        (NaN/inf) are automatically removed.
+        
+    *y_preds : array-like(s) of shape (n_samples,)
+        Predicted values from one or more regression models. Must
+        match dimensions of `y_true`. Automatically aligned after
+        NaN removal.
+        
+    names : list of str, optional
+        Model identifiers. Generates ``'Model_1'``, ``'Model_2'``, etc.,
+        if not provided. Length extended to match number of predictions.
+        
+    plot_type : {'scatter', 'hist', 'qq'}, default='scatter'
+        Diagnostic visualization type:
+            - ``'scatter'``: Residuals vs predicted values (checks 
+              homoscedasticity)
+            - ``'hist'``: Residual distribution histogram (assesses 
+              normality)
+            - ``'qq'``: Quantile-Quantile plot against theoretical 
+              normal distribution
+              
+    bins : int, default=30
+        Number of histogram bins for distribution visualization. 
+        Ignored for non-histogram plots.
+        
+    smooth : bool, default=False
+        Adds LOWESS (Locally Weighted Scatterplot Smoothing) trend
+        line to scatter plots. Requires statsmodels installation.
+        
+    zero_line : bool, default=True
+        Toggles horizontal reference line at residual=0 for scatter
+        and histogram plots.
+        
+    figsize : tuple of float, optional
+        Figure dimensions in inches (width, height). Default: (8,6).
+        
+    title : str, optional
+        Descriptive title text. Positioned above main plot area.
+        
+    savefig : str, optional
+        Filepath for saving figure. Supports PNG, PDF, SVG formats.
+        
+    show_grid : bool, default=False
+        Controls background grid visibility. Provides reference 
+        structure when enabled.
+        
+    verbose : int, default=1
+        Statistical summary verbosity:
+            - 0: Suppress output
+            - 1: Print residual mean (μ) and standard deviation (σ)
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_residuals
+    >>> import numpy as np
+    >>> y_true = np.random.normal(0, 1, 100)
+    >>> y_pred = y_true + np.random.normal(0, 0.2, 100)
+    >>> plot_residuals(y_true, y_pred, plot_type='qq',
+    ...                title='Normality Check')
+
+    Notes
+    -----
+    1. Data Validation:
+        - Automatically removes NaN/inf values from inputs
+        - Ensures consistent array lengths after cleaning
+        - Validates continuous data type for regression
+        
+    2. Interpretation Guidelines:
+        - Ideal scatter: Random cloud around zero line
+        - Good histogram: Symmetric bell-shaped distribution
+        - Q-Q alignment: Points follow diagonal reference line
+        
+    3. Statistical Output:
+        - μ near 0 indicates unbiased predictions
+        - σ measures prediction error magnitude
+
+    See Also
+    --------
+    plot_roc : Receiver Operating Characteristic curve visualization
+    gofast.plot.plot_coverage : Quantile forecast coverage visualization
+    gofast.plot.feature_analysis.plot_dependence : 
+        Partial dependence plots for feature analysis
+
+    References
+    ----------
+    .. [1] Draper, N.R. & Smith, H. (1998). Applied Regression Analysis.
+       Wiley-Interscience.
+    """
+    # Data sanitization and validation
+    # Clean NaN values and reset indices
+    y_true, *y_preds = drop_nan_in(
+        y_true, *y_preds, error='raise', reset_index=True)
+    
+    if y_true.ndim >1: 
+        y_true=y_true.flatten()
+        
+    # Validate data consistency and type
+    y_preds = [
+        validate_yy(y_true, pred, expected_type="continuous", 
+                    flatten='auto')[1] 
+        for pred in y_preds
+    ]
+    
+        
+    # Figure initialization
+    plt.figure(figsize=figsize or (8, 6))
+    
+    # Model naming with auto-completion
+    num_models = len(y_preds)
+    names = columns_manager(names , empty_as_none=False)
+    names = (list(names) + [f'Model_{i+len(names)+1}' 
+            for i in range(num_models - len(names))]) if names \
+            else [f'Model_{i+1}' for i in range(num_models)]
+            
+    # Color palette setup
+    # colors = plt.cm.tab10.colors[:num_models]
+    colors = make_plot_colors(y_preds, colors = colors)
+    # Residual calculation
+    residuals_list = [
+        np.array(y_true) - np.array(y_pred) 
+        for y_pred in y_preds
+    ]
+
+    # Visualization logic
+    if plot_type == 'scatter':
+        for resid, name, color in zip(residuals_list, names, colors):
+            if resid.ndim > 1:
+                resid = resid.flatten()
+                
+            y_pred = np.array(y_true) - resid
+            plt.scatter(y_pred, resid, color=color, alpha=0.5,
+                        label=name)
+            if smooth:
+                from statsmodels.nonparametric.smoothers_lowess import lowess
+                smoothed = lowess(resid, y_pred)
+                plt.plot(smoothed[:, 0], smoothed[:, 1], 
+                        color='red', linewidth=1.5)
+
+        plt.xlabel('Predicted Values')
+        plt.ylabel('Residuals')
+        
+    elif plot_type == 'hist':
+        for resid, name, color in zip(residuals_list, names, colors):
+            if resid.ndim > 1:
+                resid = resid.flatten()
+                
+            plt.hist(resid, bins=bins, alpha=0.5,
+                     color=color, label=name, density=True)
+        plt.xlabel('Residuals')
+        plt.ylabel('Density')
+        
+    elif plot_type == 'qq':
+        for resid, name, color in zip(residuals_list, names, colors):
+            probplot(
+               resid, 
+               plot=plt.gca(), 
+               xlabel=None,  # Let probplot handle labels
+               ylabel=None,
+               line='s'
+           )
+            #stats.probplot(resid, plot=plt)
+            plt.gca().lines[0].set_color(color)
+            plt.gca().lines[1].set_color('red')
+        plt.ylabel('Ordered Residuals')
+        plt.title('Q-Q Plot vs Normal Distribution')
+
+    # Zero reference line
+    if zero_line and plot_type != 'qq':
+        plt.axhline(0, color='black', linestyle='--', 
+                   linewidth=1, alpha=0.7)
+        
+    # Final formatting
+    if title:
+        plt.title(title)
+    if plot_type != 'qq':
+        plt.legend()
+        
+    plt.grid(show_grid)
+    
+    # Output handling
+    if savefig:
+        plt.savefig(savefig, bbox_inches='tight')
+        
+    if verbose:
+        print("Residual Statistics (μ=mean, σ=std):")
+        for name, resid in zip(names, residuals_list):
+            print(f"{name}: μ = {np.mean(resid):.3f}, "
+                 f"σ = {np.std(resid):.3f}")
+            
+    plt.show()
+    
 
 
 

@@ -6410,7 +6410,8 @@ def ensure_same_shape(
 
     # Helper function to determine size based on the axis or default to shape[0].
     def get_size(arr, ax):
-        return arr.shape[ax] if ax is not None else arr.shape[0]
+        ar = np.asarray(arr)
+        return ar.shape[ax] if ax is not None else ar.shape[0]
 
     # Determine reference size from first array along specified axis (or default).
     ref_size = get_size(arrays[0], axis)
