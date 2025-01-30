@@ -2813,9 +2813,11 @@ def denormalize(
 
  
 def convert_to_structured_format(
-        *arrays: Any, as_frame: bool = True, 
-        skip_sparse: bool =True, 
-        ) -> List[Union[ArrayLike, DataFrame, Series]]:
+    *arrays: Any, as_frame: bool = True, 
+    skip_sparse: bool =True,
+    cols_as_str: bool=False, 
+    solo_return: bool=False, 
+    ) -> List[Union[ArrayLike, DataFrame, Series]]:
     """
     Converts input objects to structured numpy arrays or pandas DataFrame/Series
     based on their shapes and the `as_frame` flag. If conversion to a structured
@@ -2832,7 +2834,15 @@ def convert_to_structured_format(
         attempts to standardize as numpy arrays.
     skip_sparse: bool, default=True 
         Dont convert any sparse matrix and keept it as is. 
-    
+    cols_as_str: bool, default=False 
+       If ``True``, convert numeric columns to string when pandas dataframe 
+       is created. This is useful to avoid operations with litteral columns 
+       already set as string or object dtype. 
+    solo_return : bool, default=False
+        If ``True`` and exactly one array, the function returns that array
+        directly rather than as a tuple of length 1. If multiple
+        arrays are provided then `solo_return` does no work even is ``True``.
+       
     Returns
     -------
     List[Union[np.ndarray, pd.DataFrame, pd.Series]]
@@ -2873,9 +2883,14 @@ def convert_to_structured_format(
     def attempt_conversion_to_numpy(arr: Any) -> np.ndarray:
         """Attempts to convert an object to a numpy array."""
         try:
-            return np.array(arr)
+            arr= np.array(arr)
         except Exception:
             return arr
+        
+        if arr.ndim==2 and arr.shape[1] ==1: 
+            arr = arr.flatten () 
+        
+        return arr 
 
     def attempt_conversion_to_pandas(
             arr: np.ndarray) -> Union[np.ndarray, pd.DataFrame, pd.Series]:
@@ -2891,20 +2906,31 @@ def convert_to_structured_format(
                     if arr.shape[1] == 1:
                         return pd.Series(arr.squeeze())
                     else:
-                        return pd.DataFrame(arr)
+                        arr= pd.DataFrame(arr)
+                        if cols_as_str: 
+                            arr.columns = arr.columns.astype(str) 
+                        return arr 
             else: 
-                return pd.DataFrame(arr)
+                arr= pd.DataFrame(arr)
+                if cols_as_str: 
+                    arr.columns = arr.columns.astype(str) 
+                    
         except Exception:
             pass
         return arr
 
     if as_frame:
-        return [attempt_conversion_to_pandas(arr) for arr in arrays]
+        arrays= [attempt_conversion_to_pandas(arr) for arr in arrays]
     else:
         # Try to convert everything to numpy arrays, return as is if it fails
-        return [attempt_conversion_to_numpy(attempt_conversion_to_pandas(arr)
+        arrays= [attempt_conversion_to_numpy(attempt_conversion_to_pandas(arr)
                                             ) for arr in arrays]
+    if solo_return and len(arrays)==1: 
+        return arrays[0]
+    
+    return arrays 
 
+        
 def map_specific_columns ( 
     data: DataFrame, 
     ufunc:_F , 
