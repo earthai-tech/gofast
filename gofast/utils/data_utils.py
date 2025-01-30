@@ -70,8 +70,10 @@ __all__= [
     'pop_labels_in', 
     'truncate_data', 
     'filter_data', 
+    'has_duplicates', 
     'index_based_selector', 
     'nan_ops', 
+    'build_df'
     ]
 
      
@@ -286,7 +288,7 @@ def build_df(
             hint = (
                 "To request any attribute of Integrity Report, consider"
                 " calling `verify_data_integrity` function as:\n\n"
-                "    >>> from  gofast.dataops import verify_data_integrity\n"
+                "    >>> from gofast.dataops import verify_data_integrity\n"
                 "    >>> _, report=verify_data_integrity(<your-data>)\n"
                 "    >>> report.outliers # for getting outliers report.\n"
                 "    >>> report.outliers.results # for outliers results.\n"
@@ -314,7 +316,6 @@ def build_df(
         # printing details of its structure
         assemble_reports(*reports, display=True )
         
-
     # Return the final DataFrame for downstream usage
     return df
 
