@@ -6068,7 +6068,7 @@ def check_datetime(
           to float representation.
         - `'int'`, `'int32'`, `'int64'`: Convert date columns to
           integer representation.
-        - `'object'`: Convert date columns to Python objects 
+        - `'object'` or 'category': Convert date columns to Python objects 
           (strings, etc.). If conversion fails, raise or warn 
           per `error` policy.
 
@@ -6208,7 +6208,7 @@ def check_datetime(
                 raise ValueError(
                     "Datetime columns found but no conversion or "
                     f"acceptance specified. Don't know how to treat {dt_cols}."
-                    " Use `consider_dt_as` or set ``accept_dt=True``."
+                    " Use `consider_dt_as/dt_as` or set ``accept_dt=True``."
                 )
             elif error == 'warn':
                 warnings.warn(
@@ -6245,7 +6245,7 @@ def _convert_datetime_column(
             # convert datetime to numeric then to int
             df[col] = pd.to_numeric(df[col], errors='raise')
             df[col] = df[col].astype(consider_dt_as.lower())
-        elif consider_dt_as.lower() in ['object']:
+        elif consider_dt_as.lower() in ['object', 'category', 'categoric']:
             # convert datetime to object (string)
             df[col] = df[col].astype('object')
         else:
@@ -6379,8 +6379,8 @@ def ensure_same_shape(
     
     See Also
     --------
-    AnotherShapeCheck : A related function that cross-checks
-        dimensional alignment.
+    gofast.utils.validator.check_consistent_length : 
+        A related function that cross-checks dimensional alignment.
 
     References
     ----------
@@ -6534,8 +6534,9 @@ def validate_axis(
 
     See Also
     --------
-    AnotherFunction : A related function that also checks axis
-        validity for multi-dimensional arrays.
+    gofast.utils.validator.check_consistency_size :
+        A related function that also checks axis validity for
+        multi-dimensional arrays.
 
     References
     ----------

@@ -744,8 +744,12 @@ class BaseClass(metaclass=HelpMeta):
     _vertical_display = False 
     _auto_display=True 
     
+    def __init__(self, verbose=0): 
+        self.verbose=verbose
+        
     def save(
         self,
+        obj:Optional[Any] =None, 
         file_path: Optional[str] = None,
         format: str = 'json',
         encoding: str = 'utf-8',
@@ -862,7 +866,7 @@ class BaseClass(metaclass=HelpMeta):
         .. [4] HDF Group. (n.d.). HDF5 Overview. Retrieved from 
                https://www.hdfgroup.org/solutions/hdf5/
         """
-
+        obj = obj or self 
         try:
             # Determine file path
             if not file_path:
@@ -884,8 +888,8 @@ class BaseClass(metaclass=HelpMeta):
                 return False
 
             # Prepare data (assuming the object has a to_dict method)
-            if hasattr(self, 'to_dict') and callable(getattr(self, 'to_dict')):
-                data = self.to_dict()
+            if hasattr(obj, 'to_dict') and callable(getattr(obj, 'to_dict')):
+                data = obj.to_dict()
             else:
                 logger.error("The object does not have a 'to_dict' method.")
                 return False
@@ -962,7 +966,6 @@ class BaseClass(metaclass=HelpMeta):
             logger.exception(f"An error occurred while saving data: {e}")
             return False
    
-
     def __repr__(self) -> str:
         """
         Returns a formatted string representation of the instance based on 
@@ -1380,12 +1383,9 @@ class BaseLearner(metaclass=LearnerMeta):
     This class provides essential functionalities for setting parameters, 
     cloning, executing, and inspecting learner objects.
 
-    Parameters
-    ----------
-    None
-        This base class does not accept parameters during initialization. 
-        Parameters are managed dynamically using the `set_params` method 
-        and can be retrieved via `get_params`.
+    This base class does not accept parameters during initialization. 
+    Parameters are managed dynamically using the `set_params` method 
+    and can be retrieved via `get_params`.
 
     Methods
     -------
@@ -1502,7 +1502,6 @@ class BaseLearner(metaclass=LearnerMeta):
            Machine Learning Models". *Journal of Machine Learning Systems*, 
            15(3), 100-120.
     """
-
 
     @classmethod
     def _get_param_names(cls):
@@ -1737,7 +1736,7 @@ class BaseLearner(metaclass=LearnerMeta):
             - `"passthrough"`: Returns `True` or `False` indicating the run 
               status.
             - Any other value: Raises `NotRunnedError` if the learner has 
-              not been run.
+              not been runned.
     
         Returns
         -------
@@ -1905,6 +1904,7 @@ class BaseLearner(metaclass=LearnerMeta):
             
     def save(
         self,
+        obj: Any =None, 
         file_path: Optional[str] = None,
         format: str = 'pickle',
         overwrite: bool = False,
@@ -1987,7 +1987,7 @@ class BaseLearner(metaclass=LearnerMeta):
         .. [1] Smith, J. (2020). *Effective Python Programming*. Python Press.
         .. [2] Doe, A. (2021). *Advanced Data Persistence Techniques*. Data Books.
         """
-
+        obj = obj or self 
         try:
             # Determine file path
             if not file_path:
@@ -2012,9 +2012,9 @@ class BaseLearner(metaclass=LearnerMeta):
             # Prepare data
             data = None
             if format.lower() in ['json', 'csv']:
-                if hasattr(self, 'to_dict') and callable(
-                        getattr(self, 'to_dict')):
-                    data = self.to_dict()
+                if hasattr(obj, 'to_dict') and callable(
+                        getattr(obj, 'to_dict')):
+                    data = obj.to_dict()
                 else:
                     logger.error("The object does not have a 'to_dict' method.")
                     return False
@@ -2044,8 +2044,8 @@ class BaseLearner(metaclass=LearnerMeta):
                     )
                     return False
             elif format.lower() in ['h5', 'hdf5']:
-                if hasattr(self, 'to_hdf5') and callable(getattr(self, 'to_hdf5')):
-                    self.to_hdf5(file_path, **kwargs)
+                if hasattr(obj, 'to_hdf5') and callable(getattr(obj, 'to_hdf5')):
+                    obj.to_hdf5(file_path, **kwargs)
                 else:
                     logger.error(
                         "The object does not have a 'to_hdf5'"
@@ -2054,7 +2054,7 @@ class BaseLearner(metaclass=LearnerMeta):
                     return False
             elif format.lower() in ['pkl', 'pickle']:
                 with path.open('wb') as f:
-                    pickle.dump(self, f)
+                    pickle.dump(obj, f)
             else:
                 logger.error(
                     f"Unsupported format '{format}'. Supported formats"

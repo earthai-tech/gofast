@@ -681,7 +681,7 @@ class RunReturn:
             return self_obj
         
     @classmethod
-    def initialize_decorator(cls, *args, **kwargs) -> Callable:
+    def from_decorator(cls, *args, **kwargs) -> Callable:
         """
         Initialize the `RunReturn` decorator, allowing it to be applied with or 
         without parentheses.
@@ -751,7 +751,7 @@ class RunReturn:
 
 # Assign the classmethod to the decorator name,
 # allowing it to be used with or without parentheses
-RunReturn = RunReturn.initialize_decorator
+RunReturn = RunReturn.from_decorator
 
 def smartFitRun(cls):
     """
@@ -1051,7 +1051,6 @@ class SmartProcessor:
                     raise
     
         return wrapper(*args, **kwargs)
-    
     
     def _check_columns_exist(self, dataframe, columns):
         """
@@ -1373,7 +1372,8 @@ class DataTransformer:
         if isinstance(data, pd.DataFrame) and self.rename_columns:
             data = self._rename_columns(data)
 
-        if (isinstance(data, (pd.DataFrame, pd.Series)) and self.set_index) or self.reset_index:
+        if (isinstance(data, (pd.DataFrame, pd.Series)
+                       ) and self.set_index) or self.reset_index:
             data = self._apply_index_and_name_settings(data)
 
         return data
@@ -1383,10 +1383,12 @@ class DataTransformer:
             if ndarray.ndim == 1:
                 return pd.Series(ndarray, name=self.original_attrs.get('name'))
             elif ndarray.ndim > 1:
-                return pd.DataFrame(ndarray, columns=self.original_attrs.get('columns'))
+                return pd.DataFrame(
+                    ndarray, columns=self.original_attrs.get('columns'))
         except Exception as e:
             if self.verbose:
-                print(f"DataTransformer: Error converting numpy array to DataFrame/Series - {e}")
+                print("DataTransformer: Error converting"
+                      f" numpy array to DataFrame/Series - {e}")
         return ndarray
 
     def _rename_columns(self, dataframe):

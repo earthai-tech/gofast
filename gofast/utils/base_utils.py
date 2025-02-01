@@ -45,7 +45,7 @@ from ..core.array_manager import  (
 )
 from ..core.checks import( 
     _assert_all_types,  is_iterable, exist_features, validate_feature,
-    is_numeric_dtype
+    is_numeric_dtype, check_datetime 
     )
 from ..core.handlers import get_batch_size 
 from ..core.io import is_data_readable 
@@ -312,6 +312,7 @@ def detect_categorical_columns(
     max_unique_values=None,
     handle_nan=None,
     return_frame=False,
+    consider_dt_as=None, 
     verbose=0
 ):
     r"""
@@ -360,6 +361,20 @@ def detect_categorical_columns(
         If ``True``, returns a DataFrame of detected
         categorical columns; otherwise returns a list of
         column names. Default is ``False``.
+    consider_dt_as : str, optional
+        Indicates how to handle or convert datetime columns when
+        ``ops='validate'``:
+        - `None`: Do not convert; if datetime is not accepted, 
+          handle according to `accept_dt` and `error`.
+        - `'numeric'`: Convert date columns to a numeric format
+          (like timestamps).
+        - `'float'`, `'float32'`, `'float64'`: Convert date columns
+          to float representation.
+        - `'int'`, `'int32'`, `'int64'`: Convert date columns to
+          integer representation.
+        - `'object'` or `'category'`: Convert date columns to Python 
+          objects (strings, etc.). If conversion fails, raise or warn 
+          per `error` policy.
     verbose : int, optional
         Verbosity level. If greater than 0, a summary of
         detected columns is printed.
@@ -440,6 +455,33 @@ def detect_categorical_columns(
     elif handle_nan == 'fill':
         data = fill_NaN(data, method='both')
 
+    #Check if datetime columns exist in the data.
+    has_dt_cols = check_datetime(data)
+    if has_dt_cols: 
+        if consider_dt_as is None: 
+            # If no explicit instruction is provided 
+            # via `consider_dt_as`, warn the user
+            # that datetime columns will be treated
+            # as numeric by default.
+            warnings.warn(
+                "Datetime columns detected. Defaulting"
+                " to treating datetime columns as numeric."
+                " If this behavior is not desired, please "
+                "specify the `consider_dt_as` parameter"
+                " accordingly."
+            )
+        else: 
+            # If `consider_dt_as` is provided and True,
+            # validate datetime columns 
+            # according to the specified handling.
+            data =check_datetime(
+                data, 
+                ops='validate', 
+                accept_dt=True, 
+                consider_dt_as=consider_dt_as, 
+                error="warn", 
+            )
+    
     # user-specified limit might be set to 'auto' or a numeric value
     # store the original for reference
     original_max_unique = max_unique_values

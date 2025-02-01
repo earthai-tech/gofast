@@ -59,7 +59,7 @@ if KERAS_BACKEND:
     from .utils import set_default_params, set_anomaly_config 
     
 
-DEP_MSG = dependency_message('transformers.xtft') 
+DEP_MSG = dependency_message('tft.xtft') 
 
 # -------------------- XTFT components ----------------------------------------
 

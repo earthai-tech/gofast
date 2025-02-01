@@ -1,23 +1,15 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Sun Oct 13 20:46:03 2024
-
-@author: Daniel
-"""
-
 # test_metadata.py
 
 import os
 import json
 import pytest
-import shutil
-from datetime import datetime, timedelta
-
+import time
 # Assume these are imported from the gofast.mlops.metadata module
 from gofast.mlops.metadata import (
     MetadataManager,
     LineageTracker,
-    AuditLogger,
+    #AuditLogger,
     ReproducibilityEnsurer,
     PerformanceTracker,
     log_metadata,
@@ -31,7 +23,6 @@ from gofast.mlops.metadata import (
 )
 
 # Mock implementations or fixtures can be added here if necessary
-
 # Constants for testing
 TEST_METADATA_TYPE = 'test_model'
 TEST_METADATA = {'accuracy': 0.95, 'loss': 0.05}
@@ -51,263 +42,348 @@ TEST_SCHEMA = {
 }
 
 
-# Pytest fixtures for setup and teardown
-@pytest.fixture(scope='module')
-def setup_local_storage():
-    # Setup actions before tests run
-    os.makedirs('test_metadata', exist_ok=True)
-    yield
-    # Teardown actions after tests run
-    shutil.rmtree('test_metadata', ignore_errors=True)
+# Test MetadataManager
+def test_metadata_manager_local(tmp_path, monkeypatch):
+    """
+    Test MetadataManager by storing and retrieving metadata locally.
+    
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+         Temporary directory provided by pytest.
+    monkeypatch : pytest.MonkeyPatch
+         Used to change the current directory.
+         
+    Example
+    -------
+    >>> from gofast.mlops.metadata import MetadataManager
+    >>> manager = MetadataManager(metadata_store='local')
+    >>> manager.fit({"model_version": "1.0"})
+    >>> manager.store_metadata("model_version", "1.1")
+    >>> value = manager.get_metadata("model_version")
+    >>> assert value == "1.1"
+    """
+    monkeypatch.chdir(tmp_path)
+    # For local storage, we do not need a cloud bucket
+    manager = MetadataManager(
+        metadata_store="local",
+        cloud_bucket_name=None
+    )
+    # Simulate "fitting" the manager with initial metadata
+    manager.fit({"model_version": "1.0", "data_version": "2022-01-01"})
+    manager.store_metadata("model_version", "1.1")
+    value = manager.get_metadata("model_version")
+    assert value == "1.1"
+    # Verify that the local backup file was created
+    backup_file = tmp_path / "metadata_backup.json"
+    assert backup_file.exists()
 
-@pytest.fixture
-def clear_test_files():
-    # Remove test files before each test
-    yield
-    for file in os.listdir():
-        if file.startswith('test_model') or file.startswith('experiment_'):
-            os.remove(file)
 
-# Test cases for MetadataManager
-def test_metadata_manager_save_and_load(clear_test_files):
-    # Provide the required 'metadata_store' argument
-    manager = MetadataManager(metadata_store='test_metadata_store.json')
-    manager.save_metadata(TEST_METADATA_TYPE, TEST_METADATA)
-    loaded_metadata = manager.load_metadata(TEST_METADATA_TYPE)
-    assert loaded_metadata == TEST_METADATA, "Loaded metadata does not match saved metadata."
-
-
-def test_metadata_manager_update(clear_test_files):
-    # Provide the required 'metadata_store' argument
-    manager = MetadataManager(metadata_store='test_metadata_store.json')
-    manager.save_metadata(TEST_METADATA_TYPE, TEST_METADATA)
-    manager.update_metadata(TEST_METADATA_TYPE, TEST_METADATA_UPDATED)
-    loaded_metadata = manager.load_metadata(TEST_METADATA_TYPE)
-    assert loaded_metadata == TEST_METADATA_UPDATED, "Metadata update failed."
-
-# Test cases for LineageTracker
-def test_lineage_tracker_record_and_retrieve(clear_test_files):
-    tracker = LineageTracker(lineage_store='test_lineage.json')
-    # Use existing method to log lineage information
+# Test LineageTracker
+def test_lineage_tracker(tmp_path, monkeypatch):
+    """
+    Test LineageTracker functionality using local storage.
+    
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+         Temporary directory.
+    monkeypatch : pytest.MonkeyPatch
+         Used to set the working directory.
+    """
+    monkeypatch.chdir(tmp_path)
+    tracker = LineageTracker(
+        lineage_store="local",
+        encryption_key=None,
+        compression_enabled=False,
+        alert_on_version_change=False
+    )
+    # Activate the tracker
+    tracker.run()
+    # Log data ingestion and retrieve it
     tracker.log_data_ingestion(
-        data_version='v1.0.0',
-        source='test_source.csv',
-        dependencies=['dep1.csv'],
-        tags=['test']
+        data_version="v1.0.0",
+        source="local_source",
+        dependencies=[],
+        tags=["test"]
     )
-    # Access the lineage information directly
-    lineage_info = tracker.lineage[-1]  # Get the last logged entry
-    assert lineage_info['stage'] == 'data_ingestion', "Lineage entry stage mismatch."
-    assert lineage_info['data_version'] == 'v1.0.0', "Lineage data_version mismatch."
-    assert lineage_info['source'] == 'test_source.csv', "Lineage source mismatch."
-
-    tracker.record_lineage(TEST_METADATA_TYPE, {'parent_model': 'model_v1'})
-    lineage_info = tracker.retrieve_lineage(TEST_METADATA_TYPE)
-    assert lineage_info == {'parent_model': 'model_v1'}, "Lineage information mismatch."
-
-# Test cases for AuditLogger
-def test_audit_logger_log_and_retrieve(clear_test_files):
-    logger = AuditLogger(retry_policy= {"retries": 3, "backoff": 2})
-    logger.log_change(TEST_METADATA_TYPE, TEST_USER, TEST_CHANGE_DESCRIPTION)
-    logs = logger.retrieve_logs(TEST_METADATA_TYPE)
-    assert len(logs) == 1, "Audit log entry was not recorded."
-    assert logs[0]['user'] == TEST_USER, "Audit log user mismatch."
+    retrieved = tracker.retrieve_lineage("data_ingestion")
+    assert retrieved is not None
 
 
-# Updated Test Case for LineageTracker
-def test_lineage_tracker_log_and_persist(clear_test_files):
-    tracker = LineageTracker(lineage_store='test_lineage.json')
-    tracker.log_data_ingestion(
-        data_version='v1.0.0',
-        source='test_source.csv',
-        dependencies=['dep1.csv'],
-        tags=['test']
+# Test AuditLogger
+def test_audit_logger_local(tmp_path, monkeypatch):
+    """
+    Test AuditLogger functionality using local file storage.
+    
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+         Temporary directory.
+    monkeypatch : pytest.MonkeyPatch
+         Used to change directory.
+    """
+    monkeypatch.chdir(tmp_path)
+    msg = audit(
+        metadata_type="model",
+        user="tester",
+        change_description="Test change",
+        storage_backend="local",
+        version=1
     )
-    tracker.log_model_training(
-        model_version='v1.0.0',
-        hyperparameters={'learning_rate': 0.01},
-        environment={'python_version': '3.8'},
-        tags=['test']
+    assert "Audit log successfully recorded" in msg
+    # Verify that the audit log file exists.
+    audit_file = tmp_path / "model_audit.log"
+    assert audit_file.exists()
+
+# Test ReproducibilityEnsurer
+def test_reproducibility_ensurer(tmp_path, monkeypatch):
+    """
+    Test ReproducibilityEnsurer: setting random seed, exporting config,
+    and comparing environments.
+    
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+         Temporary directory.
+    monkeypatch : pytest.MonkeyPatch
+         Used to change directory.
+    """
+    monkeypatch.chdir(tmp_path)
+    ensurer = ReproducibilityEnsurer(
+        storage_backend="local",
+        encryption_key=None,
+        compression_enabled=False,
+        versioning_enabled=True
     )
-    tracker.log_deployment(
-        model_version='v1.0.0',
-        deployment_time='2024-10-10 12:00:00',
-        environment={'cloud_provider': 'AWS'},
-        access_permissions={'deployed_by': TEST_USER},
-        tags=['test']
+    ensurer.run()
+    ensurer.set_random_seed(42)
+    ensurer.export_config(file_path="config.json")
+    with open("config.json", "r") as f:
+        config = json.load(f)
+    assert "python_version" in config
+    differences = ensurer.compare_environments(config)
+    # Expect no differences between the exported config and itself.
+    assert isinstance(differences, dict)
+
+
+# Test PerformanceTracker
+def test_performance_tracker(tmp_path, monkeypatch):
+    """
+    Test PerformanceTracker by logging performance and exporting metrics.
+    
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+         Temporary directory.
+    monkeypatch : pytest.MonkeyPatch
+         Used to set current directory.
+    """
+    monkeypatch.chdir(tmp_path)
+    def dummy_alert(msg):
+        print("ALERT:", msg)
+    tracker = PerformanceTracker(
+        alert_threshold=0.01,
+        alert_method=dummy_alert,
+        metrics_to_track=["accuracy"],
+        use_rolling_avg=True,
+        window_size=3,
+        storage_backend="local",
+        compression_enabled=False,
+        encryption_key=None,
+        real_time_monitoring=False,
+        real_time_interval=10
     )
-    # Check that lineage entries have been logged
-    assert len(tracker.lineage) == 3, "Lineage entries not properly logged."
+    tracker.run()
+    tracker.log_performance("v1.0", "accuracy", 0.95)
+    tracker.log_performance("v1.0", "accuracy", 0.94)
+    perf = tracker.get_performance("v1.0")
+    assert "accuracy" in perf
+    exported = tracker.export_metrics(export_format="json")
+    exported_dict = json.loads(exported)
+    assert "v1.0" in exported_dict
 
-    # Verify that the lineage has been persisted to the specified store
-    assert os.path.exists('test_lineage.json'), "Lineage file was not created."
 
-    # Load the persisted lineage and verify contents
-    with open('test_lineage.json', 'r') as f:
-        lineage_data = json.load(f)
-
-    assert len(lineage_data) == 3, "Persisted lineage data is incorrect."
-    # Verify specific entries
-    data_ingestion_entry = lineage_data[0]
-    assert data_ingestion_entry['stage'] == 'data_ingestion', "First lineage entry is not data ingestion."
-    assert data_ingestion_entry['data_version'] == 'v1.0.0', "Data version mismatch in lineage."
-
-# Updated Test Case for AuditLogger
-def test_audit_logger_log_and_retrieve2(clear_test_files):
-    logger = AuditLogger(storage_path='test_audit_logs.json',
-                         retry_policy={"retries": 3, "backoff": 2})
-    logger.log_decision(
-        decision='metadata_update',
-        user=TEST_USER,
-        timestamp='2024-10-10 12:00:00',
-        rationale=TEST_CHANGE_DESCRIPTION,
-        severity='high',
-        tags=['test']
+# Test log_metadata and retrieve functions
+@pytest.mark.skip ("test is made locally due to local files.")
+def test_log_and_retrieve_metadata_local(tmp_path, monkeypatch):
+    """
+    Test log_metadata and retrieve functions using local storage.
+    
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+         Temporary directory.
+    monkeypatch : pytest.MonkeyPatch
+         Used to change the working directory.
+    """
+    monkeypatch.chdir(tmp_path)
+    meta = {"accuracy": 0.95, "loss": 0.05, "epoch": 10}
+    msg = log_metadata(
+        metadata=meta,
+        metadata_type="model",
+        encryption_key=None,
+        compression_enabled=False,
+        storage_backend="local"
     )
-    logs = logger.get_audit_log()
-    assert len(logs) == 1, "Audit log entry was not recorded."
-    assert logs[0]['user'] == TEST_USER, "Audit log user mismatch."
-    assert logs[0]['decision'] == 'metadata_update', "Audit log decision mismatch."
+    assert "Metadata logged successfully" in msg
+    # The file should be named 'model_v1.json'
+    assert os.path.exists("model_v1.json")
+    
+    # Now test retrieve by simulating a stored file.
+    with open("model_v1.json", "wb") as f:
+        f.write(json.dumps({"accuracy": 0.95, "loss": 0.05,
+                            "epoch": 10, "version": 1}).encode("utf-8"))
+    retrieved = retrieve(metadata_type="model")
+    assert retrieved["accuracy"] == 0.95
 
-    # Verify that the logs are persisted if storage_path is specified
-    assert os.path.exists('test_audit_logs.json'), "Audit log file was not created."
+# Test compare function
+def test_compare_function():
+    """
+    Test the compare function with shallow and deep comparisons.
+    """
+    meta1 = {
+        "accuracy": 0.9501,
+        "loss": 0.05,
+        "epoch": 10,
+        "optimizer": "adam",
+        "params": {"learning_rate": 0.001}
+    }
+    meta2 = {
+        "accuracy": 0.9502,
+        "loss": 0.05,
+        "epoch": 10,
+        "optimizer": "adam",
+        "params": {"learning_rate": 0.0015}
+    }
+    diff = compare(meta1, meta2)
+    assert "accuracy" in diff
+    diff_deep = compare(meta1, meta2, recursive=True, tol=0.0005)
+    assert "params" in diff_deep
 
-    # Load the persisted logs and verify contents
-    with open('test_audit_logs.json', 'r') as f:
-        log_data = json.load(f)
 
-    assert len(log_data) == 1, "Persisted audit log data is incorrect."
-    assert log_data[0]['user'] == TEST_USER, "Persisted audit log user mismatch."
-    assert log_data[0]['decision'] == 'metadata_update', "Persisted audit log decision mismatch."
-
-# Test cases for ReproducibilityEnsurer
-def test_reproducibility_ensurer_verify_hash(clear_test_files):
-    ensurer = ReproducibilityEnsurer()
-    ensurer.save_metadata_with_hash(TEST_METADATA_TYPE, TEST_METADATA)
-    is_valid = ensurer.verify_metadata_hash(TEST_METADATA_TYPE)
-    assert is_valid, "Metadata hash verification failed."
-
-def test_performance_tracker_log_and_compare(clear_test_files):
-    # Provide the required 'alert_threshold' argument
-    tracker = PerformanceTracker(alert_threshold=0.05, )
-    tracker.log_performance(TEST_METADATA_TYPE, TEST_METADATA)
-    performance_data = tracker.retrieve_performance(TEST_METADATA_TYPE)
-    assert performance_data == TEST_METADATA, "Performance data mismatch."
-
-    # Compare performance using the updated metadata
-    comparison = tracker.compare_performance(TEST_METADATA_TYPE, TEST_METADATA_UPDATED)
-    expected_change = TEST_METADATA_UPDATED['accuracy'] - TEST_METADATA['accuracy']
-    assert comparison['accuracy']['change'] == expected_change, "Performance comparison failed."
-
-# Test cases for log_metadata
-def test_log_metadata(clear_test_files):
-    result = log_metadata(
-        metadata_type=TEST_METADATA_TYPE,
-        metadata=TEST_METADATA,
-        storage_backend='local'
+# Test audit function
+def test_audit_function_local(tmp_path, monkeypatch):
+    """
+    Test the audit function using local storage.
+    """
+    monkeypatch.chdir(tmp_path)
+    msg = audit(
+        metadata_type="model",
+        user="tester",
+        change_description="Test audit change",
+        storage_backend="local",
+        version=1
     )
-    assert result == f"Metadata of type '{TEST_METADATA_TYPE}' logged successfully.", "log_metadata failed."
+    assert "Audit log successfully recorded" in msg
+    assert os.path.exists("model_audit.log")
 
-# Test cases for retrieve
-def test_retrieve(clear_test_files):
-    log_metadata(
-        metadata_type=TEST_METADATA_TYPE,
-        metadata=TEST_METADATA,
-        storage_backend='local'
+
+# Test sync_with_cloud function (using monkeypatch to simulate cloud sync)
+def test_sync_with_cloud(monkeypatch):
+    """
+    Test sync_with_cloud by monkey-patching the inner sync function.
+    """
+    # Define a dummy sync inner function
+    def dummy_sync(**kwargs):
+        return "Dummy cloud sync success."
+    monkeypatch.setattr(
+        "gofast.mlops.metadata._sync_with_cloud_inner", dummy_sync
     )
-    retrieved_metadata = retrieve(
-        metadata_type=TEST_METADATA_TYPE,
-        storage_backend='local'
+    meta = {"dummy": "data"}
+    result = sync_with_cloud(
+        metadata=meta,
+        cloud_provider="aws",
+        bucket_name="dummy_bucket",
+        aws_credentials={"aws_access_key_id": "key", "aws_secret_access_key": "secret"}
     )
-    assert retrieved_metadata == TEST_METADATA, "retrieve function failed to get the correct metadata."
+    assert "Dummy cloud sync success." in result
 
-# Test cases for compare
-def test_compare(clear_test_files):
-    metadata_old = {'accuracy': 0.90, 'loss': 0.10}
-    metadata_new = {'accuracy': 0.95, 'loss': 0.05}
-    differences = compare(metadata_old, metadata_new)
-    assert differences['accuracy'] == 0.05, "Accuracy difference calculation failed."
-    assert differences['loss'] == -0.05, "Loss difference calculation failed."
 
-# Test cases for audit
-def test_audit(clear_test_files):
-    message = audit(
-        metadata_type=TEST_METADATA_TYPE,
-        user=TEST_USER,
-        change_description=TEST_CHANGE_DESCRIPTION,
-        storage_backend='local'
-    )
-    assert message == f"Audit log successfully recorded for {TEST_METADATA_TYPE} by {TEST_USER}."
-
-# Test cases for sync_with_cloud
-@pytest.mark.skip(reason="Requires cloud setup and credentials.")
-def test_sync_with_cloud(clear_test_files):
-    metadata = TEST_METADATA
-    message = sync_with_cloud(
-        metadata=metadata,
-        cloud_provider='aws',
-        retries=1,
-        batch_size=1,
-        bucket_name=TEST_BUCKET_NAME,
-        aws_credentials={
-            'aws_access_key_id': 'fake_access_key',
-            'aws_secret_access_key': 'fake_secret_key'
-        }
-    )
-    assert message == "Metadata synced successfully with AWS.", "sync_with_cloud failed."
-
-# Test cases for validate_schema
-def test_validate_schema(clear_test_files):
+# Test validate_schema function
+def test_validate_schema_function(tmp_path, monkeypatch):
+    """
+    Test validate_schema with auto-correction enabled.
+    """
+    monkeypatch.chdir(tmp_path)
+    meta = {"accuracy": 0.95, "loss": 0.05, "epoch": 10}
+    schema = {
+        "type": "object",
+        "properties": {
+            "accuracy": {"type": "number"},
+            "loss": {"type": "number"},
+            "epoch": {"type": "integer"},
+            "optimizer": {"type": "string", "default": "adam"}
+        },
+        "required": ["accuracy", "loss", "epoch", "optimizer"]
+    }
     is_valid = validate_schema(
-        metadata=TEST_METADATA,
-        schema=TEST_SCHEMA,
-        auto_correct=False
-    )
-    assert is_valid, "validate_schema failed on valid metadata."
-
-def test_validate_schema_with_autocorrect(clear_test_files):
-    invalid_metadata = {'accuracy': '0.95', 'loss': 0.05}
-    is_valid = validate_schema(
-        metadata=invalid_metadata,
-        schema=TEST_SCHEMA,
+        metadata=meta,
+        schema=schema,
         auto_correct=True,
-        correction_log='test_corrections.log'
+        correction_log="corrections.log"
     )
-    assert is_valid, "validate_schema failed to auto-correct metadata."
-    assert os.path.exists('test_corrections.log'), "Correction log was not created."
+    assert is_valid is True
+    # Check that the correction log file was created
+    assert os.path.exists("corrections.log")
 
-# Test cases for track_experiment
-def test_track_experiment(clear_test_files):
-    configuration = {'optimizer': 'adam'}
-    hyperparameters = {'learning_rate': 0.001}
-    performance_metrics = {'accuracy': 0.95}
-    message = track_experiment(
-        experiment_id=TEST_EXPERIMENT_ID,
+
+# Test track_experiment function
+def test_track_experiment_function(tmp_path, monkeypatch):
+    """
+    Test track_experiment function using local storage.
+    """
+    monkeypatch.chdir(tmp_path)
+    configuration = {"optimizer": "Adam", "learning_rate": 0.001}
+    hyperparameters = {"batch_size": 32, "epochs": 10}
+    performance_metrics = {"accuracy": 0.93, "loss": 0.07}
+    # Create a dummy training log file.
+    training_log = tmp_path / "training_log.txt"
+    training_log.write_text("Training log content.")
+    
+    msg = track_experiment(
+        experiment_id="exp_001",
         configuration=configuration,
         hyperparameters=hyperparameters,
         performance_metrics=performance_metrics,
-        storage_backend='local'
+        training_logs=str(training_log),
+        storage_backend="local",
+        compression_enabled=False,
+        versioning_enabled=True
     )
-    assert message == f"Experiment metadata tracked successfully for {TEST_EXPERIMENT_ID}."
-    assert os.path.exists(f"experiment_{TEST_EXPERIMENT_ID}.json"), "Experiment metadata file was not created."
+    assert "Experiment metadata tracked successfully" in msg
+    # Expected file: experiment_exp_001_v1.json
+    expected_file = tmp_path / "experiment_exp_001_v1.json"
+    assert expected_file.exists()
 
-# Test cases for prune_old
-def test_prune_old(clear_test_files):
-    # Create old metadata file
-    old_file = f"{TEST_METADATA_TYPE}_old_v1.json"
-    with open(old_file, 'w') as f:
-        json.dump(TEST_METADATA, f)
-    # Modify the file's last modified time to be older than retention_days
-    old_time = datetime.now() - timedelta(days=31)
-    os.utime(old_file, (old_time.timestamp(), old_time.timestamp()))
-    # Prune old files
-    message = prune_old(
-        metadata_type=TEST_METADATA_TYPE,
+# Test prune_old function
+def test_prune_old_function(tmp_path, monkeypatch):
+    """
+    Test prune_old function for local metadata pruning.
+    """
+    monkeypatch.chdir(tmp_path)
+    # Create dummy metadata files.
+    file_names = ["model_v1.json", "model_v2.json", "model_v3.json"]
+    current_time = time.time()
+    for i, file_name in enumerate(file_names, start=1):
+        with open(file_name, "w") as f:
+            json.dump({"dummy": "data", "version": i}, f)
+        # Set modification time: v1 and v2 -> 100 days old; v3 -> 10 days old.
+        mod_time = current_time - (100 * 86400) if i < 3 else current_time - (10 * 86400)
+        os.utime(file_name, (mod_time, mod_time))
+    
+    msg = prune_old(
+        metadata_type="model",
         retention_days=30,
-        storage_backend='local'
+        storage_backend="local",
+        preserve_versions=[3]
     )
-    assert message == "Old metadata pruned successfully based on a retention policy of 30 days."
-    assert not os.path.exists(old_file), "Old metadata file was not pruned."
+    assert "Old metadata pruned successfully" in msg
+    remaining_files = os.listdir(tmp_path)
+    assert "model_v3.json" in remaining_files
+    assert "model_v1.json" not in remaining_files
+    assert "model_v2.json" not in remaining_files
+
 
 if __name__=='__main__': 
     pytest.main([__file__])

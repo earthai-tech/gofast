@@ -507,7 +507,7 @@ def taylor_diagram(
 @validate_params ({
     'reference': ['array-like'], 
     'names': [str, 'array-like', None ], 
-    'kind': [StrOptions({'default', 'half_circle'})], 
+    'acov': [StrOptions({'default', 'half_circle'}), None], 
     'zero_location': [StrOptions({'N','NE','E','S','SW','W','NW', 'SE'})], 
     'direction': [Integral]
     })
