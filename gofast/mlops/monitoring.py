@@ -3,163 +3,224 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-Monitor model performance in production, track key metrics, and set alerts 
-for performance degradation.
+Monitor model performance in production, track key metrics, 
+and set alerts for performance degradation.
+
+This module provides the performance of machine learning models
+in production environments. It computes metrics, detects drift,
+and integrates with external monitoring tools and alerting mechanisms.
 """
+
 import time
-import pickle 
-import threading
+import pickle
 import smtplib
+import threading
 from numbers import Real,  Integral
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Any, Callable, Dict, List, Optional
-
-import numpy as np
-from scipy import stats
-from scipy.stats import ks_2samp
-from scipy.spatial.distance import jensenshannon
-
-from sklearn.utils._param_validation import StrOptions
-from sklearn.metrics import (
-    accuracy_score, f1_score, log_loss, precision_score, recall_score,
-    roc_auc_score
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional
 )
 
-from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
+import numpy as np
+from scipy.stats import ( 
+    ks_2samp, 
+    chi2_contingency
+)
+from scipy.spatial.distance import jensenshannon
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+    log_loss
+)
+from ..compat.sklearn import( 
+    validate_params, 
+    Interval, 
+    StrOptions
+)
+from ..core.handlers import columns_manager 
+from ..utils.deps_utils import ensure_pkg
+from ..utils.validator import (
+    check_is_runned, 
+    check_is_fitted, 
+)
 from ..api.property import BaseClass
-from ..compat.sklearn import validate_params, Interval 
-from ..utils.deps_utils import ensure_pkg 
-from .._gofastlog import gofastlog 
+from .._gofastlog import gofastlog
+from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 
-logger=gofastlog.get_gofast_logger(__name__)
+logger = gofastlog.get_gofast_logger(__name__)
 
 __all__=[
-    "ModelPerformanceMonitor", "ModelHealthChecker", "DataDriftMonitor",
-    "AlertManager", "LatencyTracker", "ErrorRateMonitor",
+    "ModelPerformanceMonitor", 
+    "ModelHealthChecker", 
+    "DataDriftMonitor",
+    "AlertManager",
+    "LatencyTracker", 
+    "ErrorRateMonitor",
     "CustomMetricsLogger",
     ]
 
 class ModelPerformanceMonitor(BaseClass):
-    """
-    Monitors model performance in production, tracks key metrics, and sets
-    alerts for performance degradation.
+    r"""
+    Monitors model performance in production by tracking various
+    metrics over a sliding window and detecting data drift or
+    performance degradations.
 
-    The `ModelPerformanceMonitor` class provides methods to monitor the
-    performance of machine learning models in production environments.
-    It calculates various performance metrics over a sliding window of
-    recent predictions to evaluate model performance over time. It also
-    supports drift detection and integration with external monitoring
-    tools like Prometheus.
+    This class computes performance metrics such as
+    :math:`\text{accuracy}`, :math:`\text{precision}`, and others
+    over a recent window of predictions, allowing real-time
+    evaluation of model performance. It also supports optional drift
+    detection using statistical tests to identify changes in data
+    distributions. When performance metrics drop below specified
+    thresholds, alerts can be triggered to notify stakeholders
+    promptly.
+
+    .. math::
+
+        \text{Performance}(t) = \frac{1}{n_t}
+        \sum_{i=1}^{n_t} M(\hat{y}_i, y_i),
+
+    where :math:`M(\hat{y}_i, y_i)` represents a selected performance
+    metric function (e.g. :math:`\mathbf{1}(\hat{y}_i = y_i)` for
+    accuracy), and :math:`n_t` denotes the number of samples in the
+    current window at time :math:`t`.
 
     Parameters
     ----------
-    metrics : list of str, default=['accuracy']
-        List of performance metrics to monitor. Supported metrics include
-        `'accuracy'`, `'precision'`, `'recall'`, `'f1'`, etc. These metrics
-        will be calculated over a sliding window of recent predictions to
-        evaluate model performance over time.
+    metrics : list of str, optional
+        A list of performance metrics to compute and track. Common
+        values include ``'accuracy'``, ``'precision'``,
+        ``'recall'``, ``'f1'``, etc. The metrics are updated with
+        each new batch of predictions.
 
     drift_detection : bool, default=True
-        Whether to enable drift detection for input data and model outputs.
-        When set to `True`, the class will perform statistical tests to
-        identify significant changes in data distribution or model behavior.
+        Whether to enable drift detection using methods like the
+        Kolmogorov-Smirnov test. If set to ``True``, the class checks
+        for distribution changes in labels or predictions and raises
+        alerts if drift is suspected.
 
-    alert_thresholds : dict of str to float or None, default=None
-        Custom thresholds for triggering alerts when performance metrics
-        degrade. The keys of the dictionary are metric names (e.g.,
-        `'accuracy'`, `'f1'`), and the values are the threshold values.
-        If a monitored metric falls below its threshold, an alert will be
-        triggered.
+    alert_thresholds : dict of str to float, optional
+        Threshold values for the monitored metrics. Keys should be
+        metric names (e.g. ``'accuracy'``), and values are numeric
+        thresholds. If a metric's value drops below its threshold,
+        an alert is triggered.
 
-    monitoring_tools : list of str or None, default=None
-        List of monitoring tools to integrate with, such as `'prometheus'`.
-        Integration allows metrics to be exported to external systems for
-        visualization and alerting. Currently supported tools are
-        `'prometheus'`.
+    monitoring_tools : list of str, optional
+        A list of external monitoring systems (e.g. ``['prometheus']``)
+        for which the class provides built-in integration. Metrics are
+        published to these tools for external visualization and alerting
+        workflows.
 
     window_size : int, default=100
-        The number of recent samples to consider for computing the
-        performance metrics. This sliding window approach helps in tracking
-        the model's performance in real-time by focusing on the most
-        recent data. Must be a positive integer.
+        The size of the sliding window of recent samples used to
+        compute metrics. Older samples beyond the window are discarded
+        to ensure up-to-date performance tracking.
+
+    verbose : int, default=0
+        The verbosity level for logging:
+          - ``0``: Only critical errors are logged.
+          - ``1``: Logs warnings and errors.
+          - ``2``: Logs informational messages, warnings, and errors.
+          - ``3``: Logs debug messages, info, warnings, and errors.
 
     Attributes
     ----------
     performance_history_ : dict of str to list of float
-        Historical performance metrics tracked over time.
+        Stores historical performance values for each metric. This
+        attribute updates over time, maintaining a time-series of
+        metric values.
 
     drift_status_ : dict
-        Current status of drift detection for data and model.
+        Maintains the most recent drift detection results. It may
+        contain keys such as ``'ks_statistic'``, ``'p_value'``, and
+        ``'drift_detected'`` to reflect the outcome of drift checks.
 
     Methods
     -------
+    run(**run_kw)
+        Prepares the monitor for usage in a production or streaming
+        environment.
+
     update(y_true, y_pred)
-        Update the monitoring metrics with a new batch of data.
+        Updates the sliding window with a new batch of ground-truth
+        labels and predictions, then recalculates metrics and checks
+        for alerts/drift.
 
     get_performance_history()
-        Get the historical performance metrics.
+        Retrieves the recorded metric values over time.
 
     get_drift_status()
-        Get the current drift detection status.
+        Returns the most recent drift detection results, indicating
+        whether data drift is suspected.
 
     reset_monitor()
-        Reset the monitoring state.
+        Clears all stored performance data and drift status, allowing
+        the monitor to start fresh.
 
     set_thresholds(alert_thresholds)
-        Set or update custom thresholds for performance alerts.
+        Dynamically updates or sets thresholds for performance metrics,
+        enabling flexible alert configurations.
 
     save_state(filepath)
-        Save the current monitoring state to a file.
+        Serializes and saves the internal state (metrics, drift info,
+        etc.) to a file for later restoration.
 
     load_state(filepath)
-        Load monitoring state from a file.
+        Loads a previously saved state from a file, restoring
+        performance metrics and drift detection status.
 
     Notes
     -----
-    The performance metrics are calculated as follows:
-
-    - **Accuracy**:
-
-      .. math::
-
-         \\text{Accuracy} = \\frac{1}{n} \\sum_{i=1}^{n} \\mathbb{1}(y_i = \\hat{y}_i)
-
-      where :math:`n` is the number of samples, :math:`y_i` is the true label,
-      :math:`\\hat{y}_i` is the predicted label, and :math:`\\mathbb{1}` is
-      the indicator function.
-
-    Concept drift refers to the change in the statistical properties of the
-    target variable over time, which can affect the performance of machine
-    learning models in production environments [1]_.
+    - When drift detection is enabled, a statistical test (e.g.,
+      Kolmogorov-Smirnov) is applied to the distribution of labels
+      or predictions. If the test indicates a significant difference
+      from past data, drift is flagged [1]_.
+    - Alert thresholds can be configured separately for each metric.
+      If a metric's current value is below the specified threshold,
+      an alert is raised, allowing quick responses to performance
+      regressions.
 
     Examples
     --------
     >>> from gofast.mlops.monitoring import ModelPerformanceMonitor
-    >>> monitor = ModelPerformanceMonitor(metrics=['accuracy', 'f1'], window_size=50)
-    >>> for batch in data_stream:
-    ...     predictions = model.predict(batch['features'])
-    ...     monitor.update(batch['labels'], predictions)
+    >>> monitor = ModelPerformanceMonitor(
+    ...     metrics=['accuracy', 'f1'],
+    ...     window_size=50,
+    ...     drift_detection=True
+    ... )
+    >>> monitor.run()
+    >>> monitor.update(
+    ...     y_true=[0, 1, 1],
+    ...     y_pred=[0, 1, 1]
+    ... )
+    >>> print(monitor.get_performance_history())
 
     See Also
     --------
-    DataDriftMonitor : Class for detecting data drift.
-    ErrorRateMonitor : Monitors the error rate of model predictions.
+    DataDriftMonitor : Detects data drift using various statistical tests.
+    ErrorRateMonitor : Tracks error rate of predictions over time.
 
     References
     ----------
-    .. [1] Gama, J., Žliobaitė, I., Bifet, A., Pechenizkiy, M., & Bouchachia, A. (2014).
-           "A survey on concept drift adaptation." *ACM Computing Surveys (CSUR)*, 46(4), 1-37.
-
+    .. [1] Gama, J. et al. *A survey on concept drift adaptation*.
+           ACM Computing Surveys, 46(4), 1-37.
     """
 
     @validate_params(
         {
-            'metrics': [list],
+            'metrics': ['array-like'],
             'drift_detection': [bool],
             'alert_thresholds': [dict, None],
-            'monitoring_tools': [list, None],
+            'monitoring_tools': ['array-like', None],
             'window_size': [Interval(Integral, 1, None, closed='left')],
+            'verbose': [int]
         }
     )
     def __init__(
@@ -169,550 +230,751 @@ class ModelPerformanceMonitor(BaseClass):
         alert_thresholds: Optional[Dict[str, float]] = None,
         monitoring_tools: Optional[List[str]] = None,
         window_size: int = 100,
+        verbose: int = 0
     ):
-        self.metrics = metrics
+ 
+        super().__init__(verbose=verbose)
+
+        self.metrics = columns_manager(metrics)
         self.drift_detection = drift_detection
         self.alert_thresholds = alert_thresholds or {}
         self.monitoring_tools = monitoring_tools or []
         self.window_size = window_size
 
-        self.performance_history_ = {}
-        self.drift_status_ = {}
-        self._labels_window = []
-        self._preds_window = []
+        self.performance_history_: Dict[str, List[float]] = {}
+        self.drift_status_: Dict[str, Any] = {}
 
+        self._labels_window_ = []
+        self._preds_window_ = []
+
+        self._selected_metrics_: Dict[str, Callable] = {}
+        self._metric_functions_: Dict[str, Callable] = {}
+        self._prometheus_metrics_: Dict[str, Any] = {}
+        self._alert_configs_: Dict[str, Any] = {}
+        self._email_config_: Dict[str, Any] = {}
+        self._slack_config_: Dict[str, Any] = {}
+        self._sms_config_: Dict[str, Any] = {}
+
+        self._is_runned = False
+
+        # Initialize sub-components
         self._initialize_monitoring_tools()
         self._init_performance_metrics()
         self._init_alerting()
 
+        # Initialize drift detection if enabled
         if self.drift_detection:
             self._init_drift_detection()
 
-    def _initialize_monitoring_tools(self):
-        """Initialize connections to external monitoring tools."""
+    def run(
+        self,
+        model: Optional[Any]=None,
+        **run_kw
+    ) -> "ModelPerformanceMonitor":
+        """
+        Prepare the monitor for usage with a given model in a
+        production or streaming environment.
+
+        This method sets the internal state indicating that the
+        monitor is ready to receive updates. The `model` parameter
+        can be stored or validated as needed.
+
+        Parameters
+        ----------
+        model : Any
+            The model object to be monitored. May be used in future
+            extended scenarios (e.g., predictions, metadata, etc.).
+            For now it does nothing and user can bypass setting the 
+            model. 
+        **run_kw
+            Additional parameters for run configuration.
+
+        Returns
+        -------
+        self : ModelPerformanceMonitor
+            Returns the instance after setting up the run state.
+
+        Notes
+        -----
+        This method sets an internal flag `_is_runned` to True,
+        indicating that subsequent operations can proceed.
+        """
+        self._model_ = model  # could be used in advanced usage
+        self._is_runned = True
+
+        if self.verbose > 1:
+            logger.info(
+                "ModelPerformanceMonitor is now set to run mode."
+            )
+        return self
+
+    def _initialize_monitoring_tools(self) -> None:
+        """
+        Initialize connections or clients to external monitoring
+        tools (e.g., Prometheus).
+        """
         for tool in self.monitoring_tools:
             if tool.lower() == 'prometheus':
                 self._init_prometheus_client()
             else:
-                raise ValueError(f"Unsupported monitoring tool: {tool}")
+                msg = (
+                    f"Unsupported monitoring tool: {tool}."
+                )
+                raise ValueError(msg)
 
-    def _init_prometheus_client(self):
-        """Initialize Prometheus client."""
+    def _init_prometheus_client(self) -> None:
+        """
+        Initialize Prometheus client, creating gauge metrics for
+        each performance metric being monitored.
+        """
         @ensure_pkg(
             "prometheus_client",
-            extra="To use Prometheus integration, please install 'prometheus_client'.",
+            extra=(
+                "To use Prometheus integration, please install "
+                "'prometheus_client'."
+            ),
             auto_install=INSTALL_DEPENDENCIES,
             use_conda=USE_CONDA
         )
         def init_client():
             import prometheus_client
-            self.prometheus_metrics_ = {}
             for metric in self.metrics:
-                self.prometheus_metrics_[metric] = prometheus_client.Gauge(
-                    f'model_{metric}', f'Model {metric} over time'
+                gauge_name = f'model_{metric}'
+                desc = f'Model {metric} over time'
+                self._prometheus_metrics_[metric] = (
+                    prometheus_client.Gauge(gauge_name, desc)
                 )
         init_client()
 
-
-    def _init_performance_metrics(self):
-        """Initialize performance metric functions."""
-        self.metric_functions_ = {
+    def _init_performance_metrics(self) -> None:
+        """
+        Set up supported metric functions and validate user-specified
+        metrics.
+        """
+        self._metric_functions_ = {
             'accuracy': accuracy_score,
             'precision': precision_score,
             'recall': recall_score,
             'f1': f1_score,
             'roc_auc': roc_auc_score,
-            'log_loss': log_loss,
+            'log_loss': log_loss
         }
-        self.selected_metrics_ = {}
+
         for metric in self.metrics:
-            if metric in self.metric_functions_:
-                self.selected_metrics_[metric] = self.metric_functions_[metric]
+            if metric in self._metric_functions_:
+                self._selected_metrics_[metric] = (
+                    self._metric_functions_[metric]
+                )
             else:
-                raise ValueError(f"Unsupported metric: {metric}")
+                msg = (
+                    f"Unsupported metric: {metric}. "
+                    "Supported metrics are "
+                    f"{list(self._metric_functions_.keys())}."
+                )
+                raise ValueError(msg)
 
-    def _init_alerting(self):
-        """Initialize alerting mechanisms."""
-        # Initialize alert configurations
-        self.alert_configs_ = {}
-
-        # Email configuration
-        self.email_config = getattr(self, 'email_config', None)
-        if self.email_config and self.email_config.get('enabled', False):
-            self.alert_configs_['email'] = self.email_config
+    def _init_alerting(self) -> None:
+        """
+        Prepare configurations for different alerting channels 
+        (email, slack, sms).
+        """
+        # Assume the user might set these in the instance 
+        self._email_config_ = getattr(
+            self, '_email_config_', {}
+        )
+        if (
+            self._email_config_.get('enabled', False)
+            and self.verbose > 1
+        ):
             logger.info("Email alerting enabled.")
         else:
-            logger.info("Email alerting not enabled or not configured.")
+            if self.verbose > 1:
+                logger.info("Email alerting is disabled or "
+                            "not configured.")
 
-        # Slack configuration
-        self.slack_config = getattr(self, 'slack_config', None)
-        if self.slack_config and self.slack_config.get('enabled', False):
-            self.alert_configs_['slack'] = self.slack_config
+        self._slack_config_ = getattr(
+            self, '_slack_config_', {}
+        )
+        if (
+            self._slack_config_.get('enabled', False)
+            and self.verbose > 1
+        ):
             logger.info("Slack alerting enabled.")
         else:
-            logger.info("Slack alerting not enabled or not configured.")
+            if self.verbose > 1:
+                logger.info("Slack alerting is disabled or "
+                            "not configured.")
 
-        # SMS configuration
-        self.sms_config = getattr(self, 'sms_config', None)
-        if self.sms_config and self.sms_config.get('enabled', False):
-            self.alert_configs_['sms'] = self.sms_config
+        self._sms_config_ = getattr(
+            self, '_sms_config_', {}
+        )
+        if (
+            self._sms_config_.get('enabled', False)
+            and self.verbose > 1
+        ):
             logger.info("SMS alerting enabled.")
         else:
-            logger.info("SMS alerting not enabled or not configured.")
+            if self.verbose > 1:
+                logger.info("SMS alerting is disabled or "
+                            "not configured.")
 
-    def _init_drift_detection(self):
-        """Initialize drift detection mechanisms."""
-
+    def _init_drift_detection(self) -> None:
+        """
+        Set up drift detection (e.g., initialize statistical tests).
+        """
+        # Currently only sets up KS test
         def init_drift():
-            self.ks_test = ks_2samp
+            self._ks_test_ = ks_2samp
         init_drift()
 
-    def update(self, y_true: List[Any], y_pred: List[Any]):
+    def update(
+        self,
+        y_true: List[Any],
+        y_pred: List[Any]
+    ) -> "ModelPerformanceMonitor":
         """
         Update the monitoring metrics with a new batch of data.
 
         Parameters
         ----------
-        y_true : array-like of shape (n_samples,)
-            True labels.
+        y_true : List[Any]
+            True labels or ground truth for the batch.
 
-        y_pred : array-like of shape (n_samples,)
-            Predicted labels.
+        y_pred : List[Any]
+            Predicted labels from the model.
 
         Returns
         -------
-        self : object
-            Returns self.
+        self : ModelPerformanceMonitor
+            Returns the instance after updating internal state.
 
         Notes
         -----
-        The method updates the internal sliding windows with the new data,
-        computes the specified performance metrics, checks for alerts, and
-        updates external monitoring tools if integrated.
+        This method updates the internal sliding windows with the
+        new data, computes the selected performance metrics,
+        checks for alerts, and updates any integrated monitoring
+        tools (e.g., Prometheus). If drift detection is enabled,
+        it also performs relevant statistical tests.
+
+        Raises
+        ------
+        ValueError
+            If a metric computation fails due to incompatible 
+            shapes or invalid values.
 
         Examples
         --------
-        >>> monitor.update([0, 1, 1], [0, 0, 1])
-
+        >>> monitor.update(
+        ...     y_true=[0, 1, 1], 
+        ...     y_pred=[0, 0, 1]
+        ... )
         """
-        # Update the windowed data
-        self._labels_window.extend(y_true)
-        self._preds_window.extend(y_pred)
-        # Keep only the recent window_size elements
-        self._labels_window = self._labels_window[-self.window_size:]
-        self._preds_window = self._preds_window[-self.window_size:]
+        check_is_runned(
+            self, 
+            attributes=["_is_runned"],
+            msg="Please call 'run' before updating metrics."
+        )
+        # Add new data to the sliding windows
+        self._labels_window_.extend(y_true)
+        self._preds_window_.extend(y_pred)
 
-        # Calculate metrics
+        # Keep only the last `window_size` items
+        self._labels_window_ = (
+            self._labels_window_[-self.window_size:]
+        )
+        self._preds_window_ = (
+            self._preds_window_[-self.window_size:]
+        )
+
+        # Compute each metric
         current_metrics = {}
-        for metric_name, metric_func in self.selected_metrics_.items():
+        for m_name, m_func in self._selected_metrics_.items():
             try:
-                if metric_name in ['precision', 'recall', 'f1']:
-                    value = metric_func(self._labels_window, self._preds_window, average='weighted')
+                # Weighted average needed if metric is 
+                # precision, recall or f1
+                if m_name in ['precision', 'recall', 'f1']:
+                    val = m_func(
+                        self._labels_window_,
+                        self._preds_window_,
+                        average='weighted'
+                    )
                 else:
-                    value = metric_func(self._labels_window, self._preds_window)
+                    val = m_func(
+                        self._labels_window_,
+                        self._preds_window_
+                    )
             except ValueError as e:
-                logger.error(f"Error calculating {metric_name}: {e}")
-                value = float('nan')
+                logger.error(
+                    f"Error calculating {m_name}: {e}"
+                )
+                val = float('nan')
 
-            current_metrics[metric_name] = value
+            current_metrics[m_name] = val
+            # Record in performance history
+            self.performance_history_.setdefault(
+                m_name, []
+            ).append(val)
 
-            # Update performance history
-            self.performance_history_.setdefault(metric_name, []).append(value)
+            # Alert checks
+            threshold = self.alert_thresholds.get(m_name)
+            if threshold is not None and val < threshold:
+                self._trigger_alert(m_name, val)
 
-            # Check for alerts
-            threshold = self.alert_thresholds.get(metric_name)
-            if threshold is not None and value < threshold:
-                self._trigger_alert(metric_name, value)
-
-            # Update monitoring tools
+            # Update external monitoring (Prometheus)
             if 'prometheus' in self.monitoring_tools:
-                self.prometheus_metrics_[metric_name].set(value)
+                self._prometheus_metrics_[m_name].set(val)
 
-        # Perform drift detection if enabled
+        # If drift detection is enabled, run it
         if self.drift_detection:
             self._detect_drift()
 
         return self
 
-    def _detect_drift(self):
+    def _detect_drift(self) -> None:
         """
-        Detect data and model drift using statistical tests.
-
-        Notes
-        -----
-        Performs the Kolmogorov-Smirnov test between the distributions of
-        true labels and predicted labels. If the p-value is below a
-        significance level (e.g., 0.05), drift is considered to be detected.
-
+        Perform drift detection using statistical tests 
+        over the recent data window.
         """
-        if len(self._labels_window) < 2 or len(self._preds_window) < 2:
-            # Not enough data to perform drift detection
+        # If not enough data, skip
+        if (
+            len(self._labels_window_) < 2
+            or len(self._preds_window_) < 2
+        ):
             return
 
-        y_true = self._labels_window
-        y_pred = self._preds_window
-
-        # Perform KS test between true labels and predicted labels
-        stat, p_value = self.ks_test(y_true, y_pred)
-
-        # Update drift status
+        stat, pval = self._ks_test_(
+            self._labels_window_,
+            self._preds_window_
+        )
         self.drift_status_['ks_statistic'] = stat
-        self.drift_status_['p_value'] = p_value
+        self.drift_status_['p_value'] = pval
 
-        # Check if p_value is below the significance level (e.g., 0.05)
-        if p_value < 0.05:
+        if pval < 0.05:
             self.drift_status_['drift_detected'] = True
-            logger.warning(f"Drift detected: KS test p-value = {p_value:.4f}")
+            logger.warning(
+                f"Drift detected (p={pval:.4f})."
+            )
         else:
             self.drift_status_['drift_detected'] = False
 
-    def get_performance_history(self) -> Dict[str, List[float]]:
+    def get_performance_history(
+        self
+    ) -> Dict[str, List[float]]:
         """
-        Get the historical performance metrics.
+        Retrieve the tracked performance metrics over time.
 
         Returns
         -------
         performance_history_ : dict of str to list of float
-            Historical performance metrics tracked over time.
+            A dictionary keyed by metric names, with each value 
+            being a list of metric values in chronological order.
 
         Examples
         --------
         >>> history = monitor.get_performance_history()
         >>> print(history)
-
         """
         return self.performance_history_
 
-    def get_drift_status(self) -> Dict[str, Any]:
+    def get_drift_status(
+        self
+    ) -> Dict[str, Any]:
         """
         Get the current drift detection status.
 
         Returns
         -------
         drift_status_ : dict
-            Current status of drift detection for data and model.
-
-        Examples
-        --------
-        >>> drift_status = monitor.get_drift_status()
-        >>> print(drift_status)
-
+            Dictionary containing the last drift detection 
+            statistic, p-value, and a boolean indicating 
+            whether drift was detected.
         """
         return self.drift_status_
 
-    def reset_monitor(self):
+    def reset_monitor(self) -> None:
         """
-        Reset the monitoring state.
-
-        Notes
-        -----
-        Clears the performance history, drift status, and internal data
-        windows.
-
-        Examples
-        --------
-        >>> monitor.reset_monitor()
-
+        Reset the monitoring state, clearing all tracked
+        metrics, drift status, and data windows.
         """
         self.performance_history_.clear()
         self.drift_status_.clear()
-        self._labels_window.clear()
-        self._preds_window.clear()
-        logger.info("Monitoring state has been reset.")
+        self._labels_window_.clear()
+        self._preds_window_.clear()
+        if self.verbose > 1:
+            logger.info("Monitoring state has been reset.")
 
-    def set_thresholds(self, alert_thresholds: Dict[str, float]):
+    def set_thresholds(
+        self, 
+        alert_thresholds: Dict[str, float]
+    ) -> None:
         """
         Set or update custom thresholds for performance alerts.
 
         Parameters
         ----------
         alert_thresholds : dict of str to float
-            Custom thresholds for triggering alerts when performance metrics
-            degrade.
-
-        Notes
-        -----
-        Updates the `alert_thresholds` with the provided values.
-
-        Examples
-        --------
-        >>> monitor.set_thresholds({'accuracy': 0.9})
-
+            Dictionary keyed by metric names with float 
+            threshold values. If a metric's value falls 
+            below its threshold, an alert will be triggered.
         """
         self.alert_thresholds.update(alert_thresholds)
-        logger.info("Alert thresholds have been updated.")
+        if self.verbose > 1:
+            logger.info("Alert thresholds have been updated.")
 
-    def save_state(self, filepath: str):
+    def save_state(
+        self,
+        filepath: str
+    ) -> None:
         """
-        Save the current monitoring state to a file.
+        Save the current monitoring state to a file using 
+        pickle serialization.
 
         Parameters
         ----------
         filepath : str
-            Path to the file where the state will be saved.
-
-        Notes
-        -----
-        Uses the `pickle` module to serialize the monitoring state.
+            Path to the file where the state is saved.
 
         Examples
         --------
         >>> monitor.save_state('monitor_state.pkl')
-
         """
         def save():
-     
             state = {
                 'performance_history_': self.performance_history_,
                 'drift_status_': self.drift_status_,
-                '_labels_window': self._labels_window,
-                '_preds_window': self._preds_window
+                '_labels_window_': self._labels_window_,
+                '_preds_window_': self._preds_window_
             }
             with open(filepath, 'wb') as f:
                 pickle.dump(state, f)
-            logger.info(f"Monitoring state saved to {filepath}.")
+            if self.verbose > 1:
+                logger.info(f"State saved to {filepath}.")
         save()
 
-    def load_state(self, filepath: str):
+    def load_state(
+        self,
+        filepath: str
+    ) -> None:
         """
-        Load monitoring state from a file.
+        Load a previously saved monitoring state from a file.
 
         Parameters
         ----------
         filepath : str
-            Path to the file from which the state will be loaded.
-
-        Notes
-        -----
-        Uses the `pickle` module to deserialize the monitoring state.
+            Path to the pickle file containing the saved state.
 
         Examples
         --------
         >>> monitor.load_state('monitor_state.pkl')
-
         """
-
         def load():
             with open(filepath, 'rb') as f:
                 state = pickle.load(f)
-            self.performance_history_ = state.get('performance_history_', {})
-            self.drift_status_ = state.get('drift_status_', {})
-            self._labels_window = state.get('_labels_window', [])
-            self._preds_window = state.get('_preds_window', [])
-            logger.info(f"Monitoring state loaded from {filepath}.")
+            self.performance_history_ = (
+                state.get('performance_history_', {})
+            )
+            self.drift_status_ = (
+                state.get('drift_status_', {})
+            )
+            self._labels_window_ = (
+                state.get('_labels_window_', [])
+            )
+            self._preds_window_ = (
+                state.get('_preds_window_', [])
+            )
+            if self.verbose > 1:
+                logger.info(f"State loaded from {filepath}.")
         load()
 
-    def _trigger_alert(self, metric_name: str, value: float):
+    def _trigger_alert(
+        self,
+        metric_name: str,
+        value: float
+    ) -> None:
         """
-        Trigger an alert for performance degradation.
+        Trigger an alert indicating performance degradation.
 
         Parameters
         ----------
         metric_name : str
-            The name of the metric that triggered the alert.
+            Name of the metric that triggered the alert.
 
         value : float
-            The current value of the metric.
-
-        Notes
-        -----
-        Logs a warning message and sends alerts via configured channels.
-
+            Current metric value that fell below the threshold.
         """
-        alert_message = (f"Performance alert: {metric_name} has dropped "
-                         f"below threshold: {value:.4f}")
-        logger.warning(alert_message)
-
+        alert_msg = (
+            f"Performance alert: {metric_name} "
+            f"={value:.4f} below threshold."
+        )
+        logger.warning(alert_msg)
         # Send email alert if email configuration is provided
-        if 'email' in self.alert_configs_:
-            self._send_email_alert(alert_message, self.alert_configs_['email'])
+        if 'email' in self._email_config_:
+            self._send_email_alert(alert_msg, self._email_config_['email'])
 
-        # Additional alerting mechanisms can be added here
-
-    def _send_email_alert(self, alert_message: str, email_config: Dict[str, Any]):
+    def _send_email_alert(
+        self,
+        alert_message: str,
+        email_config: Dict[str, Any]
+    ) -> None:
         """
-        Send an email alert with the specified message.
-
+        Send an email alert using the specified configuration.
+    
         Parameters
         ----------
         alert_message : str
-            The alert message to be sent via email.
-
+            The content of the alert message.
         email_config : dict
-            Configuration dictionary containing email settings.
-
+            Email settings, e.g.:
+            {
+                'smtp_server': ...,
+                'smtp_port': ...,
+                'smtp_username': ...,
+                'smtp_password': ...,
+                'sender_email': ...,
+                'receiver_email': ...
+            }
+    
         Notes
         -----
-        Requires the `smtplib` and `email` modules.
-
+        This method requires valid SMTP credentials.
         """
-        def send_email():
-            smtp_server = email_config.get('smtp_server')
-            smtp_port = email_config.get('smtp_port', 587)
-            smtp_username = email_config.get('smtp_username')
-            smtp_password = email_config.get('smtp_password')
-            sender_email = email_config.get('sender_email')
-            receiver_email = email_config.get('receiver_email')
-
-            if not all([smtp_server, smtp_username, smtp_password, sender_email, receiver_email]):
-                logger.error("Incomplete email configuration provided.")
-                return
-
-            # Create the email
-            message = MIMEMultipart()
-            message['From'] = sender_email
-            message['To'] = receiver_email
-            message['Subject'] = "Model Performance Alert"
-            message.attach(MIMEText(alert_message, 'plain'))
-
-            # Send the email
-            try:
-                server = smtplib.SMTP(smtp_server, smtp_port)
-                server.starttls()
-                server.login(smtp_username, smtp_password)
-                server.sendmail(sender_email, receiver_email, message.as_string())
-                server.quit()
+        smtp_server = email_config.get('smtp_server')
+        smtp_port = email_config.get('smtp_port', 587)
+        smtp_username = email_config.get('smtp_username')
+        smtp_password = email_config.get('smtp_password')
+        sender_email = email_config.get('sender_email')
+        receiver_email = email_config.get('receiver_email')
+    
+        # Ensure all required config fields exist
+        if not all([
+            smtp_server, smtp_username, smtp_password,
+            sender_email, receiver_email
+        ]):
+            logger.error("Incomplete email configuration.")
+            return
+    
+        # Create and send the email
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = sender_email
+            msg['To'] = receiver_email
+            msg['Subject'] = "Model Performance Alert"
+            msg.attach(MIMEText(alert_message, 'plain'))
+    
+            server = smtplib.SMTP(smtp_server, smtp_port)
+            server.starttls()
+            server.login(smtp_username, smtp_password)
+            server.sendmail(sender_email, receiver_email, msg.as_string())
+            server.quit()
+    
+            if self.verbose > 1:
                 logger.info("Email alert sent successfully.")
-            except Exception as e:
-                logger.error(f"Failed to send email alert: {e}")
-
-        send_email()
-
+        except Exception as exc:
+            logger.exception(
+                f"Failed to send email alert: {exc}"
+            )
 
 class ModelHealthChecker(BaseClass):
     """
-    Monitors the health of the system running the machine learning model,
-    including CPU usage, memory usage, disk space, GPU usage, network bandwidth,
-    and inference latency. Can alert on system resource issues.
+    Monitors the operational health of a system running a machine
+    learning model, measuring resource usage such as CPU, memory,
+    disk, GPU, network bandwidth, and inference latency.
 
-    The health checker periodically monitors system resources and triggers alerts
-    when usage exceeds defined thresholds. It records historical data for analysis
-    and can be customized with user-defined alert callbacks.
+    This class periodically collects system resource metrics and can
+    raise alerts if usage exceeds user-defined thresholds. By
+    tracking various health indicators, it helps prevent performance
+    bottlenecks or outages in production environments. Users can
+    customize missing metrics (e.g., no GPU present) or disable
+    specific checks.
+
+    .. math::
+
+        H(t) = \bigl(\text{cpu}_t,\,
+                     \text{memory}_t,\,
+                     \text{disk}_t,\,
+                     \text{gpu}_t,\,
+                     \text{network}_t,\,
+                     \text{latency}_t \bigr),
+
+    where each component (e.g. :math:`\text{cpu}_t`) represents the
+    resource usage at time :math:`t`. If any usage surpasses its
+    threshold, an alert is triggered.
 
     Parameters
     ----------
     alert_callback : callable or None, default=None
-        A function that is called when a health issue is detected. It should
-        accept two parameters: the issue type (`str`) and detailed metrics
-        (`dict`). If `None`, no callback is executed when an alert is triggered.
+        A user-defined function that is invoked when a monitored
+        resource crosses its threshold. It should accept two
+        parameters: the resource name (e.g. ``'cpu'``) and a
+        dictionary with additional details (e.g., the usage
+        percentage).
 
     cpu_threshold : float, default=80.0
-        The CPU usage percentage threshold for triggering an alert. Must be
-        between 0 and 100 inclusive.
+        Maximum allowable CPU usage (in percent). If CPU usage
+        exceeds this value, an alert is raised. Must lie within
+        [0, 100].
 
     memory_threshold : float, default=80.0
-        The memory usage percentage threshold for triggering an alert. Must be
-        between 0 and 100 inclusive.
+        Maximum allowable system memory usage (in percent). If the
+        usage surpasses this threshold, an alert is triggered.
+        Must lie within [0, 100].
 
     disk_threshold : float, default=80.0
-        The disk usage percentage threshold for triggering an alert. Must be
-        between 0 and 100 inclusive.
+        Limit for disk usage (in percent). If the usage on the root
+        filesystem (or configured partition) exceeds this value, an
+        alert is generated. Must lie within [0, 100].
 
     gpu_threshold : float, default=80.0
-        The GPU usage percentage threshold for triggering an alert. Must be
-        between 0 and 100 inclusive.
+        Upper bound for GPU usage (in percent). If usage is above
+        this threshold, an alert is raised. If no GPU is detected,
+        usage remains 0. Must lie within [0, 100].
 
     network_threshold : float, default=80.0
-        The network bandwidth usage threshold (in Mbps) for triggering an alert.
-        Must be a non-negative value.
+        Bandwidth usage limit in Mbps. If usage surpasses this value,
+        an alert is raised. Must be non-negative.
 
     latency_threshold : float, default=2.0
-        The latency threshold (in seconds) for triggering an alert. Must be a
-        non-negative value.
+        Maximum acceptable inference latency (in seconds). If the
+        recorded latency for an operation exceeds this threshold,
+        it triggers an alert. Must be non-negative.
 
-    alert_messages : dict of str to str, default=None
-        A dictionary of custom alert messages for different alert types
-        (e.g., ``{'cpu': 'High CPU usage detected!'}``). If `None`, default
-        messages are used.
+    alert_messages : dict of str to str, optional
+        Custom messages for specific resource alerts. For example,
+        a key of ``'cpu'`` can map to a string describing a CPU
+        usage alert. If not provided, default messages are used.
 
     health_retention_period : int, default=100
-        Number of recent health records to retain for analysis. Must be a
-        positive integer.
+        Size of the sliding window for storing historical resource
+        metrics. Must be a positive integer. Allows analysis of
+        trends and short-term fluctuations.
 
     monitor_interval : int, default=60
-        Time in seconds between health checks. Must be a positive integer.
+        Interval (in seconds) between resource checks. Must be a
+        positive integer. When the health checker is running in a
+        background thread, each check occurs after ``monitor_interval``
+        seconds.
+
+    verbose : int, default=0
+        Verbosity level for logging:
+          - ``0``: Logs only critical errors.
+          - ``1``: Logs warnings and errors.
+          - ``2``: Logs info, warnings, and errors.
+          - ``3``: Logs debug info, as well as everything above.
 
     Attributes
     ----------
     latency_history_ : list of float
-        Historical latency measurements.
+        Retains the latencies recorded for inference operations,
+        respecting the `health_retention_period`.
 
     health_history_ : dict of str to list of float
-        Historical health metrics for each monitored resource.
+        Tracks CPU, memory, disk, GPU, and network usage statistics
+        over recent intervals. Each key (e.g. ``'cpu'``) maps to a
+        list of usage values.
 
     Methods
     -------
+    run(**run_kw)
+        Activates health monitoring. If invoked, repeated checks
+        are done in the background or by manual calls to
+        `check_health`.
+
     check_health()
-        Checks system health metrics and triggers alerts if any are above
-        thresholds.
+        Collects CPU, memory, disk, GPU, and network usage, then
+        triggers alerts if thresholds are exceeded.
 
     record_latency(latency)
-        Records the latency of an inference operation.
+        Logs inference latency. If above `latency_threshold`,
+        an alert is raised.
 
     get_health_history(metric)
-        Returns the historical values of a specific health metric.
+        Retrieves usage history for a specified metric (e.g.
+        ``'cpu'``).
 
     Notes
     -----
-    The `ModelHealthChecker` class provides a way to monitor system resources
-    critical to the performance of machine learning models in production. It
-    can alert when resources are constrained, potentially affecting model
-    performance or availability.
+    - When GPU monitoring is enabled, :math:`\text{gpu}_t` is computed
+      from the highest usage across all available GPUs. If no GPU is
+      found, usage is set to 0 [1]_.
+    - Network usage in Mbps is estimated by measuring bytes sent and
+      received over a 1-second interval and converting to megabits.
 
     Examples
     --------
     >>> from gofast.mlops.monitoring import ModelHealthChecker
-    >>> def alert_callback(metric, info):
-    ...     print(f"Alert! {metric}: {info['message']}")
+    >>> def my_alert_callback(metric, details):
+    ...     print(f"ALERT: {metric} usage high - {details}")
     >>> health_checker = ModelHealthChecker(
-    ...     alert_callback=alert_callback,
+    ...     alert_callback=my_alert_callback,
     ...     cpu_threshold=75.0,
-    ...     memory_threshold=80.0,
-    ...     gpu_threshold=90.0,
-    ...     network_threshold=100.0,
-    ...     latency_threshold=1.5
+    ...     memory_threshold=85.0
     ... )
+    >>> health_checker.run()
     >>> health_checker.check_health()
-    >>> health_checker.record_latency(1.6)
 
     See Also
     --------
-    psutil : A cross-platform library for retrieving information on running
-        processes and system utilization.
-    GPUtil : A Python module for getting the GPU status from NVIDIA GPUs.
+    ErrorRateMonitor : Monitors model prediction failures.
+    LatencyTracker : Tracks the latency of inference operations.
 
     References
     ----------
-    .. [1] "psutil Documentation", https://psutil.readthedocs.io/
-    .. [2] "GPUtil Documentation", https://github.com/anderskm/gputil
-
+    .. [1] "GPUtil Documentation",
+           https://github.com/anderskm/gputil
     """
 
-    @validate_params({
-        'alert_callback': [callable, None],
-        'cpu_threshold': [Interval(Real, 0, 100, closed='both')],
-        'memory_threshold': [Interval(Real, 0, 100, closed='both')],
-        'disk_threshold': [Interval(Real, 0, 100, closed='both')],
-        'gpu_threshold': [Interval(Real, 0, 100, closed='both')],
-        'network_threshold': [Interval(Real, 0, None, closed='left')],
-        'latency_threshold': [Interval(Real, 0, None, closed='left')],
-        'alert_messages': [dict, None],
-        'health_retention_period': [Interval(Integral, 1, None, closed='left')],
-        'monitor_interval': [Interval(Integral, 1, None, closed='left')],
-    })
+    @validate_params(
+        {
+            'alert_callback': [callable, None],
+            'cpu_threshold': [
+                Interval(Real, 0, 100, closed='both')
+            ],
+            'memory_threshold': [
+                Interval(Real, 0, 100, closed='both')
+            ],
+            'disk_threshold': [
+                Interval(Real, 0, 100, closed='both')
+            ],
+            'gpu_threshold': [
+                Interval(Real, 0, 100, closed='both')
+            ],
+            'network_threshold': [
+                Interval(Real, 0, None, closed='left')
+            ],
+            'latency_threshold': [
+                Interval(Real, 0, None, closed='left')
+            ],
+            'alert_messages': [dict, None],
+            'health_retention_period': [
+                Interval(Integral, 1, None, closed='left')
+            ],
+            'monitor_interval': [
+                Interval(Integral, 1, None, closed='left')
+            ],
+            'verbose': [Integral]
+        }
+    )
     def __init__(
         self,
-        alert_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        alert_callback: Optional[
+            Callable[[str, Dict[str, Any]], None]
+        ] = None,
         cpu_threshold: float = 80.0,
         memory_threshold: float = 80.0,
         disk_threshold: float = 80.0,
         gpu_threshold: float = 80.0,
         network_threshold: float = 80.0,
         latency_threshold: float = 2.0,
-        alert_messages: Optional[Dict[str, str]] = None,
+        alert_messages: Optional[
+            Dict[str, str]
+        ] = None,
         health_retention_period: int = 100,
         monitor_interval: int = 60,
+        verbose: int = 0
     ):
+    
+        super().__init__(verbose=verbose)
+
         self.alert_callback = alert_callback
         self.cpu_threshold = cpu_threshold
         self.memory_threshold = memory_threshold
@@ -721,1081 +983,1227 @@ class ModelHealthChecker(BaseClass):
         self.network_threshold = network_threshold
         self.latency_threshold = latency_threshold
         self.alert_messages = alert_messages or {}
-        self.health_retention_period = health_retention_period
+        self.health_retention_period = (
+            health_retention_period
+        )
         self.monitor_interval = monitor_interval
-        self.latency_history_ = []
-        self.health_history_ = {
+
+        self._latency_history_ = []
+        self._health_history_ = {
             'cpu': [],
             'memory': [],
             'disk': [],
             'gpu': [],
-            'network': [],
+            'network': []
         }
-        
+        # Indicates whether 'run' was called
+        self._is_runned = False
+
+    def run(
+        self,
+        **run_kw
+    ) -> "ModelHealthChecker":
+        """
+        Prepare the health checker to begin monitoring.
+
+        Parameters
+        ----------
+        **run_kw : dict
+            Additional run parameters, if needed.
+
+        Returns
+        -------
+        self : ModelHealthChecker
+            Returns the instance after enabling run mode.
+        """
+        self._is_runned = True
+        if self.verbose > 1:
+            logger.info("Health checker is now active.")
+        return self
+
     @ensure_pkg(
         "psutil",
-        extra="The 'psutil' package is required for system monitoring, "
-              "including CPU, memory, and process management.",
+        extra=(
+            "The 'psutil' package is required for system monitoring,"
+            " including CPU, memory, and process management."
+        ),
         auto_install=INSTALL_DEPENDENCIES,
-        use_conda=USE_CONDA,
+        use_conda=USE_CONDA
     )
-    def check_health(self):
+    def check_health(
+        self
+    ) -> None:
         """
-        Monitors the system's CPU, memory, disk, GPU, and network usage, and
-        triggers alerts if usage exceeds the defined thresholds. Records the
-        health metrics in history.
-
-        The method gathers the current usage statistics for each monitored
-        resource and checks them against their respective thresholds. If any
-        resource usage exceeds its threshold, an alert is triggered.
-
-        Notes
-        -----
-        - CPU, memory, and disk usage are monitored using the `psutil` library.
-        - GPU usage is monitored using the `GPUtil` library.
-        - Network bandwidth usage is calculated based on bytes sent and received
-          over a short interval.
-
-        Examples
-        --------
-        >>> health_checker.check_health()
-
+        Monitors CPU, memory, disk, GPU, and network usage,
+        triggering alerts if usage exceeds thresholds.
         """
-        import psutil 
+        check_is_runned(
+            self, 
+            attributes=["_is_runned"],
+            msg="Call 'run' before using 'check_health'."
+        )
+        import psutil
+
         # CPU usage
         cpu_usage = psutil.cpu_percent(interval=1)
         self._log_health_metric('cpu', cpu_usage)
-        self._check_and_alert('cpu', cpu_usage, self.cpu_threshold)
+        self._check_and_alert('cpu', cpu_usage,
+                              self.cpu_threshold)
 
         # Memory usage
         memory_usage = self._get_memory_usage()
         self._log_health_metric('memory', memory_usage)
-        self._check_and_alert('memory', memory_usage, self.memory_threshold)
+        self._check_and_alert(
+            'memory', memory_usage,
+            self.memory_threshold
+        )
 
         # Disk usage
         disk_usage = self._get_disk_usage()
         self._log_health_metric('disk', disk_usage)
-        self._check_and_alert('disk', disk_usage, self.disk_threshold)
+        self._check_and_alert(
+            'disk', disk_usage,
+            self.disk_threshold
+        )
 
         # GPU usage
         gpu_usage = self._get_gpu_usage()
         self._log_health_metric('gpu', gpu_usage)
-        self._check_and_alert('gpu', gpu_usage, self.gpu_threshold)
+        self._check_and_alert(
+            'gpu', gpu_usage,
+            self.gpu_threshold
+        )
 
         # Network usage
         network_usage = self._get_network_usage()
-        self._log_health_metric('network', network_usage)
-        self._check_and_alert('network', network_usage, self.network_threshold)
+        self._log_health_metric(
+            'network',
+            network_usage
+        )
+        self._check_and_alert(
+            'network',
+            network_usage,
+            self.network_threshold
+        )
 
-    def record_latency(self, latency: float):
+    def record_latency(
+        self,
+        latency: float
+    ) -> None:
         """
-        Records the latency of a model inference operation and triggers an alert
-        if the latency exceeds the threshold.
+        Record the inference latency and trigger an alert
+        if it exceeds the threshold.
 
         Parameters
         ----------
         latency : float
-            The time taken for an inference operation (in seconds). Must be a
-            non-negative value.
-
-        Notes
-        -----
-        The method appends the latency value to the `latency_history_` and
-        checks if it exceeds the `latency_threshold`. If it does, an alert is
-        triggered.
-
-        Examples
-        --------
-        >>> health_checker.record_latency(1.6)
-
+            Inference latency in seconds, must be >= 0.
         """
+        check_is_runned(
+            self, 
+            attributes=["_is_runned"],
+            msg="Call 'run' before recording latency."
+        )
         if latency < 0:
-            raise ValueError("Latency must be a non-negative value.")
+            raise ValueError(
+                "Latency must be non-negative."
+            )
 
-        self.latency_history_.append(latency)
-        if len(self.latency_history_) > self.health_retention_period:
-            self.latency_history_.pop(0)
+        self._latency_history_.append(latency)
+        if (
+            len(self._latency_history_)
+            > self.health_retention_period
+        ):
+            self._latency_history_.pop(0)
 
         if latency > self.latency_threshold:
-            message = self.alert_messages.get(
-                'latency',
-                f"Inference latency too high: {latency:.2f}s"
+            default_msg = (
+                f"Inference latency high: "
+                f"{latency:.2f}s"
             )
-            self._trigger_alert('latency', latency, message)
+            message = self.alert_messages.get(
+                'latency', default_msg
+            )
+            self._trigger_alert(
+                'latency',
+                latency,
+                message
+            )
 
-    def get_health_history(self, metric: str) -> List[float]:
+    def get_health_history(
+        self,
+        metric: str
+    ) -> List[float]:
         """
-        Returns the historical values of a specific health metric.
+        Return historical values for a specific metric.
 
         Parameters
         ----------
-        metric : {'cpu', 'memory', 'disk', 'gpu', 'network'}
-            The name of the health metric to retrieve.
+        metric : {'cpu','memory','disk',
+                  'gpu','network'}
+            The metric name to retrieve.
 
         Returns
         -------
-        history : list of float
-            The history of values for the specified metric.
-
-        Raises
-        ------
-        ValueError
-            If the metric name is not recognized.
-
-        Examples
-        --------
-        >>> cpu_history = health_checker.get_health_history('cpu')
-        >>> print(cpu_history)
-        [45.0, 50.0, 60.0, ...]
-
+        list of float
+            Historical values of the metric.
         """
-        if metric not in self.health_history_:
-            raise ValueError(f"Unknown metric '{metric}'.")
-        return self.health_history_[metric]
+        check_is_runned(
+            self, 
+            attributes=["_is_runned"],
+            msg=(
+                "Call 'run' before retrieving "
+                "health history."
+            )
+        )
+        if metric not in self._health_history_:
+            raise ValueError(
+                f"Unknown metric '{metric}'."
+            )
+        return self._health_history_[metric]
 
-    def _get_memory_usage(self) -> float:
+    def _get_memory_usage(
+        self
+    ) -> float:
         """
-        Retrieves the current memory usage percentage.
-
-        Returns
-        -------
-        memory_usage : float
-            The memory usage percentage.
-
-        Notes
-        -----
-        Uses the `psutil` library to get the system's memory usage.
-
+        Get current memory usage as a percentage.
         """
         import psutil
+        mem_info = psutil.virtual_memory()
+        return mem_info.percent
 
-        memory_info = psutil.virtual_memory()
-        memory_usage = memory_info.percent
-        return memory_usage
-
-
-    def _get_disk_usage(self) -> float:
+    def _get_disk_usage(
+        self
+    ) -> float:
         """
-        Retrieves the current disk usage percentage.
-
-        Returns
-        -------
-        disk_usage : float
-            The disk usage percentage.
-
-        Notes
-        -----
-        Uses the `psutil` library to get the disk usage of the root directory (`'/'`).
-
+        Get current disk usage (root '/') as a percentage.
         """
         import psutil
         disk_info = psutil.disk_usage('/')
-        disk_usage = disk_info.percent
-        return disk_usage
+        return disk_info.percent
 
     @ensure_pkg(
         "GPUtil",
-        extra="The 'GPUtil' package is required for GPU monitoring.",
+        extra="GPUtil is required for GPU monitoring.",
         auto_install=INSTALL_DEPENDENCIES,
-        use_conda=USE_CONDA,
+        use_conda=USE_CONDA
     )
-    def _get_gpu_usage(self) -> float:
+    def _get_gpu_usage(
+        self
+    ) -> float:
         """
-        Retrieves the current GPU usage percentage.
-
-        Returns
-        -------
-        gpu_usage : float
-            The GPU usage percentage. If no GPU is detected, returns 0.0.
-
-        Notes
-        -----
-        Uses the `GPUtil` library to get the GPU load.
-
+        Get GPU usage as a percentage. If none,
+        return 0.0.
         """
         import GPUtil
         gpus = GPUtil.getGPUs()
         if not gpus:
-            gpu_usage = 0.0
-        else:
-            # Return the highest GPU usage among all GPUs
-            gpu_usage = max([gpu.load * 100 for gpu in gpus])
-        return gpu_usage
+            return 0.0
+        # Max load among all GPUs
+        return max([g.load * 100 for g in gpus])
 
-    def _get_network_usage(self) -> float:
+    def _get_network_usage(
+        self
+    ) -> float:
         """
-        Calculates the current network bandwidth usage in Mbps.
-
-        Returns
-        -------
-        network_usage : float
-            The network bandwidth usage in Mbps.
-
-        Notes
-        -----
-        The method calculates the bandwidth as the total bytes sent and received
-        over a one-second interval, converted to megabits per second (Mbps).
-
-        .. math::
-
-            \\text{Bandwidth (Mbps)} = \\frac{(\\Delta \\text{Bytes} \\times 8)}{1 \\times 10^6}
-
+        Calculate network bandwidth usage in Mbps.
         """
-        import psutil 
+        import psutil
         net_io_1 = psutil.net_io_counters()
-        bytes_sent_1 = net_io_1.bytes_sent
-        bytes_recv_1 = net_io_1.bytes_recv
+        sent_1 = net_io_1.bytes_sent
+        recv_1 = net_io_1.bytes_recv
         time.sleep(1)
         net_io_2 = psutil.net_io_counters()
-        bytes_sent_2 = net_io_2.bytes_sent
-        bytes_recv_2 = net_io_2.bytes_recv
-        total_bytes = (bytes_sent_2 - bytes_sent_1) + (bytes_recv_2 - bytes_recv_1)
+        sent_2 = net_io_2.bytes_sent
+        recv_2 = net_io_2.bytes_recv
+
+        total_bytes = (
+            (sent_2 - sent_1)
+            + (recv_2 - recv_1)
+        )
         total_bits = total_bytes * 8
-        bandwidth_mbps = total_bits / 1e6  # Convert to Mbps
-        return bandwidth_mbps
+        mbps = total_bits / 1e6
+        return mbps
 
-    def _check_and_alert(self, metric: str, usage: float, threshold: float):
+    def _check_and_alert(
+        self,
+        metric: str,
+        usage: float,
+        threshold: float
+    ) -> None:
         """
-        Checks if the usage of a specific resource exceeds the threshold and
-        triggers an alert if necessary.
-
-        Parameters
-        ----------
-        metric : str
-            The type of metric being checked (e.g., 'cpu', 'memory').
-
-        usage : float
-            The current usage percentage or value of the resource.
-
-        threshold : float
-            The threshold percentage or value for the resource.
-
-        Notes
-        -----
-        If the usage exceeds the threshold, an alert is triggered using the
-        `_trigger_alert` method.
-
+        Compare usage to threshold; trigger alert
+        if above it.
         """
         if usage > threshold:
-            default_message = f"{metric.capitalize()} usage too high: {usage:.2f}%"
-            message = self.alert_messages.get(metric, default_message)
-            self._trigger_alert(metric, usage, message)
+            default_msg = (
+                f"{metric.capitalize()} usage too "
+                f"high: {usage:.2f}%"
+            )
+            message = self.alert_messages.get(
+                metric, default_msg
+            )
+            self._trigger_alert(
+                metric,
+                usage,
+                message
+            )
 
-    def _trigger_alert(self, metric: str, value: float, message: str):
+    def _trigger_alert(
+        self,
+        metric: str,
+        value: float,
+        message: str
+    ) -> None:
         """
-        Triggers an alert by calling the `alert_callback` function with the
-        specific details.
-
-        Parameters
-        ----------
-        metric : str
-            The type of resource for which the alert is triggered
-            (e.g., 'cpu', 'memory').
-
-        value : float
-            The current value of the metric that caused the alert.
-
-        message : str
-            The alert message to be logged or sent.
-
-        Notes
-        -----
-        If an `alert_callback` is provided, it is called with the metric and
-        a dictionary containing the value and message.
-
+        Trigger an alert with metric details and
+        optional callback.
         """
         logger.warning(message)
         if self.alert_callback:
-            self.alert_callback(metric, {'value': value, 'message': message})
+            self.alert_callback(
+                metric,
+                {
+                    'value': value,
+                    'message': message
+                }
+            )
 
-    def _log_health_metric(self, metric: str, value: float):
+    def _log_health_metric(
+        self,
+        metric: str,
+        value: float
+    ) -> None:
         """
-        Logs the health metric value and maintains the retention period for
-        the history.
-
-        Parameters
-        ----------
-        metric : str
-            The name of the metric being logged (e.g., 'cpu', 'memory').
-
-        value : float
-            The value of the metric.
-
-        Notes
-        -----
-        The method appends the value to the history list for the metric and
-        ensures that the history does not exceed the `health_retention_period`.
-
+        Log and retain health metric values within
+        the retention limit.
         """
-        self.health_history_[metric].append(value)
-        if len(self.health_history_[metric]) > self.health_retention_period:
-            self.health_history_[metric].pop(0)
-
-
+        self._health_history_[metric].append(value)
+        if (
+            len(self._health_history_[metric])
+            > self.health_retention_period
+        ):
+            self._health_history_[metric].pop(0)
+            
 class DataDriftMonitor(BaseClass):
     """
-    Monitors data drift by comparing distributions of input features over time.
-    Alerts when a significant drift is detected in the input data distribution.
+    Detects data drift by comparing the distribution of new data
+    against a baseline distribution, issuing alerts if significant
+    divergence is found.
 
-    The class compares incoming data with baseline data using statistical tests
-    and alerts when significant differences are detected. It supports multiple
-    drift detection methods and handles missing data according to user preference.
+    The :class:`DataDriftMonitor` uses statistical tests (e.g.
+    Kolmogorov-Smirnov, Chi-squared, Jensen-Shannon) to measure how
+    incoming data deviates from baseline data. If the drift measure
+    crosses a threshold, the class triggers alerts, allowing early
+    interventions when data distribution changes could degrade model
+    performance.
+
+    .. math::
+
+        \\text{Drift}(D_{\\text{baseline}}, D_{\\text{new}}) = 
+        \\begin{cases}
+            \\text{p-value} < \\text{threshold}, & 
+            \\text{for 'ks' or 'chi2'} \\\\
+            \\text{divergence} > \\text{threshold}, & 
+            \\text{for 'jsd'}
+        \\end{cases}
 
     Parameters
     ----------
-    alert_callback : callable or None, default=None
-        A function that is called when data drift is detected. It should accept
-        two parameters: the issue type (`str`) and detailed metrics (`dict`).
+    alert_callback : callable or None, optional
+        A function invoked when drift is detected. It should accept
+        two parameters:
+        `<issue_type>` (str, e.g. ``'data_drift'``) and a dictionary
+        with details. Defaults to ``None``.
 
-    drift_thresholds : dict of str to float or None, default=None
-        A dictionary of per-feature drift thresholds (e.g., ``{'feature_0': 0.05}``).
-        If not provided, a global `drift_threshold` is used for all features.
+    drift_thresholds : dict of str to float, optional
+        A dictionary mapping each feature name to a drift threshold.
+        If not specified, `<drift_threshold>` is used globally.
+        Example: ``{'feature_0': 0.05, 'feature_1': 0.01}``.
 
-    drift_threshold : float, default=0.05
-        The global p-value threshold for detecting significant drift. Must be
-        between 0 and 1 inclusive.
+    drift_threshold : float, optional
+        A global threshold for drift detection. For ``'ks'`` or
+        ``'chi2'``, if the p-value is below this threshold,
+        drift is flagged. For ``'jsd'``, drift is flagged if
+        Jensen-Shannon divergence is above this. Must lie in
+        [0, 1]. Defaults to 0.05.
 
-    baseline_data : np.ndarray or None, default=None
-        Baseline data distribution to compare incoming data against. It should
-        be a 2D array of shape (n_samples, n_features).
+    drift_detection_method : {'ks', 'chi2', 'jsd'}, optional
+        The statistical test for detecting drift. The default
+        ``'ks'`` uses Kolmogorov-Smirnov. Set to ``'chi2'`` for
+        categorical data, or ``'jsd'`` for measuring divergence
+        between distributions.
 
-    drift_detection_method : {'ks', 'chi2', 'jsd'}, default='ks'
-        The statistical method to use for drift detection:
+    handle_missing : {'skip', 'impute'}, optional
+        Strategy for missing data:
+          - ``'skip'``: Omit missing values
+          - ``'impute'``: Replace missing values with the mean
 
-        - ``'ks'``: Kolmogorov-Smirnov test.
-        - ``'chi2'``: Chi-squared test.
-        - ``'jsd'``: Jensen-Shannon Divergence.
+        Defaults to ``'skip'``.
 
-    handle_missing : {'skip', 'impute'}, default='skip'
-        How to handle missing data:
+    alert_messages : dict of str to str, optional
+        Custom alert messages for drift events. For instance,
+        a key ``'drift'`` can contain a message displayed upon
+        detecting drift. If ``None``, default messages are used.
 
-        - ``'skip'``: Ignore missing values in calculations.
-        - ``'impute'``: Impute missing values with the mean of the feature.
-
-    alert_messages : dict of str to str or None, default=None
-        Custom alert messages for different drift scenarios.
+    verbose : int, optional
+        Logging verbosity:
+          - ``0``: Log critical errors only
+          - ``1``: Log warnings + errors
+          - ``2``: Log info + warnings + errors
+          - ``3``: Log debug + info + warnings + errors
+        Defaults to 0.
 
     Attributes
     ----------
     drift_history_ : list of dict
-        Keeps track of detected drift results over time.
+        Stores records of all drift checks performed. Each entry
+        includes a dictionary of feature-specific p-values (or
+        divergence scores) and whether drift was detected.
 
     Methods
     -------
+    fit(baseline_data)
+        Configures the monitor with baseline data. Required before
+        calling `<monitor_drift>`.
+
     monitor_drift(new_data)
-        Compares the incoming data to the baseline and checks for drift.
+        Compares `new_data` to the baseline distribution, triggering
+        an alert if drift is detected.
 
     set_baseline_data(baseline_data)
-        Sets or updates the baseline data for drift detection.
+        Updates the baseline distribution after initial fitting.
 
     get_drift_history()
-        Returns the history of drift detection results.
+        Returns the collection of past drift detection results.
 
     Notes
     -----
-    The drift detection methods are based on statistical tests:
-
-    - **Kolmogorov-Smirnov test (KS test)** compares the cumulative distributions
-      of two samples.
-
-      .. math::
-          D = \\sup_x | F_1(x) - F_2(x) |
-
-    - **Chi-squared test** evaluates whether distributions of categorical variables
-      differ from each other.
-
-    - **Jensen-Shannon Divergence (JSD)** is a symmetric measure of the difference
-      between two probability distributions.
-
-      .. math::
-          JSD(P || Q) = \\frac{1}{2} D_{KL}(P || M) + \\frac{1}{2} D_{KL}(Q || M)
-
-      where :math:`M = \\frac{1}{2}(P + Q)` and :math:`D_{KL}` is 
-      the Kullback-Leibler divergence.
+    Drift detection is crucial for maintaining model reliability in
+    dynamic environments [1]_. If the data used for training no
+    longer represents current conditions, performance may degrade.
 
     Examples
     --------
-    >>> from gofast.mlops.monitoring import DataDriftMonitor
     >>> import numpy as np
-    >>> baseline_data = np.random.normal(0, 1, (1000, 3))
-    >>> new_data = np.random.normal(0.5, 1, (1000, 3))
-    >>> def alert_callback(issue_type, details):
-    ...     print(f"Alert: {issue_type}, Details: {details}")
-    >>> drift_monitor = DataDriftMonitor(
-    ...     alert_callback=alert_callback,
-    ...     baseline_data=baseline_data,
-    ...     drift_detection_method='ks'
+    >>> from gofast.mlops.monitoring import DataDriftMonitor
+    >>> baseline = np.random.normal(0, 1, (1000, 3))
+    >>> new_batch = np.random.normal(0.5, 1, (1000, 3))
+    >>> monitor = DataDriftMonitor(
+    ...     drift_detection_method='ks',
+    ...     drift_threshold=0.05
     ... )
-    >>> drift_monitor.monitor_drift(new_data)
-    Alert: data_drift, Details: {'feature_0': 0.0, 'feature_1': 0.0, 'feature_2': 0.0}
+    >>> monitor.fit(baseline)
+    >>> monitor.monitor_drift(new_batch)
 
     See Also
     --------
-    ModelHealthChecker : Monitors system health metrics such as CPU and memory usage.
+    ModelPerformanceMonitor : Monitors model metrics and drift.
+    ErrorRateMonitor : Checks for rising prediction error rates.
 
     References
     ----------
-    .. [1] "Scipy Statistical Functions",
-            https://docs.scipy.org/doc/scipy/reference/stats.html
-    .. [2] "Jensen-Shannon Divergence", 
-           https://en.wikipedia.org/wiki/Jensen%E2%80%93Shannon_divergence
-
+    .. [1] Gama, J. et al. "A survey on concept drift adaptation".
+           ACM Computing Surveys, 46(4), 1-37.
     """
 
-    @validate_params({
-        'alert_callback': [callable, None],
-        'drift_thresholds': [dict, None],
-        'drift_threshold': [Interval(Real, 0, 1, closed='both')],
-        'baseline_data': [np.ndarray, None],
-        'drift_detection_method': [StrOptions({'ks', 'chi2', 'jsd'})],
-        'handle_missing': [StrOptions({'skip', 'impute'})],
-        'alert_messages': [dict, None],
-    })
+    @validate_params(
+        {
+            'alert_callback': [callable, None],
+            'drift_thresholds': [dict, None],
+            'drift_threshold': [
+                Interval(Real, 0, 1, closed='both')
+            ],
+            'drift_detection_method': [
+                StrOptions({'ks', 'chi2', 'jsd'})
+            ],
+            'handle_missing': [
+                StrOptions({'skip', 'impute'})
+            ],
+            'alert_messages': [dict, None],
+            'verbose': [int]
+        }
+    )
     def __init__(
         self,
-        alert_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
-        drift_thresholds: Optional[Dict[str, float]] = None,
+        alert_callback: Optional[
+            Callable[[str, Dict[str, Any]], None]
+        ] = None,
+        drift_thresholds: Optional[
+            Dict[str, float]
+        ] = None,
         drift_threshold: float = 0.05,
-        baseline_data: Optional[np.ndarray] = None,
         drift_detection_method: str = 'ks',
         handle_missing: str = 'skip',
-        alert_messages: Optional[Dict[str, str]] = None
+        alert_messages: Optional[
+            Dict[str, str]
+        ] = None,
+        verbose: int = 0
     ):
+        """
+        Initialize DataDriftMonitor with user-defined or
+        default settings.
+        """
+
+        super().__init__(verbose=verbose)
+
         self.alert_callback = alert_callback
         self.drift_thresholds = drift_thresholds or {}
         self.drift_threshold = drift_threshold
-        self.baseline_data = baseline_data
         self.drift_detection_method = drift_detection_method
         self.handle_missing = handle_missing
         self.alert_messages = alert_messages or {}
-        self.drift_history_ = []
 
-    def set_baseline_data(self, baseline_data: np.ndarray):
+        self._is_fitted = False
+        self._baseline_data_ = None
+        self._drift_history_ = []
+
+    def fit(
+        self,
+        baseline_data: np.ndarray
+    ) -> "DataDriftMonitor":
         """
-        Sets or updates the baseline data distribution for drift monitoring.
+        Fit the monitor with baseline data for drift detection.
 
         Parameters
         ----------
         baseline_data : np.ndarray of shape (n_samples, n_features)
-            The baseline data distribution.
-
-        Raises
-        ------
-        ValueError
-            If `baseline_data` is not a 2D array.
-        """
-        if baseline_data.ndim != 2:
-            raise ValueError("`baseline_data` must be a 2D array.")
-        self.baseline_data = baseline_data
-
-    def monitor_drift(self, new_data: np.ndarray):
-        """
-        Compares the new data distribution to the baseline and triggers an alert
-        if drift is detected.
-
-        Parameters
-        ----------
-        new_data : np.ndarray of shape (n_samples, n_features)
-            The incoming data to compare to the baseline.
-
-        Raises
-        ------
-        ValueError
-            If `baseline_data` is not set or if the number of features does 
-            not match.
-        """
-        if self.baseline_data is None:
-            raise ValueError(
-                "Baseline data is not set. Use `set_baseline_data()`"
-                " to provide baseline data.")
-
-        if self.baseline_data.shape[1] != new_data.shape[1]:
-            raise ValueError("The number of features in new data"
-                             " must match the baseline data.")
-
-
-        p_values = {}
-        drift_detected = False
-
-        n_features = self.baseline_data.shape[1]
-
-        for i in range(n_features):
-            feature_name = f"feature_{i}"
-
-            # Handle missing data
-            baseline_col = self._handle_missing_data(self.baseline_data[:, i])
-            new_col = self._handle_missing_data(new_data[:, i])
-
-            # Perform the drift test
-            if self.drift_detection_method == 'ks':
-                stat, p_value = stats.ks_2samp(baseline_col, new_col)
-            elif self.drift_detection_method == 'chi2':
-                # Bin the data to create a contingency table
-                bins = 'auto'
-                baseline_hist, bin_edges = np.histogram(baseline_col, bins=bins)
-                new_hist, _ = np.histogram(new_col, bins=bin_edges)
-                contingency_table = np.array([baseline_hist, new_hist])
-                stat, p_value = stats.chi2_contingency(contingency_table)[:2]
-            elif self.drift_detection_method == 'jsd':
-                p_value = self._jensen_shannon_divergence(baseline_col, new_col)
-            else:
-                raise ValueError(f"Unknown drift detection method: {self.drift_detection_method}")
-
-            # Use per-feature threshold if available, otherwise use global threshold
-            threshold = self.drift_thresholds.get(feature_name, self.drift_threshold)
-            p_values[feature_name] = p_value
-
-            # For 'ks' and 'chi2', lower p-value indicates significant difference
-            # For 'jsd', higher value indicates more divergence
-            if self.drift_detection_method in {'ks', 'chi2'}:
-                drift = p_value < threshold
-            elif self.drift_detection_method == 'jsd':
-                drift = p_value > threshold
-            else:
-                drift = False
-
-            if drift:
-                drift_detected = True
-
-        # Store the drift detection result in history
-        self.drift_history_.append({"p_values": p_values, "drift_detected": drift_detected})
-
-        # Trigger alert if drift is detected
-        if drift_detected:
-            message = self.alert_messages.get('drift', f"Data drift detected: {p_values}")
-            if self.alert_callback:
-                self.alert_callback('data_drift', p_values)
-            logger.warning(message)
-
-    def _handle_missing_data(self, data: np.ndarray) -> np.ndarray:
-        """
-        Handles missing data according to the specified strategy ('skip' or 'impute').
-
-        Parameters
-        ----------
-        data : np.ndarray
-            The data to handle.
+            Baseline data distribution to compare against.
 
         Returns
         -------
-        data : np.ndarray
-            The data with missing values handled.
+        self : DataDriftMonitor
+            Returns the instance after fitting.
+        """
+        if baseline_data.ndim != 2:
+            raise ValueError(
+                "`baseline_data` must be a 2D array."
+            )
+        # Store baseline data internally
+        self._baseline_data_ = baseline_data
+        self._is_fitted = True
 
-        Raises
-        ------
-        ValueError
-            If an unknown missing data handling strategy is specified.
+        if self.verbose > 1:
+            logger.info(
+                "DataDriftMonitor has been fitted with "
+                "baseline data of shape "
+                f"{baseline_data.shape}."
+            )
+        return self
+
+    def monitor_drift(
+        self,
+        new_data: np.ndarray
+    ) -> None:
+        """
+        Compare incoming `new_data` to the baseline and
+        trigger alerts if drift is detected.
+        """
+        check_is_fitted(
+            self, 
+            attributes=["_is_fitted"],
+            msg="Call 'fit' before monitoring data drift."
+        )
+        if self._baseline_data_.shape[1] != new_data.shape[1]:
+            raise ValueError(
+                "Number of features in `new_data` must "
+                "match the baseline."
+            )
+
+        p_values = {}
+        drift_detected = False
+        num_features = self._baseline_data_.shape[1]
+
+        for i in range(num_features):
+            feature_name = f"feature_{i}"
+
+            # Handle missing values
+            baseline_col = self._handle_missing_data_(
+                self._baseline_data_[:, i]
+            )
+            new_col = self._handle_missing_data_(
+                new_data[:, i]
+            )
+
+            if self.drift_detection_method == 'ks':
+                stat, pval = ks_2samp(
+                    baseline_col,
+                    new_col
+                )
+                # For KS, a low p-value => difference
+                drift = pval < self._get_threshold_(
+                    feature_name
+                )
+            elif self.drift_detection_method == 'chi2':
+                # Bin data for chi-squared
+                b_hist, b_edges = np.histogram(
+                    baseline_col,
+                    bins='auto'
+                )
+                n_hist, _ = np.histogram(
+                    new_col,
+                    bins=b_edges
+                )
+                cont_table = np.array([
+                    b_hist, n_hist
+                ])
+                stat, pval = chi2_contingency(
+                    cont_table
+                )[:2]
+                drift = pval < self._get_threshold_(
+                    feature_name
+                )
+            elif self.drift_detection_method == 'jsd':
+                # Jensen-Shannon => high => difference
+                pval = self._jensen_shannon_(
+                    baseline_col,
+                    new_col
+                )
+                drift = (
+                    pval > self._get_threshold_(
+                        feature_name
+                    )
+                )
+            else:
+                raise ValueError(
+                    f"Unknown method: "
+                    f"{self.drift_detection_method}"
+                )
+
+            p_values[feature_name] = pval
+            if drift:
+                drift_detected = True
+
+        # Add results to drift history
+        result = {
+            "p_values": p_values,
+            "drift_detected": drift_detected
+        }
+        self._drift_history_.append(result)
+
+        # Alert if drift
+        if drift_detected:
+            msg = self.alert_messages.get(
+                'drift',
+                f"Data drift detected: {p_values}"
+            )
+            if self.alert_callback:
+                self.alert_callback(
+                    'data_drift',
+                    p_values
+                )
+            logger.warning(msg)
+
+    def set_baseline_data(
+        self,
+        baseline_data: np.ndarray
+    ) -> None:
+        """
+        Update the baseline data distribution after
+        fitting the monitor.
+        """
+        check_is_fitted(
+            self, 
+            attributes=["_is_fitted"],
+            msg="Call 'fit' before updating baseline data."
+        )
+        if baseline_data.ndim != 2:
+            raise ValueError(
+                "`baseline_data` must be 2D."
+            )
+        self._baseline_data_ = baseline_data
+
+        if self.verbose > 1:
+            logger.info(
+                "Baseline data updated. New shape: "
+                f"{baseline_data.shape}."
+            )
+
+    def get_drift_history(
+        self
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve the complete drift detection history.
+        """
+        check_is_fitted(
+            self, 
+            attributes=["_is_fitted"],
+            msg="Call 'fit' before retrieving history."
+        )
+        return self._drift_history_
+
+    def _handle_missing_data_(
+        self,
+        data: np.ndarray
+    ) -> np.ndarray:
+        """
+        Internal method to handle missing data
+        ('skip' or 'impute').
         """
         if self.handle_missing == 'skip':
             return data[~np.isnan(data)]
         elif self.handle_missing == 'impute':
-            mean_value = np.nanmean(data)
-            return np.nan_to_num(data, nan=mean_value)
+            mean_val = np.nanmean(data)
+            return np.nan_to_num(
+                data,
+                nan=mean_val
+            )
         else:
-            raise ValueError(f"Unknown missing data handling strategy: {self.handle_missing}")
+            raise ValueError(
+                f"Unknown missing strategy: "
+                f"{self.handle_missing}"
+            )
 
-    def _jensen_shannon_divergence(self, p: np.ndarray, q: np.ndarray) -> float:
+    def _get_threshold_(
+        self,
+        feature_name: str
+    ) -> float:
         """
-        Calculates the Jensen-Shannon Divergence between two distributions.
-
-        Parameters
-        ----------
-        p : np.ndarray
-            The first sample data.
-
-        q : np.ndarray
-            The second sample data.
-
-        Returns
-        -------
-        jsd : float
-            The Jensen-Shannon Divergence between the two distributions.
-
-        Notes
-        -----
-        The samples are converted into probability distributions by creating histograms.
-
+        Return the per-feature threshold if present,
+        else the global threshold.
         """
+        return self.drift_thresholds.get(
+            feature_name,
+            self.drift_threshold
+        )
 
-        # Create histograms to estimate the probability distributions
-        bins = 'auto'
-        p_hist, bin_edges = np.histogram(p, bins=bins, density=True)
-        q_hist, _ = np.histogram(q, bins=bin_edges, density=True)
+    def _jensen_shannon_(
+        self,
+        p: np.ndarray,
+        q: np.ndarray
+    ) -> float:
+        """
+        Compute Jensen-Shannon Divergence (JSD)
+        between two 1D arrays.
+        """
+        # Create histograms for probability dists
+        p_hist, b_edges = np.histogram(
+            p,
+            bins='auto',
+            density=True
+        )
+        q_hist, _ = np.histogram(
+            q,
+            bins=b_edges,
+            density=True
+        )
 
-        # Add small value to avoid zero probabilities
-        epsilon = 1e-10
-        p_hist += epsilon
-        q_hist += epsilon
+        # Avoid zeros
+        eps = 1e-10
+        p_hist += eps
+        q_hist += eps
 
-        # Normalize histograms to sum to 1
-        p_hist /= np.sum(p_hist)
-        q_hist /= np.sum(q_hist)
+        # Normalize
+        p_hist /= p_hist.sum()
+        q_hist /= q_hist.sum()
 
-        # Compute Jensen-Shannon Divergence
-        jsd = jensenshannon(p_hist, q_hist, base=2.0)
+        # JSD using base=2
+        jsd = jensenshannon(
+            p_hist,
+            q_hist,
+            base=2.0
+        )
         return jsd
-
-    def get_drift_history(self) -> List[Dict[str, Any]]:
-        """
-        Returns the history of drift detection results.
-
-        Returns
-        -------
-        drift_history : list of dict
-            The history of drift detection results.
-
-        Examples
-        --------
-        >>> history = drift_monitor.get_drift_history()
-        >>> print(history)
-        [{'p_values': {'feature_0': 0.0, 'feature_1': 0.01}, 'drift_detected': True}, ...]
-        """
-        return self.drift_history_
 
 
 class LatencyTracker(BaseClass):
     """
-    Tracks and monitors the latency of model inference operations,
-    providing detailed insights into average latency, tail latencies,
-    and distribution analysis.
+    Tracks the latency of different operations (e.g. model
+    inference), storing recent values for analysis and triggering
+    alerts if thresholds are exceeded.
 
-    The `LatencyTracker` class collects latency data for specified
-    operations, enabling analysis of latency performance over time.
-    It can trigger alerts when latency thresholds are exceeded and
-    provides methods to retrieve statistical summaries.
+    The :class:`LatencyTracker` continuously logs latencies to
+    identify slowdowns or performance bottlenecks. A threshold
+    can be set for each operation, beyond which an alert is
+    raised. This approach is crucial for meeting service-level
+    agreements where prompt responses are required.
+
+    .. math::
+
+        \\text{LatencyStats}(op, t) =
+        \\bigl\\{ L_1, L_2, ..., L_n \\bigr\\},
+
+    where each :math:`L_i` is the latency (in seconds) for the
+    operation :math:`op` over a sliding window of length :math:`n`.
+    If any :math:`L_i` surpasses a user-defined limit, an alert is
+    triggered.
 
     Parameters
     ----------
-    alert_callback : callable or None, default=None
-        A function to call when the latency exceeds a defined threshold.
-        The callback receives three arguments: the operation name (`str`),
-        the exceeded latency (`float`), and a custom message (`str`).
+    alert_callback : callable or None, optional
+        A function invoked when an operation's latency crosses
+        its threshold. The callback is passed three parameters:
+        `<operation>` (str), the exceeded latency (float), and
+        a custom message. Defaults to ``None``.
 
-    latency_thresholds : dict of str to float or None, default=None
-        A dictionary where keys are operation names (e.g., `'inference'`,
-        `'preprocessing'`) and values are latency thresholds (in seconds)
-        for triggering an alert. If `None`, the `global_latency_threshold`
-        is used for all operations.
+    latency_thresholds : dict of str to float, optional
+        A dictionary mapping operation names to their latency
+        thresholds. If absent, `<global_latency_threshold>` is
+        used for all operations.
 
-    global_latency_threshold : float, default=2.0
-        A global maximum allowable latency (in seconds) before triggering
-        an alert for any operation that does not have a specific threshold
-        set in `latency_thresholds`. Must be a non-negative value.
+    global_latency_threshold : float, optional
+        Default maximum allowed latency in seconds for any
+        operation not listed in `<latency_thresholds>`. Must be
+        >= 0. Defaults to 2.0.
 
-    retention_period : int, default=100
-        The number of recent latency values to retain for detailed analysis.
-        Must be a positive integer.
+    retention_period : int, optional
+        The number of most recent latencies retained per
+        operation. Must be > 0. Defaults to 100.
 
-    percentiles_to_track : list of float or None, default=None
-        A list of percentiles to monitor. If `None`, defaults to
-        tracking `[90.0, 95.0, 99.0]`. Each percentile must be between
-        0 and 100 inclusive.
+    percentiles_to_track : list of float or None, optional
+        A list of percentile values to record for each operation.
+        For instance, ``[90.0, 95.0, 99.0]`` tracks 90th, 95th,
+        and 99th percentile latencies. If ``None``, it defaults
+        to ``[90.0, 95.0, 99.0]``.
 
-    alert_messages : dict of str to str or None, default=None
-        Custom alert messages for different operations (e.g.,
-        ``{'inference': 'Inference latency too high'}``). If `None`,
+    alert_messages : dict of str to str, optional
+        Custom messages for latency alerts, keyed by operation
+        name. If an operation's latency passes its threshold,
+        the corresponding message is displayed. If missing,
         default messages are used.
+
+    verbose : int, optional
+        Controls logging verbosity:
+          - ``0``: Only critical errors
+          - ``1``: Warnings + errors
+          - ``2``: Info + warnings + errors
+          - ``3``: Debug + info + warnings + errors
+        Defaults to 0.
 
     Attributes
     ----------
     latencies_ : dict of str to list of float
-        Stores latency values for each operation being tracked.
+        Maintains recent latencies for each named operation.
 
     Methods
     -------
+    run(**run_kw)
+        Prepares the latency tracker for usage. After this, 
+        methods like `<record_latency>` can be called safely.
+
     record_latency(operation, latency)
-        Records the latency of a specific operation.
+        Records a new latency value for `<operation>` and alerts
+        if it exceeds the defined threshold.
 
     get_average_latency(operation)
-        Returns the average latency for a specific operation.
+        Returns the mean latency for `<operation>`, or NaN if
+        no data exists.
 
     get_tail_latency(operation, percentile=95.0)
-        Returns the tail latency (e.g., 95th percentile) for a specific
-        operation.
+        Retrieves the specified percentile latency (e.g. 95th).
 
     get_latency_distribution(operation)
-        Returns the latency distribution for a specific operation.
+        Returns an array of recorded latencies for `<operation>`.
 
     set_latency_threshold(operation, threshold)
-        Dynamically adjusts the latency threshold for a specific operation.
+        Dynamically updates the threshold for a specific
+        operation.
 
     get_percentile_summary(operation)
-        Returns a summary of latency percentiles for a specific operation.
+        Provides a dictionary of each tracked percentile
+        (e.g. ``'90.0th_percentile': 0.8``).
 
     Notes
     -----
-    The latency values are stored per operation, and the retention period
-    limits the number of stored values to prevent unbounded memory growth.
+    Latency outliers can greatly impact user experience [1]_.
+    Tracking long-tail latencies and summarizing them at
+    percentiles gives insight into worst-case performance.
 
     Examples
     --------
     >>> from gofast.mlops.monitoring import LatencyTracker
-    >>> def alert_callback(operation, latency, message):
-    ...     print(f"Alert: {operation} - {message}")
-    >>> latency_tracker = LatencyTracker(
-    ...     alert_callback=alert_callback,
+    >>> def my_alert_callback(op, lat, msg):
+    ...     print(f"Latency Alert for {op}: {msg}")
+    >>> tracker = LatencyTracker(
+    ...     alert_callback=my_alert_callback,
     ...     latency_thresholds={'inference': 1.0}
     ... )
-    >>> latency_tracker.record_latency('inference', 1.2)
-    Alert: inference - Inference latency too high: 1.2s
-    >>> avg_latency = latency_tracker.get_average_latency('inference')
-    >>> print(f"Average Latency: {avg_latency:.2f}s")
-    Average Latency: 1.20s
+    >>> tracker.run()
+    >>> tracker.record_latency('inference', 1.2)
 
     See Also
     --------
-    ModelHealthChecker : Monitors system health metrics.
-    DataDriftMonitor : Monitors data drift in input features.
+    ErrorRateMonitor : Tracks the frequency of prediction
+        errors.
 
     References
     ----------
-    .. [1] "Percentile", Wikipedia,
-       https://en.wikipedia.org/wiki/Percentile
-
+    .. [1] Dean, J. and Barroso, L.A. "The Tail at Scale".
+           Communications of the ACM, 56(2), 74–80, 2013.
+    
     """
 
-    @validate_params({
-        'alert_callback': [callable, None],
-        'latency_thresholds': [dict, None],
-        'global_latency_threshold': [Interval(Real, 0, None, closed='left')],
-        'retention_period': [Interval(Integral, 1, None, closed='left')],
-        'percentiles_to_track': [list, None],
-        'alert_messages': [dict, None],
-    })
+    @validate_params(
+        {
+            'alert_callback': [callable, None],
+            'latency_thresholds': [dict, None],
+            'global_latency_threshold': [
+                Interval(Real, 0, None, closed='left')
+            ],
+            'retention_period': [
+                Interval(Integral, 1, None, closed='left')
+            ],
+            'percentiles_to_track': [list, None],
+            'alert_messages': [dict, None],
+            'verbose': [Integral]
+        }
+    )
     def __init__(
         self,
-        alert_callback: Optional[Callable[[str, float, str], None]] = None,
-        latency_thresholds: Optional[Dict[str, float]] = None,
+        alert_callback: Optional[
+            Callable[[str, float, str], None]
+        ] = None,
+        latency_thresholds: Optional[
+            Dict[str, float]
+        ] = None,
         global_latency_threshold: float = 2.0,
         retention_period: int = 100,
-        percentiles_to_track: Optional[List[float]] = None,
-        alert_messages: Optional[Dict[str, str]] = None,
+        percentiles_to_track: Optional[
+            List[float]
+        ] = None,
+        alert_messages: Optional[
+            Dict[str, str]
+        ] = None,
+        verbose: int = 0
     ):
+        """
+        Constructor for LatencyTracker. Initializes thresholds,
+        callback, and other configurations for monitoring.
+        """
+        # Initialize BaseClass (sets self.verbose, etc.)
+        super().__init__(verbose=verbose)
+
+        # Public attributes (no trailing underscores)
         self.alert_callback = alert_callback
         self.latency_thresholds = latency_thresholds or {}
-        self.global_latency_threshold = global_latency_threshold
+        self.global_latency_threshold = (
+            global_latency_threshold
+        )
         self.retention_period = retention_period
-        self.percentiles_to_track = percentiles_to_track or [90.0, 95.0, 99.0]
+        self.percentiles_to_track = (
+            percentiles_to_track or [90.0, 95.0, 99.0]
+        )
         self.alert_messages = alert_messages or {}
-        self.latencies_ = {}
 
-    @validate_params({
-        'operation': [str],
-        'latency': [Interval(Real, 0, None, closed='left')],
-    })
-    def record_latency(self, operation: str, latency: float):
+        # Internal (non-exposed) attributes
+        self._latencies_ = {}
+        self._is_runned = False
+
+    def run(
+        self,
+        **run_kw
+    ) -> "LatencyTracker":
         """
-        Records the latency of a specific operation.
+        Prepare the latency tracker for usage.
+
+        Parameters
+        ----------
+        **run_kw : dict
+            Additional parameters for run configuration.
+
+        Returns
+        -------
+        self : LatencyTracker
+            Returns the instance after enabling run mode.
+        """
+        self._is_runned = True
+        if self.verbose > 1:
+            logger.info("LatencyTracker is now running.")
+        return self
+
+    @validate_params(
+        {
+            'operation': [str],
+            'latency': [Interval(Real, 0, None, closed='left')]
+        }
+    )
+    def record_latency(
+        self,
+        operation: str,
+        latency: float
+    ) -> None:
+        """
+        Record the latency of a specific operation.
 
         Parameters
         ----------
         operation : str
-            The name of the operation (e.g., `'inference'`, `'preprocessing'`).
+            Name of the operation (e.g. 'inference').
 
         latency : float
-            The time taken for the operation (in seconds). Must be a
-            non-negative value.
-
-        Notes
-        -----
-        If the latency exceeds the threshold for the operation, an alert is
-        triggered via the `alert_callback`, if provided. The method also ensures
-        that only the most recent `retention_period` latency values are stored.
-
+            Time in seconds for the operation. Must be >= 0.
         """
-        if operation not in self.latencies_:
-            self.latencies_[operation] = []
 
-        self.latencies_[operation].append(latency)
-        if len(self.latencies_[operation]) > self.retention_period:
-            self.latencies_[operation].pop(0)
+        if operation not in self._latencies_:
+            self._latencies_[operation] = []
 
-        # Check if latency exceeds the threshold for the operation
+        # Append latency and keep only the last `retention_period`
+        self._latencies_[operation].append(latency)
+        if (
+            len(self._latencies_[operation])
+            > self.retention_period
+        ):
+            self._latencies_[operation].pop(0)
+
+        # Check threshold
         threshold = self.latency_thresholds.get(
-            operation, self.global_latency_threshold)
+            operation,
+            self.global_latency_threshold
+        )
         if latency > threshold:
-            message = self.alert_messages.get(
-                operation, f"{operation.capitalize()} latency too high: {latency}s")
-            logger.warning(message)
+            msg = self.alert_messages.get(
+                operation,
+                f"{operation.capitalize()} "
+                f"latency too high: {latency}s"
+            )
+            logger.warning(msg)
             if self.alert_callback:
-                self.alert_callback(operation, latency, message)
+                self.alert_callback(operation, latency, msg)
 
-    @validate_params({
-        'operation': [str],
-    })
-    def get_average_latency(self, operation: str) -> float:
+
+    @validate_params(
+        {
+            'operation': [str]
+        }
+    )
+    def get_average_latency(
+        self,
+        operation: str
+    ) -> float:
         """
-        Returns the average latency for a specific operation.
+        Return the average latency for a given operation.
 
-        Parameters
-        ----------
-        operation : str
-            The name of the operation.
-
-        Returns
-        -------
-        average_latency : float
-            The average latency.
-
-        Notes
-        -----
-        If no latency data is available for the operation, returns `nan`.
-
-        Examples
-        --------
-        >>> avg_latency = latency_tracker.get_average_latency('inference')
-        >>> print(f"Average Latency: {avg_latency:.2f}s")
-
+        Returns NaN if no data is available.
         """
-        latencies = self.latencies_.get(operation, [])
+        latencies = self._latencies_.get(operation, [])
         if not latencies:
             return float('nan')
-        return np.mean(latencies)
+        return float(np.mean(latencies))
 
-    @validate_params({
-        'operation': [str],
-        'percentile': [Interval(Real, 0, 100, closed='both')],
-    })
-    def get_tail_latency(self, operation: str, percentile: float = 95.0) -> float:
+
+    @validate_params(
+        {
+            'operation': [str],
+            'percentile': [
+                Interval(Real, 0, 100, closed='both')
+            ]
+        }
+    )
+    def get_tail_latency(
+        self,
+        operation: str,
+        percentile: float = 95.0
+    ) -> float:
         """
-        Returns the tail latency (e.g., 95th percentile) for a specific operation.
-
-        Parameters
-        ----------
-        operation : str
-            The name of the operation.
-
-        percentile : float, default=95.0
-            The percentile to compute. Must be between 0 and 100 inclusive.
-
-        Returns
-        -------
-        tail_latency : float
-            The latency at the specified percentile.
-
-        Notes
-        -----
-        The tail latency provides insight into the higher end of latency
-        distribution, which is critical for understanding worst-case performance.
-
-        Examples
-        --------
-        >>> tail_latency = latency_tracker.get_tail_latency('inference', 99.0)
-        >>> print(f"99th Percentile Latency: {tail_latency:.2f}s")
-
+        Return the tail latency (e.g., 95th percentile)
+        for a given operation.
         """
-        latencies = self.latencies_.get(operation, [])
+        latencies = self._latencies_.get(operation, [])
         if not latencies:
             return float('nan')
-        return np.percentile(latencies, percentile)
+        return float(np.percentile(latencies, percentile))
 
-    @validate_params({
-        'operation': [str],
-    })
-    def get_latency_distribution(self, operation: str) -> np.ndarray:
+
+    @validate_params(
+        {
+            'operation': [str]
+        }
+    )
+    def get_latency_distribution(
+        self,
+        operation: str
+    ) -> np.ndarray:
         """
-        Returns the latency distribution for a specific operation.
-
-        Parameters
-        ----------
-        operation : str
-            The name of the operation.
-
-        Returns
-        -------
-        latency_distribution : ndarray of shape (n_samples,)
-            The array of recorded latencies.
-
-        Notes
-        -----
-        The method returns the collected latency values for the operation,
-        which can be used for further analysis or visualization.
-
-        Examples
-        --------
-        >>> latency_distribution = latency_tracker.get_latency_distribution('inference')
-        >>> import matplotlib.pyplot as plt
-        >>> plt.hist(latency_distribution)
-        >>> plt.show()
-
+        Return the array of latency values for a given
+        operation.
         """
-        return np.array(self.latencies_.get(operation, []))
+        latencies = self._latencies_.get(operation, [])
+        return np.array(latencies, dtype=float)
 
-    @validate_params({
-        'operation': [str],
-        'threshold': [Interval(Real, 0, None, closed='left')],
-    })
-    def set_latency_threshold(self, operation: str, threshold: float):
+    @validate_params(
+        {
+            'operation': [str],
+            'threshold': [
+                Interval(Real, 0, None, closed='left')
+            ]
+        }
+    )
+    def set_latency_threshold(
+        self,
+        operation: str,
+        threshold: float
+    ) -> None:
         """
-        Dynamically adjusts the latency threshold for a specific operation.
-
-        Parameters
-        ----------
-        operation : str
-            The name of the operation.
-
-        threshold : float
-            The new latency threshold in seconds. Must be a non-negative value.
-
-        Notes
-        -----
-        This method allows updating the latency threshold for an operation at
-        runtime, enabling dynamic tuning of alerting behavior.
-
-        Examples
-        --------
-        >>> latency_tracker.set_latency_threshold('inference', 1.5)
-
+        Dynamically set a new latency threshold for a
+        specific operation.
         """
         self.latency_thresholds[operation] = threshold
-        logger.info(f"Set latency threshold for {operation} to {threshold}s")
+        if self.verbose > 1:
+            logger.info(
+                f"Set latency threshold for {operation} "
+                f"to {threshold}s."
+            )
 
-    @validate_params({
-        'operation': [str],
-    })
-    def get_percentile_summary(self, operation: str) -> Dict[str, float]:
+    @validate_params(
+        {
+            'operation': [str]
+        }
+    )
+    def get_percentile_summary(
+        self,
+        operation: str
+    ) -> Dict[str, float]:
         """
-        Returns a summary of latency percentiles for a specific operation.
-
-        Returns
-        -------
-        percentile_summary : dict of str to float
-            A dictionary mapping percentile names to latency values.
-
-        Notes
-        -----
-        The percentiles are defined in `percentiles_to_track`. The method
-        provides a quick overview of latency performance at different
-        percentile levels.
-
-        Examples
-        --------
-        >>> summary = latency_tracker.get_percentile_summary('inference')
-        >>> print(summary)
-        {'90.0th_percentile': 0.8, '95.0th_percentile': 1.0, '99.0th_percentile': 1.2}
-
+        Return a dictionary with the tracked percentiles
+        for the specified operation.
         """
-        latencies = self.latencies_.get(operation, [])
+        latencies = self._latencies_.get(operation, [])
         if not latencies:
             return {}
 
-        return {
-            f"{percentile}th_percentile": np.percentile(latencies, percentile)
-            for percentile in self.percentiles_to_track
-        }
-
+        summary = {}
+        for p in self.percentiles_to_track:
+            val = float(np.percentile(latencies, p))
+            key = f"{p}th_percentile"
+            summary[key] = val
+        return summary
 
 class AlertManager(BaseClass):
     """
-    Manages different types of alerts (performance, health, latency, drift)
-    and provides options to send notifications via email, webhooks (Slack,
-    Microsoft Teams), and other channels. Supports retries and batching for
-    robustness.
+    Centralizes alerting logic by allowing email- and webhook-based
+    notifications, plus optional batching and retry mechanisms.
 
-    The `AlertManager` class centralizes alert management for machine learning
-    systems, providing mechanisms to send alerts through various channels and
-    handle failures with retries and batching. It can be integrated with
-    monitoring tools to notify stakeholders of significant events.
+    The :class:`AlertManager` integrates with various channels to
+    send alerts. It supports email recipients through an SMTP server
+    and webhook URLs (e.g. Slack, Teams). If alerts fail to send,
+    the system can automatically retry for a user-defined number of
+    attempts. Optionally, multiple alerts can be batched together
+    and delivered at fixed intervals to reduce spam.
+
+    .. math::
+
+        \\text{Alerts}(t) = 
+        \\bigl\\{ A_i : i=1,2,...,N \\bigr\\},
+
+    where each :math:`A_i` is an alert triggered by the system at
+    time :math:`t`. If batched, these alerts are queued and sent
+    together after a specified interval.
 
     Parameters
     ----------
-    email_recipients : list of str or None, default=None
-        List of email addresses to notify in case of an alert. If `None`, no
-        email alerts are sent.
+    email_recipients : list of str or None, optional
+        The list of email addresses to notify. If ``None``, no
+        emails are sent.
 
-    webhook_urls : list of str or None, default=None
-        List of URLs for sending alerts to webhooks (e.g., Slack, Microsoft
-        Teams). If `None`, no webhook alerts are sent.
+    webhook_urls : list of str or None, optional
+        The list of webhook endpoints for delivering alerts to
+        external services (e.g. Slack). If ``None``, no webhooks
+        are sent.
 
-    smtp_server : str or None, default=None
-        SMTP server to use for sending email alerts. Required if email alerts
-        are used.
+    smtp_server : str or None, optional
+        The SMTP server hostname or address. Required if sending
+        email alerts. If ``None``, emails cannot be dispatched.
 
-    from_email : str or None, default=None
-        Email address from which alerts will be sent. Required if email alerts
-        are used.
+    from_email : str or None, optional
+        The sender address for emails. Required if email alerts
+        are used. If ``None``, emails cannot be dispatched.
 
-    retry_attempts : int, default=3
-        The number of retry attempts if an alert fails to send. Must be a
-        non-negative integer.
+    retry_attempts : int, optional
+        The maximum number of retries if an alert fails to send.
+        Must be >= 0. Defaults to 3.
 
-    batch_alerts : bool, default=False
-        Whether to batch multiple alerts together and send them in one go.
+    batch_alerts : bool, optional
+        Whether to batch multiple alerts together. If ``True``,
+        alerts are stored and sent as a group after each
+        `<batch_interval>` seconds. Defaults to ``False``.
 
-    batch_interval : int, default=60
-        The time interval (in seconds) for batching alerts. Must be a positive
-        integer. Only applicable if `batch_alerts` is `True`.
+    batch_interval : int, optional
+        The number of seconds between batched alert sends. Must
+        be a positive integer. Defaults to 60.
+
+    verbose : int, optional
+        Logging verbosity:
+          - ``0``: Only critical errors
+          - ``1``: Warnings and errors
+          - ``2``: Info, warnings, and errors
+          - ``3``: Debug, info, warnings, and errors
+        Defaults to 0.
 
     Attributes
     ----------
     batched_alerts_ : list of tuple
-        Internal storage for batched alerts. Each element is a tuple of
-        (`alert_type`, `details`).
+        Internal queue for batched alerts. Each tuple may
+        contain an alert type and additional details.
 
     Methods
     -------
+    run(**run_kw)
+        Activates the alert manager. If `<batch_alerts>` is
+        ``True``, starts batching in a background thread.
+
     send_email_alert(subject, message, retries=0)
-        Sends an email alert to the configured recipients.
+        Sends an email alert via SMTP, retrying on failure.
 
     send_webhook_alert(message, retries=0)
-        Sends an alert message to configured webhook URLs.
+        Posts an alert message to each configured webhook URL,
+        optionally retrying on failure.
 
     add_email_recipient(email)
-        Adds an email recipient dynamically.
+        Adds an email address to the recipient list dynamically.
 
     remove_email_recipient(email)
-        Removes an email recipient dynamically.
+        Removes an email address from the recipient list.
 
     log_alert(alert_type, details)
-        Logs the alert for future reference and review.
+        Logs or batches an alert for future reference.
 
     Notes
     -----
-    The `AlertManager` can be customized to handle different alerting
-    strategies, such as batching alerts to reduce notification frequency or
-    implementing exponential backoff for retries. It supports integration with
-    common communication platforms via webhooks.
+    Retries are managed automatically. If an alert fails,
+    :math:`\mathrm{retry\_attempts}` is decremented until it
+    reaches zero, after which the failure is logged [1]_.
 
     Examples
     --------
     >>> from gofast.mlops.monitoring import AlertManager
-    >>> alert_manager = AlertManager(
+    >>> manager = AlertManager(
     ...     email_recipients=['admin@example.com'],
-    ...     webhook_urls=['https://hooks.slack.com/services/...'],
     ...     smtp_server='smtp.example.com',
     ...     from_email='alerts@example.com'
     ... )
-    >>> alert_manager.send_email_alert(
-    ...     'Model Performance Alert',
-    ...     'Model accuracy dropped below threshold.'
-    ... )
-    >>> alert_manager.send_webhook_alert(
-    ...     'Data drift detected in feature XYZ.'
+    >>> manager.run()
+    >>> manager.send_email_alert(
+    ...     'Test Alert',
+    ...     'This is a test message.'
     ... )
 
     See Also
     --------
-    DataDriftMonitor : Monitors data drift in input features.
-    ModelHealthChecker : Monitors system health metrics.
+    ModelPerformanceMonitor : Sends performance-based alerts.
+    ModelHealthChecker : Raises alerts for resource issues.
 
     References
     ----------
-    .. [1] "Sending Emails with Python", Python Documentation,
-       https://docs.python.org/3/library/email.examples.html
-    .. [2] "Slack Webhooks", Slack API Documentation,
-       https://api.slack.com/messaging/webhooks
-
+    .. [1] "Python SMTP Library". Python 3 Documentation.
     """
 
-    @validate_params({
-        'email_recipients': [list, None],
-        'webhook_urls': [list, None],
-        'smtp_server': [str, None],
-        'from_email': [str, None],
-        'retry_attempts': [Interval(Integral, 0, None, closed='left')],
-        'batch_alerts': [bool],
-        'batch_interval': [Interval(Integral, 1, None, closed='left')],
-    })
+
+    @validate_params(
+        {
+            'email_recipients': [list, None],
+            'webhook_urls': [list, None],
+            'smtp_server': [str, None],
+            'from_email': [str, None],
+            'retry_attempts': [
+                Interval(Integral, 0, None, closed='left')
+            ],
+            'batch_alerts': [bool],
+            'batch_interval': [
+                Interval(Integral, 1, None, closed='left')
+            ],
+            'verbose': [Integral]
+        }
+    )
     def __init__(
         self,
         email_recipients: Optional[List[str]] = None,
@@ -1804,8 +2212,12 @@ class AlertManager(BaseClass):
         from_email: Optional[str] = None,
         retry_attempts: int = 3,
         batch_alerts: bool = False,
-        batch_interval: int = 60
+        batch_interval: int = 60,
+        verbose: int = 0
     ):
+
+        super().__init__(verbose=verbose)
+
         self.email_recipients = email_recipients or []
         self.webhook_urls = webhook_urls or []
         self.smtp_server = smtp_server
@@ -1813,48 +2225,46 @@ class AlertManager(BaseClass):
         self.retry_attempts = retry_attempts
         self.batch_alerts = batch_alerts
         self.batch_interval = batch_interval
-        self.batched_alerts_ = []
-        if batch_alerts:
-            self._start_batching()
 
-    def send_email_alert(self, subject: str, message: str, retries: int = 0):
+        self._batched_alerts_ = []
+        self._is_runned = False
+
+    def run(
+        self,
+        **run_kw
+    ) -> "AlertManager":
         """
-        Sends an email alert to the configured recipients with retry logic.
-
-        Parameters
-        ----------
-        subject : str
-            The subject of the email alert.
-
-        message : str
-            The body of the email alert.
-
-        retries : int, default=0
-            The current retry attempt. Used internally for recursive retry
-            calls. Users should not need to specify this parameter.
-
-        Raises
-        ------
-        ValueError
-            If SMTP server or sender email is not configured.
-
-        Notes
-        -----
-        The method attempts to send an email using the configured SMTP server.
-        If sending fails, it retries up to `retry_attempts` times. Logging is
-        used to report failures and retries.
-
-        Examples
-        --------
-        >>> alert_manager.send_email_alert(
-        ...     'Performance Alert',
-        ...     'Model accuracy dropped.'
-        ... )
-
+        Prepare the AlertManager to send alerts. If batch_alerts=True,
+        starts batching in a background thread.
         """
-        if not self.smtp_server or not self.from_email:
+        # Mark manager as runned
+        self._is_runned = True
+        if self.batch_alerts:
+            self._start_batching_()
+
+        if self.verbose > 1:
+            logger.info("AlertManager is now running.")
+        return self
+
+    def send_email_alert(
+        self,
+        subject: str,
+        message: str,
+        retries: int = 0
+    ) -> None:
+        """
+        Send an email alert to configured recipients with
+        retry logic.
+        """
+        check_is_runned(
+            self, 
+            attributes=["_is_runned"],
+            msg="Call 'run' before sending an email alert."
+        )
+        if (not self.smtp_server) or (not self.from_email):
             raise ValueError(
-                "SMTP server and sender email must be configured for email alerts."
+                "SMTP server and 'from_email' must be set "
+                "for email alerts."
             )
 
         msg = MIMEText(message)
@@ -1869,606 +2279,615 @@ class AlertManager(BaseClass):
                     self.email_recipients,
                     msg.as_string()
                 )
-            logger.info(f"Email alert sent: {subject}")
-        except Exception as e:
+            if self.verbose > 1:
+                logger.info(f"Email alert sent: {subject}")
+
+        except Exception as exc:
             if retries < self.retry_attempts:
                 logger.error(
-                    f"Failed to send email alert. Retrying... "
-                    f"{retries + 1}/{self.retry_attempts}"
+                    "Failed to send email alert. "
+                    f"Retry {retries + 1}/"
+                    f"{self.retry_attempts}. Error: {exc}"
                 )
-                self.send_email_alert(subject, message, retries + 1)
+                self.send_email_alert(
+                    subject,
+                    message,
+                    retries=retries + 1
+                )
             else:
                 logger.error(
-                    f"Failed to send email alert after {self.retry_attempts} "
-                    f"attempts: {e}"
+                    "Failed to send email alert after "
+                    f"{self.retry_attempts} attempts. "
+                    f"Error: {exc}"
                 )
 
     @ensure_pkg(
         "requests",
-        extra="The 'requests' package is required for sending webhook alerts.",
+        extra=(
+            "The 'requests' package is required "
+            "for sending webhook alerts."
+        ),
         auto_install=INSTALL_DEPENDENCIES,
         use_conda=USE_CONDA
     )
-    def send_webhook_alert(self, message: str, retries: int = 0):
+    def send_webhook_alert(
+        self,
+        message: str,
+        retries: int = 0
+    ) -> None:
         """
-        Sends an alert message to configured webhook URLs with retry logic.
-
-        Parameters
-        ----------
-        message : str
-            The alert message to send.
-
-        retries : int, default=0
-            The current retry attempt. Used internally for recursive retry
-            calls. Users should not need to specify this parameter.
-
-        Notes
-        -----
-        The method sends a POST request to each configured webhook URL with the
-        alert message. If sending fails, it retries up to `retry_attempts`
-        times. Logging is used to report failures and retries.
-
-        Examples
-        --------
-        >>> alert_manager.send_webhook_alert(
-        ...     'Data drift detected in feature XYZ.'
-        ... )
-
+        Send an alert message to configured webhook URLs
+        (Slack, Teams, etc.) with retry logic.
         """
-        import requests  
+        check_is_runned(
+            self, 
+            attributes=["_is_runned"],
+            msg="Call 'run' before sending webhook alerts."
+        )
+        
+        import requests  # Imported after ensure_pkg checks
 
         for url in self.webhook_urls:
             try:
-                response = requests.post(url, json={'text': message})
-                if response.status_code == 200:
-                    logger.info(f"Webhook alert sent to {url}")
+                resp = requests.post(
+                    url,
+                    json={'text': message}
+                )
+                if resp.status_code == 200:
+                    if self.verbose > 1:
+                        logger.info(
+                            f"Webhook alert sent to {url}"
+                        )
                 else:
                     raise ValueError(
-                        f"Webhook failed with status code {response.status_code}"
+                        "Webhook post failed with code "
+                        f"{resp.status_code}"
                     )
-            except Exception as e:
+
+            except Exception as exc:
                 if retries < self.retry_attempts:
                     logger.error(
-                        f"Failed to send webhook alert to {url}. Retrying... "
-                        f"{retries + 1}/{self.retry_attempts}"
+                        f"Failed to send webhook to {url}. "
+                        "Retry "
+                        f"{retries + 1}/{self.retry_attempts}. "
+                        f"Error: {exc}"
                     )
-                    self.send_webhook_alert(message, retries + 1)
+                    self.send_webhook_alert(
+                        message,
+                        retries=retries + 1
+                    )
                 else:
                     logger.error(
-                        f"Failed to send webhook alert to {url} after "
-                        f"{self.retry_attempts} attempts: {e}"
+                        "Failed to send webhook alert "
+                        f"to {url} after "
+                        f"{self.retry_attempts} attempts. "
+                        f"Error: {exc}"
                     )
 
-    def add_email_recipient(self, email: str):
+    def add_email_recipient(
+        self,
+        email: str
+    ) -> None:
         """
-        Adds an email recipient dynamically.
-
-        Parameters
-        ----------
-        email : str
-            The email address to add.
-
-        Notes
-        -----
-        This method allows adding email recipients after the `AlertManager` has
-        been initialized.
-
-        Examples
-        --------
-        >>> alert_manager.add_email_recipient('new_user@example.com')
-
+        Dynamically add an email recipient.
         """
+        check_is_runned(
+            self, 
+            attributes=["_is_runned"],
+            msg="Call 'run' before adding recipients."
+        )
         if email not in self.email_recipients:
             self.email_recipients.append(email)
-            logger.info(f"Added email recipient: {email}")
+            if self.verbose > 1:
+                logger.info(f"Added email recipient: {email}")
 
-    def remove_email_recipient(self, email: str):
+    def remove_email_recipient(
+        self,
+        email: str
+    ) -> None:
         """
-        Removes an email recipient dynamically.
-
-        Parameters
-        ----------
-        email : str
-            The email address to remove.
-
-        Notes
-        -----
-        This method allows removing email recipients after the `AlertManager` has
-        been initialized.
-
-        Examples
-        --------
-        >>> alert_manager.remove_email_recipient('old_user@example.com')
-
+        Dynamically remove an email recipient.
         """
+        check_is_runned(
+            self, 
+            attributes=["_is_runned"],
+            msg="Call 'run' before removing recipients."
+        )
         if email in self.email_recipients:
             self.email_recipients.remove(email)
-            logger.info(f"Removed email recipient: {email}")
+            if self.verbose > 1:
+                logger.info(f"Removed email recipient: {email}")
 
-    def log_alert(self, alert_type: str, details: Dict[str, Any]):
+    def log_alert(
+        self,
+        alert_type: str,
+        details: Dict[str, Any]
+    ) -> None:
         """
-        Logs the alert for future reference and review.
-
-        Parameters
-        ----------
-        alert_type : str
-            The type of alert (e.g., 'performance', 'health', 'latency',
-            'drift').
-
-        details : dict
-            Additional details about the alert.
-
-        Notes
-        -----
-        If `batch_alerts` is `True`, the alert is added to the batch to be sent
-        after the `batch_interval`. Otherwise, the alert is logged immediately.
-
-        Examples
-        --------
-        >>> alert_manager.log_alert('performance', {'accuracy': 0.85})
-
+        Log an alert. If batching is enabled,
+        store it for later sending.
         """
-        logger.info(f"Alert triggered: {alert_type} - {details}")
+        check_is_runned(
+            self, 
+            attributes=["_is_runned"],
+            msg="Call 'run' before logging alerts."
+        )
+        logger.info(
+            f"Alert triggered: {alert_type} - {details}"
+        )
         if self.batch_alerts:
-            self.batched_alerts_.append((alert_type, details))
+            self._batched_alerts_.append(
+                (alert_type, details)
+            )
 
-    def _start_batching(self):
+    def _start_batching_(
+        self
+    ) -> None:
         """
-        Starts batching alerts for sending them together at regular intervals.
-
-        This method initializes a background thread that periodically checks for
-        batched alerts and sends them via the configured channels. It is called
-        automatically if `batch_alerts` is `True` during initialization.
-
+        Internal method: start a background thread to
+        process batched alerts at regular intervals.
         """
         def batch_sender():
             while True:
-                if self.batched_alerts_:
-                    for alert_type, details in self.batched_alerts_:
-                        subject = f"Batched {alert_type.capitalize()} Alert"
-                        message = str(details)
-                        self.send_email_alert(subject, message)
-                        self.send_webhook_alert(message)
-                    self.batched_alerts_.clear()
+                if self._batched_alerts_:
+                    # For each stored alert, attempt
+                    # to send via email + webhooks
+                    for atype, dets in self._batched_alerts_:
+                        subj = f"Batched {atype.capitalize()} Alert"
+                        msg = str(dets)
+                        self.send_email_alert(subj, msg)
+                        self.send_webhook_alert(msg)
+                    self._batched_alerts_.clear()
+
                 time.sleep(self.batch_interval)
 
-        
-        threading.Thread(target=batch_sender, daemon=True).start()
+        # Start the daemon thread
+        thr = threading.Thread(
+            target=batch_sender,
+            daemon=True
+        )
+        thr.start()
 
 class ErrorRateMonitor(BaseClass):
     """
-    Monitors the error rate of model predictions over time and triggers alerts
-    when the error rate exceeds a defined threshold. Supports detailed error
-    logging and per-type error tracking.
+    Monitors the frequency of erroneous predictions made by a 
+    machine learning model, triggering alerts if the observed 
+    error rate exceeds a user-defined threshold.
 
-    The `ErrorRateMonitor` class helps in tracking the error rate of model
-    predictions, enabling early detection of performance degradation. It can
-    trigger alerts when the error rate exceeds specified thresholds and provides
-    mechanisms to log and analyze different types of errors.
+    The :class:`ErrorRateMonitor` helps detect performance 
+    degradation early by tracking recent successes and failures 
+    in model predictions. If the calculated error rate surpasses 
+    `<error_threshold>`, an optional callback can be invoked to 
+    raise an alert or provide additional diagnostic details.
+
+    .. math::
+
+        \\text{ErrorRate}(t) = 
+        1 - \\frac{\\#\\text{Successes}(t)}
+               {\\#\\text{Predictions}(t)}
+
+    where :math:`\\#\\text{Successes}(t)` is the count of 
+    accurate predictions and :math:`\\#\\text{Predictions}(t)` 
+    is the total predictions made in the sliding window at 
+    time :math:`t`.
 
     Parameters
     ----------
     error_threshold : float
-        The maximum allowable error rate before triggering an alert.
-        Must be between 0 and 1 inclusive (e.g., 0.05 for 5% error rate).
+        The upper bound on allowable error rate before raising 
+        an alert. Must be in [0, 1]. For instance, 0.05 indicates 
+        a 5% threshold.
 
-    alert_callback : callable or None, default=None
-        A function that is called when the error rate exceeds the threshold.
-        It should accept two parameters: the current error rate (`float`)
-        and a dictionary of error details (`dict`).
+    alert_callback : callable or None, optional
+        A function called when the error rate exceeds 
+        `<error_threshold>`. It should accept two parameters:
+        the current error rate (:math:`\\text{float}`) and a 
+        dictionary of error details. Defaults to ``None``.
 
-    retention_period : int, default=100
-        The number of recent prediction outcomes to retain for tracking.
-        Must be a positive integer.
+    retention_period : int, optional
+        Number of recent prediction outcomes retained in a 
+        sliding window. Must be a positive integer. Defaults 
+        to 100.
 
-    error_types : list of str or None, default=None
-        A list of error types to track separately (e.g.,
-        ``['prediction_failure', 'timeout']``). If `None`, error types are
-        not tracked separately.
+    error_types : list of str or None, optional
+        A list of error categories (e.g. 
+        ``['prediction_failure', 'timeout']``) to track 
+        separately. If ``None``, no specialized tracking is 
+        done by category. Defaults to ``None``.
 
-    Attributes
-    ----------
-    outcomes_ : list of bool
-        Stores the most recent prediction outcomes, where `True` indicates
-        a successful prediction and `False` indicates a failure.
-
-    error_log_ : dict of str to int
-        Keeps count of occurrences of each error type over the retained
-        period.
+    verbose : int, optional
+        Level of logging:
+          - ``0``: Only critical errors
+          - ``1``: Warnings + errors
+          - ``2``: Info, warnings, errors
+          - ``3``: Debug, info, warnings, errors
+        Defaults to 0.
 
     Methods
     -------
+    run(**run_kw)
+        Prepares this monitor for usage. Once active, predictions 
+        can be logged to track error rates.
+
     log_prediction(outcome, error_type=None)
-        Logs a prediction outcome, with optional error type.
+        Logs a new prediction outcome. If `<outcome>` is 
+        ``False`` and `<error_type>` matches a known error 
+        category, its count is incremented.
 
     get_error_rate()
-        Returns the current error rate over the retained period.
+        Returns the current error rate computed over the 
+        retained window.
 
     get_error_type_count(error_type)
-        Returns the count of a specific type of error over the retained period.
+        Retrieves the count of a specific error category over 
+        the retained window.
 
     Notes
     -----
-    The error rate is calculated as:
-
-    .. math::
-
-        \\text{Error Rate} = 1 - \\frac{\\text{Number of Successes}}{\\text{Total Predictions}}
-
-    The class maintains a sliding window of the most recent predictions,
-    determined by the `retention_period`.
+    A sliding window approach is used to track outcomes, 
+    ensuring the error rate reflects recent model 
+    performance [1]_.
 
     Examples
     --------
     >>> from gofast.mlops.monitoring import ErrorRateMonitor
-    >>> def alert_callback(error_rate, details):
-    ...     print(f"Alert! Error rate exceeded: {error_rate:.2%}")
-    >>> monitor = ErrorRateMonitor(
+    >>> def alert_cb(rate, details):
+    ...     print(f"ERROR RATE ALERT: {rate:.1%}!")
+    >>> mon = ErrorRateMonitor(
     ...     error_threshold=0.05,
-    ...     alert_callback=alert_callback,
-    ...     retention_period=100,
-    ...     error_types=['prediction_failure', 'timeout']
+    ...     alert_callback=alert_cb
     ... )
-    >>> monitor.log_prediction(False, error_type='prediction_failure')
-    >>> current_error_rate = monitor.get_error_rate()
-    >>> print(f"Current Error Rate: {current_error_rate:.2%}")
+    >>> mon.run()
+    >>> mon.log_prediction(False, error_type='prediction_failure')
+    >>> print(mon.get_error_rate())
 
     See Also
     --------
-    LatencyTracker : Tracks and monitors the latency of operations.
-    DataDriftMonitor : Monitors data drift in input features.
+    LatencyTracker : Focuses on latency issues.
+    DataDriftMonitor : Tracks changes in data distributions.
 
     References
     ----------
-    .. [1] "Statistical Process Control", Wikipedia,
-       https://en.wikipedia.org/wiki/Statistical_process_control
-
+    .. [1] "Statistical Process Control (SPC)". 
+           https://en.wikipedia.org/wiki/Statistical_process_control
     """
 
-    @validate_params({
-        'error_threshold': [Interval(Real, 0, 1, closed='both')],
-        'alert_callback': [callable, None],
-        'retention_period': [Interval(Integral, 1, None, closed='left')],
-        'error_types': [list, None],
-    })
+    @validate_params(
+        {
+            'error_threshold': [
+                Interval(Real, 0, 1, closed='both')
+            ],
+            'alert_callback': [callable, None],
+            'retention_period': [
+                Interval(Integral, 1, None, closed='left')
+            ],
+            'error_types': [list, None],
+            'verbose': [Integral]
+        }
+    )
     def __init__(
         self,
         error_threshold: float,
-        alert_callback: Optional[Callable[[float, Dict[str, Any]], None]] = None,
+        alert_callback: Optional[
+            Callable[[float, Dict[str, Any]], None]
+        ] = None,
         retention_period: int = 100,
-        error_types: Optional[List[str]] = None
+        error_types: Optional[List[str]] = None,
+        verbose: int = 0
     ):
+        super().__init__(verbose=verbose)
+
         self.error_threshold = error_threshold
         self.alert_callback = alert_callback
         self.retention_period = retention_period
         self.error_types = error_types or []
-        self.outcomes_ = []
-        self.error_log_ = {error_type: 0 for error_type in self.error_types}
 
-    @validate_params({
-        'outcome': [bool],
-        'error_type': [str, None],
-    })
-    def log_prediction(self, outcome: bool, error_type: Optional[str] = None):
+        self._outcomes_ = []
+        self._error_log_ = {
+            err_t: 0 for err_t in self.error_types
+        }
+        self._is_runned = False
+
+    def run(
+        self,
+        **run_kw
+    ) -> "ErrorRateMonitor":
         """
-        Logs a prediction outcome, with optional error type.
-
-        Parameters
-        ----------
-        outcome : bool
-            Whether the prediction was successful (`True`) or failed (`False`).
-
-        error_type : str or None, default=None
-            The type of error that occurred (if `outcome` is `False`).
-            Must be one of the error types specified in `error_types`.
-
-        Notes
-        -----
-        If the error rate exceeds the `error_threshold` after logging
-        this prediction, the `alert_callback` is invoked with the current
-        error rate and error details.
-
+        Prepare the monitor to track error rates. 
+        Once called, predictions can be logged.
         """
-        self.outcomes_.append(outcome)
-        if len(self.outcomes_) > self.retention_period:
-            self.outcomes_.pop(0)
+        self._is_runned = True
+        if self.verbose > 1:
+            logger.info("ErrorRateMonitor is now running.")
+        return self
 
-        # Track specific error types
-        if not outcome and error_type in self.error_log_:
-            self.error_log_[error_type] += 1
+    @validate_params(
+        {
+            'outcome': [bool],
+            'error_type': [str, None]
+        }
+    )
+    def log_prediction(
+        self,
+        outcome: bool,
+        error_type: Optional[str] = None
+    ) -> None:
+        """
+        Log a prediction outcome with optional error type.
+        """
+        self._outcomes_.append(outcome)
+        # Maintain sliding window
+        if len(self._outcomes_) > self.retention_period:
+            self._outcomes_.pop(0)
 
-        # Calculate error rate
-        error_rate = 1 - sum(self.outcomes_) / len(self.outcomes_)
+        # If it's an error (outcome=False) and a known error type
+        if (not outcome) and (error_type in self._error_log_):
+            self._error_log_[error_type] += 1
 
+        # Compute current error rate
+        error_rate = 1.0 - (
+            sum(self._outcomes_) / len(self._outcomes_)
+        )
+
+        # Trigger alert if above threshold
         if error_rate > self.error_threshold:
-            error_details = {
+            err_details = {
                 "error_rate": error_rate,
-                "total_errors": len(self.outcomes_) - sum(self.outcomes_),
-                "error_log": self.error_log_
+                "total_errors": (
+                    len(self._outcomes_) - sum(self._outcomes_)
+                ),
+                "error_log": dict(self._error_log_)
             }
-            logger.warning(f"Error rate exceeds threshold: {error_rate:.2%}")
+            logger.warning(
+                f"Error rate exceeds threshold: {error_rate:.2%}"
+            )
             if self.alert_callback:
-                self.alert_callback(error_rate, error_details)
+                self.alert_callback(error_rate, err_details)
 
-    def get_error_rate(self) -> float:
+    def get_error_rate(
+        self
+    ) -> float:
         """
-        Returns the current error rate over the retained period.
-
-        Returns
-        -------
-        error_rate : float
-            The current error rate. Returns `nan` if no outcomes are recorded.
-
-        Notes
-        -----
-        The error rate is computed as:
-
-        .. math::
-
-            \\text{Error Rate} = 1 - \\frac{\\text{Number of Successes}}{\\text{Total Predictions}}
-
-        Examples
-        --------
-        >>> error_rate = monitor.get_error_rate()
-        >>> print(f"Error Rate: {error_rate:.2%}")
-
+        Return the current error rate from the recent window.
         """
-        if len(self.outcomes_) == 0:
+        if not self._outcomes_:
             return float('nan')
-        return 1 - sum(self.outcomes_) / len(self.outcomes_)
+        return 1.0 - (
+            sum(self._outcomes_) / len(self._outcomes_)
+        )
 
-    @validate_params({
-        'error_type': [str],
-    })
-    def get_error_type_count(self, error_type: str) -> int:
+
+    @validate_params(
+        {
+            'error_type': [str]
+        }
+    )
+    def get_error_type_count(
+        self,
+        error_type: str
+    ) -> int:
         """
-        Returns the count of a specific type of error over the retained period.
-
-        Parameters
-        ----------
-        error_type : str
-            The type of error to retrieve the count for.
-
-        Returns
-        -------
-        count : int
-            The count of the specified error type.
-
-        Notes
-        -----
-        If the specified `error_type` was not initialized in `error_types`,
-        returns zero.
-
-        Examples
-        --------
-        >>> count = monitor.get_error_type_count('prediction_failure')
-        >>> print(f"Prediction Failure Count: {count}")
-
+        Return the count of a specific error type 
+        in the recent window.
         """
-        return self.error_log_.get(error_type, 0)
-
+        return self._error_log_.get(error_type, 0)
 
 class CustomMetricsLogger(BaseClass):
     """
-    Logs and tracks custom user-defined metrics during model inference.
-    Supports thresholds for metrics and triggers alerts when thresholds
-    are exceeded.
+    Logs and tracks arbitrary user-defined metrics, providing 
+    threshold-based alerts when metrics exceed configured 
+    limits.
 
-    The `CustomMetricsLogger` class allows users to log custom metrics
-    associated with model inference or other operations. It maintains a
-    history of metric values and can trigger alerts when specified
-    thresholds are exceeded. The class provides methods to retrieve
-    metric histories and calculate moving averages.
+    The :class:`CustomMetricsLogger` allows you to instrument 
+    any domain-specific measure (e.g. "throughput", "queue_size")
+    and retain the most recent values in a sliding window. 
+    Thresholds can be specified for each metric to trigger 
+    alerts when a metric's value surpasses a certain limit.
+
+    .. math::
+
+        \\text{MetricValue}(m, t) = v_t,
+
+    where :math:`v_t` is the value of metric :math:`m` 
+    at time :math:`t`. If :math:`v_t` exceeds the threshold 
+    for :math:`m`, an alert is raised via the user-provided 
+    callback.
 
     Parameters
     ----------
-    retention_period : int, default=100
-        The number of recent metric values to retain for each custom
-        metric. Must be a positive integer.
+    retention_period : int, optional
+        Number of most recent metric values to store for 
+        each metric. Must be a positive integer. Defaults to 100.
 
-    metric_thresholds : dict of str to float or None, default=None
-        Thresholds for each metric, with an alert triggered if exceeded.
-        The keys are metric names, and the values are threshold values.
+    metric_thresholds : dict of str to float or None, optional
+        Mapping of metric names to their threshold values. 
+        If the logged value exceeds this threshold, an alert 
+        is triggered. Defaults to ``None``.
 
-    alert_callback : callable or None, default=None
-        A function that is called when a metric exceeds its threshold.
-        It should accept two parameters: the metric name (`str`) and the
-        metric value (`float`).
+    alert_callback : callable or None, optional
+        A function invoked when a metric passes its threshold. 
+        It should accept two parameters: `<metric_name>` (str) 
+        and `<value>` (float). Defaults to ``None``.
 
-    Attributes
-    ----------
-    metrics_history_ : dict of str to list of float
-        Stores the history of values for each custom metric.
+    verbose : int, optional
+        Controls log verbosity:
+          - ``0``: Critical errors only
+          - ``1``: Warnings + errors
+          - ``2``: Info + warnings + errors
+          - ``3``: Debug + info + warnings + errors
+        Defaults to 0.
 
     Methods
     -------
+    run(**run_kw)
+        Activates the logger. Metrics can be recorded once 
+        this is called.
+
     log_metric(metric_name, value)
-        Logs a custom metric value.
+        Logs a value for `<metric_name>` and raises an alert 
+        if it breaches its threshold.
 
     get_metric_history(metric_name)
-        Returns the history of values for a specific custom metric.
+        Retrieves all retained values for `<metric_name>`.
 
     get_moving_average(metric_name, window)
-        Returns the moving average for a specific metric over a given
-        window.
+        Computes the moving average over the last 
+        `<window>` entries for `<metric_name>`.
 
     Notes
     -----
-    The class maintains a sliding window of metric values for each
-    custom metric, determined by the `retention_period`. When a new
-    metric value is logged, if it exceeds the specified threshold for
-    that metric, the `alert_callback` is invoked.
+    Maintaining a sliding window of metric values can help 
+    identify trends and anomalies [1]_. By combining custom 
+    metrics with alert thresholds, you gain visibility into 
+    dynamic behaviors that may otherwise go unnoticed.
 
     Examples
     --------
     >>> from gofast.mlops.monitoring import CustomMetricsLogger
-    >>> def alert_callback(metric_name, value):
-    ...     print(f"Alert: {metric_name} exceeds threshold with value {value}")
-    >>> metrics_logger = CustomMetricsLogger(
-    ...     retention_period=100,
+    >>> def my_alert_callback(mname, val):
+    ...     print(f"ALERT: {mname} = {val}")
+    >>> logger = CustomMetricsLogger(
     ...     metric_thresholds={'throughput': 500.0},
-    ...     alert_callback=alert_callback
+    ...     alert_callback=my_alert_callback
     ... )
-    >>> metrics_logger.log_metric('throughput', 550.0)
-    Alert: throughput exceeds threshold with value 550.0
-    >>> history = metrics_logger.get_metric_history('throughput')
-    >>> print(history)
-    [550.0]
-    >>> moving_avg = metrics_logger.get_moving_average('throughput', window=1)
-    >>> print(f"Moving Average: {moving_avg}")
+    >>> logger.run()
+    >>> logger.log_metric('throughput', 550.0)
 
     See Also
     --------
-    LatencyTracker : Tracks and monitors the latency of operations.
-    ErrorRateMonitor : Monitors the error rate of model predictions.
+    LatencyTracker : Focuses on operation latencies.
+    ErrorRateMonitor : Tracks success vs. failure rates.
 
     References
     ----------
-    .. [1] "Moving Average", Wikipedia,
-       https://en.wikipedia.org/wiki/Moving_average
-
+    .. [1] "Moving Average". 
+           https://en.wikipedia.org/wiki/Moving_average
     """
-
-    @validate_params({
-        'retention_period': [Interval(Integral, 1, None, closed='left')],
-        'metric_thresholds': [dict, None],
-        'alert_callback': [callable, None],
-    })
+    @validate_params(
+        {
+            'retention_period': [
+                Interval(Integral, 1, None, closed='left')
+            ],
+            'metric_thresholds': [dict, None],
+            'alert_callback': [callable, None],
+            'verbose': [Integral]
+        }
+    )
     def __init__(
         self,
         retention_period: int = 100,
-        metric_thresholds: Optional[Dict[str, float]] = None,
-        alert_callback: Optional[Callable[[str, float], None]] = None
+        metric_thresholds: Optional[
+            Dict[str, float]
+        ] = None,
+        alert_callback: Optional[
+            Callable[[str, float], None]
+        ] = None,
+        verbose: int = 0
     ):
+        """
+        Constructor for CustomMetricsLogger. Manages 
+        retention and threshold logic for user-defined metrics.
+        """
+        super().__init__(verbose=verbose)
+
         self.retention_period = retention_period
         self.metric_thresholds = metric_thresholds or {}
         self.alert_callback = alert_callback
-        self.metrics_history_ = {}
 
-    @validate_params({
-        'metric_name': [str],
-        'value': [Real],
-    })
-    def log_metric(self, metric_name: str, value: float):
+        self._metrics_history_ = {}
+        self._is_runned = False
+
+    def run(
+        self,
+        **run_kw
+    ) -> "CustomMetricsLogger":
         """
-        Logs a custom metric value.
-
-        Parameters
-        ----------
-        metric_name : str
-            The name of the custom metric.
-
-        value : float
-            The value of the metric.
-
-        Notes
-        -----
-        If the metric value exceeds the threshold specified in
-        `metric_thresholds`, an alert is triggered via the
-        `alert_callback`, if provided. The method also ensures that only
-        the most recent `retention_period` metric values are stored.
-
-        Examples
-        --------
-        >>> metrics_logger.log_metric('throughput', 550.0)
-        Alert: throughput exceeds threshold with value 550.0
-
+        Prepare the logger to accept and track metrics.
         """
-        if metric_name not in self.metrics_history_:
-            self.metrics_history_[metric_name] = []
+        self._is_runned = True
+        if self.verbose > 1:
+            logger.info("CustomMetricsLogger is now running.")
+        return self
 
-        self.metrics_history_[metric_name].append(value)
-        if len(self.metrics_history_[metric_name]) > self.retention_period:
-            self.metrics_history_[metric_name].pop(0)
+    @validate_params(
+        {
+            'metric_name': [str],
+            'value': [Real]
+        }
+    )
+    def log_metric(
+        self,
+        metric_name: str,
+        value: float
+    ) -> None:
+        """
+        Log a custom metric value, triggering an alert 
+        if threshold exceeded.
+        """
+        if metric_name not in self._metrics_history_:
+            self._metrics_history_[metric_name] = []
 
-        # Trigger alert if value exceeds threshold
+        # Add the new metric value
+        self._metrics_history_[metric_name].append(value)
+
+        # Maintain sliding window for the metric
+        if (
+            len(self._metrics_history_[metric_name])
+            > self.retention_period
+        ):
+            self._metrics_history_[metric_name].pop(0)
+
+        # Check if exceeds threshold
         threshold = self.metric_thresholds.get(metric_name)
-        if threshold is not None and value > threshold:
-            message = f"Metric '{metric_name}' exceeds threshold: {value}"
-            logger.warning(message)
+        if (threshold is not None) and (value > threshold):
+            msg = (
+                f"Metric '{metric_name}' exceeds "
+                f"threshold: {value}"
+            )
+            logger.warning(msg)
             if self.alert_callback:
                 self.alert_callback(metric_name, value)
 
-    @validate_params({
-        'metric_name': [str],
-    })
-    def get_metric_history(self, metric_name: str) -> List[float]:
+
+    @validate_params(
+        {
+            'metric_name': [str]
+        }
+    )
+    def get_metric_history(
+        self,
+        metric_name: str
+    ) -> List[float]:
         """
-        Returns the history of values for a specific custom metric.
-
-        Parameters
-        ----------
-        metric_name : str
-            The name of the custom metric.
-
-        Returns
-        -------
-        history : list of float
-            The history of values for the custom metric.
-
-        Notes
-        -----
-        If no history is available for the specified metric, returns an
-        empty list.
-
-        Examples
-        --------
-        >>> history = metrics_logger.get_metric_history('throughput')
-        >>> print(history)
-        [550.0, 540.0, 530.0]
-
+        Return the history of values for a given metric.
         """
-        return self.metrics_history_.get(metric_name, [])
+        return self._metrics_history_.get(
+            metric_name, []
+        )
 
-
-    @validate_params({
-        'metric_name': [str],
-        'window': [Interval(Integral, 1, None, closed='left')],
-    })
-    def get_moving_average(self, metric_name: str, window: int) -> float:
+    @validate_params(
+        {
+            'metric_name': [str],
+            'window': [
+                Interval(Integral, 1, None, closed='left')
+            ]
+        }
+    )
+    def get_moving_average(
+        self,
+        metric_name: str,
+        window: int
+    ) -> float:
         """
-        Returns the moving average for a specific metric over a given
-        window.
-
-        Parameters
-        ----------
-        metric_name : str
-            The name of the custom metric.
-
-        window : int
-            The window size for calculating the moving average. Must be
-            a positive integer.
-
-        Returns
-        -------
-        moving_average : float
-            The moving average of the custom metric over the specified
-            window. Returns `nan` if no data is available.
-
-        Notes
-        -----
-        The moving average is calculated using the most recent `window`
-        number of metric values. If fewer values are available than the
-        specified window, all available values are used.
-
-        .. math::
-
-            \\text{Moving Average} = \\frac{1}{N} \\sum_{i=1}^{N} x_i
-
-        where :math:`N` is the number of values (up to the specified
-        window size) and :math:`x_i` are the metric values.
-
-        Examples
-        --------
-        >>> moving_avg = metrics_logger.get_moving_average('throughput', window=3)
-        >>> print(f"Moving Average: {moving_avg}")
-
+        Return the moving average for a metric over a 
+        specified window.
         """
- 
-        history = self.metrics_history_.get(metric_name, [])
+        history = self._metrics_history_.get(
+            metric_name, []
+        )
         if not history:
             return float('nan')
 
         window = min(window, len(history))
         recent_values = history[-window:]
-        return np.mean(recent_values)
+        return float(np.mean(recent_values))
