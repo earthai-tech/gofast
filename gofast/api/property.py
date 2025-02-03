@@ -3265,7 +3265,7 @@ class Software(BaseClass):
                 Author = author, 
         ... )
         >>> software.get_author_contact () 
-        LKouadio Contact(
+        LKouadioContact(
           {
 
                name             : LKouadio

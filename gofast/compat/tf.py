@@ -11,6 +11,7 @@ Keras dependencies and checking the availability of TensorFlow or Keras.
 import logging
 import warnings 
 import importlib
+import numpy as np 
 from functools import wraps
 from contextlib import contextmanager 
 from typing import Callable 
@@ -167,7 +168,138 @@ class KerasDependencies:
         raise AttributeError(
             f"'KerasDependencies' object has no attribute '{name}'"
         )
+  
+class TFConfig:
+    """
+    A configuration class that manages TensorFlow's dimension compatibility 
+    by toggling the `ndim` attribute behavior based on the TensorFlow version.
+    
+    This class provides a means to control whether the `ndim` attribute should 
+    function as it did in older versions of TensorFlow or if it should utilize 
+    the newer `shape` attribute to determine the number of dimensions.
+    
+    Attributes:
+    -----------
+    compat_ndim_enabled : bool
+        A flag to enable or disable compatibility mode for the `ndim` attribute.
+        When enabled, the `ndim` behavior is overridden to use `get_ndim` instead.
         
+    _original_ndim : callable or None
+        A reference to the original `ndim` method of the TensorFlow `Tensor` 
+        class, if available. This is used for restoring the original
+        behavior when compatibility mode is disabled. If `ndim` is not
+        present (new TensorFlow version), it will be `None`.
+    
+    Methods:
+    --------
+    compat_ndim_enabled(value)
+        Sets the flag to enable or disable compatibility mode based
+        on the value provided.
+        
+    enable_ndim_compatibility()
+        Replaces TensorFlow's `ndim` with a compatibility method that
+        uses `get_ndim`.
+        
+    disable_ndim_compatibility()
+        Restores the original `ndim` method of TensorFlow if available.
+    """
+    
+    def __init__(self):
+        """
+        Initializes the TFConfig instance and checks the TensorFlow version.
+        
+        It verifies if the `ndim` attribute exists on TensorFlow's 
+        `Tensor` class. If the attribute exists, it stores the original
+        method. If not, it prepares for newer TensorFlow versions where
+        `ndim` is not available.
+        
+        Attributes:
+        -----------
+        _original_ndim : callable or None
+            Stores the original `ndim` method, or `None` if it doesn't exist.
+        _set_compat_ndim_tensor : bool
+            A flag to toggle compatibility mode for `ndim`.
+        """
+        # Check TensorFlow version before accessing tf.Tensor.ndim
+        if hasattr(tf.Tensor, 'ndim'):
+            self._original_ndim = tf.Tensor.ndim
+        else:
+            # Indicate that ndim doesn't exist in TensorFlow
+            self._original_ndim = None  
+
+        self._set_compat_ndim_tensor = False
+
+    @property
+    def compat_ndim_enabled(self):
+        """
+        Retrieves the current status of the `ndim` compatibility flag.
+        
+        Returns:
+        --------
+        bool
+            The current status of the compatibility mode. `True` means that 
+            `get_ndim` is used, and `False` means the original behavior
+            is restored.
+        """
+        return self._set_compat_ndim_tensor
+
+    @compat_ndim_enabled.setter
+    def compat_ndim_enabled(self, value):
+        """
+        Sets the compatibility mode for TensorFlow's `ndim` attribute.
+        
+        Parameters:
+        -----------
+        value : bool
+            If `True`, enable the compatibility mode where `get_ndim` is used. 
+            If `False`, restore the original `ndim` behavior.
+        """
+        self._set_compat_ndim_tensor = value
+        # Apply changes when the flag is set or unset
+        if value:
+            self.enable_ndim_compatibility()
+        else:
+            self.disable_ndim_compatibility()
+
+    def enable_ndim_compatibility(self):
+        """
+        Enables compatibility mode for TensorFlow's `ndim` attribute.
+        
+        This method overrides TensorFlow's default `ndim` property with
+        a custom method that uses the `get_ndim` function from the
+        `gofast.compat.tf` module, allowing compatibility with both
+        old and new TensorFlow versions.
+        """
+        # Define a compatibility method for ndim that uses get_ndim
+        def compat_ndim(self):
+            return get_ndim(self)
+
+        # Override TensorFlow's ndim method with compat_ndim
+        tf.Tensor.ndim = property(compat_ndim)
+
+    def disable_ndim_compatibility(self):
+        """
+        Disables compatibility mode and restores the original `ndim` method.
+        
+        If the original `ndim` method is available 
+        (for older TensorFlow versions), 
+        it will be restored. Otherwise, if `ndim` was not present,
+        no changes are made.
+        """
+        # Restore the original ndim method if it exists
+        if self._original_ndim:
+            tf.Tensor.ndim = self._original_ndim
+        else:
+            # If the original ndim was never there, don't restore anything
+            # since it does not exist, no neeed. Just for consistency.
+            delattr(tf.Tensor, 'ndim')  # Optional, remove any existing ndim definition
+            
+#--------------------------------------------------
+# Instantiate the global configuration object
+Config = TFConfig()
+# ------------------------------------------------
+
+
 # XXX TODO 
 # WARNING:tensorflow:From C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages
 # \keras\src\losses.py:2976: The name tf.losses.sparse_softmax_cross_entropy is
@@ -358,7 +490,94 @@ def suppress_tf_warnings():
             yield
         finally:
             tf_logger.setLevel(original_level)  # Restore original logging level
-            
+         
+
+
+def get_ndim(tensor):
+    """
+    Compatibility function to retrieve the number of dimensions
+    of a TensorFlow tensor.
+    
+    This function checks if the object is a TensorFlow tensor and whether
+    it has the 'ndim'attribute. If not, it falls back to using the 
+    `len(object.shape)` to get the number of dimensions.
+    If TensorFlow is not available, it provides a generic approach for
+    non-TensorFlow objects.
+
+    Parameters
+    ----------
+    tensor : `tf.Tensor` or `np.ndarray` or any object with a `.shape` attribute
+        The input tensor object whose number of dimensions is to be retrieved. 
+        It can be a TensorFlow tensor, a NumPy array, or any object that exposes a 
+        `.shape` attribute representing its dimensions.
+
+    Returns
+    -------
+    int
+        The number of dimensions of the tensor-like object.
+        
+    Notes
+    -----
+    - If TensorFlow is installed and the object is a TensorFlow tensor, 
+      it uses the `ndim` attribute to retrieve the number of dimensions. 
+    - If the `ndim` attribute is unavailable, the function falls back to using the 
+      length of the `shape` attribute (i.e., `len(tensor.shape)`).
+    - If TensorFlow is not installed, the function checks if the object 
+      is a NumPy array or an object that exposes a `shape` attribute,
+      and it uses `len(tensor.shape)` to retrieve the number of dimensions.
+
+    Examples
+    --------
+    >>> from gofast.compat.tf import get_ndim
+    >>> import tensorflow as tf
+    >>> tensor = tf.constant([[1, 2], [3, 4]])
+    >>> get_ndim(tensor)
+    2
+
+    >>> import numpy as np
+    >>> arr = np.array([[1, 2], [3, 4]])
+    >>> get_ndim(arr)
+    2
+
+    See Also
+    --------
+    TensorFlow Documentation: https://www.tensorflow.org/api_docs/python/tf/Tensor
+    NumPy Documentation: https://numpy.org/doc/stable/reference/generated/numpy.ndarray.shape.html
+
+    References
+    ----------
+    .. [1] TensorFlow API Documentation. 
+           TensorFlow 2.x: https://www.tensorflow.org/api_docs/python/tf/Tensor.
+    .. [2] NumPy Documentation.
+           https://numpy.org/doc/stable/reference/generated/numpy.ndarray.shape.html.
+    """
+    
+    # Check if TensorFlow is available
+    if HAS_TF:
+        if isinstance(tensor, tf.Tensor):
+            # If TensorFlow tensor, return the number 
+            # of dimensions using 'ndim' or 'shape'
+            return getattr(tensor, 'ndim', len(tensor.shape))
+    
+    # If TensorFlow is not available, check if it is a NumPy
+    # array or another object with a shape attribute
+    if isinstance(tensor, np.ndarray):
+        # For NumPy arrays, use len(tensor.shape)
+        return len(tensor.shape)
+    
+    if hasattr(tensor, 'shape'):
+        # For objects with a shape attribute, return the length of shape
+        return len(tensor.shape)
+    elif hasattr(tensor, "ndim"): 
+        return tensor.ndim 
+    # if we reach here then raise the eror 
+    # Raise an exception if the input does not have the necessary attributes
+    raise ValueError(
+        "Input object must be a TensorFlow tensor,"
+        " a NumPy array, or an object with a 'shape' attribute."
+    )
+ 
+
 # ---------------------- class and func documentations ----------------------
 
 KerasDependencies.__doc__="""\ 
