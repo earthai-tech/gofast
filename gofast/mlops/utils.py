@@ -62,7 +62,6 @@ __all__ = [
      'setup_logging',
 ]
 
-
 class ConfigManager(BaseClass):
     """
     Manages configuration files in JSON or YAML format.
@@ -125,13 +124,13 @@ class ConfigManager(BaseClass):
         # allowed options. An exception with a clear message is raised
         # if validation fails.
         self.config_format = parameter_validator(
-            config_format,
+            "config_format",
             target_strs=['json', 'yaml', 'yml'],
             return_target_str=True,
             error_msg=(
                 "config_format must be one of 'json', 'yaml', or 'yml'."
             )
-        )
+        )(config_format)
 
         # Store the path to the configuration file.
         self.config_file = config_file
@@ -685,9 +684,8 @@ class ParameterGrid(BaseClass):
         """
         super().__init__(verbose=verbose)
 
-        # Store the grid dictionary following scikit-learn style
-        # with trailing underscore.
-        self.param_grid_: Dict[str, List[Any]] = param_grid
+        # Store the grid dictionary
+        self.param_grid: Dict[str, List[Any]] = param_grid
 
         # Precompute the combinations.
         self.grid_: List[Dict[str, Any]] = self._generate_grid()
@@ -706,7 +704,7 @@ class ParameterGrid(BaseClass):
         """
         # Sort items for deterministic ordering, then build
         # cross-product of values.
-        items = sorted(self.param_grid_.items())
+        items = sorted(self.param_grid.items())
         if not items:
             if self.verbose > 0:
                 logger.warning("Empty parameter grid provided.")
@@ -743,7 +741,6 @@ class ParameterGrid(BaseClass):
         Get a specific parameter combination by index.
         """
         return self.grid_[idx]
-
 
 @EnsureMethod(error='ignore', mode='soft')
 class TrainTestSplitter(BaseClass):
@@ -998,7 +995,6 @@ class TrainTestSplitter(BaseClass):
         >>> for train_idx, test_idx in splitter.k_fold_split(X, y, n_splits=5):
         ...     print(train_idx, test_idx)
         """
-        from sklearn.model_selection import KFold
         kf = KFold(
             n_splits    = n_splits,
             random_state= random_state,
@@ -1013,45 +1009,96 @@ class TrainTestSplitter(BaseClass):
     ):
         """
         Splits time series data while preserving temporal order.
-
+    
         Unlike random splits, this method divides data sequentially,
-        assigning the last `<test_size>` samples to the test set and
-        the remaining to the training set.
-
+        assigning the last ``<test_size>`` samples to the test set and
+        the remaining samples to the training set. If ``<test_size>``
+        is a fraction between 0 and 1, it is interpreted as the fraction
+        of data (based on the minimum length of the provided arrays)
+        to use for testing.
+    
         Parameters
         ----------
         arrays : array-like
-            The data arrays to split, where the first axis represents 
-            time.
-        test_size : int, default=100
-            The number of data points to assign to the test set.
-
+            The data arrays to split, where the first axis represents
+            time (index 0 is oldest, index -1 is newest). Each array
+            must have length >= 1 for meaningful splitting.
+        test_size : int or float, default=100
+            - If an integer >= 1, the last ``test_size`` elements of
+              each array form the test set. 
+            - If a float in (0, 1), it represents the fraction of each
+              array (based on the smallest array length) to allocate 
+              to the test set.
+            - If 0, all data goes to training and the test set is 
+              empty (not recommended but allowed).
+    
         Returns
         -------
         tuple
-            A tuple containing training and testing splits for each input array.
-
+            A tuple containing training and testing splits for each
+            input array, in the same order as they were provided. 
+            Specifically, for arrays ``(A1, A2, ..., An)``, returns
+            ``(A1_train, A1_test, A2_train, A2_test, ..., An_train, An_test)``.
+    
         Examples
         --------
         >>> from gofast.mlops.metadata import TrainTestSplitter
-        >>> X_train, X_test, y_train, y_test = TrainTestSplitter(
-            ).time_series_split(X, y, test_size=50)
+        >>> splitter = TrainTestSplitter(verbose=True)
+        >>> X_train, X_test, y_train, y_test = splitter.time_series_split(
+        ...     X, y, test_size=50
+        ... )
         >>> print(len(X_test))
         50
+    
+        Notes
+        -----
+        - If ``test_size`` exceeds the length of a particular array,
+          that array's training set becomes empty or nearly empty,
+          which might not be desirable.
+        - For fractional splits, we compute the test size as 
+          ``ceil(min_len * fraction)``, where ``min_len`` is the 
+          length of the smallest array in ``<arrays>``.
+    
         """
-        # Determine split index based on test_size
-        split_index = -test_size
+        # If test_size is a fraction, convert it to an integer count
+        if isinstance(test_size, float) and 0 < test_size < 1:
+            # Find the minimum length among the arrays
+            min_len = min(len(arr) for arr in arrays)
+            # Convert fraction to integer, rounding up
+            test_size = int(np.ceil(min_len * test_size))
+    
+        # If test_size <= 0, entire data goes to training
+        if test_size <= 0:
+            if self.verbose:
+                print("Test size <= 0, no test split performed.")
+            # Return all training, empty test
+            results = []
+            for arr in arrays:
+                results.extend([arr, arr[0:0]])  # second slice is empty
+            return tuple(results)
+    
         results = []
-        for array in arrays:
-            # Slice array: training set is all elements except the last test_size
-            # and test set is the last test_size elements.
-            train = array[:split_index]
-            test  = array[split_index:]
-            results.extend([train, test])
+        for arr in arrays:
+            # If test_size is larger than the array length,
+            # the training set might be empty or negative slice
+            if test_size >= len(arr):
+                if self.verbose:
+                    print("Warning: test_size >= array length."
+                          f" Entire array used as test for shape {arr.shape}.")
+                # Training is empty, test is the entire array
+                train_slice = arr[0:0]  # empty
+                test_slice  = arr
+            else:
+                split_index = -test_size
+                train_slice = arr[:split_index]
+                test_slice  = arr[split_index:]
+            results.extend([train_slice, test_slice])
+    
         if self.verbose:
             print("Time series split completed; test set size:", test_size)
-        return tuple(results)
     
+        return tuple(results)
+
 
 @EnsureMethod(error='ignore', mode='soft')
 class CrossValidator(BaseClass):

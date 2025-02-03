@@ -232,7 +232,6 @@ class ModelPerformanceMonitor(BaseClass):
         window_size: int = 100,
         verbose: int = 0
     ):
- 
         super().__init__(verbose=verbose)
 
         self.metrics = columns_manager(metrics)

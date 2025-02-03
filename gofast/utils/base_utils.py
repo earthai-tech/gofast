@@ -456,7 +456,7 @@ def detect_categorical_columns(
         data = fill_NaN(data, method='both')
 
     #Check if datetime columns exist in the data.
-    has_dt_cols = check_datetime(data)
+    has_dt_cols = check_datetime(data, error='ignore')
     if has_dt_cols: 
         if consider_dt_as is None: 
             # If no explicit instruction is provided 

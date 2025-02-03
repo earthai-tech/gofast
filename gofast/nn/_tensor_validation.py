@@ -483,7 +483,7 @@ def validate_xtft_inputs(
         static_input = tf.cast(static_input, tf.float32)
     
     # Check static_input dimensions
-    if static_input.ndim != 2:
+    if len(static_input.shape) != 2:
         raise ValueError(
             f"``static_input`` must be a 2D tensor with shape "
             f"(batch_size, static_input_dim), but got {static_input.ndim}D tensor."
@@ -519,7 +519,7 @@ def validate_xtft_inputs(
         dynamic_input = tf.cast(dynamic_input, tf.float32)
     
     # Check dynamic_input dimensions
-    if dynamic_input.ndim != 3:
+    if len(dynamic_input.shape) != 3:
         raise ValueError(
             f"``dynamic_input`` must be a 3D tensor with shape "
             f"(batch_size, time_steps, dynamic_input_dim), but got "
