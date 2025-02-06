@@ -687,9 +687,8 @@ class XTFT(Model, NNLearner):
         use_residuals: bool = True,
         use_batch_norm: bool = False,
         final_agg: str = 'last',
-        **kwargs
     ):
-        super().__init__(**kwargs)
+        super().__init__()
 
         # Initialize Logger
         self.logger = gofastlog().get_gofast_logger(__name__)
@@ -1511,7 +1510,6 @@ class SuperXTFT(XTFT):
         use_residuals: bool = True,
         use_batch_norm: bool = False,
         final_agg: str = 'last',
-        **kwargs
     ):
         super().__init__(
             static_input_dim=static_input_dim,
@@ -1535,7 +1533,6 @@ class SuperXTFT(XTFT):
             use_residuals=use_residuals,
             use_batch_norm=use_batch_norm,
             final_agg=final_agg,
-            **kwargs
         )
         
         self.logger = gofastlog().get_gofast_logger(__name__)
