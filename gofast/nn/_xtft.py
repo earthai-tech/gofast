@@ -824,7 +824,7 @@ class XTFT(Model, NNLearner):
         
 
     def call(self, inputs, training=False):
-        dynamic_input, future_input, static_input = validate_xtft_inputs (
+        static_input , dynamic_input, future_input = validate_xtft_inputs (
             inputs =inputs,
             static_input_dim=self.static_input_dim, 
             dynamic_input_dim= self.dynamic_input_dim, 

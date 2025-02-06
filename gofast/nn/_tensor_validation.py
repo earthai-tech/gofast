@@ -466,7 +466,7 @@ def validate_xtft_inputs(
         )
     
     # Unpack inputs
-    dynamic_input, future_covariate_input, static_input = inputs
+    static_input, dynamic_input, future_covariate_input = inputs
 
     # Step 2: Validate static_input
     if static_input is None:
