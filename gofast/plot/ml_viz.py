@@ -17,7 +17,6 @@ import numpy as np
 import pandas as pd 
 import seaborn as sns 
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
 import matplotlib.transforms as transforms 
 from matplotlib.collections import EllipseCollection
@@ -55,7 +54,7 @@ from ..utils.mathext import get_preds, minmax_scaler
 from ..utils.validator import _is_cross_validated, validate_yy, validate_keras_model
 from ..utils.validator import assert_xy_in, get_estimator_name, check_is_fitted
 from ..utils.validator import check_consistent_length, contains_nested_objects 
-from ..utils.validator import validate_length_range  
+from ..utils.validator import validate_length_range, build_data_if 
 from ._config import PlotConfig 
 from ._d_cms import TDG_DIRECTIONS 
 from .utils import _set_sns_style, _make_axe_multiple
@@ -2280,6 +2279,11 @@ def plot_roc_curves(
         
     return ax 
 
+@default_params_plot(
+    savefig =PlotConfig.AUTOSAVE('my_shap_summary_plot.png'),
+    dpi=300, 
+    fig_size=(10, 5)
+)
 @ensure_pkg (
     "shap",
     extra = ( "The 'shap' package is required for plotting SHAP"
@@ -2288,132 +2292,346 @@ def plot_roc_curves(
     use_conda=PlotConfig.use_conda 
    )
 def plot_shap_summary(
-    model: Any, 
-    X: Union[ArrayLike, pd.DataFrame], 
-    feature_names: Optional[List[str]] = None, 
-    plot_type: str = 'dot', 
-    color_bar_label: str = 'Feature value', 
-    max_display: int = 10, 
-    show: bool = True, 
-    plot_size: Tuple[int, int] = (15, 10), 
-    cmap: str = 'coolwarm'
-) -> Optional[Figure]:
-    """
-    Generate a SHAP (SHapley Additive exPlanations) summary plot for a 
-    given model and dataset.
+    X=None,                   
+    shap_values=None,         
+    model=None,               
+    columns: Optional[list] = None,  
+    plot_type: str = 'dot',
+    max_display: int = None,
+    cbar: bool = True,
+    # show: bool = False,
+    title=None,
+    alpha=1,
+    sort=True,
+    plot_size="auto",
+    layered_violin_max_num_bins=20,
+    class_names=None,
+    class_inds=None,
+    show_values_in_legend=False,
+    use_log_scale=False,
+    fig_size=None, 
+    show_grid=True, 
+    grid_props=None, 
+    **shap_kw
+):
+    r"""
+    Plots a SHAP summary visualization of feature contributions
+    for a given dataset and model.
+
+    This function is typically used to illustrate how each feature
+    contributes to the prediction of the model by means of SHAP
+    (SHapley Additive exPlanations) values [1]_.
+    SHAP values are based on a cooperative game theory principle
+    that aims to provide explanations for individual predictions.
+    
+    .. math::
+        
+        \phi_i = \sum_{S \subseteq N \setminus \{ i \}}
+        \frac{|S|!(|N|-|S|-1)!}{|N|!}
+        \bigl[f(S \cup \{ i \}) - f(S)\bigr]
+        
+    where :math:`N` is the set of all features, and
+    :math:`f(\cdot)` is the model output for those features.
+    The term :math:`\phi_i` is the SHAP value for feature
+    :math:`i`, representing how much that feature contributes
+    to the difference in the model's prediction compared to
+    a baseline.
 
     Parameters
     ----------
-    model : `Any`
-        A trained model object that is compatible with SHAP explainer.
+    X : {numpy.ndarray, pandas.DataFrame}, optional
+        Feature matrix used to compute or display SHAP values.
+        If a DataFrame is provided, its column names are used.
+        If ``columns`` is also provided, then only the specified
+        columns are used. If a NumPy array is provided, a DataFrame
+        is built internally for consistency.
 
-    X : `Union[ArrayLike, pd.DataFrame]`
-        Input data for which the SHAP values are to be computed. If a 
-        DataFrame is provided, the feature names are taken from the DataFrame 
-        columns.
+    shap_values : {numpy.ndarray, list of numpy.ndarray,
+                   shap.Explanation}, optional
+        Precomputed SHAP values. For a single-output model, this
+        should be a 2D array with shape 
+        (n_samples, n_features). For multi-class or multi-output
+        models, a list of arrays can be provided. If
+        ``shap_values`` is not given, the function will attempt
+        to compute SHAP values from the provided ``model``.
+    
+    model : object, optional
+        Any trained model that is compatible with the SHAP
+        library's Explainer interface. Required if 
+        ``shap_values`` is not provided. The explainer 
+        will internally compute the SHAP values for the
+        data in ``X``.
 
-    feature_names : `Optional[List[str]]`, optional
-        List of feature names if `X` is an array-like object without feature 
-        names.
+    columns : list, optional
+        A list of strings to specify column names of features.
+        This overrides the default columns from the DataFrame.
+        Only relevant if ``X`` is given.
 
-    plot_type : `str`, optional
-        Type of the plot. Either 'dot' or 'bar'. The default is 'dot'.
+    plot_type : {'dot', 'violin', 'bar', 'compact_dot'}, \
+                default='dot'
+        The type of summary plot to display. For single-output
+        models, typical options include ``'dot'``, ``'violin'``,
+        or ``'bar'``. For SHAP interaction values, consider 
+        ``'compact_dot'``.
 
-    color_bar_label : `str`, optional
-        Label for the color bar. The default is 'Feature value'.
+    max_display : int, optional
+        The maximum number of features to display. If None, 
+        all features are shown.
 
-    max_display : `int`, optional
-        Maximum number of features to display on the summary plot. 
-        The default is 10.
+    cbar : bool, default=True
+        Whether to display a color bar indicating the feature
+        value range on the plot.
 
-    show : `bool`, optional
-        Whether to show the plot. The default is `True`. If `False`, 
-        the function returns the figure object.
+    show : bool, default=True
+        Whether to immediately display the plot.
 
-    plot_size : `Tuple[int, int]`, optional
-        Size of the plot specified as (width, height). The default is (15, 10).
+    title : str, optional
+        Custom title for the plot. If not provided, the SHAP 
+        default or no title is used.
 
-    cmap : `str`, optional
-        Colormap to use for plotting. The default is 'coolwarm'.
+    alpha : float, default=1
+        The alpha blending value, between 0 (transparent) 
+        and 1 (opaque).
 
-    Returns
-    -------
-    `Optional[Figure]`
-        The figure object if `show` is `False`, otherwise `None`.
+    sort : bool, default=True
+        If True, the features are sorted by their mean absolute
+        SHAP value in descending order. If False, the original 
+        feature order is used.
 
-    Examples
-    --------
-    >>> from sklearn.ensemble import RandomForestClassifier
-    >>> from gofast.datasets import make_classification
-    >>> from gofast.plot.mlviz import plot_shap_summary
-    >>> X, y = make_classification(n_features=5, random_state=42, return_X_y=True)
-    >>> model = RandomForestClassifier().fit(X, y)
-    >>> plot_shap_summary(model, X, feature_names=['f1', 'f2', 'f3', 'f4', 'f5'])
+    plot_size : {float, tuple(float, float), 'auto', None}, \
+                default='auto'
+        The overall size of the summary plot. If ``'auto'``, 
+        the size is automatically scaled based on the number 
+        of features. Passing a single float sets each row 
+        height in inches. Passing a tuple of floats scales 
+        the plot to those dimensions. If None, the size of 
+        the current figure is left unchanged.
+
+    layered_violin_max_num_bins : int, default=20
+        Maximum number of bins used in the layered violin
+        plot. This parameter only applies when 
+        ``plot_type='violin'`` and the layered style is used.
+
+    class_names : list, optional
+        Names for the output classes in a multi-output or 
+        multi-class setting. If not provided, default labels
+        are used.
+
+    class_inds : list, optional
+        Indices of the classes to plot when dealing with
+        multi-class or multi-output SHAP values. If not
+        provided, default behavior applies (first output 
+        is used).
+
+    show_values_in_legend : bool, default=False
+        If True, displays mean SHAP values in the legend 
+        when using a multi-output bar plot.
+
+    use_log_scale : bool, default=False
+        If True, the feature values on the summary plot are 
+        displayed in log scale.
+        
+    figsize : tuple of int, optional
+        Figure dimension in inches (width, height), 
+        default is ``(10, 5)``.
+        
+    show_grid : bool, optional
+        Whether to show a the grid on the summary plot.
+        The default is ``True``.
+        
+    grid_props : dict, optional
+        Dictionary containing grid properties (
+            e.g., `{"linestyle": ':', "alpha": 0.7}`).
+        If not provided, a default style will be applied.
+        
+    **shap_kw : dict, optional
+        Additional keyword arguments passed directly to 
+        ``shap.summary_plot`` for further customization.
 
     Notes
     -----
-    SHAP (SHapley Additive exPlanations) values are a method to explain 
-    individual predictions by computing the contribution of each feature 
-    to the prediction. SHAP values are based on cooperative game theory 
-    and provide a unified measure of feature importance.
+    - For multi-class models (when a list of SHAP arrays is
+      passed), only the first array is used for plotting by 
+      default. Users should plot each output separately if 
+      needed.
+    - If no ``shap_values`` are provided, the model must 
+      support the SHAP Explainer interface so that the 
+      values can be computed internally.
+    - Sorting features by mean absolute SHAP value helps in
+      identifying the most influential features contributing
+      to the model's prediction.
 
-    The SHAP summary plot provides a global view of the feature importance 
-    and the distribution of the impacts of the features on the model output. 
-    It combines feature importance with feature effects. Each point on the 
-    summary plot is a Shapley value for a feature and an instance. The color 
-    represents the value of the feature from low to high.
+    Raises
+    ------
+    ValueError
+        If ``X`` is None or if neither ``shap_values`` nor 
+        ``model`` is provided. An error is also raised if 
+        an empty list of SHAP arrays is given.
 
-    The SHAP values for a feature :math:`i` are computed as:
+    Examples
+    --------
+    >>> from gofast.plot.ml_viz import plot_shap_summary
+    >>> from gofast.datasets import make_classification
+    >>> import numpy as np
+    >>> import shap
 
-    .. math::
-        \phi_i = \sum_{S \subseteq N \setminus \{i\}} \frac{|S|! (|N| - |S| - 1)!}{|N|!} 
-        [f(S \cup \{i\}) - f(S)]
-
-    where :math:`N` is the set of all features, :math:`S` is a subset of 
-    features, and :math:`f(S)` is the model prediction for features in :math:`S`.
+    >>> X_data, y = make_classification(
+    ... n_features=5, random_state=42, return_X_y=True)
+    >>> model = RandomForestClassifier().fit(X_data, y) # Any fitted model
+    >>> plot_shap_summary(X_data, model=model, plot_type='violin')
+ 
+    >>> 
+    >>> # Directly compute SHAP values by providing a model:
+    >>> plot_shap_summary(X=X_data, model=model, plot_type='dot')
+    >>> 
+    >>> # Or if SHAP values are precomputed:
+    >>> # shap_vals = shap.Explainer(model, X_data)(X_data)
+    >>> # plot_shap_summary(X=X_data, shap_values=shap_vals)
+    >>> 
+    >>> # For multi-class:
+    >>> # shap_vals_list = [array_class0, array_class1, ...]
+    >>> # plot_shap_summary(X=X_data, shap_values=shap_vals_list)
 
     See Also
     --------
-    shap.Explainer : SHAP explainer for different model types.
-
+    shap.summary_plot : The underlying function from the 
+        SHAP library used to generate the summary.
+    
     References
     ----------
-    .. [1] Lundberg, S. M., & Lee, S.-I. (2017). "A Unified Approach to  
-           Interpreting Model Predictions". Advances in Neural Information 
-           Processing Systems 30 (NIPS 2017).
-    """
+    .. [1] S. M. Lundberg and S.-I. Lee, "A Unified Approach 
+           to Interpreting Model Predictions," in *Advances 
+           in Neural Information Processing Systems*, 2017.
+    """  # noqa: E501
+
+
     import shap
 
-    # Compute SHAP values
-    explainer = shap.Explainer(model, X)
-    shap_values = explainer(X)
+    # Ensure that feature data is provided.
+    if X is None:
+        raise ValueError(
+            "The 'X' parameter (features) must be provided."
+        )
 
-    # Create a summary plot
-    plt.figure(figsize=plot_size)
-    shap.summary_plot(
-        shap_values, X, 
-        feature_names=feature_names, 
-        plot_type=plot_type,
-        color_bar_label=color_bar_label, 
-        max_display=max_display, 
-        show=False
+    # Convert X to DataFrame with possible column subsetting.
+    X = build_data_if(
+        X,
+        columns=columns,
+        to_frame=True,
+        col_prefix='feature_',
+        force=True,
+        input_name='Feature'
     )
 
-    # Customize color bar label
-    color_bar = plt.gcf().get_axes()[-1]
-    color_bar.set_title(color_bar_label)
+    # If no SHAP values, compute them using model's explainer.
+    if shap_values is None:
+        if model is None:
+            raise ValueError(
+                "Either 'shap_values' or 'model' must be "
+                "provided to generate the SHAP summary plot."
+            )
+        explainer = shap.Explainer(model, X)
+        shap_values = explainer(X)
 
-    # Set colormap if specified
-    if cmap:
-        plt.set_cmap(cmap)
+    # If a list of SHAP arrays is given (multi-class),
+    # use the first array for plotting and warn the user.
+    if isinstance(shap_values, list):
+        if len(shap_values) == 0:
+            raise ValueError(
+                "An empty list was provided for 'shap_values'."
+            )
+        warnings.warn(
+            "A list of SHAP arrays was provided. Using the "
+            "first array for plotting. For multi-output, "
+            "please plot each output separately."
+        )
+        shap_values = shap_values[0]
 
-    # Show or return the figure
-    if show:
-        plt.show()
+    # Extract feature names if available.
+    if isinstance(X, pd.DataFrame):
+        feature_names = np.array(X.columns.tolist())
+        data_arr = X.values
     else:
-        return plt.gcf()
+        data_arr = np.array(X)
+        feature_names = (
+            np.array(columns)
+            if columns is not None else None
+        )
+
+    n_features = data_arr.shape[1]
+    if max_display is None or max_display > n_features:
+        max_display = n_features
+
+    # Convert shap_values to NumPy array if needed.
+    if isinstance(shap_values, np.ndarray):
+        shap_array = shap_values
+    elif hasattr(shap_values, 'values'):
+        shap_array = shap_values.values
+    else:
+        shap_array = np.array(shap_values)
+
+    # Sort features by mean absolute SHAP value if requested.
+    if sort and shap_array.ndim == 2:
+        mean_abs = np.mean(np.abs(shap_array), axis=0)
+        sorted_idx = np.argsort(mean_abs)[::-1]
+        top_idx = sorted_idx[:max_display]
+        shap_sorted = shap_array[:, top_idx]
+        data_sorted = data_arr[:, top_idx]
+        feature_names_sorted = (
+            feature_names[top_idx]
+            if feature_names is not None else None
+        )
+    else:
+        shap_sorted = shap_array
+        data_sorted = data_arr
+        feature_names_sorted = feature_names
+
+    # Create custom figure
+    fig, ax = plt.subplots(figsize=fig_size)  # Custom figure size
+    # Generate SHAP summary plot with the specified options.
+    shap.summary_plot(
+        shap_values=shap_sorted,
+        features=data_sorted,
+        plot_type=plot_type,
+        max_display=max_display,
+        color_bar=cbar,
+        feature_names=feature_names_sorted,
+        show=False,
+        title=title,
+        alpha=alpha,
+        sort=sort,
+        plot_size=plot_size,
+        layered_violin_max_num_bins=layered_violin_max_num_bins,
+        class_names=class_names,
+        class_inds=class_inds,
+        show_values_in_legend=show_values_in_legend,
+        use_log_scale=use_log_scale,
+        **shap_kw
+    )
+    # Apply additional customizations
+    plt.title(title, fontsize=14, fontweight="bold")
+
+    # Show or hide grid
+    if show_grid:
+        default_props = {"linestyle": ':', "alpha": 0.7}
+        if grid_props is None:
+            grid_props = default_props
+        elif not isinstance(grid_props, dict):
+            warnings.warn(
+                "Invalid `grid_props` type. Expected dict, "
+                "got {type(grid_props).__name__!r}."
+                " Falling back to default grid style."
+                )
+            grid_props = default_props
+            
+        plt.grid(True, **grid_props)
+    else:
+        plt.grid(False)
     
-@ensure_pkg ( "yellowbrick", extra = (
+    plt.show()
+    
+@ensure_pkg ( 
+    "yellowbrick", extra = (
     "The 'yellowbrick' package is required to plot the confusion matrix. "
     "You can use the alternative function `~.plot_confusion_matrix` "
     "or install 'yellowbrick' manually if automatic installation is not enabled."
@@ -2421,7 +2639,6 @@ def plot_shap_summary(
     auto_install=PlotConfig.install_dependencies ,
     use_conda=PlotConfig.use_conda 
    )
-
 def plot_confusion_matrix_in(
     clf: Any, 
     Xt: Union[np.ndarray, DataFrame], 

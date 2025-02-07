@@ -2730,6 +2730,7 @@ def plot_spatial_features(
     else:
         ncols = 1
 
+    features = columns_manager(features, empty_as_none =False)
     nrows = len(features)
  
     colormaps = columns_manager(colormaps) 

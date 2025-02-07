@@ -1593,7 +1593,7 @@ class SuperXTFT(XTFT):
         # Initialize Gate -> Add & Norm -> GRN pipeline for decoder outputs
         self.grn_decoder = GatedResidualNetwork(
             units=output_dim,
-            dropout_rate=dropout_rate,
+            dropout_rate=dropout_rate, 
             use_time_distributed=False,
             activation=activation,
             use_batch_norm=use_batch_norm
