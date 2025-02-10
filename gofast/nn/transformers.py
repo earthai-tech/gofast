@@ -22,7 +22,7 @@ perform predictions. Users can copy these examples outside of
 this script for testing.
 
 Example with XTFT
--------------------
+-----------------
 Assume:
 - ``static_input_dim = 10`` (static features dimension)
 - ``dynamic_input_dim = 45`` (dynamic features dimension)
@@ -86,7 +86,7 @@ For illustration, we create synthetic data:
 # shape: (batch_size, forecast_horizons, num_quantiles, output_dim)
 
 Example with TemporalFusionTransformer
-----------------------------------------
+--------------------------------------
 Assume:
 - ``static_input_dim = 10``
 - ``dynamic_input_dim = 45``

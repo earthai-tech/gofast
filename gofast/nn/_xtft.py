@@ -12,7 +12,7 @@ from typing import List, Optional, Union, Dict, Any
 from .._gofastlog import gofastlog
 from ..api.docs import doc 
 from ..api.property import NNLearner 
-from ..core.checks import validate_nested_param, ParamsValidator 
+from ..core.checks import ParamsValidator 
 from ..compat.sklearn import validate_params, Interval, StrOptions 
 from ..utils.deps_utils import ensure_pkg
 from ..decorators import Appender , Deprecated
@@ -34,7 +34,6 @@ if KERAS_BACKEND:
     Concatenate=KERAS_DEPS.Concatenate 
     Tensor=KERAS_DEPS.Tensor
     register_keras_serializable=KERAS_DEPS.register_keras_serializable
-    
     tf_reduce_sum = KERAS_DEPS.reduce_sum
     tf_stack = KERAS_DEPS.stack
     tf_expand_dims = KERAS_DEPS.expand_dims
@@ -53,567 +52,36 @@ if KERAS_BACKEND:
     tf_autograph=KERAS_DEPS.autograph
     
     from . import Activation 
-    from ._tensor_validation import validate_anomaly_scores, validate_xtft_inputs 
-    from ._tft import VariableSelectionNetwork, GatedResidualNetwork
+    from ._tensor_validation import validate_anomaly_scores 
+    from ._tensor_validation import validate_xtft_inputs 
+    
     from .losses import combined_quantile_loss
     from .utils import set_default_params, set_anomaly_config 
-    
-
-DEP_MSG = dependency_message('tft.xtft') 
-
-# -------------------- XTFT components ----------------------------------------
-
-@register_keras_serializable('Gofast')
-class LearnedNormalization(Layer, NNLearner):
-    """
-    A layer that learns mean and std for normalization of inputs.  
-    Input: (B, D)  
-    Output: (B, D), normalized
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(self):
-        super().__init__()
-
-    def build(self, input_shape):
-        self.mean = self.add_weight(
-            "mean",
-            shape=(input_shape[-1],),
-            initializer="zeros",
-            trainable=True
-        )
-        self.stddev = self.add_weight(
-            "stddev",
-            shape=(input_shape[-1],),
-            initializer="ones",
-            trainable=True
-        )
-    @tf_autograph.experimental.do_not_convert
-    def call(self, inputs, training=False):
-        return (inputs - self.mean) / (self.stddev + 1e-6)
-
-    def get_config(self):
-        config = super().get_config().copy()
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-@register_keras_serializable('Gofast')
-class MultiModalEmbedding(Layer, NNLearner):
-    """
-    This layer takes multiple input modalities (e.g., dynamic and future covariates), 
-    embeds them into a common space, and concatenates them along the feature dimension.
-
-    Input: list of [ (B, T, D_mod1), (B, T, D_mod2), ... ]  
-    Output: (B, T, sum_of_embed_dims)
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(self, embed_dim: int):
-        super().__init__()
-        self.embed_dim = embed_dim
-        self.dense_layers = []
-
-    def build(self, input_shape):
-        for modality_shape in input_shape:
-            if modality_shape is not None:
-                self.dense_layers.append(
-                    Dense(self.embed_dim, activation='relu'))
-            else:
-                raise ValueError("Unsupported modality type.")
-                
-    @tf_autograph.experimental.do_not_convert
-    def call(self, inputs, training=False):
-        embeddings = []
-        for idx, modality in enumerate(inputs):
-            if isinstance(modality, Tensor):
-                modality_embed = self.dense_layers[idx](modality)
-            else:
-                raise ValueError("Unsupported modality type.")
-            embeddings.append(modality_embed)
-        return tf_concat(embeddings, axis=-1)
-
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({'embed_dim': self.embed_dim})
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-    
-@register_keras_serializable('Gofast')
-class HierarchicalAttention(Layer, NNLearner):
-    """
-    Hierarchical attention layer that first processes short-term and long-term 
-    sequences separately and then combines their attention outputs.
-
-    Input: short_term (B, T, D), long_term (B, T, D)  
-    Output: (B, T, U) where U is attention_units
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(self, units: int, num_heads: int):
-        super().__init__()
-        self.units = units
-        self.short_term_dense = Dense(units)
-        self.long_term_dense = Dense(units)
-        self.short_term_attention = MultiHeadAttention(
-            num_heads=num_heads, key_dim=units)
-        self.long_term_attention = MultiHeadAttention(
-            num_heads=num_heads, key_dim=units)
-
-    @tf_autograph.experimental.do_not_convert
-    def call(self, inputs, training=False):
-        short_term, long_term = inputs
-        short_term = self.short_term_dense(short_term)
-        long_term = self.long_term_dense(long_term)
-        short_term_attention = self.short_term_attention(short_term, short_term)
-        long_term_attention = self.long_term_attention(long_term, long_term)
-        return short_term_attention + long_term_attention
-
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({
-            'units': self.units,
-            'short_term_dense': self.short_term_dense.get_config(),
-            'long_term_dense': self.long_term_dense.get_config()
-        })
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-@register_keras_serializable('Gofast')
-class CrossAttention(Layer, NNLearner):
-    """
-    Cross attention layer that attends one source to another.
-
-    Input: source1 (B, T, D), source2 (B, T, D)  
-    Output: (B, T, U)
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(self, units: int, num_heads: int):
-        super().__init__()
-        self.units = units
-        self.source1_dense = Dense(units)
-        self.source2_dense = Dense(units)
-        self.cross_attention = MultiHeadAttention(num_heads=num_heads, key_dim=units)
-
-    @tf_autograph.experimental.do_not_convert
-    def call(self, inputs, training=False):
-        source1, source2 = inputs
-        source1 = self.source1_dense(source1)
-        source2 = self.source2_dense(source2)
-        return self.cross_attention(query=source1, value=source2, key=source2)
-
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({'units': self.units})
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-
-@register_keras_serializable('Gofast')
-class MemoryAugmentedAttention(Layer, NNLearner):
-    """
-    Memory-augmented attention layer that uses a learned memory matrix to enhance 
-    temporal representation.
-
-    Input: (B, T, D)  
-    Output: (B, T, D)
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(self, units: int, memory_size: int, num_heads: int):
-        super().__init__()
-        self.units = units
-        self.memory_size = memory_size
-        self.attention = MultiHeadAttention(num_heads=num_heads, key_dim=units)
-
-    def build(self, input_shape):
-        self.memory = self.add_weight(
-            "memory",
-            shape=(self.memory_size, self.units),
-            initializer="zeros",
-            trainable=True
+    from .components import ( 
+            AdaptiveQuantileLoss,
+            AnomalyLoss,
+            CrossAttention,
+            DynamicTimeWindow,
+           # ExplainableAttention,
+            GatedResidualNetwork,
+            HierarchicalAttention,
+            LearnedNormalization,
+            MemoryAugmentedAttention,
+            MultiDecoder,
+            MultiModalEmbedding,
+            MultiObjectiveLoss,
+            MultiResolutionAttentionFusion,
+            MultiScaleLSTM,
+            #PositionalEncoding,
+            QuantileDistributionModeling,
+            # StaticEnrichmentLayer,
+            # TemporalAttentionLayer,
+            VariableSelectionNetwork,
         )
     
-    @tf_autograph.experimental.do_not_convert
-    def call(self, inputs, training=False):
-        batch_size = tf_shape(inputs)[0]
-        memory_expanded = tf_tile(tf_expand_dims(
-            self.memory, axis=0), [batch_size, 1, 1])
-        memory_attended = self.attention(
-            query=inputs, value=memory_expanded, key=memory_expanded)
-        return memory_attended + inputs
 
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({
-            'units': self.units,
-            'memory_size': self.memory_size
-        })
-        return config
+DEP_MSG = dependency_message('transformers._xtft') 
 
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-@register_keras_serializable('Gofast')
-class AdaptiveQuantileLoss(Layer, NNLearner):
-    """
-    Computes adaptive quantile loss for given quantiles.
-
-    Input: y_true (B, H, O), y_pred (B, H, Q, O) if quantiles are not None
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(self, quantiles: Optional[List[float]]):
-        super().__init__()
-        if quantiles == 'auto':
-            quantiles = [0.1, 0.5, 0.9]
-        self.quantiles = quantiles
-
-    @tf_autograph.experimental.do_not_convert
-    def call(self, y_true, y_pred, training=False):
-        if self.quantiles is None:
-            return 0.0
-        y_true_expanded = tf_expand_dims(y_true, axis=2)  # (B, H, 1, O)
-        error = y_true_expanded - y_pred  # (B, H, Q, O)
-        quantiles = tf_constant(self.quantiles, dtype=tf_float32)
-        quantiles = tf_reshape(quantiles, [1, 1, len(self.quantiles), 1])
-        quantile_loss = tf_maximum(quantiles * error, (quantiles - 1) * error)
-        return tf_reduce_mean(quantile_loss)
-
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({'quantiles': self.quantiles})
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-@register_keras_serializable('Gofast')
-class AnomalyLoss(Layer, NNLearner):
-    """
-    Computes anomaly loss as mean squared anomaly score.
-
-    Input: anomaly_scores (B, H, D)
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(self, weight: float = 1.0):
-        super().__init__()
-        self.weight = weight
-
-    
-    def call(self, anomaly_scores: Tensor):
-        return self.weight * tf_reduce_mean(tf_square(anomaly_scores))
-
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({'weight': self.weight})
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-@register_keras_serializable('Gofast')
-class MultiObjectiveLoss(Layer, NNLearner):
-    """
-    Combines quantile loss and anomaly loss into a single objective.
-
-    Input: 
-        y_true: (B, H, O)
-        y_pred: (B, H, Q, O) if quantiles is not None else (B, H, 1, O)
-        anomaly_scores: (B, H, D)
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(self, quantile_loss_fn: Layer, anomaly_loss_fn: Layer):
-        super().__init__()
-        self.quantile_loss_fn = quantile_loss_fn
-        self.anomaly_loss_fn = anomaly_loss_fn
-
-    def call(self, y_true, y_pred, anomaly_scores=None, training=False):
-        # XXX :MARK: anomaly_scores henceforth can take None 
-        quantile_loss = self.quantile_loss_fn(y_true, y_pred)
-        if anomaly_scores is not None:
-            anomaly_loss = self.anomaly_loss_fn(anomaly_scores)
-            return quantile_loss + anomaly_loss
-        
-        return quantile_loss # retuns quantile loss only
-
-    def get_config(self):
-        config = super().get_config().copy()
-        # Note: we don't store fn directly. It's recommended to store references 
-        #       and reconstruct them or ensure they are serializable.
-        # Here we assume they are Keras layers and implement get_config().
-        config.update({
-            'quantile_loss_fn': self.quantile_loss_fn.get_config(),
-            'anomaly_loss_fn': self.anomaly_loss_fn.get_config()
-        })
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        # Manually reconstruct layers if needed
-        quantile_loss_fn = AdaptiveQuantileLoss.from_config(
-            config['quantile_loss_fn'])
-        anomaly_loss_fn = AnomalyLoss.from_config(
-            config['anomaly_loss_fn'])
-        return cls(
-            quantile_loss_fn=quantile_loss_fn, anomaly_loss_fn=anomaly_loss_fn)
-
-
-@register_keras_serializable('Gofast')
-class ExplainableAttention(Layer, NNLearner):
-    """
-    Returns attention scores from multi-head attention, useful for 
-    interpretation.
-
-    Input: (B, T, D)
-    Output: attention_scores (B, num_heads, T, T)
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(self, num_heads: int, key_dim: int):
-        super().__init__()
-        self.num_heads = num_heads
-        self.key_dim = key_dim
-        self.attention = MultiHeadAttention(num_heads=num_heads, key_dim=key_dim)
-
-    @tf_autograph.experimental.do_not_convert
-    def call(self, inputs, training=False):
-        _, attention_scores = self.attention(
-            inputs, inputs, return_attention_scores=True)
-        return attention_scores
-
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({
-            'num_heads': self.num_heads,
-            'key_dim': self.key_dim
-        })
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-@register_keras_serializable('Gofast')
-class MultiDecoder(Layer, NNLearner):
-    """
-    Multi-horizon decoder:
-    Takes a single feature vector per example (B, F) and produces a prediction 
-    for each horizon as (B, H, O).
-
-    Input: (B, F)
-    Output: (B, H, O)
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(self, output_dim: int, num_horizons: int):
-        super().__init__()
-        self.output_dim = output_dim
-        self.num_horizons = num_horizons
-        self.decoders = [Dense(output_dim) for _ in range(num_horizons)]
-
-    @tf_autograph.experimental.do_not_convert
-    def call(self, x, training=False):
-        outputs = [decoder(x) for decoder in self.decoders]
-        return tf_stack(outputs, axis=1)
-
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({
-            'output_dim': self.output_dim,
-            'num_horizons': self.num_horizons
-        })
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-@register_keras_serializable('Gofast')
-class MultiResolutionAttentionFusion(Layer, NNLearner):
-    """
-    Applies multi-head attention fusion over features.
-    
-    Input: (B, T, D)
-    Output: (B, T, D)
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(self, units: int, num_heads: int):
-        super().__init__()
-        self.units = units
-        self.num_heads = num_heads
-        self.attention = MultiHeadAttention(num_heads=num_heads, key_dim=units)
-
-    @tf_autograph.experimental.do_not_convert
-    def call(self, inputs, training=False):
-        return self.attention(inputs, inputs)
-
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({
-            'units': self.units,
-            'num_heads': self.num_heads
-        })
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-@register_keras_serializable('Gofast')
-class DynamicTimeWindow(Layer, NNLearner):
-    """
-    Slices the last max_window_size steps from the input sequence.
-
-    Input: (B, T, D)
-    Output: (B, W, D) where W = max_window_size
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(self, max_window_size: int):
-        super().__init__()
-        self.max_window_size = max_window_size
-
-    def call(self, inputs, training=False):
-        return inputs[:, -self.max_window_size:, :]
-
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({'max_window_size': self.max_window_size})
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-@register_keras_serializable('Gofast')
-class QuantileDistributionModeling(Layer, NNLearner):
-    """
-    Projects deterministic outputs (B, H, O) into quantile predictions (B, H, Q, O),
-    or returns (B, H, O) if quantiles are None (no extra quantile dimension).
-
-    Input: (B, H, O)
-    Output:
-        - If quantiles is None: (B, H, O) #rather than  otherwise (B, H, 1, O)
-        - If quantiles is a list: (B, H, Q, O)
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(self, quantiles: Optional[Union[str, List[float]]], output_dim: int):
-        super().__init__()
-        if quantiles == 'auto':
-            quantiles = [0.1, 0.5, 0.9]
-        self.quantiles = quantiles
-        self.output_dim = output_dim
-
-        if self.quantiles is not None:
-            self.output_layers = [Dense(output_dim) for _ in self.quantiles]
-        else:
-            self.output_layer = Dense(output_dim)
-
-    @tf_autograph.experimental.do_not_convert
-    def call(self, inputs, training=False):
-        # If no quantiles, return deterministic predictions as (B, H, O)
-        if self.quantiles is None:
-            # Deterministic predictions: (B, H, 1, O)
-            # return tf.expand_dims(self.output_layer(inputs), axis=2)
-            return self.output_layer(inputs)
-
-        # Quantile predictions: (B, H, Q, O)
-        outputs = []
-        for output_layer in self.output_layers:
-            quantile_output = output_layer(inputs)  # (B, H, O)
-            outputs.append(quantile_output)
-        return tf_stack(outputs, axis=2)  # (B, H, Q, O)
-
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({
-            'quantiles': self.quantiles,
-            'output_dim': self.output_dim
-        })
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-@register_keras_serializable('Gofast')
-class MultiScaleLSTM(Layer, NNLearner):
-    """
-    Multi-scale LSTM layer that can output either the last hidden state
-    from each LSTM or full sequences. Behavior controlled by `return_sequences`.
-    
-    Multi-scale LSTM layer that applies multiple LSTMs at different scales 
-    and concatenates their outputs.
-
-    Input: (B, T, D)
-    Output: (B, T, sum_of_lstm_units) if return_sequences=True
-    """
-    @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-    def __init__(
-        self,
-        lstm_units: int,
-        scales: Union[str, List[int], None] = None,
-        return_sequences: bool = False,
-        **kwargs
-    ):
-        super().__init__(**kwargs)
-        if scales is None or scales == 'auto':
-            scales = [1]
-        scales = validate_nested_param(scales, List[int], 'scales')
-        
-        self.lstm_units = lstm_units
-        self.scales = scales
-        self.return_sequences = return_sequences
-
-        self.lstm_layers = [
-            LSTM(
-                lstm_units, return_sequences=return_sequences)
-            for _ in scales
-        ]
-
-    @tf_autograph.experimental.do_not_convert
-    def call(self, inputs, training=False):
-        outputs = []
-        for scale, lstm in zip(self.scales, self.lstm_layers):
-            scaled_input = inputs[:, ::scale, :]
-            lstm_output = lstm(scaled_input, training=training)
-            outputs.append(lstm_output)
-
-        # If return_sequences=False: each output is 
-        # (B, units) -> concat along features: (B, units*len(scales))
-        # If return_sequences=True: each output is (B, T', units), 
-        # need post-processing outside this layer.
-        if not self.return_sequences:
-            return tf_concat(outputs, axis=-1)
-        else:
-            # Return list of full sequences to be processed by XTFT (e.g., pooling)
-            # We can stack them along features for uniform shape: 
-            # If all scales yield sequences of different lengths, an aggregation
-            # strategy is needed outside.
-            # For simplicity, we return them as a list. XTFT will handle them.
-            return outputs
-
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({
-            'lstm_units': self.lstm_units,
-            'scales': self.scales,
-            'return_sequences': self.return_sequences
-        })
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-    
-# -----------------XTFT implementation ----------------------------------------
 
 @register_keras_serializable('Gofast')
 @doc (
@@ -666,9 +134,9 @@ class XTFT(Model, NNLearner):
     @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
         self,
+        static_input_dim: int,
         dynamic_input_dim: int,
         future_input_dim: int,
-        static_input_dim: int,
         embed_dim: int = 32,
         forecast_horizons: int = 1,
         quantiles: Union[str, List[float], None] = None,
@@ -1422,14 +890,14 @@ final_agg : str, optional
 
 Examples
 --------
->>> from gofast.nn.tft import XTFT
+>>> from gofast.nn._xtft import XTFT
 >>> import tensorflow as tf
 >>> model = XTFT(
 ...     static_input_dim=10,
 ...     dynamic_input_dim=45,
 ...     future_input_dim=5,
 ...     forecast_horizons=3,
-...     quantiles=None# [0.1, 0.5, 0.9],
+...     quantiles=None,# [0.1, 0.5, 0.9],
 ...     scales='auto',
 ...     final_agg='last'
 ... )
@@ -1614,8 +1082,9 @@ class SuperXTFT(XTFT):
         
         # Variable Selection for static, dynamic inputs and future covariate
         selected_static = self.variable_selection_static(static_input, training=training)
+        print("selected_static.shape=", selected_static.shape)
         selected_dynamic = self.variable_selection_dynamic(dynamic_input, training=training)
-        selected_future = self.variable_selection_future(future_input, training=training)
+        selected_future = self.variable_future_covariate(future_input, training=training)
         
         self.logger.debug(
             f"Selected Static Features Shape: {selected_static.shape}"
@@ -1633,11 +1102,13 @@ class SuperXTFT(XTFT):
             selected_static, 
             training=training
         )
+        print("normalized_static.shape=", normalized_static.shape)
         self.logger.debug(
             f"Normalized Static Shape: {normalized_static.shape}"
         )
         
         static_features = self.static_dense(normalized_static)
+        print("static_features.shape=", static_features.shape)
         if self.use_batch_norm:
             static_features = self.static_batch_norm(
                 static_features,
@@ -1655,7 +1126,7 @@ class SuperXTFT(XTFT):
         self.logger.debug(
             f"Static Features Shape: {static_features.shape}"
         )
-        
+        print("static_features.shape=", static_features.shape)
         # Embeddings for dynamic and future covariates using selected_dynamic
         embeddings = self.multi_modal_embedding(
             [selected_dynamic, selected_future],
@@ -1778,6 +1249,7 @@ class SuperXTFT(XTFT):
             tf_expand_dims(static_features, axis=1),
             [1, time_steps, 1]
         )
+        print("static_features_expanded.shape=", static_features_expanded.shape)
         self.logger.debug(
             "Static Features Expanded Shape: "
             f"{static_features_expanded.shape}"
@@ -1790,6 +1262,7 @@ class SuperXTFT(XTFT):
             hierarchical_att_grn, 
             memory_attention_grn,
         ])
+        print("combined_features.shape=", combined_features.shape)
         self.logger.debug(
             f"Combined Features Shape: {combined_features.shape}"
         )
@@ -1855,7 +1328,7 @@ class SuperXTFT(XTFT):
         
         
         # Compute anomaly scores if configured
-        self.anomaly_scores = self.validate_anomaly_scores(
+        self.anomaly_scores = validate_anomaly_scores(
             self.anomaly_config, forecast_horizons=self.forecast_horizons
         )
         
