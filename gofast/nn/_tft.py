@@ -43,6 +43,7 @@ if KERAS_BACKEND:
     tf_range=KERAS_DEPS.range 
     tf_concat = KERAS_DEPS.concat
     tf_shape = KERAS_DEPS.shape
+    tf_rank=KERAS_DEPS.rank
     
     from . import Activation 
     from ._tensor_validation import validate_tft_inputs
@@ -326,7 +327,6 @@ References
        Society A*, 379(2194), 20200209.
 """.format(params=_param_docs) 
 
-
 @register_keras_serializable('Gofast')
 class VariableSelectionNetwork(Layer, NNLearner):
     @validate_params({
@@ -382,13 +382,19 @@ class VariableSelectionNetwork(Layer, NNLearner):
             if self.use_time_distributed:
                 var_input = inputs[:, :, i, :]
             else:
+                rank = tf_rank(inputs)
+                # If rank == 2, we have (batch_size, num_inputs).
+                # We add a features dimension of size 1.
+                if rank == 2:
+                    inputs = tf_expand_dims(inputs, axis=-1)  # => (batch_size, num_inputs, 1)
+                    
                 var_input = inputs[:, i, :]
             grn_output = self.single_variable_grns[i](var_input, training=training)
             variable_outputs.append(grn_output)
 
         stacked_outputs = tf_stack(variable_outputs, axis=-2)
         self.variable_importances_ = self.variable_importance_dense(stacked_outputs)
-        weights = self.softmax(self._variable_importances_)
+        weights = self.softmax(self.variable_importances_)
         outputs = tf_reduce_sum(stacked_outputs * weights, axis=-2)
         return outputs
 
@@ -490,7 +496,7 @@ variables.
 
 Examples
 --------
->>> from gofast.nn.transformers import VariableSelectionNetwork
+>>> from gofast.nn._tft import VariableSelectionNetwork
 >>> import tensorflow as tf
 >>> # Define input tensor
 >>> inputs = tf.random.normal((32, 5, 1))  # 5 variables, scalar features
