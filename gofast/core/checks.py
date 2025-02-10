@@ -1346,7 +1346,6 @@ def _handle_error(param_name: str, error: str, message: str):
         )
     # If 'ignore', do nothing.
 
-
 def find_closest(arr, values):
     """
     Find the closest values in an array from a set of target values.
