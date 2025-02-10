@@ -2165,7 +2165,8 @@ def plot_roc_curves(
     fig_size : `Tuple[int, int]`, default=(7, 7)
         Size of the figure.
     roc_kws : `Dict`
-        Additional keyword arguments passed to the `sklearn.metrics.roc_curve` function.
+        Additional keyword arguments passed to the `sklearn.metrics.roc_curve`
+        function.
 
     Returns
     -------
@@ -2286,8 +2287,7 @@ def plot_roc_curves(
 )
 @ensure_pkg (
     "shap",
-    extra = ( "The 'shap' package is required for plotting SHAP"
-             " summary. Please install it to proceed."), 
+    extra = "'shap' package is required for plotting SHAP summary.", 
     auto_install=PlotConfig.install_dependencies ,
     use_conda=PlotConfig.use_conda 
    )

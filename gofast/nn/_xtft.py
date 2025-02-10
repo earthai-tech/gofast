@@ -1605,7 +1605,7 @@ class SuperXTFT(XTFT):
         # and normalization
         
     def call(self, inputs, training=False):
-        static_input, dynamic_input, future_input = self.validate_xtft_inputs(
+        static_input, dynamic_input, future_input = validate_xtft_inputs(
             inputs=inputs,
             static_input_dim=self.static_input_dim, 
             dynamic_input_dim=self.dynamic_input_dim, 

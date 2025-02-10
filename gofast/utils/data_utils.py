@@ -15,7 +15,8 @@ import re
 import copy 
 import warnings 
 from numbers import Real
-from typing import Any, List, Union, Optional, Set, Tuple   
+from typing import Any, List, Union, Optional, Set, Tuple 
+from typing import Callable, Dict  
 from functools import reduce
 
 import scipy 
@@ -73,7 +74,8 @@ __all__= [
     'has_duplicates', 
     'index_based_selector', 
     'nan_ops', 
-    'build_df'
+    'build_df', 
+    'group_and_aggregate'
     ]
 
      
@@ -318,6 +320,249 @@ def build_df(
         
     # Return the final DataFrame for downstream usage
     return df
+
+
+@SaveFile  
+@is_data_readable 
+@Dataify(auto_columns=True, fail_silently=True) 
+@check_empty (params=['data'], none_as_empty=True)
+def group_and_aggregate(
+    data: pd.DataFrame,
+    by: Union[str, List[str]],
+    agg_columns: Optional[Union[List[str], Dict[str, Any]]] = None,
+    agg_func: Union[str, Callable, Dict[str, List[Union[str, Callable]]]] = "mean",
+    as_index: bool = True,
+    dropna: bool = False,
+    reset_index: bool = True,
+    verbose: int = 0
+) -> pd.DataFrame:
+    r"""
+    Group and aggregate a pandas DataFrame based on specified columns and
+    aggregation function(s). This function is designed to be robust and
+    versatile for various grouping and aggregation needs.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The input DataFrame to be grouped and aggregated.
+    
+    by : str or list of str
+        The column name(s) by which to group the data. If a single string
+        is provided, the data is grouped by that column. If a list of strings
+        is provided, the data is grouped by all those columns in combination.
+    
+    agg_columns : list of str or dict, optional
+        The columns to be aggregated. This can be:
+          - A list of column names (e.g., ``['soil_thickness', 'subsidence']``).
+          - A dictionary specifying different aggregations for each column 
+            (e.g., ``{'soil_thickness': 'mean', 'subsidence': 'sum'}``).
+        If not provided, aggregation will be applied to all columns 
+        that are compatible with the aggregation function (typically numeric 
+        columns if using standard aggregations like 'mean', 'sum', etc.).
+
+    agg_func : str, callable, or dict, default='mean'
+        The aggregation function to apply. This can be:
+          - A single string (e.g. ``'mean'``, ``'sum'``, ``'count'``, etc.).
+          - A single callable (e.g. ``np.mean``, ``np.sum``).
+          - A dictionary mapping column names to a list of multiple aggregations 
+            (e.g. ``{'soil_thickness': ['mean', 'max'], 'subsidence': 'sum'}``).
+        If both `agg_columns` and `agg_func` are dictionaries, they will be 
+        combined as the final aggregator. If `agg_columns` is a list and 
+        `agg_func` is a dictionary, the dict must map only aggregator methods 
+        to lists, or specific columns to multiple methods.
+
+    as_index : bool, default=True
+        If True, the grouping columns become the index of the resulting 
+        DataFrame. If False, the grouping columns are retained as normal 
+        columns.
+
+    dropna : bool, default=False
+        Whether to drop NA values from the grouping columns before 
+        aggregation. If True, rows with NA in the grouping column(s) are 
+        excluded from the result.
+
+    reset_index : bool, default=True
+        If True, and ``as_index`` is True, the resulting DataFrame index
+        is reset so that grouping columns become normal columns. If False,
+        the grouping columns remain in the index.
+
+    verbose : int, default=0
+        The verbosity level:
+          - 0: no messages (silent).
+          - 1: prints a summary of the grouping and aggregation steps.
+          - 2: prints more detailed intermediate information (for debugging).
+
+    Returns
+    -------
+    grouped_df : pd.DataFrame
+        The grouped and aggregated DataFrame.
+
+    Notes
+    -----
+    - When both `agg_columns` and `agg_func` are provided, the final aggregator
+      is constructed as follows:
+      1. If `agg_columns` is a list and `agg_func` is a single function or 
+         string, each column in `agg_columns` will be aggregated by `agg_func`.
+      2. If `agg_columns` is a dictionary, it will be taken as explicit 
+         definitions of how to aggregate each column. If `agg_func` is also
+         a dictionary, they are combined (with `agg_columns` dict taking 
+         precedence when conflicts arise). If `agg_func` is a single method,
+         it is applied to any column not explicitly mentioned in 
+         `agg_columns` dict.
+      3. If no `agg_columns` are provided, the aggregator in `agg_func`
+         is applied to all columns suitable for that aggregator method.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.utils.data_utils import group_and_aggregate
+
+    >>> # Example dataset
+    >>> data = pd.DataFrame({
+    ...     'longitude': [113.291, 113.291, 113.291, 113.294],
+    ...     'latitude': [22.862, 22.865, 22.865, 22.870],
+    ...     'soil_thickness': [1.87, 1.51, 2.17, 2.78],
+    ...     'subsidence': [0.49, 1.10, 1.13, 1.07],
+    ...     'year': [2015, 2015, 2016, 2016]
+    ... })
+
+    >>> # 1) Simple aggregation by year, using the mean
+    >>> grouped_mean = group_and_aggregate(
+    ...     data, 
+    ...     by='year', 
+    ...     agg_columns=['soil_thickness', 'subsidence'], 
+    ...     agg_func='mean', 
+    ...     as_index=False
+    ... )
+    >>> print(grouped_mean)
+
+    >>> # 2) Multiple aggregations using a dict
+    >>> grouped_multi = group_and_aggregate(
+    ...     data, 
+    ...     by='year',
+    ...     agg_func={
+    ...         'soil_thickness': ['mean', 'max'],
+    ...         'subsidence': 'sum'
+    ...     },
+    ...     as_index=True
+    ... )
+    >>> print(grouped_multi)
+    """
+
+    if isinstance(by, str):
+        by = [by]  # make sure 'by' is a list
+    
+    # If we want to drop NA in grouping columns
+    if dropna:
+        data = data.dropna(subset=by)
+
+    # If user has provided a dict for agg_columns, we consider that
+    # a direct aggregator specification for each column. Otherwise,
+    # if it's a list, we'll build a dict behind the scenes.
+    # For example, if agg_columns=['soil_thickness', 'subsidence']
+    # and agg_func='mean', we do:
+    # {'soil_thickness': 'mean', 'subsidence': 'mean'}
+    
+    final_agg_dict = {}
+
+    # Helper function to check if 'agg_func' is a valid aggregator
+    # for multiple columns, e.g. a dict or single str/callable
+    def is_dict_of_lists_or_str(x):
+        """Return True if x is a dict whose values
+        are either strings, callables, or list of them."""
+        if not isinstance(x, dict):
+            return False
+        for val in x.values():
+            if isinstance(val, (list, tuple)):
+                for sub_val in val:
+                    if not (isinstance(sub_val, str) or callable(sub_val)):
+                        return False
+            elif not (isinstance(val, str) or callable(val)):
+                return False
+        return True
+
+    # Step 1a: Handle if 'agg_columns' is dict
+    if isinstance(agg_columns, dict):
+        # This implies user has directly assigned columns to aggregator methods
+        # e.g. {'soil_thickness': 'mean', 'subsidence': ['sum','max']}
+        # We might also incorporate 'agg_func' if it's a single aggregator
+        final_agg_dict = agg_columns.copy()
+
+        # If 'agg_func' is also a dict, we combine them
+        if is_dict_of_lists_or_str(agg_func):
+            for col, method in agg_func.items():
+                # If not in final_agg_dict, add
+                if col not in final_agg_dict:
+                    final_agg_dict[col] = method
+            # If col is in final_agg_dict, it takes precedence
+        else:
+            # If 'agg_func' is a single string/callable
+            # we apply it to any columns not mentioned
+            # in 'agg_columns' already, e.g., all numeric ones
+            potential_cols = data.select_dtypes(include=["number"]).columns
+            for col in potential_cols:
+                if col not in final_agg_dict and col not in by:
+                    final_agg_dict[col] = agg_func
+    # Step 1b: If agg_columns is a list
+    elif isinstance(agg_columns, list):
+        # e.g. agg_columns=['soil_thickness', 'subsidence']
+        # if agg_func is single aggregator => same aggregator for all
+        # if agg_func is dict => interpret aggregator for those columns
+        # if aggregator not found for a column, skip or raise?
+
+        if is_dict_of_lists_or_str(agg_func):
+            # e.g. agg_func={'soil_thickness': ['mean', 'max'], 'subsidence': 'sum'}
+            # use aggregator for the columns that match. 
+            # columns not in dict => skip or fallback?
+            for c in agg_columns:
+                if c in agg_func:
+                    final_agg_dict[c] = agg_func[c]
+                else:
+                    # fallback aggregator? or skip?
+                    pass
+        else:
+            # single aggregator => apply to all columns in agg_columns
+            for c in agg_columns:
+                final_agg_dict[c] = agg_func
+    else:
+        # If agg_columns is None, we apply 'agg_func' to all numeric columns
+        # or use the dict from agg_func if it's a dict.
+        if agg_columns is None:
+            if is_dict_of_lists_or_str(agg_func):
+                # e.g. agg_func={'soil_thickness': ['mean','max'], 'subsidence': 'sum'}
+                final_agg_dict = agg_func
+            else:
+                # Single aggregator for all numeric columns
+                numeric_cols = data.select_dtypes(include=["number"]).columns
+                for c in numeric_cols:
+                    if c not in by:  # exclude grouping columns
+                        final_agg_dict[c] = agg_func
+        else:
+            raise ValueError(
+                "`agg_columns` should be a list, dict, or None."
+            )
+
+    if verbose > 0:
+        print(f"[group_and_aggregate] Grouping by: {by}")
+        if verbose > 1:
+            print(
+                f"[group_and_aggregate] Final aggregator dict: {final_agg_dict}")
+
+    # Step 2: Perform groupby and aggregation
+    grouped = data.groupby(by=by, as_index=as_index)
+
+    # Apply aggregator
+    aggregated_df = grouped.agg(final_agg_dict)
+
+    # If as_index=True and user wants to reset
+    if as_index and reset_index:
+        aggregated_df = aggregated_df.reset_index()
+
+    if verbose > 0:
+        print( "[group_and_aggregate] Aggregation done."
+              f" Result shape: {aggregated_df.shape}")
+
+    return aggregated_df
 
 @SaveFile
 @is_data_readable 

@@ -14,8 +14,10 @@ import matplotlib.pyplot as plt
 from ..api.types import ArrayLike, DataFrame 
 from ..api.types import List, Tuple, Optional, Union 
 from ..core.checks import is_iterable, exist_features 
+from ..core.handlers import extend_values
 from ..core.io import is_data_readable 
 from ..utils.validator import is_frame 
+from .utils import make_plot_colors
 
 __all__=[
     "pie_charts", "radar_chart", "radar_chart_in", "donut_chart"
@@ -258,6 +260,7 @@ def donut_chart(
             colors = colors * (len(plot_values) // len(colors) + 1)
         colors = colors[:len(plot_values)]
     else:
+        colors = make_plot_colors(plot_values, colors = colors, seed=42 )
         if len(colors) < len(plot_values):
             raise ValueError(
                 "Not enough colors provided for the number of slices."
@@ -271,6 +274,9 @@ def donut_chart(
         wedgeprops = {}
     wedgeprops.setdefault('width', outer_radius - inner_radius)
 
+    if explode is not None:
+        explode = extend_values(explode, target= plot_values)
+        
     # Plot the donut chart
     wedges, texts, autotexts = ax.pie(
         plot_values,
