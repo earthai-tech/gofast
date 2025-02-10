@@ -4,7 +4,8 @@
 
 from typing import List, Tuple, Optional, Union, Dict, Any
 from ..utils.deps_utils import ensure_pkg 
-from ..compat.tf import optional_tf_function, suppress_tf_warnings  
+from ..compat.tf import optional_tf_function, suppress_tf_warnings
+from ..compat.tf import TFConfig  
 
 try:
     import tensorflow as tf
@@ -16,6 +17,10 @@ except ImportError:
         "this module.",
         ImportWarning
     )
+else:
+    config = TFConfig()
+    # Enable compatibility mode for ndim
+    config.compat_ndim_enabled = True  
 
 @ensure_pkg(
     'tensorflow',
@@ -83,11 +88,11 @@ def validate_anomaly_scores(
             anomaly_scores = tf.cast(anomaly_scores, tf.float32)
 
         # Validate that `anomaly_scores` is a 2D tensor
-        if anomaly_scores.ndim != 2:
+        if len(anomaly_scores.shape) != 2:
             raise ValueError(
                 f"`anomaly_scores` must be a 2D tensor with shape "
                 f"(batch_size, forecast_horizons), but got "
-                f"{anomaly_scores.ndim}D tensor."
+                f"{len(anomaly_scores.shape)}D tensor."
             )
 
         # Validate that the second dimension matches `forecast_horizons`
@@ -461,7 +466,7 @@ def validate_xtft_inputs(
         )
     
     # Unpack inputs
-    dynamic_input, future_covariate_input, static_input = inputs
+    static_input, dynamic_input, future_covariate_input = inputs
 
     # Step 2: Validate static_input
     if static_input is None:
@@ -483,10 +488,10 @@ def validate_xtft_inputs(
         static_input = tf.cast(static_input, tf.float32)
     
     # Check static_input dimensions
-    if static_input.ndim != 2:
+    if len(static_input.shape) != 2:
         raise ValueError(
             f"``static_input`` must be a 2D tensor with shape "
-            f"(batch_size, static_input_dim), but got {static_input.ndim}D tensor."
+            f"(batch_size, static_input_dim), but got {len(static_input.shape)}D tensor."
         )
     
     # Check static_input_dim
@@ -519,11 +524,11 @@ def validate_xtft_inputs(
         dynamic_input = tf.cast(dynamic_input, tf.float32)
     
     # Check dynamic_input dimensions
-    if dynamic_input.ndim != 3:
+    if len(dynamic_input.shape) != 3:
         raise ValueError(
             f"``dynamic_input`` must be a 3D tensor with shape "
             f"(batch_size, time_steps, dynamic_input_dim), but got "
-            f"{dynamic_input.ndim}D tensor."
+            f"{len(dynamic_input.shape)}D tensor."
         )
     
     # Check dynamic_input_dim
@@ -560,11 +565,11 @@ def validate_xtft_inputs(
             future_covariate_input = tf.cast(future_covariate_input, tf.float32)
         
         # Check future_covariate_input dimensions
-        if future_covariate_input.ndim != 3:
+        if len(future_covariate_input.shape) != 3:
             raise ValueError(
                 f"``future_covariate_input`` must be a 3D tensor with shape "
                 f"(batch_size, time_steps, future_covariate_dim), but got "
-                f"{future_covariate_input.ndim}D tensor."
+                f"{len(future_covariate_input.shape)}D tensor."
             )
         
         # Check future_covariate_dim

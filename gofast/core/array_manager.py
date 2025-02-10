@@ -503,7 +503,12 @@ def to_array(
 
         # Handle NumPy array dimensionality adjustments
         if isinstance(arr, np.ndarray):
-            target_dim = dim_map.get(accept.split('_')[0], None)
+            target_dim =min_dim 
+            # if only: 
+            #     target_dim = dim_map.get(accept.split('_')[1], None)
+            # else : 
+            #     target_dim = dim_map.get(accept.split('_')[0], None)
+           
             if target_dim:
                 if accept in ['1d', 'only_1d']:
                     if arr.ndim == 2:
@@ -550,7 +555,8 @@ def to_array(
     # Final validation of dimensions
     if accept:
         final_ndim = _get_ndim(arr)
-        expected_dim = dim_map.get(accept.split('_')[0], None)
+        expected_dim = min_dim # dim_map.get(accept.split('_')[0], None)
+        
         if accept.startswith('>'):
             min_dim = int(accept.strip('>d'))
             if not final_ndim > min_dim:
@@ -2807,9 +2813,11 @@ def denormalize(
 
  
 def convert_to_structured_format(
-        *arrays: Any, as_frame: bool = True, 
-        skip_sparse: bool =True, 
-        ) -> List[Union[ArrayLike, DataFrame, Series]]:
+    *arrays: Any, as_frame: bool = True, 
+    skip_sparse: bool =True,
+    cols_as_str: bool=False, 
+    solo_return: bool=False, 
+    ) -> List[Union[ArrayLike, DataFrame, Series]]:
     """
     Converts input objects to structured numpy arrays or pandas DataFrame/Series
     based on their shapes and the `as_frame` flag. If conversion to a structured
@@ -2826,7 +2834,15 @@ def convert_to_structured_format(
         attempts to standardize as numpy arrays.
     skip_sparse: bool, default=True 
         Dont convert any sparse matrix and keept it as is. 
-    
+    cols_as_str: bool, default=False 
+       If ``True``, convert numeric columns to string when pandas dataframe 
+       is created. This is useful to avoid operations with litteral columns 
+       already set as string or object dtype. 
+    solo_return : bool, default=False
+        If ``True`` and exactly one array, the function returns that array
+        directly rather than as a tuple of length 1. If multiple
+        arrays are provided then `solo_return` does no work even is ``True``.
+       
     Returns
     -------
     List[Union[np.ndarray, pd.DataFrame, pd.Series]]
@@ -2867,9 +2883,14 @@ def convert_to_structured_format(
     def attempt_conversion_to_numpy(arr: Any) -> np.ndarray:
         """Attempts to convert an object to a numpy array."""
         try:
-            return np.array(arr)
+            arr= np.array(arr)
         except Exception:
             return arr
+        
+        if arr.ndim==2 and arr.shape[1] ==1: 
+            arr = arr.flatten () 
+        
+        return arr 
 
     def attempt_conversion_to_pandas(
             arr: np.ndarray) -> Union[np.ndarray, pd.DataFrame, pd.Series]:
@@ -2885,20 +2906,31 @@ def convert_to_structured_format(
                     if arr.shape[1] == 1:
                         return pd.Series(arr.squeeze())
                     else:
-                        return pd.DataFrame(arr)
+                        arr= pd.DataFrame(arr)
+                        if cols_as_str: 
+                            arr.columns = arr.columns.astype(str) 
+                        return arr 
             else: 
-                return pd.DataFrame(arr)
+                arr= pd.DataFrame(arr)
+                if cols_as_str: 
+                    arr.columns = arr.columns.astype(str) 
+                    
         except Exception:
             pass
         return arr
 
     if as_frame:
-        return [attempt_conversion_to_pandas(arr) for arr in arrays]
+        arrays= [attempt_conversion_to_pandas(arr) for arr in arrays]
     else:
         # Try to convert everything to numpy arrays, return as is if it fails
-        return [attempt_conversion_to_numpy(attempt_conversion_to_pandas(arr)
+        arrays= [attempt_conversion_to_numpy(attempt_conversion_to_pandas(arr)
                                             ) for arr in arrays]
+    if solo_return and len(arrays)==1: 
+        return arrays[0]
+    
+    return arrays 
 
+        
 def map_specific_columns ( 
     data: DataFrame, 
     ufunc:_F , 
@@ -3328,6 +3360,9 @@ def _process_reference_array(
     """
     Process the reference array and determine its type.
     """
+    if isinstance (ref_array, (list, tuple)): 
+        ref_array = np.asarray( ref_array)
+        
     if ref_array is not None:
         if isinstance(ref_array, pd.DataFrame):
             if reset_index: 
@@ -3515,7 +3550,6 @@ def _drop_labels_from_df(
         elif error == 'ignore':
             return df.copy()
 
-
 def _convert_arrays_to_df(
     arrays: Tuple[Union[np.ndarray, pd.DataFrame, pd.Series], ...], 
     reset_index: bool=True , 
@@ -3540,6 +3574,9 @@ def _convert_arrays_to_df(
     df_arrays = []
     original_types = []
     for arr in arrays:
+        if isinstance (arr, (list, tuple)): 
+            arr = np.asarray(arr)
+            
         if isinstance(arr, pd.DataFrame):
             # If the array is already a DataFrame, make a copy to avoid
             # modifying the original data.

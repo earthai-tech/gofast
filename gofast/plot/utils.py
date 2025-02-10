@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
+
 """
 Miscellanous plot utilities. 
 """
@@ -32,13 +33,14 @@ from sklearn.utils import resample
 
 from ..api.types import Optional, Tuple,  Union, List 
 from ..api.types import Dict, ArrayLike, DataFrame
+from ..api.summary import ResultSummary
 from ..core.array_manager import smart_ts_detector, drop_nan_in 
 from ..core.checks import ( 
     _assert_all_types, is_iterable, str2columns, is_in_if, 
     exist_features, check_features_types, check_spatial_columns,
     validate_depth, check_params, check_numeric_dtype 
 )
-from ..core.handlers import columns_manager,  param_deprecated_message 
+from ..core.handlers import columns_manager, param_deprecated_message 
 from ..core.io import is_data_readable 
 from ..core.plot_manager import default_params_plot 
 from ..compat.sklearn import ( 
@@ -55,6 +57,7 @@ from ..utils.validator import  (
     validate_quantiles, is_frame, check_consistent_length, 
     validate_yy, filter_valid_kwargs
 )
+from ._config import PlotConfig
 from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
 
 __all__=[
@@ -75,13 +78,477 @@ __all__=[
     'plot_perturbations', 
     'plot_well', 
     'plot_factory_ops', 
-    'plot_ranking'
+    'plot_ranking', 
+    'plot_coverage'
 ]
 
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE("my_coverall_plot.png"), 
+    fig_size =(8, 6), 
+    dpi=300
+    )
+@validate_params ({ 
+    'y_true': ['array-like'],
+    'plot_type': [StrOptions({"line", "bar", "pie", "radar"}), None], 
+    })
+@check_params({
+        "names": Optional[Union [str, List[str]]], 
+        "q": Optional[Union[float, List[float]]]
+    }, 
+    coerce=False, 
+)
+def plot_coverage(
+    y_true,
+    *y_preds,
+    names=None,
+    q=None,
+    plot_type='line',
+    cmap='viridis',
+    pie_startangle=140,
+    pie_autopct='%1.1f%%',
+    radar_color='tab:blue',
+    radar_fill_alpha=0.25,
+    radar_line_style='o-',
+    cov_fill=False, 
+    figsize=None,
+    title=None,
+    savefig=None,
+    verbose=1 
+):
+    """
+    Plot coverage scores for quantile or point forecasts and allow
+    multiple visualization styles (line, bar, pie, and radar).
+
+    This function computes and visualizes the fraction of times
+    the true values :math:`y_i` lie within predicted quantile
+    intervals or match point forecasts, for one or more models.
+    If multiple prediction arrays are passed (e.g. from different
+    models), this function compares their coverage on the same
+    figure through different plot types.
+
+    .. math::
+        \\text{coverage} = \\frac{1}{N}\\sum_{i=1}^{N}
+        1\\{\\hat{y}_{i}^{(\\ell)} \\leq y_i
+        \\leq \\hat{y}_{i}^{(u)}\\}
+
+    where :math:`\\hat{y}_{i}^{(\\ell)}` is the lower quantile
+    prediction for the :math:`i`th sample and :math:`\\hat{y}_{i}^{
+    (u)}` is the upper quantile prediction. The indicator function
+    :math:`1\\{\\cdot\\}` counts how many times the true value
+    :math:`y_i` lies within or on the boundaries of the predicted
+    interval.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        True target values.
+
+    *y_preds : one or more array-like objects, each of shape
+        (n_samples,) or (n_samples, n_quantiles)
+        Predicted values from one or more models. If a 2D array is
+        passed, its columns are considered to be predictions for
+        different quantiles. If a 1D array is passed, it is treated
+        as a point forecast.
+
+    names : list of str or None, optional
+        Names for each set of predictions. If None, default names
+        (e.g. "Model_1") are generated. If the length of `names`
+        is less than the number of prediction arrays, the rest
+        are auto-generated.
+
+    q : list of float or None, optional
+        Quantile levels for each column of the 2D prediction arrays.
+        If provided, predictions for each row are sorted in ascending
+        order, and coverage is computed between the minimum and
+        maximum quantile predictions. If None, coverage is assumed
+        to be a point forecast unless a different approach is
+        implemented by the user.
+
+    plot_type : str, optional (default='line')
+        Type of plot to use for displaying coverage. Possible
+        values are:
+        
+        - ``'line'``: Plots a line chart of coverage scores.
+        - ``'bar'``: Plots a bar chart of coverage scores.
+        - ``'pie'``: Creates a pie chart where each slice
+          corresponds to a model's coverage fraction relative
+          to the total coverage sum.
+        - ``'radar'``: Creates a radar chart placing each model's
+          coverage on a radial axis.
+
+    cmap : str, optional (default='viridis')
+        Colormap used in the pie chart. Each model slice is
+        assigned a color from this colormap. Also used more
+        generally if extended.
+
+    pie_startangle : float, optional (default=140)
+        Start angle for the pie chart in degrees.
+
+    pie_autopct : str, optional (default='%1.1f%%')
+        Format of the numeric label displayed on each pie slice.
+
+    radar_color : str, optional (default='tab:blue')
+        Main line and fill color for the radar chart.
+
+    radar_fill_alpha : float, optional (default=0.25)
+        Alpha blending value for the filled area in the radar chart,
+        controlling transparency.
+
+    radar_line_style : str, optional (default='o-')
+        Marker and line style for the coverage in the radar chart,
+        for instance ``'o-'`` or ``'-'``.
+        
+    cov_fill : bool, default=False
+        Enable gradient fill for radar plots. For single models, creates
+        a radial gradient up to coverage value. For multiple models,
+        fills polygon areas.
+        
+    figsize : tuple of float, optional
+        Figure size (width, height) in inches passed to matplotlib.
+
+    title : str or None, optional
+        Title for the plot. If None, no title is displayed.
+
+    savefig : str or None, optional
+        Filename (and extension) for saving the figure. If None,
+        the figure is only displayed and not saved.
+
+    verbose : int, default=1
+        Control coverage score printing:
+            - 0: No output
+            - 1: Print formatted coverage summary
+       
+    Returns
+    -------
+    None
+        This function renders a coverage plot and may save it,
+        depending on the `savefig` argument.
+
+    Notes
+    -----
+    - If `q` is specified and the predictions are 2D, the first
+      and last columns of the sorted prediction array determine
+      the coverage interval. Intermediate quantile columns are
+      not used directly but may be relevant in other analyses.
+    - If the predictions are 1D point forecasts, coverage is
+      computed as the fraction of exact matches
+      (:math:`\\hat{y}_i = y_i`), which typically remains 0
+      unless the data are discrete or artificially matched.
+    - Different plot types offer various perspectives:
+      - Bar or line charts present coverage per model on a
+        simple numerical scale (0 to 1).
+      - Pie charts represent each model's coverage fraction
+        out of the sum of coverages. 
+      - Radar charts place each model's coverage on a radial
+        axis for a comparative "spider" plot.
+        
+    1. For quantile predictions (2D arrays), coverage is computed between
+       the minimum and maximum quantiles per observation
+    2. Point forecast coverage (1D arrays) measures exact matches, which
+       is typically near-zero for continuous data
+    3. Radar plots with ``cov_fill=True`` display:
+        - Gradient fill from center to coverage value (single model)
+        - Transparent polygon fill (multiple models)
+        - Red reference line at coverage level (single model)
+
+    See Also
+    --------
+    gofast.plot.plot_roc : Receiver operating characteristic curve plotting
+    gofast.plot.plot_residuals : Diagnostic residual analysis plots
+
+    References
+    ----------
+    .. [1] Koenker, R. and Bassett, G. (1978). "Regression
+           quantiles." *Econometrica*, 46(1), 33–50.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.plot.utils import plot_coverage
+    >>> # True values
+    >>> y_true = np.random.rand(100)
+    >>> y_pred = np.random.rand(100, 3)
+    >>> # 3-quantile predictions for a single model
+    >>> y_pred_q = np.random.rand(100, 3)
+    >>> q = [0.1, 0.5, 0.9]
+    >>> # Bar chart coverage
+    >>> plot_coverage(y_true, y_pred_q, q=q,
+    ...               names=['QuantModel'],
+    ...               plot_type='bar',
+    ...               title='Coverage (Bar)')
+    # Single model quantile coverage
+    >>> y_pred = np.random.rand(200, 3)
+    >>> plot_coverage(y_true, y_pred, q=[0.1, 0.5, 0.9],
+    ...               plot_type='radar', names=['QModel'],
+    ...               cov_fill=True, cmap='plasma')
+    >>> # Multiple models with radar plot
+    >>> y_pred_q2 = np.random.rand(100, 3)
+    >>> plot_coverage(y_true, y_pred_q, y_pred_q2,
+    ...               q=q,
+    ...               names=['Model1','Model2'],
+    ...               plot_type='radar',
+    ...               title='Coverage (Radar)')
+    """
+
+    # Convert the true values to a numpy array for consistency
+    y_true = np.array(y_true)
+
+    # Count how many model predictions were passed via *y_preds.
+    num_models = len(y_preds)
+
+    # Handle model names: create or extend to match the number of models.
+    names = columns_manager(names, to_string=True)
+    if names is None:
+        names = [f"Model_{i + 1}" for i in range(num_models)]
+    else:
+        if len(names) < num_models:
+            extra = num_models - len(names)
+            for i in range(extra):
+                names.append(f"Model_{len(names) + 1}")
+
+    coverage_scores = []
+
+    q= columns_manager(q)
+    # Handle quantiles
+    if q is not None:
+        q = np.array(q)
+        if q.ndim != 1:
+            raise ValueError(
+                "Parameter 'q' must be a 1D list or"
+                " array of quantile levels."
+                )
+            
+        if not np.all((0 < q) & (q < 1)):
+            raise ValueError(
+                "Quantile levels must be between 0 and 1."
+            )
+        # Sort q and get the sorted indices
+        sorted_indices = np.argsort(q)
+        q_sorted = q[sorted_indices]
+    else:
+        q_sorted = None
+        
+    # Compute coverage for each model in *y_preds.
+    #   - If pred has shape (n_samples, n_quantiles), we compute coverage
+    #     between min and max quantile per sample.
+    #   - If pred is 1D, treat as a point forecast and check exact match
+    #     (illustrative; typically coverage would be 0 unless data match).
+    for i, pred in enumerate(y_preds):
+        pred = np.array(pred)
+
+        #if (q is not None) and (pred.ndim == 2):
+        if pred.ndim == 2:
+            if q_sorted is not None: 
+                # No need since we used the first and last for 
+                # computed coverage. 
+                # --------------------
+                # if pred.shape[1] != len(q_sorted):
+                #     raise ValueError(
+                #         f"Model {i+1} predictions have"
+                #         f"{pred.shape[1]} quantiles, "
+                #         f"but 'q' has {len(q_sorted)} levels."
+                #     )
+                # ---------------------
+                # Align predictions with sorted quantiles
+                pred_sorted = pred[:, sorted_indices]
+            else: 
+                pred_sorted = np.sort(pred, axis=1)
+                
+            # Sort columns to ensure ascending order of quantiles.
+            # pred_sorted = np.sort(pred, axis=1)
+            lower_q = pred_sorted[:, 0]
+            upper_q = pred_sorted[:, -1]
+            in_interval = (
+                (y_true >= lower_q) & (y_true <= upper_q)
+            ).astype(int)
+            coverage = np.mean(in_interval)
+
+        elif pred.ndim == 1:
+            # Point forecast coverage as fraction of exact matches
+            matches = (y_true == pred).astype(int)
+            coverage = np.mean(matches)
+
+        else:
+            # If neither scenario applies, store None.
+            coverage = None
+
+        coverage_scores.append(coverage)
+
+    # Prepare data for plotting. Replace None with 0 for convenience.
+    valid_cov = [
+        c if c is not None else 0 for c in coverage_scores
+    ]
+    x_idx = np.arange(num_models)
+    
+    if plot_type in {'bar', 'line', 'pipe'}: 
+        # Initialize the figure.
+        if figsize is not None:
+            plt.figure(figsize=figsize)
+        else:
+            plt.figure()
+    # Plot according to the chosen 'plot_type'.
+    if plot_type == 'bar':
+        plt.bar(x_idx, valid_cov, color='blue', alpha=0.7)
+        for idx, val in enumerate(coverage_scores):
+            if val is not None:
+                plt.text(
+                    x=idx,
+                    y=val + 0.01,
+                    s=f"{val:.2f}",
+                    ha='center',
+                    va='bottom'
+                )
+        plt.xticks(x_idx, names)
+        plt.ylim([0, 1])
+        plt.ylabel("Coverage")
+        plt.xlabel("Models")
+
+    elif plot_type == 'line':
+        plt.plot(x_idx, valid_cov, marker='o')
+        for idx, val in enumerate(coverage_scores):
+            if val is not None:
+                plt.text(
+                    x=idx,
+                    y=val + 0.01,
+                    s=f"{val:.2f}",
+                    ha='center',
+                    va='bottom'
+                )
+        plt.xticks(x_idx, names)
+        plt.ylim([0, 1])
+        plt.ylabel("Coverage")
+        plt.xlabel("Models")
+
+    elif plot_type == 'pie':
+        # Pie chart: each slice represents a model's coverage. By default,
+        # the slice size is coverage[i] out of the sum of coverage.
+        total_cov = sum(valid_cov)
+        if total_cov == 0:
+            # Avoid a zero-coverage pie chart.
+            plt.text(
+                0.5, 0.5,
+                "No coverage to plot",
+                ha='center',
+                va='center'
+            )
+        else:
+            plt.pie(
+                valid_cov,
+                labels=names,
+                autopct=pie_autopct,
+                startangle=pie_startangle,
+                colors=plt.cm.get_cmap(cmap)(
+                    np.linspace(0, 1, num_models)
+                )
+            )
+            plt.axis('equal')  # Make the pie chart a perfect circle.
+
+    elif plot_type == 'radar':
+        # #Radar chart: place each model's coverage as a radial axis.
+
+        N = num_models
+        angles = np.linspace(0, 2 * np.pi, N, endpoint=False)
+        angles = np.concatenate((angles, [angles[0]]))
+        coverage_radar = np.concatenate((valid_cov, [valid_cov[0]]))
+        
+        ax = plt.subplot(111, polar=True)
+        
+        # Plot main coverage line
+        ax.plot(
+            angles,
+            coverage_radar,
+            radar_line_style,
+            color=radar_color,
+            label='Coverage'
+        )
+
+        # Handle fill based on number of models
+        if cov_fill:
+            if num_models == 1:
+                # Single model: radial gradient fill up to coverage value
+                coverage_value = valid_cov[0]
+                theta = np.linspace(0, 2 * np.pi, 100)
+                r = np.linspace(0, coverage_value, 100)
+                R, Theta = np.meshgrid(r, theta)
+                
+                # Create gradient using specified colormap
+                ax.pcolormesh(
+                    Theta, R, R, 
+                    cmap=cmap, 
+                    shading='auto', 
+                    alpha=radar_fill_alpha,
+                    zorder=0  # Place behind main plot
+                )
+                # Add red circle at coverage value
+                ax.plot(
+                    theta, 
+                    [coverage_value] * len(theta),  # Constant radius
+                    color='red', 
+                    linewidth=2, 
+                    linestyle='-',
+                    # label=f'Coverage Value ({coverage_value:.2f})'
+                )
+                
+            # Add concentric grid circles at 0.2, 0.4, 0.6, 0.8 
+            # with correct properties
+                ax.set_ylim(0, 1)
+                ax.set_yticks([0.2, 0.4, 0.6, 0.8])
+                ax.yaxis.grid(
+                    True, 
+                    color="gray", 
+                    linestyle="--", 
+                    linewidth=0.5, 
+                    alpha=0.7
+                )
+            
+            else:
+                # Multiple models: transparent fill between center and line
+                ax.fill(
+                    angles,
+                    coverage_radar,
+                    color=radar_color,
+                    alpha=radar_fill_alpha,
+                    zorder=0
+                )
+        # Final formatting
+        ax.set_thetagrids(angles[:-1] * 180/np.pi, labels=names)
+        ax.set_ylim(0, 1)
+        plt.legend(loc='upper right')
+
+    else:
+        # Fallback: print coverage scores to the console for each model.
+        for idx, val in enumerate(coverage_scores):
+            print(f"{names[idx]} coverage: {val}")
+
+    if verbose:
+       cov_dict = {
+           names[idx]: cov 
+           for idx, cov in enumerate(coverage_scores)
+           }
+       summary = ResultSummary(
+           "CoverageScores").add_results (cov_dict)
+       print(summary)
+       
+    # Add title if provided.
+    if title is not None:
+        plt.title(title)
+        
+    if savefig is not None:
+        plt.savefig(savefig, bbox_inches='tight')
+
+    plt.show()
+
+
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE("my_ranking_plot.png"), 
+    figsize =(4, 12), 
+    dpi=300
+    )
 @validate_params ({ 
     'plot_type': [StrOptions({"auto", "ranking", "importance"}), None], 
     'features': [str, 'array-like', None]
     })
+
 def plot_ranking(
     X,
     y=None,
@@ -94,12 +561,138 @@ def plot_ranking(
     annot=True,
     pkg=None,
     normalize=False,
-    fmt="d",
+    fmt="auto",
     cmap="Purples_r",
-    figsize=(4, 12),
-    cbar='off', 
+    figsize=(4, 12), 
+    cbar='off',
+    savefig=None, 
     **kw
 ):
+    r"""
+    Visualize model-driven feature rankings or importances
+    as a heatmap. This utility can handle two scenarios:
+
+    1) **Computing** importances/ranks using
+       :func:`~gofast.utils.mathext.compute_importances`
+       if ``precomputed=False``.
+    2) **Plotting** a user-supplied matrix of importances
+       or ranks if ``precomputed=True``.
+
+    .. math::
+        \text{Rank}_{ij} = \begin{cases}
+          1 & \text{(most important feature for model $j$)} \\
+          2 & \text{(second most important)}, \ldots
+        \end{cases}
+
+    Parameters
+    ----------
+    X : array-like or pandas.DataFrame
+        Feature matrix or already computed ranking/importances
+        when ``precomputed=True``. If it is a raw dataset and
+        ``precomputed=False``, the function tries to compute
+        feature importances or ranks. If it is a precomputed
+        matrix of shape (n_features, n_models), the function
+        plots it directly.
+    y : array-like or None, optional
+        Target vector if new models are to be fitted for
+        computing feature importances, or for certain XAI
+        methods. Not used if the data is already precomputed
+        or if no model fitting is needed.
+    models : list or dict or None, optional
+        Model estimators or dictionary of named estimators.
+        If ``precomputed=False`` and models is ``None``,
+        default ones are created (e.g. random forest).
+        If ``precomputed=True``, can be used to rename
+        columns in the final plot if shapes match.
+    features : list of str or None, optional
+        Feature names. If computing importances, tries to
+        use them from ``X`` if it is a DataFrame. If the
+        matrix is already computed, you can supply them for
+        row labeling if shape matches.
+    precomputed : bool, optional
+        If ``True``, indicates ``X`` is already a
+        (ranking/importances) matrix. Otherwise, the function
+        calls :func:`~gofast.utils.mathext.compute_importances`
+        to generate them from the given models.
+    xai_methods : callable, optional
+        Custom function for computing feature importances in
+        :func:`compute_importances`. If provided, overrides
+        the built-in approaches.
+    plot_type : {'ranking', 'importance', 'auto', None}, optional
+        - ``'ranking'``: Ensures the function returns a matrix
+          of integer ranks.
+        - ``'importance'``: Produces floating-point importances.
+        - ``'auto'``: If ``precomputed=True``, tries to infer
+          from the matrix dtype (integer => rank, float =>
+          importance).
+        - ``None``: (default) the function produces ranks if it
+          is computing them from scratch.
+    prefit : bool, optional
+        If ``True``, user-provided models are assumed already
+        trained. If ``False``, the function fits them on
+        (X, y). Ignored if ``precomputed=True``.
+    annot : bool, optional
+        Whether to annotate each cell in the heatmap with its
+        value. Good for smaller matrices.
+    pkg : {'sklearn', 'shap', None}, optional
+        Backend for computing importances if not precomputed.
+        Defaults to ``'sklearn'``. If you want SHAP values,
+        choose ``'shap'``.
+    normalize : bool, optional
+        Whether to normalize columns if computing importances.
+        Each column can be scaled so its sum is 1. Ignored if
+        the matrix is precomputed.
+    fmt : str, optional
+        Format string for heatmap annotations, e.g. ``'d'``
+        for integers (for ranking visualization), ``'.2f'`` for
+        floats (for importances visualization) if ``fmt='auto'``.
+        
+    cmap : str, optional
+        Colormap for the heatmap. Default is ``"Purples_r"``.
+    figsize : tuple of (float, float), optional
+        Figure dimensions for the heatmap. Default is (4, 12),
+        a tall layout suitable for many features.
+    cbar : {'off', True, False}, optional
+        Whether to display the color bar. ``'off'`` or
+        ``False`` hides it.
+    **kw : dict, optional
+        Additional keyword arguments passed to 
+        :func:`seaborn.heatmap`. For example, ``linewidths``,
+        ``linecolor``, etc.
+
+    Notes
+    -----
+    This function primarily displays a heatmap where rows
+    correspond to features and columns to models. The cell
+    values can be either rank or raw importances. If multiple
+    models exist, you can quickly compare how each ranks or
+    values each feature [1]_.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from gofast.plot.utils import plot_ranking
+    >>> X = pd.DataFrame({
+    ...     'f1': np.random.randn(100),
+    ...     'f2': np.random.randn(100)
+    ... })
+    >>> y = np.random.randint(0, 2, size=100)
+    >>> # Plot a ranking from default models
+    >>> plot_ranking(X, y, plot_type='ranking', figsize=(4,6))
+
+    See Also
+    --------
+    compute_importances : Helper function that returns either
+        feature ranks or importances.
+
+    References
+    ----------
+    .. [1] Lundberg, S.M., & Lee, S.-I. (2017). A unified
+           approach to interpreting model predictions.
+           *Advances in Neural Information Processing
+           Systems*, 30, 4768-4777.
+    """
     # Check whether the data is already precomputed (ranking or importances)
     # or if it needs to be computed using the provided models
     if not precomputed:
@@ -107,17 +700,17 @@ def plot_ranking(
         # based on the user-specified plot_type
         return_rank = (plot_type is None or plot_type == 'ranking')
         
-        # Compute importances or rankings using gofast utility
+        # Call compute_importances from gofast mathext utilities
         df_result = compute_importances(
-            models      = models,
-            X           = X,
-            y           = y,
-            prefit      = prefit,
-            pkg         = pkg,
-            as_frame    = True,
-            xai_methods = xai_methods,
-            return_rank = return_rank,
-            normalize   = normalize
+            models=models,
+            X=X,
+            y=y,
+            prefit=prefit,
+            pkg=pkg,
+            as_frame=True,
+            xai_methods=xai_methods,
+            return_rank=return_rank,
+            normalize=normalize
         )
         # If we computed ranking, the dataframe is already ranking_matrix
         # Otherwise, it's the importances
@@ -154,11 +747,10 @@ def plot_ranking(
             else:
                 # warn the user here if lengths don't match
                 warnings.warn(
-                    "The length of the provided 'features' does not"
-                    " match the number of rows in the matrix"
-                    f" (features: {len(features)}, rows:"
-                    f" {matrix_to_plot.shape[0]}). Index will not"
-                    " be renamed."
+                    "Mismatch between 'features' length and the "
+                    "number of rows in the matrix: "
+                    f"features={len(features)}, rows="
+                    f"{matrix_to_plot.shape[0]}. Index not renamed."
                 )
     
         # If user provided model columns or a single string
@@ -172,13 +764,10 @@ def plot_ranking(
             else:
                 # warn the user here if mismatch
                 warnings.warn(
-                    "The length of the provided 'models' list does"
-                    " not match the number of columns in the matrix"
-                    f" (models: {len(models)}, columns:"
-                    f" {matrix_to_plot.shape[1]}). Column names"
-                    " will not be renamed." 
+                    "Mismatch between 'models' length and columns in matrix: "
+                    f"models=1, columns={matrix_to_plot.shape[1]}. "
+                    "Column names not renamed."
                 )
-                
         elif isinstance(models, (list, dict)):
             # Potentially handle dict keys as column names if lengths match
             if isinstance(models, dict) and len(models) == matrix_to_plot.shape[1]:
@@ -188,8 +777,8 @@ def plot_ranking(
                 warnings.warn(
                 "A single model name was provided as a string,"
                 " but the matrix has multiple columns (columns:"
-                f" {matrix_to_plot.shape[1]}). Column names will"
-                " not be renamed. "
+                f" {matrix_to_plot.shape[1]}). Column names"
+                " not renamed. "
              )
     # Prepare the heatmap to visualize either ranking or importances
     plt.figure(figsize=figsize)
@@ -202,6 +791,9 @@ def plot_ranking(
     )
     
     # Create the heatmap using Seaborn
+    if fmt=='auto': 
+        fmt="d" if matrix_kind=='ranking' else ".2f"
+    
     kw = filter_valid_kwargs(sns.heatmap, kw)
     sns.heatmap(
         matrix_to_plot,
@@ -222,14 +814,15 @@ def plot_ranking(
     plt.tight_layout()
     plt.show()
 
+
 @default_params_plot(
-    savefig="my_factory_ops_plot.png", 
+    savefig=PlotConfig.AUTOSAVE("my_factory_ops_plot.png"), 
     fig_size =(10, 8), 
     dpi=300, 
     )
 @check_params({ 
     "names": Optional[Union[str, List[str]]], 
-    "title": str, 
+    "title": Optional[str], 
     'figsize': Optional[Tuple[int, int]], 
     })
 @validate_params({ 
@@ -520,7 +1113,7 @@ def plot_factory_ops(
 
 
 @default_params_plot(
-    savefig='my_well_plot.png', 
+    savefig=PlotConfig.AUTOSAVE('my_well_plot.png'), 
     fig_size=None 
  )
 @validate_params ({ 
@@ -2137,6 +2730,7 @@ def plot_spatial_features(
     else:
         ncols = 1
 
+    features = columns_manager(features, empty_as_none =False)
     nrows = len(features)
  
     colormaps = columns_manager(colormaps) 
@@ -2637,16 +3231,16 @@ def boxplot(
     >>> np.random.seed(10)
     >>> d = [np.random.normal(0, std, 100) for std in range(1, 5)]
     >>> labels = ['s1', 's2', 's3', 's4']
-    >>> plot_custom_boxplot(d, labels, 
-    ...                     title='Class assignment (roc-auc): PsA activity',
-    ...                     y_label='roc-auc', 
-    ...                     figsize=(12, 7),
-    ...                     color="green",
-    ...                     showfliers=False, 
-    ...                     whis=2,
-    ...                     width=0.3, 
-    ...                     linewidth=1.5,
-    ...                     flierprops=dict(marker='x', color='black', markersize=5))
+    >>> boxplot(d, labels, 
+    ...      title='Class assignment (roc-auc): PsA activity',
+    ...      y_label='roc-auc', 
+    ...      figsize=(12, 7),
+    ...      color="green",
+    ...      showfliers=False, 
+    ...      whis=2,
+    ...      width=0.3, 
+    ...      linewidth=1.5,
+    ...      flierprops=dict(marker='x', color='black', markersize=5))
     Notes
     -----
     Boxplots are a standardized way of displaying the distribution of data 
@@ -2670,7 +3264,7 @@ def boxplot(
     # Set labels and title
     bplot.set_title(title)
     bplot.set_ylabel(y_label)
-    bplot.set_xticklabels(labels)
+    # bplot.set_xticklabels(labels, rotation=45)
     
     # Set the style of the plot
     sns.set_style(sns_style)
@@ -2679,7 +3273,10 @@ def boxplot(
     plt.show()
     return bplot
 
-@default_params_plot(savefig='my_fit_plot.png', fig_size=(8, 6))
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_fit_plot.png'),
+    fig_size=(8, 6)
+  )
 @validate_params({
     "y_true": ['array-like'], 
     "y_pred": ['array-like'], 
@@ -3530,7 +4127,6 @@ def plot_relationship(
 
     # Show the plot
     plt.show()
-
 
 def plot_r_squared(
     y_true, y_pred, 
@@ -5491,7 +6087,8 @@ def plot_spatial_distribution(
     plt.tight_layout()
     plt.show()
 
-@default_params_plot(savefig='my_distribution_plot.png')
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_distribution_plot.png'))
 @validate_params ({ 
     'df': ['array-like'], 
     'x_col': [str], 
@@ -5771,7 +6368,9 @@ def plot_dist(
     plt.show()
 
 
-@default_params_plot(savefig='my_q.distributions_plot.png')
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_q.distributions_plot.png')
+  )
 @validate_params ({ 
     'df': ['array-like'], 
     'x_col': [str], 
@@ -6436,7 +7035,7 @@ def _plot_reversed(
 
 
 @default_params_plot(
-    savefig='my_uncertainty_plot.png', 
+    savefig=PlotConfig.AUTOSAVE('my_uncertainty_plot.png'), 
     title ="Distribution of Uncertainties",
     fig_size=None 
  )
@@ -6638,7 +7237,7 @@ def plot_uncertainty(
     plt.show()
 
 @default_params_plot(
-    savefig='my_prediction_intervals_plot.png', 
+    savefig=PlotConfig.AUTOSAVE('my_prediction_intervals_plot.png'), 
     title ="Prediction Intervals",
     fig_size=(10, 6) 
  )
@@ -6835,7 +7434,7 @@ def plot_prediction_intervals(
     plt.show()
 
 @default_params_plot(
-    savefig='my_temporal_trends_plot.png', 
+    savefig=PlotConfig.AUTOSAVE('my_temporal_trends_plot.png'), 
     title ="Temporal Trends",
     fig_size=(8, 6) 
  )

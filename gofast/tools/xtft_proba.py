@@ -79,7 +79,7 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 import gofast as gf
 from gofast.core.io import read_data, print_script_info, show_usage 
-from gofast.nn.transformers import XTFT
+from gofast.nn.tft import XTFT
 
 # Configure logging
 logging.basicConfig(

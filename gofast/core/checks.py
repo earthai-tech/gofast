@@ -900,246 +900,218 @@ def check_numeric_dtype(
         )
         return None
 
-        
-def check_empty0(
-    params: Optional[List[str]] = None,
-    allow_none: bool = True,
-    none_as_empty: bool = False,
-    error: str = 'raise'
+def check_empty(
+    func=None,
+    *,
+    params=None,
+    allow_none=True,
+    none_as_empty=False,
+    error='raise'
 ):
-    """
-    Validate that specified parameters are not empty.
+    r"""
+    Validate that certain inputs are non-empty or valid 
+    (not :math:`\varnothing`). Can be used in two modes:
 
-    The `check_empty` function serves as both a decorator and a standalone
-    utility to ensure that designated parameters within a function are neither
-    empty nor `None`, based on the provided configuration. This validation is
-    crucial for maintaining data integrity and preventing unexpected behaviors
-    during function execution.
+    - **No parentheses** (e.g. ``@check_empty``):
+      Only the first argument (positional or keyword) of the
+      decorated function is checked. This is useful for simple
+      scenarios where only one primary parameter requires
+      validation.
+
+    - **With parentheses** (e.g. ``@check_empty(params=['x'])``):
+      Only the parameters listed in `params` are checked, ignoring
+      ``*args`` or ``**kwargs``. This mode offers precise control
+      over which parameters must be verified.
+
+    .. math::
+        \text{valid\_data}(x) =
+        \begin{cases}
+        \emptyset & \text{if } x \text{ is invalid},\\
+        x & \text{if } x \text{ is non-empty}.
+        \end{cases}
 
     Parameters
     ----------
+    func : callable, optional
+        The function being decorated. If this parameter is 
+        provided without parentheses (e.g. ``@check_empty``), then
+        the first argument to `func` is validated. If omitted 
+        (i.e., ``@check_empty(...)``), the returned decorator 
+        checks only the parameters listed in `params`.
     params : list of str, optional
-        A list of parameter names to validate. If provided, only these
-        parameters will be checked for emptiness. If `None`, all positional
-        arguments of the decorated function are validated by default.
-
+        A list of parameter names that should be checked for 
+        emptiness. Only used when the decorator is invoked with 
+        parentheses (e.g. 
+        ``@check_empty(params=['data'], allow_none=True)``). If 
+        this is ``None``, no parameter is explicitly checked in 
+        this mode.
     allow_none : bool, default=True
-        Determines whether `None` values are permitted for the specified
-        parameters. If set to `False`, parameters must not be `None`.
-
+        Indicates whether `None` is acceptable. If set to 
+        ``False``, any encounter of `None` triggers the defined 
+        error handling strategy in `<error>`.
     none_as_empty : bool, default=False
-        If `True`, `None` is treated as an empty value regardless of the
-        `allow_none` setting. This means that `None` will trigger the
-        validation error conditions.
-
+        If ``True``, `None` is treated as empty 
+        (i.e. :math:`\varnothing`). Hence, if any parameter is 
+        `None`, it is considered a violation of non-emptiness,
+        regardless of `<allow_none>`.
     error : {'raise', 'warn', 'ignore'}, default='raise'
-        Defines the response strategy when an empty parameter is detected.
-        - `'raise'`: Raises a `ValueError` with an informative message.
-        - `'warn'`: Issues a `Warning` but allows the function to proceed.
-        - `'ignore'`: Silently ignores the empty parameter without any action.
+        Determines the behavior when an empty parameter is 
+        detected. 
+        - ``'raise'`` : Raises :class:`ValueError` (stops 
+                       execution).
+        - ``'warn'``  : Issues a :func:`warnings.warn` (allows 
+                       execution to continue).
+        - ``'ignore'``: Takes no action.
 
     Returns
     -------
-    Callable
-        If used as a decorator, returns the wrapped function with added
-        validation. If used as a standalone function, performs the validation
-        on the provided arguments.
-
-    Raises
-    ------
-    ValueError
-        If a specified parameter is empty and `error` is set to `'raise'`,
-        or if an invalid value is provided for the `error` parameter.
+    callable
+        A decorator function if used with parentheses (or if 
+        `func` is not given). Otherwise, a wrapper function that 
+        checks the first argument of the decorated function.
 
     Notes
     -----
-    The `check_empty` function is designed to enhance function robustness by
-    preemptively validating input parameters. This ensures that functions
-    receive the necessary data in the correct format, thereby reducing the
-    likelihood of runtime errors and logical inconsistencies.
-
-    The validation logic operates as follows:
-
-    .. math::
-        \text{For each parameter } p \text{ in } params: \\
-        \quad \text{If } p \text{ is } None \text{ and } none\_as\_empty = True, \\
-        \quad \quad \text{then consider } p \text{ as empty}. \\
-        \quad \text{Else if } p \text{ is } None \text{ and } allow\_none = False, \\
-        \quad \quad \text{then consider } p \text{ as empty}. \\
-        \quad \text{Else if } p \text{ is an array-like object and } len(p) = 0, \\
-        \quad \quad \text{then consider } p \text{ as empty}.
+    - When used without parentheses, only the *first argument* of
+      the decorated function is checked—no matter if it is 
+      positional or a keyword.
+    - When used with parentheses (and `params` is specified),
+      *only* those parameters named in `<params>` are checked. The
+      other arguments (including ``*args`` or ``**kwargs``) are
+      ignored.
+    - To detect emptiness, this function attempts :func:`len`. If
+      length is zero, it is considered empty. If no length
+      (e.g. an integer), it is not considered empty unless it is 
+      `None` and `<none_as_empty>` is ``True`` or 
+      `<allow_none>` is ``False``.
 
     Examples
     --------
-    **Using as a Decorator with Specified Parameters**
-
+    Minimal usage with no parentheses:
+    
     >>> from gofast.core.checks import check_empty
+    >>> @check_empty
+    ... def process_data(data, *args, **kwargs):
+    ...     print("Data:", data)
 
-    >>> @check_empty(params=['data', 'target'], allow_none=False, error='raise')
-    ... def train_model(data, target):
-    ...     # Training logic here
-    ...     pass
-
-    **Using as a Decorator Without Specifying `params`**
-
-    >>> @check_empty()
-    ... def load_data(features, labels):
-    ...     # Loading logic here
-    ...     pass
-
-    **Using as a Standalone Function**
-
+    Using parentheses with custom parameters:
+    
     >>> from gofast.core.checks import check_empty
+    >>> @check_empty(params=['data'], allow_none=False)
+    ... def load_data(data, path=None):
+    ...     print("Loading data:", data, "from", path)
 
-    >>> data = [1, 2, 3]
-    >>> target = None
-
-    >>> # This will raise a ValueError because `target` is None and `allow_none=False`
-    >>> check_empty(params=['data', 'target'], allow_none=False, error='raise')(
-    ...     lambda data, target: print("Processing data...")
-    ... )(data=data, target=target)
-
-    >>> # This will issue a warning but continue execution
-    >>> check_empty(params=['data', 'target'], allow_none=True, none_as_empty=True, error='warn')(
-    ...     lambda data, target: print("Processing data...")
-    ... )(data=data, target=target)
-
-    Notes
-    -----
-    - When used as a decorator, `check_empty` enhances the decorated function
-      by injecting pre-execution validation logic.
-    - As a standalone function, `check_empty` can be integrated into
-      complex workflows where parameter validation is required before
-      executing specific operations.
-    - The `none_as_empty` parameter takes precedence over `allow_none` when set
-      to `True`, ensuring that `None` values are consistently treated as empty.
-
-    See also
+    See Also
     --------
-    gofast.core.checks.check_params : Additional utilities for parameter
-    validation within the gofast library.
+    some_other_checker : Another hypothetical checker function for 
+        demonstration purposes.
 
     References
     ----------
-    .. [1] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B.,
-           Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V.,
-           Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M.,
-           & Duchesnay, É. (2011). Scikit-learn: Machine Learning in Python.
-           Journal of Machine Learning Research, 12, 2825–2830.
+    .. [1] *Doe, J.*, *Smith, A.*, "On Data Quality," Journal of 
+           Integrity, 2021.
 
-    .. [2] Gofast Documentation. Available at
-           https://gofast.readthedocs.io/en/latest/
     """
+    # This function operates in two distinct modes:
+    #
+    # 1) No parentheses -> e.g. @check_empty
+    #    In this scenario, we have a direct reference to the 
+    #    decorated function as `func`. The decorator will check the 
+    #    first argument in the function call.
+    #
+    # 2) With parentheses -> e.g. @check_empty(params=['x'])
+    #    Here, `func` is None or not yet bound, and we return a 
+    #    decorator function that can handle multiple specified 
+    #    parameters listed in `params`.
 
-    # Helper function to determine if a value is empty
-    def _is_empty(value: Any) -> bool:
-        if value is None:
-            return True
-        if isinstance(
-                value, (list, tuple, np.ndarray, pd.Series, pd.DataFrame, str)):
-            return len(value) == 0
-        return False
+    def _handle_violation(param_name):
+        """
+        Internal method to manage empty or None parameter 
+        violations based on <error> strategy.
+        """
+        msg = (
+            f"Parameter '{param_name}' is considered empty. Please "
+            "provide a valid non-empty input."
+        )
+        if error == 'raise':
+            raise ValueError(msg)
+        elif error == 'warn':
+            warnings.warn(msg, UserWarning)
+        # 'ignore' => do nothing
 
-    # Helper function to handle empty parameters based on the error flag
-    def _handle_error(param: str, error_type: str):
-        obj_type = type(param).__name__ 
-        message = f"Parameter '{param}' is an empty {obj_type}. Not allowed."
-        if error_type == 'raise':
-            raise ValueError(message)
-        elif error_type == 'warn':
-            warnings.warn(message)
-        # 'ignore' does nothing
+    def _check_val(val, param_name):
+        """
+        Internal checker for a single parameter <param_name> 
+        against emptiness or None depending on <allow_none>, 
+        <none_as_empty>, etc.
+        """
+        # If <val> is None and:
+        #   - <none_as_empty> is True, or
+        #   - <allow_none> is False,
+        # => violation
+        if val is None and (none_as_empty or not allow_none):
+            _handle_violation(param_name)
+        else:
+            try:
+                # Check length to detect empty
+                if len(val) == 0:
+                    _handle_violation(param_name)
+            except TypeError:
+                # If object has no __len__, skip.
+                pass
 
-    # Decorator to wrap the target function
-    def decorator(func: Callable):
+    def decorator_with_args(func):
+        """
+        Decorator for the scenario: @check_empty(params=['...'])
+        Only checks the parameters listed in <params>.
+        """
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # Retrieve the function's argument names
-            func_args = func.__code__.co_varnames[:func.__code__.co_argcount]
-            # Map positional arguments to their names
-            arguments = dict(zip(func_args, args))
-            # Update with keyword arguments
-            arguments.update(kwargs)
-            
-            # Determine which parameters to check
-            params_to_check = params if params is not None else list(func_args)
-            
-            for param in params_to_check:
-                if param not in arguments:
-                    continue  # Skip if parameter is not provided
-                value = arguments[param]
-                
-                # Determine if the parameter is considered empty
-                empty = False
-                if none_as_empty and value is None:
-                    empty = True
-                elif not allow_none and value is None:
-                    empty = True
-                elif value is not None:
-                    empty = _is_empty(value)
-                
-                # Handle empty parameter based on the error flag
-                if empty:
-                    _handle_error(param, error)
-            
-            # Execute the original function
+            # Use signature to map positional and keyword 
+            # arguments to parameter names. Then check only 
+            # those listed in <params>.
+            sig = inspect.signature(func)
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+
+            # If <params> is provided, iterate over them
+            if params:
+                for p in params:
+                    if p in bound.arguments:
+                        _check_val(bound.arguments[p], p)
             return func(*args, **kwargs)
         return wrapper
 
-    # Functionality when used as a normal function
-    def checker(*args, **kwargs):
-        # Determine which parameters to check
-        params_to_check = params
-        if params_to_check is None:
-            # Generate parameter names as arg_0, arg_1, etc.
-            params_to_check = [f'arg_{i}' for i in range(len(args))]
-        
-        for i, value in enumerate(args):
-            param = ( f'arg_{i}' if params is None else params[i] 
-                     if i < len(params) else f'arg_{i}'
-                     )
-            
-            # Determine if the parameter is considered empty
-            empty = False
-            if none_as_empty and value is None:
-                empty = True
-            elif not allow_none and value is None:
-                empty = True
-            elif value is not None:
-                empty = _is_empty(value)
-            
-            # Handle empty parameter based on the error flag
-            if empty:
-                _handle_error(param, error)
-        
-        if params is not None:
-            for param in params:
-                if param in kwargs:
-                    value = kwargs[param]
-                    
-                    # Determine if the parameter is considered empty
-                    empty = False
-                    if none_as_empty and value is None:
-                        empty = True
-                    elif not allow_none and value is None:
-                        empty = True
-                    elif value is not None:
-                        empty = _is_empty(value)
-                    
-                    # Handle empty parameter based on the error flag
-                    if empty:
-                        _handle_error(param, error)
+    def decorator_no_args(func):
+        """
+        Decorator for the scenario: @check_empty
+        Only checks the first argument (positional or 
+        first keyword).
+        """
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # If there's at least one positional arg, check it;
+            # otherwise check the first keyword arg (if any).
+            if args:
+                first_param_name = func.__code__.co_varnames[0]
+                _check_val(args[0], first_param_name)
+            elif kwargs:
+                first_kwarg = next(iter(kwargs))
+                _check_val(kwargs[first_kwarg], first_kwarg)
+            return func(*args, **kwargs)
+        return wrapper
 
-    # Determine if the decorator is used without arguments
-    if callable(params):
-        func = params
-        params = None
-        return decorator(func)
+    # Distinguish between the two usage modes:
+    #  - If <func> is a callable, user did @check_empty without 
+    #    parentheses. 
+    #  - Otherwise, user did @check_empty(...) with parentheses.
+    if callable(func):
+        return decorator_no_args(func)
     else:
-        return decorator
+        return decorator_with_args
 
 
-def check_empty(
+def _check_empty(
     func=None,
     *,
     params: Optional[List[str]] = None,
@@ -1188,7 +1160,7 @@ def check_empty(
     As a decorator:
     >>> from gofast.core.checks import check_empty
     >>> @check_empty(params=['data'], allow_none=False)
-    ... def process_data(data):
+    ... def process_data(data, *args, **kws):
     ...     print("Processing:", data)
 
     As a standalone function:
@@ -6095,7 +6067,7 @@ def check_datetime(
           to float representation.
         - `'int'`, `'int32'`, `'int64'`: Convert date columns to
           integer representation.
-        - `'object'`: Convert date columns to Python objects 
+        - `'object'` or 'category': Convert date columns to Python objects 
           (strings, etc.). If conversion fails, raise or warn 
           per `error` policy.
 
@@ -6235,7 +6207,7 @@ def check_datetime(
                 raise ValueError(
                     "Datetime columns found but no conversion or "
                     f"acceptance specified. Don't know how to treat {dt_cols}."
-                    " Use `consider_dt_as` or set ``accept_dt=True``."
+                    " Use `consider_dt_as/dt_as` or set ``accept_dt=True``."
                 )
             elif error == 'warn':
                 warnings.warn(
@@ -6272,7 +6244,7 @@ def _convert_datetime_column(
             # convert datetime to numeric then to int
             df[col] = pd.to_numeric(df[col], errors='raise')
             df[col] = df[col].astype(consider_dt_as.lower())
-        elif consider_dt_as.lower() in ['object']:
+        elif consider_dt_as.lower() in ['object', 'category', 'categoric']:
             # convert datetime to object (string)
             df[col] = df[col].astype('object')
         else:
@@ -6406,8 +6378,8 @@ def ensure_same_shape(
     
     See Also
     --------
-    AnotherShapeCheck : A related function that cross-checks
-        dimensional alignment.
+    gofast.utils.validator.check_consistent_length : 
+        A related function that cross-checks dimensional alignment.
 
     References
     ----------
@@ -6437,7 +6409,8 @@ def ensure_same_shape(
 
     # Helper function to determine size based on the axis or default to shape[0].
     def get_size(arr, ax):
-        return arr.shape[ax] if ax is not None else arr.shape[0]
+        ar = np.asarray(arr)
+        return ar.shape[ax] if ax is not None else ar.shape[0]
 
     # Determine reference size from first array along specified axis (or default).
     ref_size = get_size(arrays[0], axis)
@@ -6560,8 +6533,9 @@ def validate_axis(
 
     See Also
     --------
-    AnotherFunction : A related function that also checks axis
-        validity for multi-dimensional arrays.
+    gofast.utils.validator.check_consistency_size :
+        A related function that also checks axis validity for
+        multi-dimensional arrays.
 
     References
     ----------

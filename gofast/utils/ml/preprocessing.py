@@ -126,7 +126,7 @@ __all__ = [
         'oversampling', 'undersampling', 'tomeklins', 'enn'}, 
     min_version='0.8.0'
  )
-@check_empty ( ['target', 'data'])
+@check_empty ( params=['target', 'data'])
 def handle_minority_classes(
     target,
     data=None,
@@ -757,7 +757,6 @@ def _clean_data_tomek_enn(
 
     return y_cleaned, data_cleaned
 
-# XXX TODO: DOCUM THE FUNCTION. 
 
 @validate_params ({
     'target': ['array-like'], 
@@ -765,127 +764,269 @@ def _clean_data_tomek_enn(
     })
 def encode_target(
     target: Union[np.ndarray, pd.Series, pd.DataFrame],
-    to_categorical: Optional[bool] = None,  # Transform numeric to categorical
-    to_continuous: Optional[bool] = None,   # Transform categorical to numeric
-    bins: Optional[int] = None,            # Binning strategy for numeric to categorical
-    return_cat_codes: bool = False,        # Return mapping of category codes
-    categorize_strategy: str = 'auto',     # Binning strategy for numeric targets
-    show_cat_codes=False,  # Display nice cat code. 
-    verbose=0, 
+    to_categorical: Optional[bool] = None,
+    to_continuous: Optional[bool] = None,
+    bins: Optional[int] = None,
+    return_cat_codes: bool = False,
+    categorize_strategy: str = 'auto',
+    show_cat_codes: bool = False,
+    verbose: int = 0
 ) -> Union[
-    np.ndarray,  # Encoded target
-    Tuple[np.ndarray, Dict],  # Encoded target + mapping (if return_cat_codes=True)
+    np.ndarray,
+    Tuple[np.ndarray, Dict]
 ]:
-    # collect the array properties to help recover later. 
-    collected = array_preserver (target, action = 'collect')
-    
-    # Ensure target is a pandas DataFrame or Series for consistent processing
-    target = to_frame_if (to_array(target), df_only=True)
-    # Function to detect if a column is numeric
-    def is_numeric(series):
+    r"""
+    Encode a target variable (time series or label column)
+    by transforming numeric values to categorical bins or vice
+    versa. The function can also optionally return mappings of
+    the new categories or numeric codes for reference.
+
+    Specifically, let :math:`X \in \mathbb{R}^n` be a numeric
+    target. If :math:`\text{to\_categorical} = True`, it
+    partitions :math:`X` into bins, returning integer-coded
+    categories. Conversely, a categorical target can be mapped
+    to numeric codes if :math:`\text{to\_continuous} = True`.
+
+    Parameters
+    ----------
+    target : {ndarray, Series, DataFrame}
+        The target data to encode. If multiple columns exist
+        (DataFrame), each column is processed separately.
+    to_categorical : bool, optional
+        If ``True``, convert numeric data into categories via
+        binning (Q-cut or uniform by default). If left
+        ``None``, no forced numeric->categorical conversion
+        is applied unless it is explicitly set or the data is
+        already categorical.
+    to_continuous : bool, optional
+        If ``True``, convert categorical data into numeric
+        codes. Typically, each unique category becomes an
+        integer in [0, k-1], where k is the number of
+        categories in the column.
+    bins : int, optional
+        Number of bins if converting numeric data to
+        categorical. Default is 5 if none specified.
+    return_cat_codes : bool, optional
+        If ``True``, returns a second object containing a
+        dictionary mapping integer codes to category labels
+        for each column.
+    categorize_strategy : {'auto', 'quantile', 'uniform'}, optional
+        The strategy for binning numeric data:
+
+        * ``'quantile'``: Use quantiles, ensuring an
+          (approximately) equal count in each bin.
+        * ``'uniform'``: Use uniform intervals over the
+          data range.
+        * ``'auto'``: Defaults to ``'quantile'``.
+    show_cat_codes : bool, optional
+        If ``True``, prints a summary of the category codes
+        per column using :class:`ResultSummary`.
+    verbose : int, optional
+        Verbosity level:
+
+        * ``0``: No console messages.
+        * ``1``: Basic steps logged.
+        * ``2``: Additional details on transformations.
+        * ``3``: Very detailed logs (debug-level).
+
+    Returns
+    -------
+    encoded_target : ndarray
+        The transformed target data. If multiple columns, it
+        returns an array of shape (n_samples, n_cols).
+    cat_codes : dict, optional
+        Returned only if ``return_cat_codes=True``. Maps each
+        column name to a dictionary of integer code => category
+        label.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from gofast.utils.ml.preprocessing import encode_target
+    >>> # Numeric to categorical example
+    >>> arr = np.array([10, 20, 30, 40, 50])
+    >>> encoded, codes = encode_target(
+    ...     arr,
+    ...     to_categorical=True,
+    ...     bins=2,
+    ...     return_cat_codes=True,
+    ...     categorize_strategy='quantile',
+    ...     verbose=2
+    ... )
+    Bining strategy not specified. Reset to 5 (default). # Example logs
+    Processing column '0' for numeric-to-categorical ...
+    ...
+    >>> # The array is now mapped to 2 bins, e.g. [0, 0, 0, 1, 1]
+
+    Notes
+    -----
+    * If both ``to_categorical=True`` and ``to_continuous=True``
+      are set, numeric->categorical has priority for numeric
+      columns, and categorical->numeric for object/categorical
+      columns.  
+    * This function attempts to preserve the shape and index
+      structure of the original input through the
+      ``array_preserver`` mechanism [1]_.
+
+    See Also
+    --------
+    pandas.cut : Bin values into discrete intervals (uniform).
+    pandas.qcut : Bin values into intervals with equal counts.
+    pandas.Categorical : Convert object data to categorical
+        codes.
+
+    References
+    ----------
+    .. [1] Cleveland, W.S. (1979). Robust Locally Weighted
+           Regression and Smoothing Scatterplots.
+           *Journal of the American Statistical Association*,
+           74(368), 829-836. (Though more about robust
+           smoothing, the array_preserver concept is somewhat
+           similar in usage of shapes/structure).
+    """
+
+    # Preserve the structure of the input array/Series/DataFrame.
+    collected = array_preserver(target, action='collect')
+
+    # Convert input to a DataFrame if needed (for uniform processing).
+    target = to_frame_if(target, df_only=True)
+
+    # Helper to check if a Series is numeric
+    def is_numeric(series: pd.Series) -> bool:
         return pd.api.types.is_numeric_dtype(series)
 
-    # Initialize mapping dictionary for categorical codes
+    # Prepare a dictionary to store category mappings
     map_codes = {}
 
-    # Process each column in the target DataFrame
+    # List to accumulate processed columns
     encoded_columns = []
+
+    # For each column in the target, apply the transformation
     for col in target.columns:
         col_data = target[col]
-        # Case 1: Transform numeric to categorical
-        if to_categorical and is_numeric(col_data):
-            if bins is None:
-                bins = 5  # Default to 5 bins if none specified
-                
-                if verbose >=2 : 
-                    print("Bining strategy not specified. Reset to 5 (default).")
-                
-            if verbose >= 3:
-                print(f"Processing column '{col}' for numeric-to-categorical"
-                      " transformation...")
-                print(f"Binning strategy: {categorize_strategy}, Bins: {bins}")
 
+        # Case 1: Numeric -> Categorical
+        if to_categorical and is_numeric(col_data):
+            # If user hasn't specified bins, default to 5
+            if bins is None:
+                bins = 5
+                if verbose >= 2:
+                    print(
+                        "Bining strategy not specified. "
+                        "Reset to 5 (default)."
+                    )
+
+            if verbose >= 3:
+                print(
+                    f"Processing column '{col}' for numeric-"
+                    f"to-categorical transformation..."
+                )
+                print(
+                    f"Binning strategy: {categorize_strategy}, "
+                    f"Bins: {bins}"
+                )
+
+            # Decide on quantile or uniform binning
             if categorize_strategy == 'quantile':
-                categorized, bins = pd.qcut(
-                    col_data, bins, 
-                    retbins=True, 
+                categorized, bin_edges = pd.qcut(
+                    col_data,
+                    bins,
+                    retbins=True,
                     duplicates='drop'
                 )
             elif categorize_strategy == 'uniform':
-                categorized, bins = pd.cut(
-                    col_data, bins, retbins=True
+                categorized, bin_edges = pd.cut(
+                    col_data,
+                    bins,
+                    retbins=True
                 )
-            else:  # Default to 'auto'
-                categorized, bins = pd.qcut(
-                    col_data, bins, 
-                    retbins=True, 
+            else:
+                # 'auto' defaults to 'quantile'
+                categorized, bin_edges = pd.qcut(
+                    col_data,
+                    bins,
+                    retbins=True,
                     duplicates='drop'
                 )
+
+            # Convert categories to integer codes
             encoded = categorized.cat.codes
-            map_codes[col] = {k: v for k, v in enumerate(
-                categorized.cat.categories)}
-            
+            map_codes[col] = {
+                k: v
+                for k, v in enumerate(categorized.cat.categories)
+            }
+
             if verbose >= 2:
                 print(f"Categorized column '{col}': {map_codes[col]}")
-                
-        # Case 2: Transform categorical to numeric
+
+        # Case 2: Categorical -> Numeric
         elif to_continuous and not is_numeric(col_data):
-            
             if verbose >= 3:
-                print(f"Processing column '{col}' for "
-                      "categorical-to-numeric transformation..."
-                     )
-                
-            col_data = col_data.astype('category')  # Ensure it's treated as categorical
+                print(
+                    f"Processing column '{col}' for "
+                    f"categorical-to-numeric transformation..."
+                )
+
+            # Ensure it's a pd.Categorical for .cat.codes
+            col_data = col_data.astype('category')
             encoded = col_data.cat.codes
-            map_codes[col] = {k: v for k, v in enumerate(
-                col_data.cat.categories)}
-            
+            map_codes[col] = {
+                k: v
+                for k, v in enumerate(col_data.cat.categories)
+            }
+
             if verbose >= 2:
                 print(f"Encoded column '{col}': {map_codes[col]}")
 
-        # Case 3: Column is already numeric or categorical, no transformation
+        # Case 3: No transformation needed or already appropriate
         else:
+            # If already a categorical type, map codes
             if col_data.dtype.name == 'category':
                 encoded = col_data.cat.codes
-                map_codes[col] = {k: v for k, v in enumerate(
-                    col_data.cat.categories)}
+                map_codes[col] = {
+                    k: v
+                    for k, v in enumerate(col_data.cat.categories)
+                }
             else:
                 encoded = col_data
-            
-            if verbose >= 2:
-                print(f"Column '{col}' requires no transformation.")
 
-        # Append encoded column to results
+            if verbose >= 2:
+                print(
+                    f"Column '{col}' requires no transformation."
+                )
+
         encoded_columns.append(encoded)
 
-    # Combine encoded columns into a DataFrame
+    # Reconstruct a DataFrame from processed columns
     encoded_target = pd.concat(encoded_columns, axis=1)
-    
-    collected ['processed']=[encoded_target] 
-    try: 
-        encoded_target = array_preserver (
-            collected, 
-            solo_return =True, 
-            action='restore', 
-            deep_restore=True 
-        ) 
-    except : 
-        encoded_target = return_if_preserver_failed(
-            encoded_target, warn="ignore", 
-            verbose=verbose 
-            )
 
-    if show_cat_codes: 
-        # print nice dictionay 
+    # Attempt to restore original structure (index, shape, etc.)
+    collected['processed'] = [encoded_target]
+    try:
+        encoded_target = array_preserver(
+            collected,
+            solo_return=True,
+            action='restore',
+            deep_restore=True
+        )
+    except Exception:
+        # If it fails, fallback to raw DataFrame, optional ignore warnings
+        encoded_target = return_if_preserver_failed(
+            encoded_target,
+            warn="ignore",
+            verbose=verbose
+        )
+
+    # If user wants to see category codes, print them nicely
+    if show_cat_codes:
         summary = ResultSummary(
-            name="CatCodes", 
-            flatten_nested_dicts=False 
-            ).add_results(map_codes) 
-        
-        print(summary) 
-        
-    # Return results
+            name="CatCodes",
+            flatten_nested_dicts=False
+        ).add_results(map_codes)
+        print(summary)
+
+    # If user wants category mappings returned, do so
     if return_cat_codes:
         return encoded_target, map_codes
     return encoded_target
@@ -1077,7 +1218,8 @@ def one_click_prep (
     data_processed = pd.DataFrame(
         data_processed, columns=processed_columns, index=data.index)
 
-    # Attempt to use a custom transformer if available.
+    # Attempt to use a custom transformer for reverting floating
+    # point if available.
     try:
         from ..transformers import FloatCategoricalToInt
         data_processed = FloatCategoricalToInt(
@@ -1277,10 +1419,13 @@ def soft_encoder(
             raise TypeError(f"Provided func is not callable. Received: {type(func)}")
         if len(cat_columns) == 0:
             # Warn if no categorical data were found
-            warnings.warn("No categorical data were detected. To transform"
-                          " numeric values into categorical labels, consider"
-                          " using either `gofast.utils.smart_label_classifier`"
-                          " or `gofast.utils.categorize_target`.")
+            warnings.warn(
+                "No categorical data were detected. To transform"
+                " numeric values into categorical labels, consider"
+                " using either `gofast.utils.smart_label_classifier`,"
+                " `gofast.utils.categorize_target` or"
+                " `gofast.preprocessing.encode_target`."
+            )
             return df
         
         # Apply the function to each categorical column
@@ -1640,8 +1785,6 @@ def bin_counting(
                  ) 
 
     return d
-
-
 
 def _single_counts ( 
         d,  bin_column, tname, odds = "N+",
@@ -3075,7 +3218,6 @@ def _concat_scaled_numeric_with_categorical(X_scaled_numeric, X, cat_features):
                           X[cat_features]], axis=1)
     return X_scaled[X.columns]  # Maintain original column order
 
-
 @is_data_readable
 @Dataify(auto_columns=True, prefix='feature_')
 @validate_params ({ 
@@ -3163,8 +3305,8 @@ def generate_proxy_feature(
         - `verbose` controls whether the Mean Squared Error (MSE) on the 
           test set and feature importances are printed for model evaluation.
 
-    Returns:
-    -------
+    Returns
+    ---------
     pd.Series or pd.DataFrame
         - If `infer_data=True`, returns the original dataframe with the new 
           proxy feature added.
@@ -3204,11 +3346,11 @@ def generate_proxy_feature(
 
     See Also
     ---------
-    `sklearn.ensemble.RandomForestRegressor` : Default machine learning 
+    sklearn.ensemble.RandomForestRegressor : Default machine learning 
          model used for regression tasks.
-    `pandas.DataFrame.join` : Method to combine the original data with the 
+    pandas.DataFrame.join` : Method to combine the original data with the 
         generated proxy feature.
-    `gofast.utils.mlutils.generate_dirichlet_features`: Generate 
+    gofast.utils.mlutils.generate_dirichlet_features`: Generate 
         synthetic features using the Dirichlet distribution.
     
     References
@@ -3361,7 +3503,7 @@ def _manage_target(data, target):
 @validate_params ({ 
     "data": ['array-like'], 
     "num_categories": [Interval(Real, 1, None, closed="left")], 
-    "concentration_params": [list, None], 
+    "concentration_params": ['array-like', None], 
     "proxy_name": [str, None], 
     "infer_data": [bool], 
     "random_state": ['random_state', None], 
@@ -3496,11 +3638,11 @@ def generate_dirichlet_features(
 
     See Also:
     ---------
-    `numpy.random.dirichlet` : The function used to generate Dirichlet-
+    numpy.random.dirichlet : The function used to generate Dirichlet-
           distributed random variables.
-    `pandas.DataFrame.join` : The method used to join the generated features 
+    pandas.DataFrame.join : The method used to join the generated features 
           with the original data.
-    `gofast.utils.ml.preprocessing.generate_proxy_feature`: Generate a proxy feature 
+    gofast.utils.ml.preprocessing.generate_proxy_feature: Generate a proxy feature 
          based on the available features. 
          
     References

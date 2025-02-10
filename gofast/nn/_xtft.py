@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# -*- coding: utf-8 -*-
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
@@ -60,7 +59,7 @@ if KERAS_BACKEND:
     from .utils import set_default_params, set_anomaly_config 
     
 
-DEP_MSG = dependency_message('transformers.xtft') 
+DEP_MSG = dependency_message('tft.xtft') 
 
 # -------------------- XTFT components ----------------------------------------
 
@@ -688,9 +687,8 @@ class XTFT(Model, NNLearner):
         use_residuals: bool = True,
         use_batch_norm: bool = False,
         final_agg: str = 'last',
-        **kwargs
     ):
-        super().__init__(**kwargs)
+        super().__init__()
 
         # Initialize Logger
         self.logger = gofastlog().get_gofast_logger(__name__)
@@ -825,7 +823,7 @@ class XTFT(Model, NNLearner):
         
 
     def call(self, inputs, training=False):
-        dynamic_input, future_input, static_input = validate_xtft_inputs (
+        static_input , dynamic_input, future_input = validate_xtft_inputs (
             inputs =inputs,
             static_input_dim=self.static_input_dim, 
             dynamic_input_dim= self.dynamic_input_dim, 
@@ -1424,7 +1422,7 @@ final_agg : str, optional
 
 Examples
 --------
->>> from gofast.nn.transformers import XTFT
+>>> from gofast.nn.tft import XTFT
 >>> import tensorflow as tf
 >>> model = XTFT(
 ...     static_input_dim=10,
@@ -1432,7 +1430,6 @@ Examples
 ...     future_input_dim=5,
 ...     forecast_horizons=3,
 ...     quantiles=None# [0.1, 0.5, 0.9],
-
 ...     scales='auto',
 ...     final_agg='last'
 ... )
@@ -1460,7 +1457,7 @@ Out[8]: <keras.callbacks.History at 0x20474300640>
 
 See Also
 --------
-gofast.nn.transformers.TemporalFusionTransformer : 
+gofast.nn.tft.TemporalFusionTransformer : 
     The original TFT model for comparison.
 MultiHeadAttention : Keras layer for multi-head attention.
 LSTM : Keras LSTM layer for sequence modeling.
@@ -1513,7 +1510,6 @@ class SuperXTFT(XTFT):
         use_residuals: bool = True,
         use_batch_norm: bool = False,
         final_agg: str = 'last',
-        **kwargs
     ):
         super().__init__(
             static_input_dim=static_input_dim,
@@ -1537,7 +1533,6 @@ class SuperXTFT(XTFT):
             use_residuals=use_residuals,
             use_batch_norm=use_batch_norm,
             final_agg=final_agg,
-            **kwargs
         )
         
         self.logger = gofastlog().get_gofast_logger(__name__)
@@ -1598,7 +1593,7 @@ class SuperXTFT(XTFT):
         # Initialize Gate -> Add & Norm -> GRN pipeline for decoder outputs
         self.grn_decoder = GatedResidualNetwork(
             units=output_dim,
-            dropout_rate=dropout_rate,
+            dropout_rate=dropout_rate, 
             use_time_distributed=False,
             activation=activation,
             use_batch_norm=use_batch_norm
@@ -1610,7 +1605,7 @@ class SuperXTFT(XTFT):
         # and normalization
         
     def call(self, inputs, training=False):
-        static_input, dynamic_input, future_input = self.validate_xtft_inputs(
+        static_input, dynamic_input, future_input = validate_xtft_inputs(
             inputs=inputs,
             static_input_dim=self.static_input_dim, 
             dynamic_input_dim=self.dynamic_input_dim, 

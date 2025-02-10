@@ -674,9 +674,18 @@ class BaseClass(metaclass=HelpMeta):
     key options:
     `formatage` for formatting and `vertical_display` for controlling vertical
     alignment.
-
+    
     Attributes
     ----------
+    verbose : int
+        Verbosity level (0-3). Controls how much information is logged:
+        
+        - 0 : Log errors only.
+        - 1 : Log warnings and errors.
+        - 2 : Log informational messages, warnings, and errors.
+        - 3 : Log debug-level messages, informational messages, warnings, 
+              and errors.
+
     MAX_DISPLAY_ITEMS : int
         The maximum number of items to display when summarizing collections. 
         Default is 5.
@@ -744,8 +753,23 @@ class BaseClass(metaclass=HelpMeta):
     _vertical_display = False 
     _auto_display=True 
     
+    def __init__(
+        self,
+        verbose: int = 0
+    ):
+        """
+        Initialize the base class.
+
+        Parameters
+        ----------
+        verbose : int, optional
+            Verbosity level controlling logging (0 to 3). Defaults to 0.
+        """
+        self.verbose = verbose
+
     def save(
         self,
+        obj: Optional[Any] = None,
         file_path: Optional[str] = None,
         format: str = 'json',
         encoding: str = 'utf-8',
@@ -756,65 +780,71 @@ class BaseClass(metaclass=HelpMeta):
         """
         Save the object's data to a specified file in the desired format.
 
-        This method provides a robust mechanism to persist an object's state by 
-        exporting its data to various formats such as JSON, CSV, or HDF5. It includes 
-        features like error handling, logging, data validation, and supports 
-        additional parameters for extended flexibility.
+        This method provides a robust mechanism to persist an object's
+        state by exporting its data to various formats such as JSON, CSV,
+        HDF5, Pickle, or Joblib. It includes features like error handling,
+        logging, data validation, and supports additional parameters for
+        extended flexibility.
 
         .. math::
-            S(D, F, E, O, V) = 
-            \begin{cases} 
-                \text{True} & \text{if save operation succeeds} \\
-                \text{False} & \text{otherwise}
-            \end{cases}
+            S(D, F, E, O, V) =
+            \\begin{cases}
+                \\text{True} & \\text{if save operation succeeds} \\\\
+                \\text{False} & \\text{otherwise}
+            \\end{cases}
 
         where:
-            - :math:`D` is the data obtained from `to_dict` method,
-            - :math:`F` is the format (`json`, `csv`, or `hdf5`),
-            - :math:`E` is the encoding (e.g., `utf-8`),
-            - :math:`O` is the overwrite flag,
+            - :math:`D` is the data obtained from `to_dict` method
+              (if applicable).
+            - :math:`F` is the format (`json`, `csv`, `hdf5`, `pickle`,
+              or `joblib`).
+            - :math:`E` is the encoding (e.g., `utf-8`).
+            - :math:`O` is the overwrite flag.
             - :math:`V` is the validation function.
 
         Parameters
         ----------
+        obj : Any, optional
+            The object whose data should be saved. Defaults to `self`.
         file_path : str, optional
-            The path where the file will be saved. If not provided, defaults to 
-            ``'<class_name>_data.<ext>'``, where ``<ext>`` is determined by 
-            the `format` parameter. (default is ``None``)
+            The path where the file will be saved. If not provided,
+            defaults to ``'<class_name>_data.<ext>'``, where ``<ext>``
+            is determined by the `format` parameter. (default is ``None``)
         format : str, default 'json'
             The format in which to save the data. Supported formats are:
-            
+
             - `'json'`: Saves data in JSON format.
             - `'csv'`: Saves data in CSV format.
             - `'h5'` or `'hdf5'`: Saves data in HDF5 format.
-            
+            - `'pickle'`: Saves data using Python's `pickle`.
+            - `'joblib'`: Saves data using the `joblib` library.
+
             Can be extended to support additional formats as needed.
         encoding : str, default 'utf-8'
-            The encoding to use when writing the file. Common encodings include 
-            `'utf-8'`, `'utf-16'`, etc.
+            The encoding to use when writing the file (e.g., `'utf-8'`).
         overwrite : bool, default False
-            Determines whether to overwrite the file if it already exists at 
-            `file_path`. If set to ``False`` and the file exists, the save 
-            operation will be aborted to prevent data loss.
+            Determines whether to overwrite the file if it already exists
+            at `file_path`. If set to ``False`` and the file exists,
+            the operation will be aborted to prevent data loss.
         validate_func : Callable[[Any], bool], optional
-            A user-provided function that takes the data as input and returns 
-            ``True`` if the data is valid or ``False`` otherwise. This allows 
-            for custom data validation before saving.
+            A user-provided function that takes the data as input and
+            returns ``True`` if the data is valid or ``False`` otherwise.
+            This allows for custom data validation before saving.
         **kwargs : dict
-            Additional keyword arguments to provide future flexibility or pass 
-            extra parameters as needed.
+            Additional keyword arguments to provide future flexibility
+            or pass extra parameters as needed.
 
         Returns
         -------
         bool
-            Returns ``True`` if the save operation was successful, 
+            Returns ``True`` if the save operation was successful,
             ``False`` otherwise.
 
         Examples
         --------
-        >>> from gofast.api.property import save
         >>> class User(BaseClass):
         ...     def __init__(self, username, email):
+        ...         super().__init__(verbose=2)
         ...         self.username = username
         ...         self.email = email
         ...     def to_dict(self):
@@ -831,7 +861,6 @@ class BaseClass(metaclass=HelpMeta):
         >>> print(success)
         True
 
-        >>> # Saving as HDF5
         >>> success_h5 = user.save(
         ...     file_path='user_data.h5',
         ...     format='hdf5',
@@ -842,126 +871,210 @@ class BaseClass(metaclass=HelpMeta):
 
         Notes
         -----
-        - The object must implement a `to_dict` method that returns its data 
-          in dictionary format.
-        - Currently supports saving in `'json'`, `'csv'`, and `'hdf5'` formats. 
-          Additional formats can be integrated as needed.
-        - Logging is performed to track the save operations and any errors 
-          encountered during the process.
+        - The object must implement a `to_dict` method if saving
+          in JSON, CSV, or HDF5 formats.
+        - Currently supports `'json'`, `'csv'`, `'hdf5'`, `'pickle'`,
+          and `'joblib'` formats.
+        - Logging level is controlled by `verbose` (0-3).
+        - Errors are always logged. Info/debug logs depend on `verbose`.
 
         See Also
         --------
-        BaseClass.to_dict : Method to convert object data to dictionary format.
+        BaseClass.to_dict : Method to convert object data to dictionary.
 
         References
         ----------
         .. [1] Smith, J. (2020). *Effective Python Programming*. Python Press.
-        .. [2] Doe, A. (2021). *Advanced Data Persistence Techniques*. Data Books.
-        .. [3] Harris, C.R., Millman, K.J. (2020). *Array Programming with NumPy*. 
-               O'Reilly Media.
-        .. [4] HDF Group. (n.d.). HDF5 Overview. Retrieved from 
+        .. [2] Doe, A. (2021). *Advanced Data Persistence Techniques*.
+               Data Books.
+        .. [3] Harris, C.R., Millman, K.J. (2020). *Array Programming 
+               with NumPy*. O'Reilly Media.
+        .. [4] HDF Group. (n.d.). HDF5 Overview. Retrieved from
                https://www.hdfgroup.org/solutions/hdf5/
         """
+        # If no object is specified, use self.
+        obj = obj or self
+
+        # Determine file extension if none is provided.
+        if not file_path:
+            lower_fmt = format.lower()
+            if lower_fmt in ['json', 'csv']:
+                extension = lower_fmt
+            elif lower_fmt in ['h5', 'hdf5']:
+                extension = 'h5'
+            elif lower_fmt in ['pickle', 'joblib']:
+                # Use 'pkl' for both 'pickle' or 'joblib'.
+                extension = 'pkl'
+            else:
+                extension = 'dat'
+            file_path = (
+                f"{self.__class__.__name__.lower()}_data.{extension}"
+            )
+
+        path = Path(file_path)
+        # Check file existence and handle overwrite.
+        if path.exists() and not overwrite:
+            if self.verbose > 0:
+                logger.error(
+                    ("File '{}' already exists. Use overwrite=True "
+                     "to overwrite.").format(file_path)
+                )
+            return False
+
+        # Prepare the data from to_dict if needed for certain formats.
+        # (json, csv, hdf5 typically rely on dictionary data.)
+        data = None
+        format_lower = format.lower()
+
+        # If format is one of the dictionary-based formats, ensure obj
+        # has 'to_dict'. For pickle/joblib, we store the entire object
+        # instead.
+        dict_based_formats = ['json', 'csv', 'h5', 'hdf5']
+        if format_lower in dict_based_formats:
+            if (hasattr(obj, 'to_dict')
+                and callable(getattr(obj, 'to_dict'))):
+                data = obj.to_dict()
+            else:
+                if self.verbose > 0:
+                    logger.error(
+                        ("The object does not have a 'to_dict' method "
+                         "required for '{}'.").format(format_lower)
+                    )
+                return False
+
+        # Validate data if a validate_func is provided.
+        if validate_func is not None:
+            # If the format is pickle/joblib, we validate using the
+            # entire object. Otherwise we validate the dictionary data.
+            item_to_validate = data if data is not None else obj
+            if not validate_func(item_to_validate):
+                if self.verbose > 0:
+                    logger.error("Data validation failed.")
+                return False
 
         try:
-            # Determine file path
-            if not file_path:
-                if format.lower() in ['json', 'csv']:
-                    extension = format.lower()
-                elif format.lower() in ['h5', 'hdf5']:
-                    extension = 'h5'
-                else:
-                    extension = 'dat'
-                file_path = f"{self.__class__.__name__.lower()}_data.{extension}"
-            path = Path(file_path)
-
-            # Check if file exists
-            if path.exists() and not overwrite:
-                logger.error(
-                    f"File '{file_path}' already exists. "
-                    "Use overwrite=True to overwrite."
-                )
-                return False
-
-            # Prepare data (assuming the object has a to_dict method)
-            if hasattr(self, 'to_dict') and callable(getattr(self, 'to_dict')):
-                data = self.to_dict()
-            else:
-                logger.error("The object does not have a 'to_dict' method.")
-                return False
-
-            # Validate data if a validation function is provided
-            if validate_func:
-                if not validate_func(data):
-                    logger.error("Data validation failed.")
-                    return False
-
-            # Save data based on the specified format
-            format_lower = format.lower()
+            # Handle saving in the appropriate format.
             if format_lower == 'json':
                 with path.open('w', encoding=encoding) as f:
-                    json.dump(data, f, ensure_ascii=False, indent=4)
+                    json.dump(
+                        data,
+                        f,
+                        ensure_ascii=False,
+                        indent=4
+                    )
+
             elif format_lower == 'csv':
-                if isinstance(data, list) and all(
-                    isinstance(item, dict) for item in data
-                ):
-                    with path.open('w', encoding=encoding, newline='') as f:
+                # CSV expects a list of dictionaries.
+                if (isinstance(data, list)
+                    and all(
+                        isinstance(item, dict)
+                        for item in data
+                    )):
+                    with path.open(
+                        'w',
+                        encoding=encoding,
+                        newline=''
+                    ) as f:
                         writer = csv.DictWriter(
-                            f, fieldnames=data[0].keys()
+                            f,
+                            fieldnames=data[0].keys()
                         )
                         writer.writeheader()
                         writer.writerows(data)
                 else:
-                    logger.error(
-                        "Data for CSV format must be a list of dictionaries."
-                    )
+                    if self.verbose > 0:
+                        logger.error(
+                            ("Data for CSV format must be a list "
+                             "of dictionaries.")
+                        )
                     return False
-                
-            elif format_lower in ['h5', 'hdf5']: 
+
+            elif format_lower in ['h5', 'hdf5']:
+                # HDF5 requires 'h5py'.
                 try:
                     import h5py
                 except ImportError:
-                    logger.error(
-                        "The 'h5py' library is required to save data in HDF5"
-                        " format. Please install it using `pip install h5py`"
-                        " or `conda install h5py` and try again."
-                    )
+                    if self.verbose > 0:
+                        logger.error(
+                             "The 'h5py' library is required to "
+                             "save data in HDF5 format. Install "
+                             "it with 'pip install h5py' or "
+                             "'conda install h5py' and try again."
+                        )
                     return False
 
                 if isinstance(data, dict):
                     with h5py.File(path, 'w') as h5f:
                         for key, value in data.items():
-                            # Convert data to a format compatible with HDF5
+                            # Convert data to a format compatible
+                            # with HDF5. Lists become datasets.
                             if isinstance(value, list):
                                 h5f.create_dataset(key, data=value)
                             elif isinstance(value, dict):
-                                # Nested dictionaries can be stored as groups
+                                # Nested dicts become groups.
                                 grp = h5f.create_group(key)
-                                for sub_key, sub_value in value.items():
-                                    grp.create_dataset(sub_key, data=sub_value)
+                                for subk, subv in value.items():
+                                    grp.create_dataset(subk, data=subv)
                             else:
                                 h5f.create_dataset(key, data=value)
                 else:
-                    logger.error(
-                        "Data for HDF5 format must be a dictionary."
-                    )
+                    if self.verbose > 0:
+                        logger.error(
+                            ("Data for HDF5 format must be a "
+                             "dictionary.")
+                        )
                     return False
+
+            elif format_lower == 'pickle':
+                # Use the standard library 'pickle' to serialize
+                # the entire object.
+                import pickle
+                with path.open('wb') as f:
+                    pickle.dump(
+                        obj,
+                        f,
+                        protocol=pickle.HIGHEST_PROTOCOL
+                    )
+
+            elif format_lower == 'joblib':
+                # Use 'joblib' to serialize the entire object.
+                try:
+                    import joblib
+                except ImportError:
+                    if self.verbose > 0:
+                        logger.error(
+                            ("The 'joblib' library is required "
+                             "to save data in joblib format. "
+                             "Install it and try again.")
+                        )
+                    return False
+                joblib.dump(obj, path)
+
             else:
-                logger.error(
-                    f"Unsupported format '{format}'. Supported formats are 'json', "
-                    "'csv', and 'hdf5'."
-                )
+                # Unsupported format.
+                if self.verbose > 0:
+                    logger.error(
+                        ("Unsupported format '{}'. Supported "
+                         "formats are 'json', 'csv', 'hdf5', "
+                         "'pickle', and 'joblib'.").format(format)
+                    )
                 return False
 
-            logger.info(
-                f"Data successfully saved to '{file_path}' in '{format}' format."
-            )
+            # If we reach here, saving succeeded.
+            # Log informational message at an appropriate verbosity.
+            if self.verbose > 1:
+                logger.info(
+                    ("Data successfully saved to '{}' in '{}' "
+                     "format.").format(file_path, format)
+                )
             return True
 
         except Exception as e:
-            logger.exception(f"An error occurred while saving data: {e}")
+            # Always log exceptions, even if verbose=0.
+            logger.exception(
+                f"An error occurred while saving data: {e}"
+            )
             return False
-   
 
     def __repr__(self) -> str:
         """
@@ -1380,12 +1493,9 @@ class BaseLearner(metaclass=LearnerMeta):
     This class provides essential functionalities for setting parameters, 
     cloning, executing, and inspecting learner objects.
 
-    Parameters
-    ----------
-    None
-        This base class does not accept parameters during initialization. 
-        Parameters are managed dynamically using the `set_params` method 
-        and can be retrieved via `get_params`.
+    This base class does not accept parameters during initialization. 
+    Parameters are managed dynamically using the `set_params` method 
+    and can be retrieved via `get_params`.
 
     Methods
     -------
@@ -1502,7 +1612,6 @@ class BaseLearner(metaclass=LearnerMeta):
            Machine Learning Models". *Journal of Machine Learning Systems*, 
            15(3), 100-120.
     """
-
 
     @classmethod
     def _get_param_names(cls):
@@ -1737,7 +1846,7 @@ class BaseLearner(metaclass=LearnerMeta):
             - `"passthrough"`: Returns `True` or `False` indicating the run 
               status.
             - Any other value: Raises `NotRunnedError` if the learner has 
-              not been run.
+              not been runned.
     
         Returns
         -------
@@ -1905,6 +2014,7 @@ class BaseLearner(metaclass=LearnerMeta):
             
     def save(
         self,
+        obj: Any =None, 
         file_path: Optional[str] = None,
         format: str = 'pickle',
         overwrite: bool = False,
@@ -1987,7 +2097,7 @@ class BaseLearner(metaclass=LearnerMeta):
         .. [1] Smith, J. (2020). *Effective Python Programming*. Python Press.
         .. [2] Doe, A. (2021). *Advanced Data Persistence Techniques*. Data Books.
         """
-
+        obj = obj or self 
         try:
             # Determine file path
             if not file_path:
@@ -2012,9 +2122,9 @@ class BaseLearner(metaclass=LearnerMeta):
             # Prepare data
             data = None
             if format.lower() in ['json', 'csv']:
-                if hasattr(self, 'to_dict') and callable(
-                        getattr(self, 'to_dict')):
-                    data = self.to_dict()
+                if hasattr(obj, 'to_dict') and callable(
+                        getattr(obj, 'to_dict')):
+                    data = obj.to_dict()
                 else:
                     logger.error("The object does not have a 'to_dict' method.")
                     return False
@@ -2044,8 +2154,8 @@ class BaseLearner(metaclass=LearnerMeta):
                     )
                     return False
             elif format.lower() in ['h5', 'hdf5']:
-                if hasattr(self, 'to_hdf5') and callable(getattr(self, 'to_hdf5')):
-                    self.to_hdf5(file_path, **kwargs)
+                if hasattr(obj, 'to_hdf5') and callable(getattr(obj, 'to_hdf5')):
+                    obj.to_hdf5(file_path, **kwargs)
                 else:
                     logger.error(
                         "The object does not have a 'to_hdf5'"
@@ -2054,7 +2164,7 @@ class BaseLearner(metaclass=LearnerMeta):
                     return False
             elif format.lower() in ['pkl', 'pickle']:
                 with path.open('wb') as f:
-                    pickle.dump(self, f)
+                    pickle.dump(obj, f)
             else:
                 logger.error(
                     f"Unsupported format '{format}'. Supported formats"
@@ -3155,7 +3265,7 @@ class Software(BaseClass):
                 Author = author, 
         ... )
         >>> software.get_author_contact () 
-        LKouadio Contact(
+        LKouadioContact(
           {
 
                name             : LKouadio

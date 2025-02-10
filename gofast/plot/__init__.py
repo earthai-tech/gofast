@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
- 
+
+from ._config import PlotConfig 
 from .evaluate import ( 
     EvalPlotter, 
     MetricPlotter, 
@@ -36,7 +37,7 @@ from .feature_analysis import (
     plot_feature_interactions, 
     plot_variables, 
     plot_correlation_with, 
-    plot_dependences, 
+    plot_dependence, 
     plot_sbs_feature_selection, 
     plot_permutation_importance, 
     plot_regularization_path, 
@@ -61,7 +62,8 @@ from .ml_viz import (
     plot_confusion_matrix_in, 
     plot_confusion_matrix, 
     plot_roc_curves, 
-    plot_taylor_diagram, 
+    plot_taylor_diagram,
+    plot_taylor_diagram_in, 
     plot_cv, 
     plot_confidence, 
     plot_confidence_ellipse, 
@@ -73,7 +75,8 @@ from .ml_viz import (
     plot_residuals_vs_fitted, 
     plot_residuals_vs_leverage, 
     plot_r2, 
-    plot_cm
+    plot_cm, 
+    taylor_diagram, 
 
  )
 from .utils import ( 
@@ -93,10 +96,13 @@ from .utils import (
     plot_relationship, 
     plot_fit, 
     plot_factory_ops, 
-    plot_ranking
+    plot_ranking, 
+    plot_coverage
     )
 
 __all__= [
+    "PlotConfig", 
+    
     "MetricPlotter", 
     "EvalPlotter",
     "EasyPlotter" , 
@@ -130,7 +136,7 @@ __all__= [
     'plot_feature_interactions',
     'plot_variables',
     'plot_correlation_with',
-    'plot_dependences',
+    'plot_dependence',
     'plot_sbs_feature_selection',
     'plot_permutation_importance',
     'plot_regularization_path',  
@@ -155,6 +161,7 @@ __all__= [
     'plot_confusion_matrix', 
     'plot_roc_curves',
     'plot_taylor_diagram',
+    'plot_taylor_diagram_in', 
     'plot_cv',
     'plot_confidence',
     'plot_confidence_ellipse',
@@ -167,6 +174,7 @@ __all__= [
     'plot_residuals_vs_fitted', 
     'plot_r2', 
     'plot_cm', 
+    'taylor_diagram', 
     
     "boxplot", 
     "plot_r_squared",
@@ -184,7 +192,8 @@ __all__= [
     'plot_relationship', 
     'plot_fit', 
     'plot_factory_ops', 
-    'plot_ranking'
+    'plot_ranking', 
+    'plot_coverage'
                
     ]
 

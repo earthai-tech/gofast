@@ -2302,3 +2302,197 @@ def resolve_label(
     else:
         return names
   
+def extend_values(
+    values,
+    target,
+    mode: str = "constant",
+    increment: float = 0,
+    extra_values=None,
+    verbose: int = 0
+):
+    """
+    Extends or increments a list of values (or single value) to match a
+    desired length. The desired length can be given by an integer, a float
+    (converted internally to an integer), or the length of an iterable.
+
+    This function is flexible enough to handle both numeric and non-numeric
+    values. Incrementing or decrementing (i.e., increasing or decreasing)
+    only applies when the last value in the list is numeric. Otherwise, the
+    function falls back to constant repetition.
+
+    Parameters
+    ----------
+    values : int, float, str, list
+        The initial values to be extended. If it is not already a list,
+        it will be converted into a list of one element.
+
+    target : int, float, or iterable
+        The target size (length) to extend to. If an integer or float is
+        provided, it is used directly (float is cast to int). If an iterable
+        is provided, the length of the iterable is taken as the target
+        length. For example, if `target` has length 5, the resulting list
+        will have length 5.
+
+    mode : {'constant', 'increase', 'decrease'}, default='constant'
+        Determines how the extension is done:
+          - 'constant': repeats the last value in `values`.
+          - 'increase': increments from the last value by `increment`,
+            creating a sequence. This makes sense only if the last
+            value is numeric.
+          - 'decrease': decrements from the last value by `increment`,
+            creating a sequence. This also makes sense only if the
+            last value is numeric.
+
+    increment : float, default=0
+        The amount by which to increment or decrement each subsequent
+        new value if `mode` is 'increase' or 'decrease'. Ignored if
+        `mode` is 'constant'. If the last value of `values` is not numeric,
+        the function falls back to constant repetition.
+
+    extra_values : single value or list, optional
+        If provided, these values are appended to the original `values`
+        before any further extension. For a single item, it is converted
+        to a list of one element.
+
+    verbose : int, default=0
+        Controls the level of debug output:
+          - 0: no messages (silent).
+          - 1: basic messages about the process.
+          - 2 or 3: more detailed messages (for development).
+
+    Returns
+    -------
+    extended_values : list
+        The extended list of values of length equal to the integer
+        derived from `target`.
+
+    Examples
+    --------
+    >>> from gofast.core.handlers import extend_values
+    >>> # Example 1: constant extension
+    >>> val = 0.3
+    >>> ext = extend_values(val, 3, mode='constant')
+    >>> # 'val' is converted to list [0.3], and repeated to get [0.3, 0.3, 0.3]
+    >>> print(ext)
+    [0.3, 0.3, 0.3]
+
+    >>> # Example 2: numeric increment
+    >>> vals = [0.3]
+    >>> ext = extend_values(vals, 3, mode='increase', increment=0.2)
+    >>> # Here we get [0.3, 0.5, 0.7]
+    >>> print(ext)
+    [0.3, 0.5, 0.7]
+
+    >>> # Example 3: numeric decrement
+    >>> ext = extend_values(vals, 3, mode='decrease', increment=0.2)
+    >>> # Here we get [0.3, 0.1, -0.1]
+    >>> print(ext)
+    [0.3, 0.1, -0.1]
+
+    >>> # Example 4: Extra values plus extension
+    >>> vals = 0.3
+    >>> # Suppose we have extra_values=[0.8], and we want total length 4
+    >>> # Then we first get [0.3, 0.8], then we extend further.
+    >>> ext = extend_values(vals, 4, extra_values=[0.8], mode='constant')
+    >>> # -> [0.3, 0.8, 0.8, 0.8]
+    >>> print(ext)
+    [0.3, 0.8, 0.8, 0.8]
+
+    >>> # Example 5: Non-numeric extension
+    >>> # For non-numeric, 'increase' or 'decrease' fallback to 'constant'
+    >>> val = "hello"
+    >>> ext = extend_values(val, 4, mode='increase', increment=10)
+    >>> # -> ['hello', 'hello', 'hello', 'hello']
+    >>> print(ext)
+    ['hello', 'hello', 'hello', 'hello']
+    """
+    # Convert `values` to list if it's not already.
+    if hasattr(values, '__iter__') and not isinstance (values, str): 
+        values= list(values)
+        
+    if not isinstance(values, list):
+        values = [values]
+
+    # Convert `extra_values` to list if it is provided but not a list.
+    if extra_values is not None:
+        if hasattr(extra_values, '__iter__') and not isinstance (
+                extra_values, str): 
+            extra_values= list(extra_values)
+            
+        if not isinstance(extra_values, list):
+            extra_values = [extra_values]
+        values.extend(extra_values)
+
+    # Determine the integer length we need based on `target`.
+    # If `target` is an integer or float, convert float->int.
+    # If `target` is an iterable, use its length.
+    if isinstance(target, int):
+        desired_length = target
+    elif isinstance(target, float):
+        desired_length = int(target)
+    elif hasattr(target, "__iter__"):
+        desired_length = len(target)  # length of the iterable
+    else:
+        raise TypeError(
+            "Invalid type for `target`. Must be int, float, or an iterable."
+        )
+
+    current_length = len(values)
+
+    if verbose > 0:
+        print(f"[extend_values] Current length: {current_length}, "
+              f"Desired length: {desired_length}")
+
+    # If we already meet or exceed the desired length, truncate.
+    if current_length >= desired_length:
+        if verbose > 1:
+            print("[extend_values] Already sufficient length, truncating.")
+        return values[:desired_length]
+
+    # Otherwise, we need to extend the list.
+    diff = desired_length - current_length
+
+    # Identify last value for extension basis.
+    last_val = values[-1]
+
+    # Prepare a helper to check numeric feasibility.
+    def is_numeric(x):
+        return isinstance(x, (int, float))
+
+    # If incrementing/decrementing is requested, ensure last_val is numeric.
+    # Otherwise, fall back to constant repetition.
+    if mode in ("increase", "decrease") and not is_numeric(last_val):
+        if verbose > 0:
+            print("[extend_values] Warning: last value is not numeric. "
+                  "Falling back to constant mode.")
+        mode = "constant"
+
+    if mode == "constant":
+        # Repeat the last value
+        values.extend([last_val] * diff)
+        if verbose > 1:
+            print("[extend_values] Extended by constant repetition.")
+
+    elif mode == "increase":
+        # Add increment * 1, increment * 2, etc.
+        base = last_val
+        for i in range(1, diff + 1):
+            values.append(base + i * increment)
+        if verbose > 1:
+            print("[extend_values] Extended by incrementing.")
+
+    elif mode == "decrease":
+        # Subtract increment * 1, increment * 2, etc.
+        base = last_val
+        for i in range(1, diff + 1):
+            values.append(base - i * increment)
+        if verbose > 1:
+            print("[extend_values] Extended by decrementing.")
+    else:
+        # If an unknown mode is passed, revert to constant.
+        if verbose > 0:
+            print(f"[extend_values] Unrecognized mode: '{mode}'. "
+                  "Falling back to constant mode.")
+        values.extend([last_val] * diff)
+
+    return values

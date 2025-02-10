@@ -62,7 +62,7 @@ from sklearn.model_selection import train_test_split
 import tensorflow as tf
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
-from gofast.nn.transformers import XTFT
+from gofast.nn.tft import XTFT
 import gofast as gf
 
 # Configure logging

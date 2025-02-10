@@ -2676,7 +2676,7 @@ def _drop_correlated_features_in(
     corr_pairs,
     data=None,        
     target=None,     
-    strategy='drop_second',
+    strategy='last',
     feature_importances=None,
     original_data=None,
     corr_matrix=None,
@@ -2700,7 +2700,7 @@ def _drop_correlated_features_in(
             local_strategy = 'last'
             if verbose > 0:
                 print("No feature_importances provided while strategy is "
-                      "'importance'. Falling back to 'drop_second' strategy.")
+                      "'importance'. Falling back to drop 'last' strategy.")
         # If the user set feature_importances = 'auto'
         elif isinstance(feature_importances, str
                         ) and feature_importances.lower() == 'auto':
@@ -2709,7 +2709,7 @@ def _drop_correlated_features_in(
                 local_strategy = 'last'
                 if verbose > 0:
                     print("Feature importances set to 'auto', but 'data' or "
-                          "'target' is None. Falling back to 'last'.")
+                          "'target' is None. Falling back to drop 'last'.")
             else:
                 # Compute auto importances with a helper function
                 if verbose > 0:
@@ -2825,7 +2825,7 @@ def _get_feature_importances_if_auto(
     X, 
     y, 
     feature_importances, 
-    strategy='drop_second',
+    strategy='drop_last',
     random_state=42,
     verbose=1
 ):
