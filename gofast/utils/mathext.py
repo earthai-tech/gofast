@@ -4399,8 +4399,8 @@ def minmax_scaler(
     X_scaled = min_val + (max_val - min_val)*(num/denom)
 
     # reshape back if 1D
-    if (X_arr.ndim == 1) or (X_arr.ndim > 1 and X_shape[1] == 1):
-        
+    if (len(X_shape)==1) or (X_arr.ndim == 1) or (
+            X_arr.ndim > 1 and X_shape[1] == 1):
         X_scaled = X_scaled.ravel()
 
     # if y is provided

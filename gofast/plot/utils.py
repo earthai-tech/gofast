@@ -82,6 +82,7 @@ __all__=[
     'plot_coverage'
 ]
 
+ 
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE("my_coverall_plot.png"), 
     fig_size =(8, 6), 

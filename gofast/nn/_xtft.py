@@ -62,7 +62,6 @@ if KERAS_BACKEND:
             AnomalyLoss,
             CrossAttention,
             DynamicTimeWindow,
-           # ExplainableAttention,
             GatedResidualNetwork,
             HierarchicalAttention,
             LearnedNormalization,
@@ -72,10 +71,7 @@ if KERAS_BACKEND:
             MultiObjectiveLoss,
             MultiResolutionAttentionFusion,
             MultiScaleLSTM,
-            #PositionalEncoding,
             QuantileDistributionModeling,
-            # StaticEnrichmentLayer,
-            # TemporalAttentionLayer,
             VariableSelectionNetwork,
         )
     
@@ -937,6 +933,12 @@ References
        Forecasting, 37(3), 1234-1245.
        
 """
+# TODO
+# UNDER MAINTENANCE: 
+    # FORCE STATIC INPUT TO HAVE (B, N ) # batch_size n_features  to 
+    # integrate into VSN ( variable Selection Networks ) and 
+    # reshape accordingly and to be used accross the neural networks. 
+    
 
 @Deprecated(
     "SuperXTFT is currently under maintenance and will be released soon. " 
@@ -1079,6 +1081,7 @@ class SuperXTFT(XTFT):
             dynamic_input_dim=self.dynamic_input_dim, 
             future_covariate_dim=self.future_input_dim, 
         )
+        # XXX DEBUGGING XTFT with var_sel 
         
         # Variable Selection for static, dynamic inputs and future covariate
         selected_static = self.variable_selection_static(static_input, training=training)
@@ -1413,7 +1416,6 @@ class SuperXTFT(XTFT):
     
     def get_config(self):
         config = super().get_config().copy()
-        # Add any SuperXTFT specific configurations if necessary
         return config
     
     @classmethod
