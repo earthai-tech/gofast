@@ -144,7 +144,7 @@ if not HAS_TF:
     warnings.warn(
         "TensorFlow is not installed. 'TemporalFusionTransformer',"
         " 'NTemporalFusionTransformer','XTFT', 'SuperXTFT',"
-        " 'TFT' require TF to be available."
+        " 'TFT' require tensorflow to be available."
     )
 
 # If TF is available, import the actual classes

@@ -82,7 +82,6 @@ __all__=[
     'plot_coverage'
 ]
 
- 
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE("my_coverall_plot.png"), 
     fig_size =(8, 6), 
@@ -4129,95 +4128,181 @@ def plot_relationship(
     # Show the plot
     plt.show()
 
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE("my_r-squared_plot.png"), 
+    fig_size = (10, 6), 
+    dpi=300, 
+)
+@validate_params ({ 
+    'y_true': ['array-like'], 
+    'y_pred': ['array-like'], 
+    })
 def plot_r_squared(
-    y_true, y_pred, 
-    model_name="Regression Model",
-    figsize=(10, 6), 
-    r_color='red', 
+    y_true,
+    y_pred,
+    title=None,
+    figsize=None,
+    r_color='red',
     pred_color='blue',
-    sns_plot=False, 
-    show_grid=True, 
+    xlabel=None,
+    ylabel=None,
+    sns_plot=False,
+    show_grid=True,
+    grid_props=None,
     **scatter_kws
 ):
-    """
-    Plot the R-squared value for a regression model's predictions.
+    r"""
+    Plot predictions against true values, annotate the R-squared
+    statistic, and optionally use Seaborn for the scatter plot.
+
+    This function displays a scatter plot of predicted vs. true
+    values along with a 1:1 reference line (in ``r_color``) and
+    computes the R-squared (:math:`R^2`) of the predictions.
+
+    .. math::
+        R^2 = 1 - \frac{\sum_{i}(y_i - \hat{y}_i)^2}
+        {\sum_{i}(y_i - \bar{y})^2}
 
     Parameters
     ----------
-    y_true : array-like
+    y_true : array-like of shape (n_samples,)
         True target values.
-    y_pred : array-like
+
+    y_pred : array-like of shape (n_samples,)
         Predicted target values by the regression model.
-    model_name : str, optional
-        The name of the regression model for display in the plot title. 
-        Default is "Regression Model".
-    figsize : tuple, optional
-        The size of the figure to plot (width, height in inches). 
-        Default is (10, 6).
-    r_color : str, optional
-        The color of the line that represents the actual values.
-        Default is 'red'.
-    pred_color : str, optional
-        The color of the scatter plot points for the predictions.
-        Default is 'blue'.
-    sns_plot : bool, optional
-        If True, use seaborn for plotting. Otherwise, use matplotlib.
-        Default is False.
-    show_grid : bool, optional
-        If True, display the grid on the plot. Default is True.
-    scatter_kws : dict
-        Additional keyword arguments to be passed to 
-        the `scatter` function.
+
+    title : str, optional
+        Text to use as the main plot title. If None, defaults to
+        "Regression Model: R-squared".
+
+    figsize : tuple of (float, float), optional
+        Size of the figure (width, height in inches). If None,
+        defaults to (10, 6).
+
+    r_color : str, default='red'
+        Color of the perfect-fit line indicating ``y_true == y_pred``.
+
+    pred_color : str, default='blue'
+        Color for the scatter plot points.
+
+    xlabel : str, optional
+        Label for the x-axis. Defaults to "Actual Values" if None.
+
+    ylabel : str, optional
+        Label for the y-axis. Defaults to "Predicted Values" if None.
+
+    sns_plot : bool, default=False
+        Whether to use Seaborn for scatter plotting. If True, calls
+        ``sns.scatterplot(...)``; otherwise uses Matplotlib's
+        ``ax.scatter(...)``.
+
+    show_grid : bool, default=True
+        Whether to display a grid on the plot background.
+
+    grid_props : dict, optional
+        Properties passed to ``ax.grid()`` when showing the grid.
+        If None, uses a default dict 
+        ``{"linestyle": ":", "alpha": 0.7}``.
+
+    **scatter_kws : dict, optional
+        Additional keyword arguments passed to ``scatter`` or
+        ``sns.scatterplot`` for customizing the points. For example,
+        ``marker='x'``, ``alpha=0.5``, etc.
 
     Returns
     -------
-    ax : Axes
-        The matplotlib Axes object with the R-squared plot.
-         
-    Example 
-    -------
-    >>> import numpy as np 
-    >>> from gofast.plot.utils import plot_r_squared 
+    ax : matplotlib.axes.Axes
+        The Axes object with the scatter plot, reference line,
+        and R-squared annotation.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.plot.utils import plot_r_squared
     >>> # Generate some sample data
     >>> np.random.seed(0)
     >>> y_true_sample = np.random.rand(100) * 100
-    >>> # simulated prediction with small random noise
-    >>> y_pred_sample = y_true_sample * (np.random.rand(100) * 0.1 + 0.95)  
-    # Use the sample data to plot R-squared
-    >>> plot_r_squared(y_true_sample, y_pred_sample, "Sample Regression Model")
+    >>> y_pred_sample = y_true_sample * (0.95 + 0.1 * np.random.rand(100))
+    >>> # Plot the R-squared for this simple simulated regression
+    >>> ax = plot_r_squared(
+    ...     y_true_sample,
+    ...     y_pred_sample,
+    ...     title="Sample Regression Model",
+    ...     sns_plot=False
+    ... )
+    >>> # This displays a scatter plot of predicted vs. true values
+    >>> # and prints the R-squared in the legend.
 
+    See Also
+    --------
+    gofast.plot.ml_viz.plot_r2 :
+        A more advanced R² plotting utility with additional metrics
+        and aesthetic options.
+
+    References
+    ----------
+    .. [1] Freedman, D. A. (1983). A note on screening regression
+           equations. *The American Statistician*, 37(2), 152-155.
     """
+    # Remove NaN rows in corresponding positions
     y_true, y_pred = drop_nan_in(y_true, y_pred)
+
     # Calculate R-squared
     r_squared = r2_score(y_true, y_pred)
-    
-    # Create figure and axis
-    plt.figure(figsize=figsize)
+
+    # Create figure if no existing figure
+    plt.figure(figsize=figsize or (10, 6))
     ax = plt.gca()
-    
+
     # Plot using seaborn or matplotlib
     if sns_plot:
-        sns.scatterplot(x=y_true, y=y_pred, ax=ax, color=pred_color,
-                        **scatter_kws)
+        sns.scatterplot(
+            x=y_true,
+            y=y_pred,
+            ax=ax,
+            color=pred_color,
+            **scatter_kws
+        )
     else:
-        ax.scatter(y_true, y_pred, color=pred_color, **scatter_kws)
-    
-    # Plot the line of perfect predictions
-    ax.plot(y_true, y_true, color=r_color, label='Actual values')
-    # Annotate the R-squared value
-    ax.legend(labels=[f'Predictions (R² = {r_squared:.2f})', 'Actual values'])
-    # Set the title and labels
-    ax.set_title(f'{model_name}: R-squared')
-    ax.set_xlabel('Actual Values')
-    ax.set_ylabel('Predicted Values')
-    
+        ax.scatter(
+            y_true,
+            y_pred,
+            color=pred_color,
+            **scatter_kws
+        )
+
+    # Plot the perfect prediction line
+    ax.plot(y_true, y_true, color=r_color, label='Actual = Predicted')
+
+    # Annotate the R-squared in the legend
+    ax.legend(
+        labels=[
+            f'Predictions (R² = {r_squared:.2f})',
+            'Actual = Predicted'
+        ]
+    )
+
+    # Title and labels
+    ax.set_title(
+        title or 'Regression Model: R-squared'
+    )
+    ax.set_xlabel(
+        xlabel or 'Actual Values'
+    )
+    ax.set_ylabel(
+        ylabel or 'Predicted Values'
+    )
+
     # Display the grid if requested
     if show_grid:
-        ax.grid(show_grid)
-    
-    # Show the plot
-    plt.show()
+        if grid_props is None:
+            grid_props = {"linestyle": ":", "alpha": 0.7}
+        ax.grid(True, **grid_props)
+    else:
+        ax.grid(False)
 
+    plt.show()
+    
     return ax
 
 def make_plot_colors(
@@ -5935,7 +6020,7 @@ def plot_spatial_distribution(
             f"Column '{category_column}' does not exist in the dataframe."
         )
     # Check whether 
-    check_spatial_columns(df )
+    check_spatial_columns(df , spatial_cols=spatial_cols)
     
     # Determine if the category_column is categorical
     if pd.api.types.is_categorical_dtype(df[category_column]) or \
@@ -6387,7 +6472,7 @@ def plot_quantile_distributions(
     df,
     x_col, # ='longitude'
     y_col, # ='latitude'
-    date_col, # ='year'
+    dt_col, # ='year'
     quantiles=None,
     date_values=None,
     value_prefix='', # 'predicted_subsidence'
@@ -6443,8 +6528,8 @@ def plot_quantile_distributions(
     y_col : str
         The column name representing the y-axis coordinate 
         (e.g., latitude).
-    date_col : str
-        The column representing dates. This can be integer (e.g., year),
+    dt_col : str
+        The column representing dates/times. This can be integer (e.g., year),
         or datetime. If it's datetime, values are filtered by year 
         extracted from that datetime.
     quantiles : list of float, optional
@@ -6583,7 +6668,7 @@ def plot_quantile_distributions(
     ...     df,
     ...     x_col='longitude',
     ...     y_col='latitude',
-    ...     date_col='year',
+    ...     dt_col='year',
     ...     value_prefix='predicted_subsidence'
     ... )
 
@@ -6592,7 +6677,7 @@ def plot_quantile_distributions(
     ...     df,
     ...     x_col='longitude',
     ...     y_col='latitude',
-    ...     date_col='year',
+    ...     dt_col='year',
     ...     quantiles=[0.1, 0.5, 0.9],
     ...     value_prefix='predicted_subsidence'
     ... )
@@ -6607,7 +6692,7 @@ def plot_quantile_distributions(
     ...     df,
     ...     x_col='longitude',
     ...     y_col='latitude',
-    ...     date_col='year',
+    ...     dt_col='year',
     ...     quantiles=[0.1,0.5,0.9],
     ...     date_values=[2024,2025],
     ...     q_cols=q_map
@@ -6628,14 +6713,14 @@ def plot_quantile_distributions(
 
     # Infer date_values if not provided
     if date_values is None:
-        if pd.api.types.is_integer_dtype(df[date_col]):
-            date_values = sorted(df[date_col].unique())
-        elif np.issubdtype(df[date_col].dtype, np.datetime64):
-            date_values = pd.to_datetime(df[date_col].unique()).sort_values()
+        if pd.api.types.is_integer_dtype(df[dt_col]):
+            date_values = sorted(df[dt_col].unique())
+        elif np.issubdtype(df[dt_col].dtype, np.datetime64):
+            date_values = pd.to_datetime(df[dt_col].unique()).sort_values()
         else:
-            date_values = sorted(df[date_col].unique())
+            date_values = sorted(df[dt_col].unique())
 
-    date_values_str = _extract_date_values_if_datetime(df, date_col, date_values)
+    date_values_str = _extract_date_values_if_datetime(df, dt_col, date_values)
 
     # If q_cols is None, we rely on quantiles and naming convention
     # or detect quantiles if quantiles is None.
@@ -6703,7 +6788,7 @@ def plot_quantile_distributions(
 
     if reverse:
         _plot_reversed(
-            df, x_col, y_col, date_col, 
+            df, x_col, y_col, dt_col, 
             quantiles, date_values_str, 
             q_cols, value_prefix,
             cmap, s, alpha, axis_off,
@@ -6758,20 +6843,20 @@ def plot_quantile_distributions(
                     idx_date = date_values_str.index(d)
                     subset_col = mapping[idx_date]
 
-            subset = df[[x_col, y_col, date_col, subset_col]].dropna()
+            subset = df[[x_col, y_col, dt_col, subset_col]].dropna()
 
-            # Filter subset based on date_col and d
-            if np.issubdtype(df[date_col].dtype, np.datetime64):
+            # Filter subset based on dt_col and d
+            if np.issubdtype(df[dt_col].dtype, np.datetime64):
                 # convert d to int year
                 year_int = int(d)
-                subset = subset[subset[date_col].dt.year == year_int]
+                subset = subset[subset[dt_col].dt.year == year_int]
             else:
                 # Attempt to convert d to int if possible
                 try:
                     val = int(d)
                 except ValueError:
                     val = d
-                subset = subset[subset[date_col] == val]
+                subset = subset[subset[dt_col] == val]
 
             if subset.empty:
                 ax.axis('off')
@@ -6788,10 +6873,10 @@ def plot_quantile_distributions(
                 norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
             )
 
-            if np.issubdtype(df[date_col].dtype, np.datetime64):
+            if np.issubdtype(df[dt_col].dtype, np.datetime64):
                 title_str = f"Quantile={q}, Year={d}"
             else:
-                title_str = f"Quantile={q}, {date_col}={d}"
+                title_str = f"Quantile={q}, {dt_col}={d}"
             ax.set_title(title_str, fontsize=10)
 
             if axis_off:
@@ -7051,7 +7136,7 @@ def _plot_reversed(
     conditions_params_mappings=[
         {
             'param': 'numeric_only',
-            'condition': lambda v: v is False,
+            'condition': lambda v: v is False or v is None,
             'message': ( 
                 "Current version only supports 'numeric_only=True'."
                 " Resetting numeric_only to True. Note: this parameter"
@@ -7068,7 +7153,7 @@ def plot_uncertainty(
     figsize=None,
     numeric_only=True,
     title=None,
-    ylabel="Predicted Value",
+    ylabel=None,
     xlabel_rotation=45,
     palette='Set2',
     showfliers=True,
@@ -7198,7 +7283,9 @@ def plot_uncertainty(
     # If no numeric columns found and numeric_only=True
     if not cols:
         raise ValueError(
-            "No columns to plot. Please provide columns or set numeric_only=False.")
+            "No columns to plot. Please provide columns"
+            " or set numeric_only=False."
+            )
 
     check_features_types(df, features=cols, dtype='numeric')
     # Drop NaN values or handle them
@@ -7224,7 +7311,7 @@ def plot_uncertainty(
         sns.swarmplot(data=plot_data, palette=palette)
    
     plt.title(title, fontsize=14)
-    plt.ylabel(ylabel, fontsize=12)
+    plt.ylabel(ylabel or "Predicted Value", fontsize=12)
 
     # Rotate x-labels if needed
     plt.xticks(rotation=xlabel_rotation)

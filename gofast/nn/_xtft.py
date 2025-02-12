@@ -75,7 +75,6 @@ if KERAS_BACKEND:
             VariableSelectionNetwork,
         )
     
-
 DEP_MSG = dependency_message('transformers._xtft') 
 
 
@@ -260,12 +259,10 @@ class XTFT(Model, NNLearner):
         # the provided quantiles, and an anomaly loss function that penalizes 
         # predictions deviating from expected anomaly patterns.
         # ---------------------------------------------------------------------
-        
         self.multi_objective_loss = MultiObjectiveLoss(
             quantile_loss_fn=AdaptiveQuantileLoss(self.quantiles),
             anomaly_loss_fn=self.anomaly_loss_layer
         )
-
         # ---------------------------------------------------------------------
         
         self.static_dense = Dense(hidden_units, activation=self.activation_name)
@@ -939,7 +936,6 @@ References
     # integrate into VSN ( variable Selection Networks ) and 
     # reshape accordingly and to be used accross the neural networks. 
     
-
 @Deprecated(
     "SuperXTFT is currently under maintenance and will be released soon. " 
     "Please stay updated for the upcoming release. For now, use the "
