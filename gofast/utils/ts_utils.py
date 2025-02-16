@@ -1505,7 +1505,7 @@ def get_decomposition_method(
     })
 @ensure_pkg(
     "statsmodels", 
-    extra="'stasmodels' is required for 'infer_decomposition_method' to proceed."
+    extra="'statsmodels' is required for 'infer_decomposition_method' to proceed."
 )
 def infer_decomposition_method(
     df,
@@ -1838,7 +1838,7 @@ def infer_decomposition_method(
     })
 @ensure_pkg(
     "statsmodels", 
-    extra="'stasmodels' is required for 'decompose_ts' to proceed."
+    extra="'statsmodels' is required for 'decompose_ts' to proceed."
 )
 def decompose_ts(
     df,
@@ -2832,7 +2832,7 @@ def ts_corr_analysis(
 
 @ensure_pkg(
     "statsmodels", 
-    extra="'stasmodels' is required for 'infer_decomposition_method' to proceed.", 
+    extra="'statsmodels' is required for 'infer_decomposition_method' to proceed.", 
     partial_check=True, 
     condition=lambda *args, **kws: ( 
         kws.get("method")=='detrending' 

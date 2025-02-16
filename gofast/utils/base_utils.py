@@ -1627,12 +1627,23 @@ def fill_NaN(arr, method='ff'):
                 numeric_cols)
             
             # Apply fillNaN to numeric columns
-            filled_numeric = fillNaN(
-                arr_converted[numeric_cols], method=standardized_method)
+            if numeric_cols: 
+                filled_numeric = fillNaN(
+                    arr_converted[numeric_cols], method=standardized_method)
+            else: 
+                filled_numeric= pd.DataFrame()
             
-            # Retain non-numeric columns as-is
+            # Fill non-numeric columns with forward and backward fill (if requested)
             filled_non_numeric = arr_converted[non_numeric_cols]
-            
+            if non_numeric_cols.any():
+                if 'ff' in standardized_method:
+                    filled_non_numeric = filled_non_numeric.ffill(axis=0)
+                elif 'bf' in standardized_method:
+                    filled_non_numeric = filled_non_numeric.bfill(axis=0) 
+                else: # both 
+                    filled_non_numeric = filled_non_numeric.ffill(axis=0)
+                    filled_non_numeric = filled_non_numeric.bfill(axis=0) 
+                    
             # Combine the filled numeric data with the untouched non-numeric data
             array_filled = pd.concat(
                 [filled_numeric, filled_non_numeric], axis=1)
@@ -1640,15 +1651,25 @@ def fill_NaN(arr, method='ff'):
             array_filled = array_filled[arr_converted.columns]
         
         elif isinstance(arr_converted, pd.Series):
-            # If the Series is not numeric, return it unchanged
-            if not is_numeric_dtype(arr_converted):
-                array_filled = arr_converted.copy()
-            else:
-                # If the Series is numeric, apply fillNaN
+            
+            if is_numeric_dtype(arr_converted):
+               # If the Series is numeric, apply fillNaN
                 array_filled = fillNaN(
                     arr_converted, method=standardized_method
                     )
-
+            else:
+                # If the Series is not numeric
+                # Fill non-numeric Series with forward 
+                # and backward fill (if requested)
+                array_filled = arr_converted.copy()
+                if 'ff' in standardized_method:
+                    array_filled = array_filled.ffill()
+                elif 'bf' in standardized_method:
+                    array_filled = array_filled.bfill()
+                else:
+                    array_filled = array_filled.ffill()
+                    array_filled = array_filled.bffill()
+                    
     # Step 5: Attempt to restore the original array
     # structure using the collected properties
     collected['processed'] = [array_filled]
@@ -1667,7 +1688,7 @@ def fill_NaN(arr, method='ff'):
     # Step 6: Return the filled and structure-preserved array
     return array_restored
 
-def fillNaN(
+def fillNaN0(
     arr: Union[ArrayLike, Series, DataFrame], 
     method: str = 'ff'
     ) -> Union[ArrayLike, Series, DataFrame]:
@@ -1738,58 +1759,168 @@ def fillNaN(
     Further details can be found at:
     https://pyquestions.com/most-efficient-way-to-forward-fill-nan-values-in-numpy-array
     """
-    name_or_columns=None 
+
+    # Store column or series name for restoration later if needed
+    name_or_columns = None 
+    
+    # Convert the input array to numpy if it doesn't already support numpy-like operations
     if not hasattr(arr, '__array__'): 
         arr = np.array(arr)
-        
-    arr = to_array (arr) 
-    has_numeric_dtype = is_numeric_dtype(arr, to_array= True )
+    
+    # Convert to a pandas-compatible structure if necessary
+    # and ensure numeric dtype
+    arr = to_array(arr)
+    has_numeric_dtype = is_numeric_dtype(arr, to_array=True)
     
     if not has_numeric_dtype: 
         warnings.warn(
-            "Non-numeric data detected. Note `FillNaN` operates only with"
-            " numeric data. To deal with  non-numeric data or both',"
-            " use 'fill_NaN' instead.")
-        
-    arr = _handle_non_numeric(
-        arr, action ='fill missing values NaN')
+            "Non-numeric data detected. Note `fillNaN` operates only with "
+            "numeric data. To deal with non-numeric data or both,"
+            " use 'fill_NaN' instead."
+        )
     
-    if isinstance (arr, (pd.Series, pd.DataFrame)): 
-        name_or_columns = arr.name if isinstance (
-            arr, pd.Series) else arr.columns 
-        arr = arr.to_numpy() # get numpy array 
-        
-    def ffill (arr): 
-        """ Forward fill."""
-        idx = np.where (~mask, np.arange(mask.shape[1]), 0)
-        np.maximum.accumulate (idx, axis =1 , out =idx )
-        return arr[np.arange(idx.shape[0])[:, None], idx ]
+    # Handle non-numeric data if needed
+    arr = _handle_non_numeric(arr, action='fill missing values NaN')
     
-    def bfill (arr): 
-        """ Backward fill """
-        idx = np.where (~mask, np.arange(mask.shape[1]) , mask.shape[1]-1)
-        idx = np.minimum.accumulate(idx[:, ::-1], axis =1)[:, ::-1]
-        return arr [np.arange(idx.shape [0])[:, None], idx ]
+    # If the array is a pandas DataFrame or Series, store column names for later restoration
+    if isinstance(arr, (pd.Series, pd.DataFrame)): 
+        name_or_columns = arr.name if isinstance(arr, pd.Series) else arr.columns
+        arr = arr.to_numpy()  # Convert to numpy array for easier manipulation
     
+    # Define the forward fill function
+    def ffill(arr): 
+        """ Apply forward fill. """
+        idx = np.where(~mask, np.arange(mask.shape[1]), 0)
+        np.maximum.accumulate(idx, axis=1, out=idx)
+        return arr[np.arange(idx.shape[0])[:, None], idx]
+    
+    # Define the backward fill function
+    def bfill(arr): 
+        """ Apply backward fill. """
+        idx = np.where(~mask, np.arange(mask.shape[1]), mask.shape[1] - 1)
+        idx = np.minimum.accumulate(idx[:, ::-1], axis=1)[:, ::-1]
+        return arr[np.arange(idx.shape[0])[:, None], idx]
+    
+    # Standardize the fill method (i.e., ensure method
+    # is lowercase and stripped of extra spaces)
     method = _select_fill_method(str(method).lower().strip())
     
-    if arr.ndim ==1: 
+    # Reshape if array is one-dimensional
+    if arr.ndim == 1: 
         arr = reshape(arr, axis=1)  
-        
-    mask = np.isnan (arr )  
-    if method =='both': 
-        arr = ffill(arr) ;
-        #mask = np.isnan (arr)  
-        arr = bfill(arr) 
-    if method in ('bf', 'ff'): 
-        arr = ffill(arr) if method =='ff' else bfill(arr)
-        
+    
+    # Create a mask identifying NaN values
+    mask = np.isnan(arr)
+    
+    # Apply both forward and backward fill if requested
+    if method == 'both': 
+        arr = ffill(arr) 
+        arr = bfill(arr)
+    
+    # Apply forward or backward fill depending on the method
+    elif method in ('bf', 'ff'): 
+        arr = ffill(arr) if method == 'ff' else bfill(arr)
+    
+    # Restore the original structure (Series/DataFrame) if necessary
     if name_or_columns is not None: 
-        arr = pd.Series ( arr.squeeze(), name = name_or_columns) if isinstance (
-            name_or_columns, str ) else pd.DataFrame(
-                arr, columns = name_or_columns)
+        if isinstance(name_or_columns, str):
+            arr = pd.Series(arr.squeeze(), name=name_or_columns)
+        else:
+            arr = pd.DataFrame(arr, columns=name_or_columns)
+    
+    return arr
+
+#XXX TODO: FIX NaN 
+def fillNaN(
+    arr: Union[ArrayLike, Series, DataFrame], 
+    method: str = 'ff'
+) -> Union[ArrayLike, Series, DataFrame]:
+    """
+    Fill NaN values in a numpy array, pandas Series, or pandas DataFrame 
+    using specified methods for forward filling, backward filling, or both.
+
+    Parameters
+    ----------
+    arr : Union[np.ndarray, pd.Series, pd.DataFrame]
+        The input data containing NaN values to be filled. This can be a numpy
+        array, pandas Series, or DataFrame expected to contain numeric data.
         
-    return arr 
+    method : str, optional
+        The method used for filling NaN values. Valid options are:
+        - 'ff': forward fill (default)
+        - 'bf': backward fill
+        - 'both': applies both forward and backward fill sequentially
+
+    Returns
+    -------
+    Union[np.ndarray, pd.Series, pd.DataFrame]
+        The array with NaN values filled according to the specified method. 
+        The return type matches the input type (numpy array, Series, or DataFrame).
+    """
+    
+    name_or_columns = None 
+    
+    # Convert to numpy array if it doesn't have numpy-like methods
+    if not hasattr(arr, '__array__'): 
+        arr = np.array(arr)
+    
+    arr = to_array(arr) 
+    has_numeric_dtype = is_numeric_dtype(arr, to_array=True)
+    
+    # Handle non-numeric data and issue a warning if necessary
+    if not has_numeric_dtype:
+        warnings.warn(
+            "Non-numeric data detected. Note `fillNaN` operates only with numeric data. "
+            "To deal with non-numeric data or both, use 'fill_NaN' instead."
+        )
+        arr = _handle_non_numeric(arr, action='fill missing values NaN')
+
+    if isinstance(arr, (pd.Series, pd.DataFrame)): 
+        # Preserve column names for restoration if it's a pandas Series or DataFrame
+        name_or_columns = arr.name if isinstance(arr, pd.Series) else arr.columns
+        arr = arr.to_numpy()  # Convert to numpy array for easier manipulation
+    
+    # Forward fill function
+    def ffill(arr): 
+        """ Apply forward fill. """
+        idx = np.where(~mask, np.arange(mask.shape[1]), 0)
+        np.maximum.accumulate(idx, axis=1, out=idx)
+        return arr[np.arange(idx.shape[0])[:, None], idx]
+    
+    # Backward fill function
+    def bfill(arr): 
+        """ Apply backward fill. """
+        idx = np.where(~mask, np.arange(mask.shape[1]), mask.shape[1] - 1)
+        idx = np.minimum.accumulate(idx[:, ::-1], axis=1)[:, ::-1]
+        return arr[np.arange(idx.shape[0])[:, None], idx]
+    
+    # Standardize method (ensure lowercase and stripped of extra spaces)
+    method = _select_fill_method(str(method).lower().strip())
+    
+    # Reshape if array is one-dimensional
+    if arr.ndim == 1: 
+        arr = reshape(arr, axis=1)  
+    
+    # Create a mask identifying NaN values
+    mask = np.isnan(arr)
+    
+    # Apply both forward and backward fill if requested
+    if method == 'both': 
+        arr = ffill(arr) 
+        arr = bfill(arr)
+    
+    # Apply forward or backward fill depending on the method
+    elif method in ('bf', 'ff'): 
+        arr = ffill(arr) if method == 'ff' else bfill(arr)
+    
+    # Handle DataFrame/Series restoration
+    if name_or_columns is not None: 
+        if isinstance(name_or_columns, str):
+            arr = pd.Series(arr.squeeze(), name=name_or_columns)
+        else:
+            arr = pd.DataFrame(arr, columns=name_or_columns)
+    
+    return arr
 
 def convert_array_dimensions(
         *arrays, target_dim=1, new_shape=None, orient='row'):

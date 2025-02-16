@@ -608,15 +608,15 @@ def nan_ops(
     auxi_data : array-like, pandas.DataFrame, or pandas.Series, optional
         Auxiliary data that accompanies the primary `data`. Its role depends
         on the ``data_kind`` parameter. If ``data_kind`` is `'target'`,
-        ``witness_data`` is treated as feature data, and vice versa. This is
+        ``auxi_data`` is treated as feature data, and vice versa. This is
         useful for operations that need to maintain the alignment between
         primary and witness data.
         
     data_kind : {'target', 'feature', None}, optional
         Specifies the role of the primary `data`. If set to `'target'`, `data`
-        is considered target data, and ``witness_data`` (if provided) is
+        is considered target data, and ``auxi_data`` (if provided) is
         treated as feature data. If set to `'feature'`, `data` is treated as
-        feature data, and ``witness_data`` is considered target data. If
+        feature data, and ``auxi_data`` is considered target data. If
         `None`, no special handling is applied, and witness data is ignored
         unless explicitly required by other parameters.
         
@@ -689,16 +689,16 @@ def nan_ops(
     -------
     array-like, pandas.DataFrame, or pandas.Series
         The sanitized data structure with `NaN` values handled according to
-        the specified parameters. If ``witness_data`` is provided and
+        the specified parameters. If ``auxi_data`` is provided and
         processed, a tuple containing the sanitized `data` and
-        `witness_data` is returned. Otherwise, only the sanitized `data`
+        `auxi_data` is returned. Otherwise, only the sanitized `data`
         is returned.
 
     Raises
     ------
     ValueError
         - If an invalid value is provided for ``ops`` or ``data_kind``.
-        - If ``witness_data`` does not align with ``data`` in shape.
+        - If ``auxi_data`` does not align with ``data`` in shape.
         - If sanitization conditions are not met and the error policy is
           set to `'raise'`.
     Warning
@@ -717,10 +717,10 @@ def nan_ops(
     ...     'B': ['x', 'y', 'z', np.nan]
     ... })
     >>> # Check for NaNs
-    >>> nan_ops(target, witness_data=features, data_kind='target', ops='check_only')
+    >>> nan_ops(target, auxi_data=features, data_kind='target', ops='check_only')
     (True, True)
     >>> # Validate data (will raise ValueError if NaNs are present)
-    >>> nan_ops(target, witness_data=features, data_kind='target', ops='validate')
+    >>> nan_ops(target, auxi_data=features, data_kind='target', ops='validate')
     Traceback (most recent call last):
         ...
     ValueError: Target contains NaN values.

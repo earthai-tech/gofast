@@ -548,7 +548,6 @@ def plot_coverage(
     'plot_type': [StrOptions({"auto", "ranking", "importance"}), None], 
     'features': [str, 'array-like', None]
     })
-
 def plot_ranking(
     X,
     y=None,
