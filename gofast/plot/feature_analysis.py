@@ -226,7 +226,7 @@ def plot_feature_importances(
     This function provides a flexible way to visualize
     feature importances. It supports multiple
     representations (bar, line, donut, radar), either
-    in separate subplots or merged side-by-side.
+    in separate subplots or merged side-by-side [2]_.
 
     Examples
     --------
@@ -371,8 +371,12 @@ def plot_feature_importances(
                     autopct=autopct,
                     startangle=90,
                     explode=ex,
-                    colors=colors
+                    colors=colors, 
+                    counterclock=True,
+                    pctdistance=0.85,
+                    labeldistance=1.05,
                 )
+                
                 center_circle = plt.Circle((0, 0), 0.70, fc='white')
                 ax.add_artist(center_circle)
                 ax.axis('equal')
@@ -420,7 +424,7 @@ def plot_feature_importances(
                                 lbl_val = f"{val * 100:{fmt}}%"
                             ax.annotate(
                                 lbl_val,
-                                (importance_df.index[i], val),
+                                (vals.index[i], val),
                                 textcoords="offset points",
                                 xytext=(5, 0),
                                 va="center"
