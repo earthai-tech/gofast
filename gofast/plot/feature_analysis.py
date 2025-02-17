@@ -29,14 +29,19 @@ from ..api.summary import ReportFactory
 from ..compat.sklearn import HasMethods, validate_params 
 from ..core.array_manager import to_numeric_dtypes 
 from ..core.checks import is_iterable 
+from ..core.handlers import extend_values
+from ..core.io import is_data_readable 
 from ..core.plot_manager import default_params_plot 
 from ..core.utils import fill_nan_in
+from ..decorators import Dataify 
+from ..utils.base_utils import reorder_importances 
+from ..utils.mathext import compute_importances 
 from ..utils.validator import get_estimator_name
 from ..utils.validator import check_X_y, check_consistent_length
 from ..transformers import SequentialBackwardSelector 
 from ._config import PlotConfig 
 from .utils import _set_sns_style, make_mpl_properties 
-
+from .utils import make_plot_colors
 
 __all__=[
   'plot_importances_ranking',
@@ -48,7 +53,456 @@ __all__=[
   'plot_sbs_feature_selection',
   'plot_permutation_importance',
   'plot_regularization_path',   
+  'plot_feature_importances'
 ]
+
+
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_feature_importances_plot.png'), 
+    fig_size =None, 
+    dpi=300
+ )
+@is_data_readable 
+@Dataify(auto_columns=True, prefix="feature_", fail_silently=True)
+def plot_feature_importances(
+    data,                 
+    y=None,               
+    models=None,          
+    precomputed=True,
+    mode='indiv',         
+    plot_type="bar",      
+    orient='v',           
+    cmap=None,            
+    normalize=True,
+    prefit=False,
+    max_cols=3,           
+    title=None,
+    annot=True,           
+    in_percent=True,      
+    fmt=".2f",            
+    show_grid=True,
+    fill_btw=True,        
+    bar_space=None,       
+    grid_props=None,
+    line_props=None,
+    explode=0.1,          
+    autopct='%1.1f%%',    
+    fig_size=None,
+    savefig=None          
+):
+    r"""
+    Plot the feature importances across one or multiple
+    models. By default, it will render separate figures
+    per model, but in ``'merge'`` mode, it tries to group
+    bar charts. For importance calculation, either pass
+    precomputed data or supply raw ``data`` and a vector
+    ``y`` with one or more models to be trained for
+    importance scoring.
+
+    In practice, feature importance can be formalized
+    as:
+
+    .. math::
+        I_j = \frac{1}{N} \sum_{k=1}^{N} \Delta_k (j)
+
+    where :math:`\Delta_k (j)` is the drop in the chosen
+    performance metric when feature :math:`j` is removed
+    from the model in iteration :math:`k`. The average
+    effect across multiple runs or sub-samples yields
+    a stable estimate of importance [1]_.
+
+    Parameters
+    ----------
+    data : array-like of shape (n_samples, n_features) or
+        DataFrame
+        Raw input features if not precomputed. If
+        ``precomputed=True``, this must be a DataFrame
+        containing importances indexed by feature.
+
+    y : array-like of shape (n_samples,), optional
+        Target vector for computing importances, used
+        when ``precomputed=False``.
+
+    models : estimator or list of estimators, optional
+        The model(s) used to compute feature importances.
+        Supported estimators include many from scikit-learn.
+        If multiple models are given, each one generates
+        a separate importance column or subplot.
+
+    precomputed : bool, default=True
+        If ``True``, interpret ``data`` as an importance
+        DataFrame. If ``False``, compute importances from
+        scratch using ``models`` and the raw data.
+
+    mode : {'indiv', 'merge'}, default='indiv'
+        If ``'indiv'``, produce one plot per model. If
+        ``'merge'``, combine bar charts across models.
+        Other plot types in merge mode might revert
+        automatically to ``'indiv'``.
+
+    plot_type : {'bar', 'line', 'donut', 'radar'}, default='bar'
+        The style of plot. A bar chart is typical for
+        importance, but line, donut, or radar charts
+        are also possible.
+
+    orient : {'v', 'h'}, default='v'
+        Orientation for the bar or line charts. ``'v'``
+        plots vertical bars or lines, while ``'h'``
+        plots horizontal.
+
+    cmap : str or Colormap, optional
+        A Matplotlib colormap or a string specifying
+        a recognized colormap. Used to color the
+        bars or donut slices.
+
+    normalize: bool, default=True
+        If ``True``, scale importances to sum up to 1.0.
+        This yields relative importances. If ``False``,
+        keep raw values.
+
+    prefit : bool, default=False
+        If ``True``, indicates that each estimator in
+        ``models`` is already fitted, bypassing any
+        additional training. Ignored if
+        ``precomputed=True``.
+
+    max_cols : int, default=3
+        Maximum number of subplot columns when
+        ``mode='indiv'``.
+
+    title : str, optional
+        Main title for the plot if merging. If
+        ``mode='indiv'``, each subplot is titled by
+        its model name or column label.
+
+    annot : bool, default=True
+        If ``True``, annotate bars or line points with
+        their numeric values.
+
+    in_percent : bool, default=True
+        If ``True``, append a '%' symbol to the
+        annotations, interpreting them as percentages.
+
+    fmt : str, default=".2f"
+        String format for numeric annotation, e.g.
+        ``".1f"`` or ``".2%"``.
+
+    show_grid : bool, default=True
+        If ``True``, include a grid on the final
+        plot.
+
+    fill_btw : bool, default=True
+        If plotting a radar chart, fill the area
+        between the radial polygon and the center
+        point.
+
+    bar_space : float, optional
+        Horizontal or vertical spacing for grouped
+        bars when ``mode='merge'``.
+
+    grid_props: dict, optional
+        Dictionary of grid style properties, e.g.
+        ``{"linestyle": ":", "alpha": 0.7}``.
+
+    line_props : dict, optional
+        Dictionary for line styles in line or radar
+        plots, e.g. ``{"marker": "o", "linestyle": "-"}``.
+
+    explode : float, default=0.1
+        Explode factor for donut (pie) slices.
+
+    autopct : str, default='%1.1f%%'
+        Format for slice labels in a donut or pie chart.
+
+    fig_size : tuple, optional
+        Matplotlib figure size, e.g. ``(width, height)``.
+
+    savefig : str, optional
+        File path to save the generated figure.
+        If not provided, the plot is simply shown.
+
+    Notes
+    -----
+    This function provides a flexible way to visualize
+    feature importances. It supports multiple
+    representations (bar, line, donut, radar), either
+    in separate subplots or merged side-by-side.
+
+    Examples
+    --------
+    >>> from gofast.plot.feature_analysis import plot_feature_importances
+    >>> import pandas as pd
+    >>> # Suppose df_features is your data and y is target
+    >>> # For precomputed usage:
+    >>> importance_df = pd.DataFrame({
+    ...     'ModelA': [0.2, 0.4, 0.1, 0.3],
+    ...     'ModelB': [0.3, 0.1, 0.4, 0.2]},
+    ...     index=['f1','f2','f3','f4'])
+    >>> plot_feature_importances(
+    ...     importance_df,
+    ...     precomputed=True,
+    ...     mode='indiv',
+    ...     plot_type='bar'
+    ... )
+
+    >>> # If not precomputed, pass raw data and a model
+    >>> # model = RandomForestClassifier()
+    >>> # plot_feature_importances(data=df_features, y=y, models=model)
+
+    See Also
+    --------
+    plot_dependence: Visualize partial dependence for
+        specific features.
+    plot_feature_interactions: Explore pairwise
+        feature interactions.
+    plot_rf_feature_importances : Specialized function
+        for RandomForest importances.
+
+    References
+    ----------
+    .. [1] Breiman, L. (2001). "Random Forests". Machine
+       Learning, 45(1), 5–32.
+    .. [2] Liu, J., Liu, W., Allechy, F.B., Zheng, Z., Liu, R., 
+       Kouadio, K.L., 2024. Machine learning-based techniques for land 
+       subsidence simulation in an urban area. J. Environ. Manage. 352, 17.
+       https://doi.org/https://doi.org/10.1016/j.jenvman.2024.120078
+    """
+
+    # Compute importances if not precomputed
+    if not precomputed:
+        importance_df = compute_importances(
+            data,
+            y,
+            models=models,
+            prefit=prefit,
+            as_frame=True,
+            normalize=normalize,
+            return_rank=False
+        )
+    else:
+        importance_df = data
+
+    # Number of models
+    n_models = len(importance_df.columns)
+
+    # Warn if 'merge' mode with unsupported plot types
+    if (mode == 'merge') and (plot_type in ['line', 'donut', 'radar']):
+        warnings.warn(
+            f"plot_type '{plot_type}' is not available in merge mode. "
+            f"Falling back to individual plots."
+        )
+        mode = 'indiv'
+
+    # Setup subplots
+    if mode == 'indiv':
+        if orient.lower() in ['v', 'vertical']:
+            ncols = 1
+            nrows = n_models
+        else:
+            ncols = min(max_cols, n_models)
+            nrows = int(np.ceil(n_models / ncols))
+    else:
+        ncols = 1
+        nrows = 1
+
+    # Default figure size
+    if fig_size is None:
+        if orient.lower() in ['v', 'vertical']:
+            fig_size = (12, 5)
+        elif orient.lower() in ['h', 'horizontal']:
+            fig_size = (12, 7)
+        else:
+            fig_size = (10, 8)
+
+    fig, axes = plt.subplots(
+        nrows=nrows, ncols=ncols, 
+        figsize=fig_size
+        )
+
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
+    else:
+        axes = axes.ravel()
+
+    # Default line properties
+    if line_props is None:
+        line_props = {'marker': 'o', 'linestyle': '-'}
+
+    # Helper to get colors
+    def get_colors(n, cp=None):
+        if (mode == 'indiv') and isinstance(cp, (list, tuple)):
+            cp = cp[0]
+        if cp is None:
+            # default grayscale range
+            return plt.cm.Greys(np.linspace(0.2, 0.8, n))
+        cmap_obj = plt.get_cmap(cp) if isinstance(cp, str) else cp
+        return cmap_obj(np.linspace(0.2, 0.8, n))
+
+    # Plot logic
+    if mode == 'indiv':
+        # Plot each model column separately
+        for idx, col in enumerate(importance_df.columns):
+            vals = reorder_importances(importance_df[col])
+            ax = axes[idx]
+            colors = get_colors(len(vals), cmap)
+
+            if plot_type == "bar":
+                # Horizontal bar plot
+                ax.barh(vals.index, vals, color=colors)
+
+            elif plot_type == "line":
+                # Line plot with markers
+                ax.plot(vals.index, vals, **line_props)
+
+            elif plot_type == "donut":
+                # Donut chart
+                try:
+                    ex = extend_values(
+                        explode,
+                        target=len(vals),
+                        increment=0.01
+                    )
+                except ImportError:
+                    ex = None
+
+                wedges, texts, autotxt = ax.pie(
+                    vals,
+                    labels=vals.index,
+                    autopct=autopct,
+                    startangle=90,
+                    explode=ex,
+                    colors=colors
+                )
+                center_circle = plt.Circle((0, 0), 0.70, fc='white')
+                ax.add_artist(center_circle)
+                ax.axis('equal')
+
+            elif plot_type == "radar":
+                # Radar chart
+                labels = vals.index.tolist()
+                num_vars = len(labels)
+                angles = np.linspace(0, 2 * np.pi, num_vars,
+                                     endpoint=False).tolist()
+                angles.append(angles[0])
+                vals_list = vals.tolist()
+                vals_list.append(vals_list[0])
+
+                ax.plot(angles, vals_list, **line_props)
+                if fill_btw:
+                    ax.fill(angles, vals_list, alpha=0.25)
+
+                ax.set_xticks(angles[:-1])
+                ax.set_xticklabels(labels)
+                ax.set_yticklabels([])
+
+            else:
+                raise ValueError(f"Unsupported plot_type: {plot_type}")
+
+            # Title, labels, annotations
+            if plot_type in ["bar", "line"]:
+                ax.set_title(f"{col} Feature Importances")
+                ax.set_xlabel(
+                    ("Importance ratio (x100)" if in_percent
+                     else "Importance ratio")
+                )
+                ax.set_ylabel("Features")
+                if annot:
+                    if plot_type == "bar":
+                        for i, val in enumerate(vals):
+                            lbl_val = f"{val:{fmt}}"
+                            if in_percent:
+                                lbl_val = f"{val * 100:{fmt}}%"
+                            ax.text(val, i, " " + lbl_val, va='center')
+                    elif plot_type == "line":
+                        for i, val in enumerate(vals):
+                            lbl_val = f"{val:{fmt}}"
+                            if in_percent:
+                                lbl_val = f"{val * 100:{fmt}}%"
+                            ax.annotate(
+                                lbl_val,
+                                (importance_df.index[i], val),
+                                textcoords="offset points",
+                                xytext=(5, 0),
+                                va="center"
+                            )
+
+            # Grid
+            if show_grid:
+                if grid_props is None:
+                    grid_props = {"linestyle": ":", "alpha": 0.7}
+                ax.grid(True, **grid_props)
+            else:
+                ax.grid(False)
+    else:
+        # Merge mode => grouped bar chart
+        ax = axes[0]
+        if plot_type == "bar":
+            x = np.arange(len(importance_df.index))
+            total_width = 0.8
+            width = total_width / n_models
+            # Use bar_space if needed
+
+            # Possibly pick distinct colormaps
+            colormaps = make_plot_colors(
+                x,
+                colors=cmap,
+                cmap_only=True,
+                get_only_names=True
+            )
+
+            # For each model, offset bars
+            for i, col in enumerate(importance_df.columns):
+                vals = reorder_importances(importance_df[col])
+                colors = get_colors(len(vals), colormaps[i])
+                ax.barh(
+                    x + i * width,
+                    vals,
+                    height=width,
+                    color=colors,
+                    label=col
+                )
+            ax.set_yticks(x + total_width / 2 - width / 2)
+            ax.set_yticklabels(vals.index)
+
+        else:
+            raise ValueError(
+                f"Unsupported merge plot_type: {plot_type}")
+
+        ax.set_title(title if title else "Feature Importances")
+        ax.set_ylabel("Features")
+        ax.set_xlabel(
+            ("Importance ratio (x100)" if in_percent
+             else "Importance ratio")
+        )
+        ax.legend()
+
+        # Annotations if line (though here we only do bar in merge)
+        if annot and plot_type == "line":
+            for col in importance_df.columns:
+                last_val = importance_df[col].iloc[-1]
+                lbl = f"{last_val:{fmt}}"
+                if in_percent:
+                    lbl = f"{last_val * 100:{fmt}}%"
+                ax.annotate(
+                    lbl,
+                    (importance_df.index[-1], last_val),
+                    textcoords="offset points",
+                    xytext=(5, 0),
+                    va="center"
+                )
+
+        if show_grid:
+            if grid_props is None:
+                grid_props = {"linestyle": ":", "alpha": 0.7}
+            ax.grid(True, **grid_props)
+        else:
+            ax.grid(False)
+
+    plt.tight_layout()
+    if savefig:
+        plt.savefig(savefig)
+    plt.show()
+
 
 def plot_regularization_path(
     X, y, 

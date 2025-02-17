@@ -58,7 +58,7 @@ from ..utils.validator import  (
     validate_yy, filter_valid_kwargs
 )
 from ._config import PlotConfig
-from ._d_cms import D_COLORS, D_MARKERS, D_STYLES
+from ._d_cms import D_COLORS, D_MARKERS, D_STYLES, D_CMAPS 
 
 __all__=[
     "boxplot", 
@@ -4304,12 +4304,13 @@ def plot_r_squared(
     
     return ax
 
-def make_plot_colors(
+def make_plot_colors0(
     d , / , 
     colors:str | list[str]=None , 
     axis:int = 0, 
     seed:int  =None, 
-    chunk:bool =... 
+    chunk:bool =... , 
+    cmap_only=False, 
     ): 
     """ Select colors according to the data size along axis 
     
@@ -4351,7 +4352,7 @@ def make_plot_colors(
     Examples 
     --------
     >>> import numpy as np 
-    >>> from gofast.utils.utils import make_plot_colors
+    >>> from gofast.plot.utils import make_plot_colors
     >>> ar = np.random.randn (7, 2) 
     >>> make_plot_colors (ar )
     ['g', 'gray', 'y', 'blue', 'orange', 'purple', 'lime']
@@ -4360,7 +4361,7 @@ def make_plot_colors(
     >>> make_plot_colors (ar , axis =1 , colors ='cs4')
     ['#F0F8FF', '#FAEBD7']
     >>> len(make_plot_colors (ar , axis =1 , colors ='cs4', chunk=False))
-    150
+    4
     >>> make_plot_colors (ar , axis =1 , colors ='cs4:4')
     ['#F0FFFF', '#F5F5DC']
     """
@@ -4442,6 +4443,196 @@ def make_plot_colors(
     chunk =True if chunk is ... else False 
     
     return colors[:axis_length] if chunk else colors 
+
+def make_plot_colors(
+    d, 
+    /,
+    colors: str | list[str] = None,
+    axis: int = 0,
+    seed: int = None,
+    chunk: bool = ...,
+    cmap_only: bool = False, 
+    get_only_names=True, 
+):
+    """
+    Select or generate a color sequence according to the size of `d` along
+    the specified axis. By default, a set of auto-generated colors is used,
+    but custom color sets (including Matplotlib's CS4 or XKCD colors) can
+    also be requested.
+
+    Parameters
+    ----------
+    d : array-like
+        The data (e.g., a NumPy array or list) from which the length along 
+        `axis` is used to determine the number of colors needed.
+    colors : str or list of str, optional
+        The color specification(s) to use. If not provided, default 
+        auto-generated colors are used. 
+        
+        - If a string containing `'cs4'` or `'xkcd'` is given (e.g., 
+          `'cs4:4'`, `'xkcd:10'`), the respective 
+          :attr:`matplotlib.colors.CSS4_COLORS` or 
+          :attr:`matplotlib.colors.XKCD_COLORS` are used. 
+          
+        - A suffix after a colon (like `:4`) can be used to select the
+          starting index in that color dictionary.
+          
+        - If the exact suffix matches a known color name (e.g., 
+          `'cs4:aliceblue'`), then that color name is used as the 
+          starting point (no shuffling).
+    axis : int, default=0
+        The axis along which the colors should match. If `axis=0`, 
+        the number of rows in `d` determines how many colors are generated. 
+        If `axis=1`, the number of columns, etc.
+    seed : int, optional
+        A random seed to make color selection reproducible, applicable 
+        if colors are drawn randomly (e.g., from `'cs4'` or `'xkcd'`).
+    chunk : bool, default=True
+        If True, the final list of colors is truncated or "chunked" to 
+        exactly match the axis length of `d`. Otherwise, the full list 
+        remains untruncated.
+    cmap_only : bool, default=False
+        If True, use a Matplotlib colormap-based approach (and ignore 
+        regular color lists). Colors are sampled from a random (or 
+        seeded-random) colormap, providing exactly one color per item 
+        along the chosen axis. If both `cmap_only=True` and a custom 
+        `colors` argument is given, that custom set is merged with 
+        the colormap samples unless `'colors'` itself has `'cs4'` or 
+        `'xkcd'` logic applied.
+    get_only_names : bool, default=True
+        When `cmap_only=True` and `prop='color'`:
+
+        - If True, the function returns the **colormap name** samples 
+          `n` times from colormap.
+        - If False, it returns `n` RGBA color tuples sampled from that 
+          colormap.
+
+        This parameter has no effect if `cmap_only=False` or `prop` is not 
+        'color'.
+    Returns
+    -------
+    list
+        A list of colors corresponding to the size of `d` along `axis`.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.plot.utils import make_plot_colors
+    >>> ar = np.random.randn(7, 2)
+    >>> make_plot_colors(ar)
+    ['g', 'gray', 'y', 'blue', 'orange', 'purple', 'lime']
+    
+    >>> make_plot_colors(ar, axis=1)
+    ['g', 'gray']
+    
+    >>> make_plot_colors(ar, axis=1, colors='cs4')
+    ['#F0F8FF', '#FAEBD7']
+    
+    >>> len(make_plot_colors(ar, axis=1, colors='cs4', chunk=False))
+    4
+    
+    >>> make_plot_colors(ar, axis=1, colors='cs4:4')
+    ['#F0FFFF', '#F5F5DC']
+    """
+
+    # Determine axis along which colors must be generated
+    axis = str(axis).lower()
+    if 'columns1'.find(axis) >= 0:
+        axis = 1
+    else:
+        axis = 0
+
+    # Ensure data is an array
+    d = is_iterable(d, exclude_string=True, transform=True)
+    if not hasattr(d, '__array__'):
+        d = np.array(d, dtype=object)
+
+    axis_length = len(d) if len(d.shape) == 1 else d.shape[axis]
+
+    # Base color set from 'make_mpl_properties' (internal utility)
+    m_cs = make_mpl_properties(
+        axis_length, cmap_only=cmap_only,
+        seed=seed, 
+        get_only_names=get_only_names 
+    )
+
+    # Handle special color formats (cs4, xkcd)
+    if (
+        isinstance(colors, str) and
+        ("cs4" in colors.lower() or "xkcd" in colors.lower())
+    ):
+        c = copy.deepcopy(colors)
+        if 'cs4' in colors.lower():
+            DCOLORS = mcolors.CSS4_COLORS
+        else:
+            # Adjust xkcd keys by removing "xkcd:"
+            DCOLORS = dict(
+                (k.replace('xkcd:', ''), v)
+                for k, v in mcolors.XKCD_COLORS.items()
+            )
+
+        key_colors = list(DCOLORS.keys())
+        colors = list(DCOLORS.values())
+        shuffle_cs4 = True
+        cs4_start = None
+
+        # Attempt to parse the suffix after ':'
+        if ':' in c.lower():
+            cs4_start = c.lower().split(':')[-1]
+
+        # Try converting suffix to integer index
+        try:
+            cs4_start = int(cs4_start)
+        except:
+            # If suffix is a valid named color, don't shuffle
+            if (cs4_start is not None and
+                    str(cs4_start).lower() in key_colors):
+                cs4_start = key_colors.index(str(cs4_start).lower())
+                shuffle_cs4 = False
+            else:
+                pass
+        else:
+            # If numeric suffix is found, do not shuffle
+            shuffle_cs4 = False
+
+        cs4_start = cs4_start or 0
+
+        if shuffle_cs4:
+            np.random.seed(seed)
+            # Randomly pick from entire CSS4 or XKCD
+            colors = list(np.random.choice(colors, len(m_cs)))
+        else:
+            # If the index is out of range, reset to 0
+            if cs4_start > len(colors) - 1:
+                cs4_start = 0
+            colors = colors[cs4_start:]
+
+    # If no special cs4/xkcd logic, or we already have a color list
+    # we handle 'cmap_only' here:
+    if colors is not None: 
+        colors = is_iterable(colors, exclude_string=True, transform=True)
+        
+    if not cmap_only:
+        # Normal scenario: either append 'm_cs' or just use it
+        if colors is not None:
+            # Merge with base colors
+            colors += m_cs
+        else:
+            colors = m_cs
+    else:
+        # If 'cmap_only' is True, we use only whatever is in 'colors';
+        # if 'colors' is None, we fallback to 'm_cs' but do NOT merge.
+        if colors is None:
+            colors = m_cs
+        else: 
+            colors += m_cs
+            
+    # Final chunking logic: shrink if 'chunk=True' (by default '...' => True)
+    chunk = True if chunk is ... else bool(chunk)
+
+    if chunk:
+        return colors[:axis_length]
+    return colors
 
 def savefigure(
     fig: object, 
@@ -4576,73 +4767,177 @@ def resetting_ticks(get_xyticks, number_of_ticks=None):
 
     return new_array
 
-def make_mpl_properties(n: int, prop: str = 'color') -> list:
+def make_mpl_properties(
+    n: int,
+    prop: str = 'color',
+    cmap_only: bool = False,
+    seed: int = None,
+    get_only_names: bool = True,
+) -> list:
     """
-    Generate a list of matplotlib properties such as colors, markers, or line 
-    styles to match the specified number of samples.
+    Generate a list of matplotlib properties (e.g., colors, markers, or
+    line styles) of length `n`.
+
+    If ``cmap_only=True`` and ``prop='color'``, the function picks one
+    random colormap name from ``D_CMAPS`` (reproducible by setting
+    ``seed``), then:
+
+    - If ``get_only_names=True``, returns the chosen colormap name
+      repeated `n` times.
+    - Otherwise, returns `n` RGBA color values sampled (equally spaced)
+      from that colormap.
 
     Parameters
     ----------
     n : int
-        Number of property items needed. It generates a group of property items.
-    prop : str, default='color'
-        Name of the property to retrieve. Accepts 'color', 'marker', or 'line'.
+        The number of property items to generate (e.g., number of colors).
+    prop : {'color', 'marker', 'line'}, default='color'
+        The type of property to generate. If set to anything other than 
+        'color', the `cmap_only` flag is ignored.
+    cmap_only : bool, default=False
+        If True and `prop='color'`, ignore the default color list `D_COLORS`
+        and instead pick a single Matplotlib colormap (randomly from
+        `D_CMAPS`) to obtain the output colors.
+    seed : int, optional
+        Seed for the random selection of colormap when `cmap_only=True`.
+        If not provided, each call may pick a different colormap.
+    get_only_names : bool, default=True
+        When `cmap_only=True` and `prop='color'`:
+
+        - If True, the function returns the **colormap name** samples 
+          `n` times from colormap.
+        - If False, it returns `n` RGBA color tuples sampled from that 
+          colormap.
+
+        This parameter has no effect if `cmap_only=False` or `prop` is not 
+        'color'.
 
     Returns
     -------
     list
-        A list of property items with size equal to `n`.
+        A list of property items. For example:
+        - If `prop='color'` and `cmap_only=False`, a list of color specs
+          from `D_COLORS` (possibly repeated).
+        - If `prop='marker'`, marker symbols (possibly repeated).
+        - If `prop='line'`, line style strings (possibly repeated).
+        - If `cmap_only=True` (and `prop='color'`), either a list of `n`
+          colormap names or a list of `n` RGBA values (depending on
+          `get_only_names`).
 
     Raises
     ------
     ValueError
-        If the `prop` argument is not one of 'color', 'marker', or 'line'.
+        If `prop` is not one of 'color', 'marker', or 'line'.
 
     Examples
     --------
-    >>> from gofast.utils.utils import make_mpl_properties
+    >>> from gofast.plot.utils import make_mpl_properties
     >>> make_mpl_properties(10)
     ['g', 'gray', 'y', 'blue', 'orange', 'purple', 'lime', 'k', 'cyan', (0.6, 0.6, 0.6)]
-    >>> make_mpl_properties(100, prop='marker')
-    ['o', '^', 'x', 'D', ..., 11, 'None', None, ' ', '']
-    >>> make_mpl_properties(50, prop='line')
-    ['-', '-', '--', '-.', ..., 'solid', 'dashed', 'dashdot', 'dotted']
+
+    >>> make_mpl_properties(5, prop='marker')
+    ['o', '^', 'x', 'D', '8']
+
+    >>> # Using a random colormap but returning just the colormap name
+    >>> make_mpl_properties(4, cmap_only=True, get_only_names=True)
+    ['Spectral_r', 'Spectral_r', 'Spectral_r', 'Spectral_r']  # For example
+
+    >>> # Returning actual color tuples from a random colormap
+    >>> make_mpl_properties(3, cmap_only=True, get_only_names=False)
+    [(0.0, 0.0, 0.0, 1.0), (0.25, 0.2, 0.4, 1.0), (0.5, 0.4, 0.6, 1.0)]  # Example
     """
-    n=int(_assert_all_types(n, int, float, objname ="'n'"))
+    import random
+
+    # Validate `n` and `prop`
+    n = int(_assert_all_types(n, int, float, objname="'n'"))
     prop = str(prop).lower().strip().replace('s', '')
     if prop not in ('color', 'marker', 'line'):
-        raise ValueError(f"Property {prop!r} is not available."
-                         " Expect 'color', 'marker', or 'line'.")
-    # Generate property lists
-    props =[]
-    if prop=='color': 
-        d_colors =  D_COLORS 
-        d_colors = mpl.colors.ListedColormap(d_colors[:n]).colors
-        if len(d_colors) == n: 
-            props= d_colors 
+        raise ValueError(f"Property {prop!r} is not available. "
+                         "Expect one of: 'color', 'marker', 'line'.")
+
+    # 1) If the user wants ONLY colormap-based colors (cmap_only=True) 
+    #    and prop='color', then pick a random colormap from `D_CMAPS`
+    #    and sample `n` colors from it.
+    # If user wants colormap-only colors:
+    if prop == 'color' and cmap_only:
+        if get_only_names:
+            # Return color *names* only
+            if seed is None:
+                # Not random: simply take the first n
+                return D_CMAPS[:n]
+            else:
+                # Random selection with a given seed
+                random.seed(seed)
+                if n <= len(D_CMAPS):
+                    # Distinct selection
+                    return random.sample(D_CMAPS, k=n)
+                else:
+                    # If user requests more than available distinct
+                    # colormaps, we can fallback to 
+                    # random.choices for duplicates
+                    return random.choices(D_CMAPS, k=n)
         else:
-            rcolors = list(itertools.repeat(
-                d_colors , (n + len(d_colors))//len(d_colors))) 
+            # get_only_names=False => sample RGBA from ONE random colormap
+            if seed is not None:
+                random.seed(seed)
+            chosen_cmap = random.choice(D_CMAPS)
+            colormap = mpl.cm.get_cmap(chosen_cmap)
+            step = 1.0 / max(n, 1)
+            props = [colormap(i * step) for i in range(n)]
+            return props
+
+        
+        
+        
+        if seed is not None:
+            random.seed(seed)
+        chosen_cmap = random.choice(D_CMAPS)  # pick any from D_CMAPS
     
-            props  = list(itertools.chain(*rcolors))
-        
-    if prop=='marker': 
-        
-        d_markers =  D_MARKERS + list(mpl.lines.Line2D.markers.keys()) 
-        rmarkers = list(itertools.repeat(
-            d_markers , (n + len(d_markers))//len(d_markers))) 
-        
-        props  = list(itertools.chain(*rmarkers))
-    # repeat the lines to meet the number of cv_size 
-    if prop=='line': 
-        d_lines =  D_STYLES
-        rlines = list(itertools.repeat(
-            d_lines , (n + len(d_lines))//len(d_lines))) 
-        # combine all repeatlines 
-        props  = list(itertools.chain(*rlines))
+        # If user only wants the colormap's name repeated:
+        if get_only_names:
+            return [chosen_cmap] * n
     
-    return props [: n ]
-  
+        # Otherwise, sample RGBA values from the chosen colormap
+        colormap = mpl.cm.get_cmap(chosen_cmap)
+        step = 1.0 / max(n, 1)
+        props = [colormap(i * step) for i in range(n)]
+        return props
+
+    # 2) Otherwise, proceed with the original logic:
+    #    - For 'color': cycle through the predefined D_COLORS
+    #    - For 'marker': cycle through D_MARKERS
+    #    - For 'line':   cycle through D_STYLES
+    props = []
+    if prop == 'color':
+        # Using D_COLORS or extended approach
+        d_colors = D_COLORS  
+        # If D_COLORS is shorter than n, repeat it to fill up
+        if len(d_colors) >= n:
+            props = d_colors[:n]
+        else:
+            # Repeat enough times so that len(props) >= n
+            repeats_needed = (n + len(d_colors) - 1) // len(d_colors)
+            props = list(itertools.islice(
+                itertools.cycle(d_colors), n
+            ))
+
+    elif prop == 'marker':
+        d_markers = D_MARKERS + list(mpl.lines.Line2D.markers.keys())
+        repeats_needed = (n + len(d_markers) - 1) // len(d_markers)
+        props = list(itertools.islice(
+            itertools.cycle(d_markers), n
+        ))
+
+    elif prop == 'line':
+        d_lines = D_STYLES
+        repeats_needed = (n + len(d_lines) - 1) // len(d_lines) # noqa 
+        props = list(itertools.islice(
+            itertools.cycle(d_lines), n
+        ))
+
+    return props
+
+
 def resetting_colorbar_bound(
     cbmax: float,
     cbmin: float,

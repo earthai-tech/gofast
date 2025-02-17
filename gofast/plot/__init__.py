@@ -41,6 +41,7 @@ from .feature_analysis import (
     plot_sbs_feature_selection, 
     plot_permutation_importance, 
     plot_regularization_path, 
+    plot_feature_importances, 
    )
 from .inspection  import ( 
     plot_learning_inspection, 
@@ -140,6 +141,7 @@ __all__= [
     'plot_sbs_feature_selection',
     'plot_permutation_importance',
     'plot_regularization_path',  
+    'plot_feature_importances', 
     
     'plot_learning_inspection',
     'plot_learning_inspections',

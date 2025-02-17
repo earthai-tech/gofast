@@ -55,6 +55,8 @@ from ..core.array_manager import (
     concat_array_from_list, 
     extract_array_from, 
     to_arrays, 
+    array_preserver, 
+    return_if_preserver_failed
 )
 from ..core.checks  import  ( 
     _assert_all_types, 
@@ -66,7 +68,7 @@ from ..core.checks  import  (
 from ..core.handlers import ( 
     columns_manager, 
     param_deprecated_message, 
-    delegate_on_error
+    delegate_on_error, 
 )
 from ..core.io import is_data_readable 
 from ..core.utils import normalize_string, smart_format 
@@ -90,7 +92,8 @@ from .validator import (
     #ensure_2d,
     contains_nested_objects,
     get_estimator_name, 
-    has_methods
+    has_methods, 
+    build_data_if
 )
 
 _logger = gofastlog.get_gofast_logger(__name__)
@@ -350,6 +353,14 @@ def compute_importances(
     #    and no X is provided, we attempt retrieving them from
     #    the model afterward.
     if X is not None:
+        # check whether X is a dataframe 
+        # if not build dataframe. 
+        
+        X= build_data_if (
+            X, force=True, 
+            input_name="Feature Data", 
+            col_prefix='feature_', 
+        )
         feature_names = (
             X.columns
             if hasattr(X, 'columns')
@@ -438,6 +449,7 @@ def compute_importances(
         # let's abbreviate it to avoid confusion with the 
         # parameter name.
         from .mathext import normalize as normalizer
+        print(importances_df.head())
         importances_df = normalizer(importances_df)
 
     # 10) If multiple models, compute the mean across them
@@ -4475,7 +4487,14 @@ def normalize(
         if isinstance(obj, (pd.DataFrame, pd.Series)):
             return obj.values
         return np.asarray(obj)
-
+     
+    # Preserve the structure of the input array/Series/DataFrame.
+    arrays = [X]
+    if y is not None: 
+        arrays.append (y)
+        
+    collected = array_preserver(*arrays, action='collect')
+    
     X_arr = _to_array(X).astype(float, copy=False)
     # If 1D, treat each sample as an entire vector
     # i.e. shape (n_samples,) => reshape => (n_samples, 1)?
@@ -4530,10 +4549,36 @@ def normalize(
             if val_norm < eps:
                 val_norm = eps
             y_norm = y_arr / val_norm
+            
+        # Attempt to restore original structure (index, shape, etc.)
+        collected['processed'] = [X_norm, y_norm]
+        try:
+            X_norm, y_norm = array_preserver(
+                collected, 
+                action='restore',
+                deep_restore=True
+            )
+        except:
+            pass 
+    
         return X_norm, y_norm
-
+    
+    collected['processed'] = [X_norm]
+    
+    try:
+        X_norm = array_preserver(
+            collected,
+            solo_return=True,
+            action='restore',
+            deep_restore=True
+        )
+    except Exception:
+        # If it fails, fallback to raw X_norm and y_norm,
+        X_norm = return_if_preserver_failed(
+            X_norm,
+            warn="ignore",
+        )
     return X_norm
-
 
 def count_local_minima(arr,  method='robust', order=1):
     """

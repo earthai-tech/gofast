@@ -4238,6 +4238,7 @@ def index_based_selector(
 def to_series(
     data,
     name=None,
+    handle_2d="raise", 
 ):
     """
     Convert the provided data to a one-dimensional pandas Series,
@@ -4266,7 +4267,19 @@ def to_series(
         A string used to rename the resulting Series. If not
         provided, the name is inferred from the DataFrame column
         (if applicable) or left as None.
-    
+    handle_2d : {"raise", "passthrough"}, default="raise"
+        Determines how 2D inputs are handled when they do not
+        meet the single-column requirement or remain
+        reshaped to a single dimension:
+
+        - ``"raise"`` : Raise a ValueError for data that is
+          strictly two-dimensional but doesn't match the
+          expected shape of ``(1, n)`` or ``(n, 1)``.
+        - ``"passthrough"`` : Return the unmodified 2D data
+          instead of raising an exception, allowing the caller
+          to decide how to handle multi-column or multi-row
+          data.
+
     Returns
     -------
     pandas.Series
@@ -4317,7 +4330,7 @@ def to_series(
 
     See Also
     --------
-    ``to_array`` :
+    to_array :
         Converts input to a NumPy array, providing an intermediate
         step for uniform handling of data shapes.
 
@@ -4337,8 +4350,12 @@ def to_series(
     # then extract that column as a Series.
     if isinstance(data, pd.DataFrame):
         if data.shape[1] != 1:
+            if handle_2d=="passthrough": 
+                return data 
+            
             raise ValueError(
-                "DataFrame must have exactly one column to be converted to Series."
+                "DataFrame must have exactly one"
+                " column to be converted to Series."
             )
         series_col = data.columns[0]
         s = data.iloc[:, 0]
@@ -4362,11 +4379,17 @@ def to_series(
             elif data.shape[1] == 1 and data.shape[0] >= 1:
                 data = data.reshape(-1)
             else:
+                if handle_2d=="passthrough": 
+                    return data 
+                
                 raise ValueError(
                     "NumPy array must be one-dimensional or reshapeable to (n,). "
                     f"Current shape: {data.shape}"
                 )
         elif len(data.shape) > 2:
+            if handle_2d=="passthrough": 
+                return data 
+            
             raise ValueError(
                 "NumPy array must be one-dimensional or reshapeable to (n,). "
                 f"Current shape: {data.shape}"

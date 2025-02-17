@@ -138,6 +138,7 @@ class SGDAdalineRegressor(BaseAdalineStochastic, RegressorMixin):
     Examples
     --------
     >>> from gofast.estimators.adaline import SGDAdalineRegressor
+    >>> from sklearn.datasets import fetch_california_housing
     >>> from sklearn.preprocessing import StandardScaler
     >>> X, y = fetch_california_housing(return_X_y=True)
     >>> X = StandardScaler().fit_transform(X)
@@ -322,15 +323,16 @@ class SGDAdalineRegressor(BaseAdalineStochastic, RegressorMixin):
                 y_val_pred = self.predict(X_val)
                 val_error = mean_squared_error(y_val, y_val_pred)
                 if val_error < self.tol:
-                    if self.verbose > 1:
+                    if self.verbose >1:
                         print(f'Early stopping at epoch {i+1}')
+                    if self.verbose > 0:
                         progress_bar.update(self.max_iter - i)
                     break
 
             if self.learning_rate == 'adaptive':
                 self.eta0 *= self.eta0_decay
 
-            if self.verbose > 1:
+            if self.verbose > 0:
                 progress_bar.update(1)
 
         if self.verbose > 0:
@@ -697,7 +699,7 @@ class SGDAdalineClassifier(BaseAdalineStochastic, ClassifierMixin):
             if self.learning_rate == 'adaptive':
                 self.eta0 *= self.eta0_decay
             
-            if self.verbose > 1:
+            if self.verbose > 0:
                 progress_bar.update(1)
                 
         if self.verbose > 0:
