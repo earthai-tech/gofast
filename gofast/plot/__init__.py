@@ -14,7 +14,8 @@ from .charts import (
     pie_charts, 
     radar_chart_in, 
     radar_chart, 
-    donut_chart
+    donut_chart, 
+    plot_donut_charts
     )
 from .cluster import ( 
     plot_silhouette, 
@@ -114,6 +115,7 @@ __all__= [
     "radar_chart",
     "radar_chart_in", 
     "donut_chart", 
+    "plot_donut_charts", 
     
     'plot_silhouette',
     'plot_silhouette_in',

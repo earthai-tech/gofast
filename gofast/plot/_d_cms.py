@@ -57,6 +57,9 @@ D_STYLES = [
     'loosely dashdotdotted', 'densely dashdotdotted'
 ]
 
+D_SEQ= ['Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds',
+        'YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu',
+        'GnBu', 'PuBu', 'YlGnBu', 'PuBuGn', 'BuGn', 'YlGn']
 
 TDG_DIRECTIONS= { 
     "-1":{ 

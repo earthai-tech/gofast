@@ -58,7 +58,8 @@ from ..utils.validator import  (
     validate_yy, filter_valid_kwargs
 )
 from ._config import PlotConfig
-from ._d_cms import D_COLORS, D_MARKERS, D_STYLES, D_CMAPS 
+from ._d_cms import D_COLORS, D_MARKERS 
+from ._d_cms import D_STYLES, D_CMAPS, D_SEQ  
 
 __all__=[
     "boxplot", 
@@ -4452,7 +4453,8 @@ def make_plot_colors(
     seed: int = None,
     chunk: bool = ...,
     cmap_only: bool = False, 
-    get_only_names=True, 
+    get_only_names=True,
+    use_cmap_seq=False, 
 ):
     """
     Select or generate a color sequence according to the size of `d` along
@@ -4553,7 +4555,9 @@ def make_plot_colors(
     m_cs = make_mpl_properties(
         axis_length, cmap_only=cmap_only,
         seed=seed, 
-        get_only_names=get_only_names 
+        get_only_names=get_only_names, 
+        use_cmap_seq= use_cmap_seq 
+        
     )
 
     # Handle special color formats (cs4, xkcd)
@@ -4773,6 +4777,7 @@ def make_mpl_properties(
     cmap_only: bool = False,
     seed: int = None,
     get_only_names: bool = True,
+    use_cmap_seq =False, 
 ) -> list:
     """
     Generate a list of matplotlib properties (e.g., colors, markers, or
@@ -4859,39 +4864,43 @@ def make_mpl_properties(
     #    and prop='color', then pick a random colormap from `D_CMAPS`
     #    and sample `n` colors from it.
     # If user wants colormap-only colors:
+    
+        
     if prop == 'color' and cmap_only:
+        if use_cmap_seq :
+            CMAP= D_SEQ.copy() 
+        else: 
+            CMAP= D_CMAPS
+            
         if get_only_names:
             # Return color *names* only
             if seed is None:
                 # Not random: simply take the first n
-                return D_CMAPS[:n]
+                return CMAP[:n]
             else:
                 # Random selection with a given seed
                 random.seed(seed)
-                if n <= len(D_CMAPS):
+                if n <= len(CMAP):
                     # Distinct selection
-                    return random.sample(D_CMAPS, k=n)
+                    return random.sample(CMAP, k=n)
                 else:
                     # If user requests more than available distinct
                     # colormaps, we can fallback to 
                     # random.choices for duplicates
-                    return random.choices(D_CMAPS, k=n)
+                    return random.choices(CMAP, k=n)
         else:
             # get_only_names=False => sample RGBA from ONE random colormap
             if seed is not None:
                 random.seed(seed)
-            chosen_cmap = random.choice(D_CMAPS)
+            chosen_cmap = random.choice(CMAP)
             colormap = mpl.cm.get_cmap(chosen_cmap)
             step = 1.0 / max(n, 1)
             props = [colormap(i * step) for i in range(n)]
             return props
 
-        
-        
-        
         if seed is not None:
             random.seed(seed)
-        chosen_cmap = random.choice(D_CMAPS)  # pick any from D_CMAPS
+        chosen_cmap = random.choice(CMAP)  # pick any from D_CMAPS
     
         # If user only wants the colormap's name repeated:
         if get_only_names:

@@ -89,7 +89,6 @@ from .validator import (
     validate_multiclass_target,
     validate_length_range,
     validate_scores,
-    #ensure_2d,
     contains_nested_objects,
     get_estimator_name, 
     has_methods, 
@@ -449,7 +448,6 @@ def compute_importances(
         # let's abbreviate it to avoid confusion with the 
         # parameter name.
         from .mathext import normalize as normalizer
-        print(importances_df.head())
         importances_df = normalizer(importances_df)
 
     # 10) If multiple models, compute the mean across them

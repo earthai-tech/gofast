@@ -3858,117 +3858,161 @@ class NumpyDocstringFormatter:
                 _logger.error(
                     f"Docstring validation failed due to an exception: {e}") 
 
+
 class Dataify:
-    """
-    A class decorator that ensures the first positional argument passed 
-    to the decorated function is a pandas DataFrame, offering flexibility 
-    through additional parameters for various data handling scenarios.
+    r"""
+    A class decorator that ensures the first positional argument
+    passed to the decorated function is converted into a
+    ``pandas.DataFrame`` if <enforce_df> is True. This allows for
+    automatic handling of diverse inputs (lists, NumPy arrays,
+    Series) and ensures that downstream processing always has a
+    consistent DataFrame. When <enforce_df> is False, the decorator
+    passes data unchanged if it is already a Series, ignoring other
+    conversion steps [1]_.
+
+    Mathematically, one may view this transformation as mapping any
+    input :math:`X` into a space of valid DataFrame objects
+    :math:`\tilde{X}`, such that:
+
+    .. math::
+       \tilde{X} = F_{\text{df}}(X)
+
+    where :math:`F_{\text{df}}(\cdot)` represents the conversion
+    function and :math:`\tilde{X}` is the resultant DataFrame.
 
     Parameters
     ----------
     enforce_df : bool, optional
-        Whether to enforce the conversion of the first positional argument 
-        to a pandas DataFrame. Defaults to True.
+        If True, the decorator converts the first positional
+        argument to a DataFrame if it is not already one. If
+        False, the input is passed through unchanged if it is
+        a Series. Default is True.
     auto_columns : bool, optional
-        Automatically generates column names if `columns` is not provided.
-        Defaults to False.
+        If True, automatically generates column names when
+        converting data to a DataFrame and no column names are
+        otherwise provided. Default is False.
     prefix : str, optional
-        The prefix for auto-generated column names, used only if `auto_columns`
-        is True. Defaults to 'col_'.
+        A prefix string for auto-generated column names, used
+        only if <auto_columns> is True. The default is 'col_'.
     columns : list of str, optional
-        Specifies the column names for DataFrame conversion. If not provided, 
-        and data conversion is necessary, default integer column names are used. 
-        This parameter is considered only if `enforce_df` is True.
+        Specifies DataFrame column names if <enforce_df> is True.
+        If missing or of mismatched length, defaults to integer
+        column names unless <ignore_mismatch> is also True, in
+        which case the mismatch is silently ignored.
     ignore_mismatch : bool, optional
-        If True, ignores the `columns` parameter if its length does not match 
-        the data dimensions, using default integer column names instead. 
-        Defaults to False.
+        If True, mismatches between <columns> length and data
+        dimensions are ignored, falling back to default column
+        names. If False, a ValueError is raised on mismatch.
+        Default is False.
     fail_silently : bool, optional
-        If True, the decorator will not raise an exception if the conversion 
-        fails, and will instead pass the original data to the function. 
-        Defaults to False.
-        
+        If True, any conversion error is caught and the original
+        data is passed to the wrapped function. If False, a
+        ValueError is raised on failure. Default is False.
     start_incr_at : int, optional
-        Starting index for auto-generated columns when
-        ``force=True``. Defaults to ``0``.
+        Starting index for auto-generated column names when
+        <auto_columns> is True. Default is 0.
+
+    Notes
+    -----
+    The transformation is performed by the ``__call__``
+    method, which intercepts the function's arguments and,
+    if <enforce_df> is True, attempts to convert the first
+    positional argument to a DataFrame.
 
     Examples
     --------
     >>> from gofast.decorators import Dataify
-    >>> @Dataify(enforce_df=True, columns=['A', 'B'], ignore_mismatch=True)
+    >>> import numpy as np
+    >>> import pandas as pd 
+    >>> @Dataify(enforce_df=True, columns=['A', 'B'],
+    ...          ignore_mismatch=True)
     ... def process_data(data):
     ...     print(data)
 
-    >>> import numpy as np
     >>> process_data(np.array([[1, 2], [3, 4]]))
        A  B
     0  1  2
     1  3  4
-    
-    Automatically generate column names for conversion:
 
-    >>> @Dataify(enforce_df=True, auto_columns=True, prefix='feature_')
-    ... def process_data(data):
+    >>> @Dataify(enforce_df=True, auto_columns=True,
+    ...          prefix='feature_')
+    ... def process_data2(data):
     ...     print(data)
 
-    >>> process_data([[1, 2], [3, 4]])
+    >>> process_data2([[5, 6], [7, 8]])
        feature_0  feature_1
-    0          1          2
-    1          3          4
+    0          5          6
+    1          7          8
 
-    Specify column names and handle mismatches silently:
+    >>> @Dataify(enforce_df=True, auto_columns=True,
+    ...          prefix='ser_col_')
+    ... def process_data3(data):
+    ...     print(data)
+    
+    >>> series =pd.Series ([5, 6, 7, 8], name="series")
+    >>> process_data3(series)
+       series
+    0       5
+    1       6
+    2       7
+    3       8
+    >>> @Dataify(enforce_df=False, auto_columns=True,
+    ...          prefix='ser_col_')
+    ... def process_data4(data):
+    ...     print(data)
+        
+    >>> series =pd.Series ([5, 6, 7, 8], name="series")
+    >>> process_data4(series)
+    0    5
+    1    6
+    2    7
+    3    8
+    Name: series, dtype: int64
+    
 
-    >>> @Dataify(enforce_df=True, columns=['A'], ignore_mismatch=True)
-    ... def summarize_data(data):
-    ...     print(data.describe())
-
-    >>> summarize_data([[1, 2, 3], [4, 5, 6]])
-           col_0
-    count    2.0
-    mean     2.5
-    std      2.5
-    min      1.0
-    25%      1.75
-    50%      2.5
-    75%      3.25
-    max      4.0
-
-    Notes
-    -----
-    - The decorated function must accept its first positional argument as data.
-    - This class is beneficial for functions expected to work with data in 
-      pandas DataFrame format, automating input data conformity checks.
+    References
+    ----------
+    .. [1] Pedregosa et al. (2011). "Scikit-learn: Machine Learning
+       in Python." *Journal of Machine Learning Research,* 12,
+       2825–2830.
     """
 
     def __init__(
-        self, enforce_df=True, 
+        self,
+        enforce_df=True,
         auto_columns=False,
-        prefix='col_', 
-        columns=None, 
-        ignore_mismatch=False, 
-        fail_silently=False, 
+        prefix='col_',
+        columns=None,
+        ignore_mismatch=False,
+        fail_silently=False,
         start_incr_at=0
-        ):
+    ):
         self.enforce_df = enforce_df
         self.auto_columns = auto_columns
         self.prefix = prefix
         self.columns = columns
         self.ignore_mismatch = ignore_mismatch
         self.fail_silently = fail_silently
-        self.start_incr_at=start_incr_at 
+        self.start_incr_at = start_incr_at
 
     def __call__(self, func):
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            if not self.enforce_df or not args:
+            if not args:
                 return func(*args, **kwargs)
-        
+
             data = args[0]
-            if not isinstance(data, pd.DataFrame):
-                # Remove 'data' from kwargs if present to avoid collision
+
+            # If not enforcing DF, just pass through if it's a Series
+            if not self.enforce_df:
+                if isinstance(data, pd.Series):
+                    return func(*args, **kwargs)
+
+            # Else, enforce DataFrame
+            if not isinstance(data, (pd.DataFrame, pd.Series)):
+                # Remove 'data' from kwargs if present to avoid collisions
                 new_kwargs = {k: v for k, v in kwargs.items() if k != 'data'}
-                
                 try:
                     data = self._attempt_dataframe_conversion(data, **new_kwargs)
                 except ValueError as e:
@@ -3977,77 +4021,43 @@ class Dataify:
                         return func(*args, **kwargs)
                     else:
                         raise
+
+            elif isinstance(data, pd.Series) and self.enforce_df:
+                # If it's a Series and we want a DF
+                data = data.to_frame()
+
             return func(data, *args[1:], **kwargs)
+
         return wrapper
 
     def _attempt_dataframe_conversion(self, data, **kwargs):
-        """
-        Attempts to convert the input data to a pandas DataFrame using 
-        the specified columns if applicable, handling dimension mismatches.
-
-        Parameters
-        ----------
-        data : array-like, Iterable, dict, or DataFrame
-            The data to convert to a DataFrame.
-        **kwargs : dict
-            Additional keyword arguments passed to the decorated function, 
-            potentially including 'columns' for specifying DataFrame column 
-            names.
-
-        Returns
-        -------
-        pd.DataFrame
-            The data converted to a pandas DataFrame.
-
-        Raises
-        ------
-        ValueError
-            If the conversion fails due to incompatible data or column 
-            specifications, unless `fail_silently` is True.
-            
-        Examples
-        --------
-        >>> @Dataify(auto_columns=True, prefix='feature_')
-        ... def process_data(data):
-        ...     print(data.head())
-        
-        >>> process_data(np.random.rand(5, 3))
-           feature_0  feature_1  feature_2
-        0   0.123456   0.654321   0.789012
-        1   0.234567   0.765432   0.890123
-        2   0.345678   0.876543   0.901234
-        3   0.456789   0.987654   0.012345
-        4   0.567890   0.098765   0.123456
-        Notes
-        -----
-        This method is a private helper intended for internal use by the 
-        Dataify decorator to manage DataFrame conversion.
-        """
-        # implement the new parameters here
+        """ Attempts to convert the input data to a pandas DataFrame using 
+         the specified columns if applicable, handling dimension mismatches.
+         """
         columns = kwargs.get('columns', self.columns)
-        prefix=kwargs.get('prefix', kwargs.get('col_prefix', self.prefix)) 
+        prefix = kwargs.get('prefix', kwargs.get('col_prefix', self.prefix))
         start_incr_at = kwargs.get('start_incr_at', self.start_incr_at)
-        
-        if isinstance (columns, str): 
-            columns =[columns]
-        # Automatically generate column names if required
+
+        if isinstance(columns, str):
+            columns = [columns]
+
+        # Auto-generate column names
         if self.auto_columns and columns is None:
             num_cols = np.shape(data)[1] if np.ndim(data) > 1 else 1
-            columns = [f"{prefix}{i+start_incr_at}" for i in range(num_cols)]
+            columns = [f"{prefix}{i + start_incr_at}" for i in range(num_cols)]
 
         try:
-            # Construct DataFrame, auto-generating column names if needed
             df = pd.DataFrame(data, columns=columns)
         except Exception as e:
             if self.ignore_mismatch:
-                # Re-try without columns if ignoring mismatches
                 df = pd.DataFrame(data)
             else:
                 raise ValueError(
-                    f"Error converting data <{type(data).__name__!r}> to DataFrame: {e}")
-        
-        return df  
-    
+                    f"Error converting {type(data).__name__!r} to DataFrame: {e}"
+                )
+
+        return df
+
 def copy_doc(
     source=None, 
     docstring=None, 

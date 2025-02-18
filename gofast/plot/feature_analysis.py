@@ -30,7 +30,7 @@ from ..compat.sklearn import HasMethods, validate_params
 from ..core.array_manager import to_numeric_dtypes 
 from ..core.checks import is_iterable 
 from ..core.handlers import extend_values
-from ..core.io import is_data_readable 
+from ..core.io import is_data_readable, to_frame_if 
 from ..core.plot_manager import default_params_plot 
 from ..core.utils import fill_nan_in
 from ..decorators import Dataify 
@@ -56,14 +56,18 @@ __all__=[
   'plot_feature_importances'
 ]
 
-
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_feature_importances_plot.png'), 
     fig_size =None, 
     dpi=300
  )
 @is_data_readable 
-@Dataify(auto_columns=True, prefix="feature_", fail_silently=True)
+@Dataify(
+    enforce_df=True, 
+    auto_columns=True, 
+    prefix="feature_", 
+    fail_silently=True
+)
 def plot_feature_importances(
     data,                 
     y=None,               
@@ -71,10 +75,11 @@ def plot_feature_importances(
     precomputed=True,
     mode='indiv',         
     plot_type="bar",      
-    orient='v',           
+    orient='h',           
     cmap=None,            
     normalize=True,
     prefit=False,
+    ascending=False,  
     max_cols=3,           
     title=None,
     annot=True,           
@@ -85,7 +90,7 @@ def plot_feature_importances(
     bar_space=None,       
     grid_props=None,
     line_props=None,
-    explode=0.1,          
+    explode=0.05,          
     autopct='%1.1f%%',    
     fig_size=None,
     savefig=None          
@@ -145,7 +150,7 @@ def plot_feature_importances(
         importance, but line, donut, or radar charts
         are also possible.
 
-    orient : {'v', 'h'}, default='v'
+    orient : {'v', 'h'}, default='h'
         Orientation for the bar or line charts. ``'v'``
         plots vertical bars or lines, while ``'h'``
         plots horizontal.
@@ -155,7 +160,7 @@ def plot_feature_importances(
         a recognized colormap. Used to color the
         bars or donut slices.
 
-    normalize: bool, default=True
+    normalize: bool, default=False
         If ``True``, scale importances to sum up to 1.0.
         This yields relative importances. If ``False``,
         keep raw values.
@@ -165,7 +170,11 @@ def plot_feature_importances(
         ``models`` is already fitted, bypassing any
         additional training. Ignored if
         ``precomputed=True``.
-
+        
+    ascending: bool, default=False, 
+       If ``True``, the importances is displayed from the high  
+       importance to the lowest.
+       
     max_cols : int, default=3
         Maximum number of subplot columns when
         ``mode='indiv'``.
@@ -208,7 +217,7 @@ def plot_feature_importances(
         Dictionary for line styles in line or radar
         plots, e.g. ``{"marker": "o", "linestyle": "-"}``.
 
-    explode : float, default=0.1
+    explode : float, default=0.05
         Explode factor for donut (pie) slices.
 
     autopct : str, default='%1.1f%%'
@@ -267,6 +276,9 @@ def plot_feature_importances(
        subsidence simulation in an urban area. J. Environ. Manage. 352, 17.
        https://doi.org/https://doi.org/10.1016/j.jenvman.2024.120078
     """
+    # "to_frame_if" is used for consistency since 
+    # decorator Dataify handle the series case.
+    data= to_frame_if(data, df_only=True )
 
     # Compute importances if not precomputed
     if not precomputed:
@@ -292,10 +304,17 @@ def plot_feature_importances(
             f"Falling back to individual plots."
         )
         mode = 'indiv'
+        
+    if orient.lower() in ['v', 'vertical']:
+            orient="v"
+    elif  orient.lower() in ['h', 'horizontal']:
+        orient="h"
+    else: 
+        orient="v"
 
     # Setup subplots
     if mode == 'indiv':
-        if orient.lower() in ['v', 'vertical']:
+        if orient=='h':
             ncols = 1
             nrows = n_models
         else:
@@ -304,20 +323,31 @@ def plot_feature_importances(
     else:
         ncols = 1
         nrows = 1
-
+    
+    
     # Default figure size
     if fig_size is None:
-        if orient.lower() in ['v', 'vertical']:
-            fig_size = (12, 5)
-        elif orient.lower() in ['h', 'horizontal']:
-            fig_size = (12, 7)
-        else:
-            fig_size = (10, 8)
-
+        # Base figure size for 3 models
+        base_fig_size = (12, 7) if mode == 'indiv' else (12, 5)
+        # Scale factor relative to 3 models
+        scale_factor = n_models / 3
+        fig_size = (
+            np.ceil(base_fig_size[0] * scale_factor),
+            np.ceil(base_fig_size[1] * scale_factor)
+        )
+        # If orientation is horizontal,
+        # then reverse the dimensions
+        if orient=='v':
+            fig_size = fig_size [::-1]
+   
     fig, axes = plt.subplots(
         nrows=nrows, ncols=ncols, 
-        figsize=fig_size
+        figsize=fig_size, 
+        constrained_layout=True if plot_type=='donut' else False, 
         )
+    # if plot_type =='donut': 
+    #     plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
+
 
     if not isinstance(axes, np.ndarray):
         axes = np.array([axes])
@@ -334,21 +364,39 @@ def plot_feature_importances(
             cp = cp[0]
         if cp is None:
             # default grayscale range
-            return plt.cm.Greys(np.linspace(0.2, 0.8, n))
+            cp='RdPu'
+            #plt.cm.Greys(np.linspace(0.2, 0.8, n))
+            # return # plt.cm.RdPu(np.linspace(0.2, 0.8, n))
         cmap_obj = plt.get_cmap(cp) if isinstance(cp, str) else cp
-        return cmap_obj(np.linspace(0.2, 0.8, n))
+        cm = cmap_obj(np.linspace(0.2, 0.8, n))
+        if orient=='v': 
+            cm = cm if ascending else cm [::-1]
+        else: 
+            cm = cm if not ascending else cm [::-1]
+            
+        return cm
+    
 
     # Plot logic
     if mode == 'indiv':
         # Plot each model column separately
         for idx, col in enumerate(importance_df.columns):
-            vals = reorder_importances(importance_df[col])
+            # "not" is important since plot starts from the bottom 
+            # to the top 
+            vals = reorder_importances(
+                importance_df[col], 
+                ascending= (not ascending) if orient=='h' else ascending 
+                )
             ax = axes[idx]
             colors = get_colors(len(vals), cmap)
-
+             
             if plot_type == "bar":
                 # Horizontal bar plot
-                ax.barh(vals.index, vals, color=colors)
+                if orient=="v":
+                    
+                    ax.bar(vals.index, vals, color=colors)
+                else: 
+                    ax.barh(vals.index, vals, color=colors)
 
             elif plot_type == "line":
                 # Line plot with markers
@@ -373,8 +421,9 @@ def plot_feature_importances(
                     explode=ex,
                     colors=colors, 
                     counterclock=True,
-                    pctdistance=0.85,
-                    labeldistance=1.05,
+                    # pctdistance=0.85,
+                    # labeldistance=1.05,
+                    labeldistance=0.7, pctdistance=0.6
                 )
                 
                 center_circle = plt.Circle((0, 0), 0.70, fc='white')
@@ -404,19 +453,57 @@ def plot_feature_importances(
 
             # Title, labels, annotations
             if plot_type in ["bar", "line"]:
-                ax.set_title(f"{col} Feature Importances")
-                ax.set_xlabel(
-                    ("Importance ratio (x100)" if in_percent
-                     else "Importance ratio")
-                )
-                ax.set_ylabel("Features")
+                ax.set_title(f"{col}")
+                
+                if orient=="v":
+                    # 2) Rotate feature labels to avoid overlap
+                    indices = np.arange(len(vals.index))
+                    ax.set_xticks(indices) # 1) set tick positions
+                    ax.set_xticklabels(
+                        vals.index, 
+                        rotation=90, 
+                        ha='right'
+                        )
+                    ax.set_ylabel(
+                        ("Importance ratio (x100)" if in_percent
+                         else "Importance ratio")
+                    )
+                    ax.set_xlabel("Features")
+                    
+                else: 
+                    ax.set_xlabel(
+                        ("Importance ratio (x100)" if in_percent
+                         else "Importance ratio")
+                    )
+                    ax.set_ylabel("Features")
+                    
                 if annot:
+                    max_val = vals.max()
                     if plot_type == "bar":
-                        for i, val in enumerate(vals):
-                            lbl_val = f"{val:{fmt}}"
-                            if in_percent:
-                                lbl_val = f"{val * 100:{fmt}}%"
-                            ax.text(val, i, " " + lbl_val, va='center')
+                        if orient=="v": 
+                            # Annotate each horizontal bar at (i, val)
+                            for i, val in enumerate(vals):
+                                lbl_val = f"{val:{fmt}}"
+                                if in_percent:
+                                    lbl_val = f"{val * 100:{fmt}}%"
+                                ax.text(
+                                    i, 
+                                    val + 0.01 * max_val, 
+                                    " " + lbl_val,
+                                    ha="center",
+                                    va="bottom",
+                                    rotation=90  
+                                )
+                        else: 
+                            for i, val in enumerate(vals):
+                                lbl_val = f"{val:{fmt}}"
+                                if in_percent:
+                                    lbl_val = f"{val * 100:{fmt}}%"
+                                ax.text(
+                                    val, i, " " + lbl_val, va='center'
+                                    )
+                                
+    
                     elif plot_type == "line":
                         for i, val in enumerate(vals):
                             lbl_val = f"{val:{fmt}}"
@@ -438,63 +525,114 @@ def plot_feature_importances(
             else:
                 ax.grid(False)
     else:
+        
         # Merge mode => grouped bar chart
         ax = axes[0]
         if plot_type == "bar":
             x = np.arange(len(importance_df.index))
             total_width = 0.8
             width = total_width / n_models
-            # Use bar_space if needed
-
+        
             # Possibly pick distinct colormaps
             colormaps = make_plot_colors(
                 x,
                 colors=cmap,
                 cmap_only=True,
-                get_only_names=True
+                get_only_names=True,
+                use_cmap_seq=True,
             )
-
+        
             # For each model, offset bars
             for i, col in enumerate(importance_df.columns):
-                vals = reorder_importances(importance_df[col])
+                vals = reorder_importances(
+                    importance_df[col],
+                    ascending=(not ascending) if orient == 'h' else ascending
+                )
                 colors = get_colors(len(vals), colormaps[i])
-                ax.barh(
-                    x + i * width,
-                    vals,
-                    height=width,
-                    color=colors,
-                    label=col
-                )
-            ax.set_yticks(x + total_width / 2 - width / 2)
-            ax.set_yticklabels(vals.index)
-
+        
+                if orient == "v":
+                    # Draw vertical bars (the naming is a bit reversed)
+                    ax.bar(
+                        x + i * width,
+                        vals,
+                        width=width,
+                        color=colors,
+                        label=col
+                    )
+        
+                    # Annotate each bar just above the top
+                    if annot:
+                        max_val = vals.max()
+                        for j, val in enumerate(vals):
+                            lbl = f"{val:{fmt}}"
+                            if in_percent:
+                                lbl = f"{val * 100:{fmt}}%"
+                            # x-position = center of the bar,
+                            # y-position = bar height + small offset
+                            ax.text(
+                                (x[j] + i * width),
+                                val + 0.01 * max_val,   # offset above bar
+                                lbl,
+                                ha="center",
+                                va="bottom",
+                                rotation=90  # optional to avoid overlaps
+                            )
+        
+                else:  # orient == "h" => horizontal bars
+                    ax.barh(
+                        x + i * width,
+                        vals,
+                        height=width,
+                        color=colors,
+                        label=col
+                    )
+        
+                    # Annotate each horizontal bar
+                    if annot:
+                        max_val = vals.max()
+                        for j, val in enumerate(vals):
+                            lbl = f"{val:{fmt}}"
+                            if in_percent:
+                                lbl = f"{val * 100:{fmt}}%"
+                            # y-position = center of the bar,
+                            # x-position = bar width + small offset
+                            ax.text(
+                                val + 0.01 * max_val,  # offset to the right of bar
+                                (x[j] + i * width),
+                                lbl,
+                                va="center"
+                            )
+        
+            # Set tick labels, possibly rotated
+            if orient == "v":
+                ax.set_xticks(x + (n_models - 1) * width / 2)
+                ax.set_xticklabels(vals.index, rotation=90, ha='right')
+            else:
+                ax.set_yticks(x + (n_models - 1) * width / 2)
+                ax.set_yticklabels(vals.index)
+        
         else:
-            raise ValueError(
-                f"Unsupported merge plot_type: {plot_type}")
-
+            raise ValueError(f"Unsupported merge plot_type: {plot_type}")
+        
         ax.set_title(title if title else "Feature Importances")
-        ax.set_ylabel("Features")
-        ax.set_xlabel(
-            ("Importance ratio (x100)" if in_percent
-             else "Importance ratio")
-        )
-        ax.legend()
-
-        # Annotations if line (though here we only do bar in merge)
-        if annot and plot_type == "line":
-            for col in importance_df.columns:
-                last_val = importance_df[col].iloc[-1]
-                lbl = f"{last_val:{fmt}}"
-                if in_percent:
-                    lbl = f"{last_val * 100:{fmt}}%"
-                ax.annotate(
-                    lbl,
-                    (importance_df.index[-1], last_val),
-                    textcoords="offset points",
-                    xytext=(5, 0),
-                    va="center"
+        
+        # Axis labels for each orientation
+        if orient == 'v':
+            ax.set_xlabel("Features")
+            ax.set_ylabel(
+                "Importance ratio (x100)" 
+                if in_percent else "Importance ratio"
                 )
-
+        else:
+            ax.set_ylabel("Features")
+            ax.set_xlabel(
+                "Importance ratio (x100)" 
+                if in_percent else "Importance ratio"
+                )
+        
+        ax.legend()
+        
+        # Grid
         if show_grid:
             if grid_props is None:
                 grid_props = {"linestyle": ":", "alpha": 0.7}
@@ -502,9 +640,8 @@ def plot_feature_importances(
         else:
             ax.grid(False)
 
-    plt.tight_layout()
-    if savefig:
-        plt.savefig(savefig)
+    if plot_type !='donut': 
+        plt.tight_layout()
     plt.show()
 
 
