@@ -644,7 +644,6 @@ def plot_feature_importances(
         plt.tight_layout()
     plt.show()
 
-
 def plot_regularization_path(
     X, y, 
     c_range=(-4., 6.), 
@@ -826,13 +825,6 @@ def plot_permutation_importance(
         Path to save the figure. If None, the figure is not saved. 
         Defaults to None.
     
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The matplotlib Figure object for the plot.
-        
-    ax : matplotlib.axes.Axes
-        The matplotlib Axes object for the plot.
     
     Example
     -------
@@ -887,8 +879,7 @@ def plot_permutation_importance(
         plt.savefig(savefig, bbox_inches='tight')
 
     plt.show()
-    
-    return fig, ax
+
 
 @default_params_plot(
     savefig =PlotConfig.AUTOSAVE('my_dependence_plot.png'),
@@ -953,9 +944,6 @@ def plot_dependence(
     verbose : int, optional
         Verbosity level. Defaults to 0.
         
-    ax : Optional[matplotlib.axes.Axes], optional
-        Matplotlib axes object to plot on. If None, creates a new figure. 
-        Defaults to None.
 
     Returns
     -------
@@ -1020,8 +1008,7 @@ def plot_dependence(
     disp.figure_.suptitle(plot_title)
     plt.subplots_adjust(top=0.9)  # Adjust the title to not overlap with plots
     plt.show()
-    
-    return ax
+
 
 def plot_sbs_feature_selection(
     sbs_estimator: 'SequentialBackwardSelector', 
@@ -1396,9 +1383,11 @@ def plot_correlation_with(
     Correlation calculation uses the Pearson correlation coefficient, defined as:
 
     .. math::
-        r_{xy} = \frac{\sum{(x_i - \bar{x})(y_i - \bar{y})}}{\sqrt{\sum{(x_i - \bar{x})^2}\sum{(y_i - \bar{y})^2}}}
+        r_{xy} = \frac{\sum{(x_i - \bar{x})(y_i - \bar{y})}}\\
+            {\sqrt{\sum{(x_i - \bar{x})^2}\sum{(y_i - \bar{y})^2}}}
 
-    where :math:`x_i` and :math:`y_i` are individual sample points, and :math:`\bar{x}` and :math:`\bar{y}` 
+    where :math:`x_i` and :math:`y_i` are individual sample 
+    points, and :math:`\bar{x}` and :math:`\bar{y}` 
     are the means of the sample points.
 
     See Also
@@ -1409,8 +1398,9 @@ def plot_correlation_with(
 
     References
     ----------
-    .. [1] Pearson, K. (1895). Note on Regression and Inheritance in the Case of Two Parents. 
-       Proceedings of the Royal Society of London, 58, 240-242.
+    .. [1] Pearson, K. (1895). Note on Regression and Inheritance 
+       in the Case of Two Parents. Proceedings of the Royal Society
+       of London, 58, 240-242.
     """
     
     if not isinstance(data, pd.DataFrame):
@@ -1516,7 +1506,8 @@ def plot_feature_interactions(
     The Pearson correlation coefficient is defined as:
 
     .. math::
-        r_{xy} = \frac{\sum{(x_i - \bar{x})(y_i - \bar{y})}}{\sqrt{\sum{(x_i - \bar{x})^2}\sum{(y_i - \bar{y})^2}}}
+        r_{xy} = \frac{\sum{(x_i - \bar{x})(y_i - \bar{y})}}\\
+            {\sqrt{\sum{(x_i - \bar{x})^2}\sum{(y_i - \bar{y})^2}}}
 
     where :math:`x_i` and :math:`y_i` are individual sample points, and 
     :math:`\bar{x}` and :math:`\bar{y}` are the means of the sample points.
@@ -1529,8 +1520,9 @@ def plot_feature_interactions(
 
     References
     ----------
-    .. [1] Pearson, K. (1895). Note on Regression and Inheritance in the Case of Two Parents. 
-       Proceedings of the Royal Society of London, 58, 240-242.
+    .. [1] Pearson, K. (1895). Note on Regression and Inheritance 
+       in the Case of Two Parents.  Proceedings of the Royal Society
+       of London, 58, 240-242.
     """
     
     data = to_numeric_dtypes(data, pop_cat_features=True )
