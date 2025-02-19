@@ -45,6 +45,7 @@ __all__=[
      'check_classification_targets',
      'check_consistency_size',
      'check_consistent_length',
+     'check_donut_inputs', 
      'check_epsilon',
      'check_has_run_method',
      'check_is_fitted',
@@ -104,6 +105,316 @@ __all__=[
      'validate_weights',
      'validate_yy'
  ]
+
+def check_donut_inputs(
+    values=None,
+    data=None,
+    labels=None,
+    ops="check",       
+    labels_as_index=True,
+    index=None,         
+    origin_index="drop",  
+    value_name="auto"
+):
+    r"""
+    Validate and/or build inputs for donut chart plotting.
+
+    This function accepts inputs in various forms and returns a pair
+    of numeric values and labels or builds a new :math:`n \\times 1`
+    DataFrame from them. The function supports two modes:
+
+    - In ``ops="check"``, it returns a tuple ``(values, labels)``
+      after validating that the numeric values are appropriate for
+      plotting.
+    - In ``ops="build"``, it returns a pandas DataFrame constructed
+      from the inputs. If ``labels_as_index`` is ``True``, the labels
+      become the DataFrame index; otherwise, they form a separate
+      column. If an ``index`` is provided, it is used to reset the
+      DataFrame index and the original index is either dropped or
+      kept based on ``origin_index``.
+
+    The function also accepts inputs through a DataFrame or Series
+    (``data``). In such cases, if ``values`` is a :math:`\\text{str}`,
+    it is interpreted as a column name of the DataFrame. Similarly,
+    if ``labels`` is a :math:`\\text{str}`, it is used to fetch the
+    label column.
+
+    .. math::
+       S = \\{ x_i \\}_{i=1}^{n} \\quad \\text{and} \\quad L =
+       \\{ l_i \\}_{i=1}^{n}
+
+    where :math:`S` denotes the numeric values and :math:`L` denotes
+    the corresponding labels.
+
+    Parameters
+    ----------
+    values : array-like or ``str``, optional
+        Numeric values for the donut slices. If ``data`` is a DataFrame
+        and ``values`` is a double backtick string`` (``"colname"``),
+        then the column ``"colname"`` is used. If ``data`` is a Series
+        and ``values`` is not provided, the series values are used.
+    data : pandas.Series or pandas.DataFrame, optional
+        Data source from which to fetch ``values`` and ``labels``. If
+        provided, the function extracts the corresponding numeric data.
+        For a DataFrame, if ``values`` (or ``labels``) is a double
+        backtick string`` (``"colname"``), the function fetches the
+        column named ``"colname"``.
+    labels : array-like or ``str``, optional
+        Labels for the donut slices. If ``data`` is provided and
+        ``labels`` is a double backtick string`` (``"colname"``), then
+        the function uses the specified column as labels. If omitted,
+        the function uses the index of the DataFrame or Series.
+    ops : ``"check"`` or ``"build"``, optional
+        Operation mode of the function. In ``"check"`` mode, the
+        function returns a tuple ``(values, labels)`` after validation.
+        In ``"build"`` mode, it returns a new DataFrame built from the
+        inputs. The default is ``"check"``.
+    labels_as_index : bool, optional
+        If ``ops="build"``, this flag determines whether the labels are
+        used as the DataFrame index. If ``True``, the labels become the
+        index; if ``False``, they form a separate column. The default
+        is ``True``.
+    index : array-like or ``str``, optional
+        New index to assign in ``"build"`` mode. If a double backtick
+        string`` is provided, it must correspond to a column in the
+        DataFrame and that column is used as the new index. If a list
+        is provided, it directly replaces the DataFrame index. In case
+        the original index is to be retained, see ``origin_index``.
+    origin_index : ``"drop"`` or ``"keep"``, optional
+        Specifies whether to drop or retain the original index when
+        resetting the DataFrame index. If set to ``"keep"``, the
+        original index is saved in a new column named ``origin_index``.
+        The default is ``"drop"``.
+    value_name : ``"auto"`` or ``str``, optional
+        Name to use for the numeric values in the built DataFrame (when
+        ``ops="build"``). If set to ``"auto"`` (or ``None``), the default
+        name ``"Value"`` is used unless overridden by the source data.
+        Otherwise, the provided double backtick string`` (e.g.,
+        ``"Total"``) is used as the column name.
+
+    Returns
+    -------
+    tuple of (ndarray, list) or pandas.DataFrame
+        - If ``ops="check"``, returns a tuple ``(values, labels)``
+          where ``values`` is a NumPy array of numeric values and
+          ``labels`` is a list of labels.
+        - If ``ops="build"``, returns a pandas DataFrame constructed
+          from the inputs. If ``labels_as_index`` is ``True``, the
+          DataFrame index is set to the provided labels (or the new
+          index if ``index`` is specified). Otherwise, the DataFrame
+          contains separate columns for the labels and numeric values.
+
+    Examples
+    --------
+    Build inputs from a DataFrame with explicit column names:
+
+    >>> from gofast.utils.validator import check_donut_inputs
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     "Sales": [100, 200, 150],
+    ...     "Country": ["USA", "Canada", "Mexico"]
+    ... })
+    >>> # Build a DataFrame using "Sales" as values and "Country" as index
+    >>> new_df = check_donut_inputs(
+    ...     values="Sales",
+    ...     data=df,
+    ...     labels="Country",
+    ...     ops="build",
+    ...     labels_as_index=True,
+    ...     index="Country",
+    ...     origin_index="drop"
+    ... )
+    >>> new_df
+            Sales
+    USA      100
+    Canada   200
+    Mexico   150
+
+    Check inputs when only numeric values are provided:
+
+    >>> values, labs = check_donut_inputs(
+    ...     values=[10, 20, 30],
+    ...     labels=["A", "B", "C"],
+    ...     ops="check"
+    ... )
+    >>> values
+    array([10., 20., 30.])
+    >>> labs
+    ['A', 'B', 'C']
+
+    Notes
+    -----
+    The function internally calls the inline helper 
+    ``check_numeric_dtype`` to ensure that the provided 
+    numeric data satisfies the necessary type constraints.
+    The function supports grouping or multiple donut charts by 
+    using the input DataFrame directly. See also 
+    :func:`~gofast.core.checks.check_numeric_dtype` for numeric 
+    type validation.
+
+    Formulation
+    -------------
+    The function processes inputs :math:`S` and :math:`L` as follows:
+
+    .. math::
+       S = \\{x_i\\}_{i=1}^{n}, \\quad L = \\{l_i\\}_{i=1}^{n}
+
+    and, in build mode, constructs a DataFrame :math:`D` such that
+
+    .. math::
+       D = \\begin{bmatrix} l_1 & x_1 \\\\ \\vdots & \\vdots \\\\
+       l_n & x_n \\end{bmatrix}
+
+    where :math:`l_i` is set as the index if ``labels_as_index`` is 
+    ``True``. The new index may also be reset using the provided 
+    ``index`` parameter.
+
+    See Also
+    --------
+    gofast.core.checks.check_numeric_dtype` : 
+        Validate numeric types in arrays.  
+    gofast.core.parameter_validator: Validate string parameters.
+
+    """
+    from ..core.checks import check_numeric_dtype
+
+    ops = parameter_validator(
+        "mode", target_strs={"check", "build", "make"}, 
+        error_msg=f"Invalid mode {ops!r}. Use 'check' or 'build'."
+        )(ops)
+    
+    value_name="Value" if value_name in (
+        "auto", None) else value_name # use in build mode 
+    
+    # Helper: check if x is array-like (but not a string)
+    def is_arraylike(x):
+        return (hasattr(x, '__iter__') and not isinstance(x, str))
+
+    # -------------------- A) Data Provided --------------------
+    if data is not None:
+        # A.1) Data is a Series
+        if isinstance(data, pd.Series):
+            if values is None:
+                values = data.values
+                
+                if labels is None:
+                    labels = data.index
+            else:
+                raise ValueError(
+                    "When 'data' is a Series and 'values' is specified, "
+                    "usage is ambiguous. Remove 'values' or"
+                    " convert to DataFrame."
+                )
+            if labels is None:
+                labels = data.index
+            
+            if value_name=="Value":
+                value_name= data.name 
+            
+        # A.2) Data is a DataFrame
+        elif isinstance(data, pd.DataFrame):
+            # If values is a string, use it as column name
+            if isinstance(values, str):
+                if values not in data.columns:
+                    raise ValueError(
+                        f"Column '{values}' not found in DataFrame."
+                    )
+                if value_name=="Value":
+                    value_name=values # keep for build purpose 
+                    
+                values = data[values].values
+            elif values is None:
+                if ops == "check":
+                    raise ValueError(
+                        "When 'data' is a DataFrame, specify the column for "
+                        "'values' (e.g., values='my_numeric_col')."
+                    )
+                else:
+                    values = data.copy()
+            else:
+                if len(values) != len(data):
+                    raise ValueError(
+                        "'values' length does not match number of rows."
+                    )
+
+            # Process labels from DataFrame: if string, use as column name
+            if isinstance(labels, str):
+                if labels not in data.columns:
+                    raise ValueError(
+                        f"Column '{labels}' not found in DataFrame."
+                    )
+                labels = data[labels].values
+            elif labels is None:
+                labels = data.index
+        else:
+            raise TypeError(
+                "The 'data' parameter must be a pandas Series or DataFrame."
+            )
+    # -------------------- B) No Data Provided --------------------
+    else:
+        if values is None:
+            raise ValueError(
+                "No 'data' provided and 'values' is None. Cannot plot."
+            )
+        if labels is None:
+            labels = [f"Slice {i+1}" for i in range(len(values))]
+
+    # -------------------- C) Numeric Check on Values --------------------
+    values = check_numeric_dtype(
+        values, ops="validate",
+        param_names={"X": "Value"},
+        coerce=True,
+    )
+
+    if not is_arraylike(labels):
+        labels = [labels]
+    else:
+        labels = list(labels)
+
+    # -------------------- D) Return Based on Mode --------------------
+    if ops == "check":
+        return values, labels
+
+    elif ops == "build":
+        # Case 1: Data provided and is a DataFrame.
+        if data is not None and isinstance(data, pd.DataFrame):
+            df = data.copy()
+
+            # If an index is provided, reset the DataFrame's index.
+            if index is not None:
+                if isinstance(index, str):
+                    if index not in df.columns:
+                        raise ValueError(
+                            f"Index column '{index}' not found in DataFrame."
+                        )
+                    df = df.set_index(
+                        index, drop=(origin_index == "drop")
+                    )
+                elif is_arraylike(index):
+                    df.index = index
+                    if origin_index == "keep":
+                        df["origin_index"] = data.index
+            else:
+                # If no index is provided and labels_as_index is True,
+                # reset index using labels.
+                if labels_as_index:
+                    df.index = labels
+            try:
+                # Build new DataFrame with numeric 'Value' and current index.
+                new_df = pd.DataFrame({value_name: values}, index=df.index)
+            except: 
+                # otherwise return df 
+                return df 
+            
+            return new_df
+
+        # Case 2: Data is None; build DataFrame from values and labels.
+        else:
+            if labels_as_index:
+                df = pd.DataFrame({value_name: values}, index=labels)
+            else:
+                df = pd.DataFrame({"Label": labels, value_name: values})
+            return df
 
 def validate_strategy(
     strategy: Optional[Union[str, Dict[str, str]]] = None,

@@ -15,8 +15,13 @@ from .charts import (
     radar_chart_in, 
     radar_chart, 
     donut_chart, 
-    plot_donut_charts
+    plot_donut_charts, 
+    donut_chart_in, 
+    chord_diagram, 
+    multi_level_donut,
+    two_ring_donuts
     )
+
 from .cluster import ( 
     plot_silhouette, 
     plot_silhouette_in, 
@@ -116,6 +121,10 @@ __all__= [
     "radar_chart_in", 
     "donut_chart", 
     "plot_donut_charts", 
+    "donut_chart_in", 
+    "chord_diagram", 
+    "multi_level_donut", 
+    "two_ring_donuts",
     
     'plot_silhouette',
     'plot_silhouette_in',
