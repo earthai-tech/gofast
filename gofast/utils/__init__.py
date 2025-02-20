@@ -17,7 +17,6 @@ MODULE_MAPPING = {
          'binning_statistic',
          'categorize_target',
          'category_count',
-         'denormalizer',
          'detect_categorical_columns', 
          'extract_target',
          'fancier_downloader',
@@ -62,8 +61,16 @@ MODULE_MAPPING = {
         'filter_data', 
         'nan_ops', 
         'build_df', 
-        
+        'has_duplicates', 
+        'group_and_aggregate', 
+        'mask_by_reference', 
     ], 
+    "ext":[ 
+         'denormalizer',
+         "reorder_importances", 
+         "spread_coverage", 
+         "denormalize_in", 
+        ], 
     'io_utils':[ 
         'deserialize_data', 
         'extract_tar_with_progress', 

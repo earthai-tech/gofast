@@ -34,7 +34,7 @@ from ..core.io import is_data_readable, to_frame_if
 from ..core.plot_manager import default_params_plot 
 from ..core.utils import fill_nan_in
 from ..decorators import Dataify 
-from ..utils.extension import reorder_importances 
+from ..utils.ext import reorder_importances 
 from ..utils.mathext import compute_importances 
 from ..utils.validator import get_estimator_name
 from ..utils.validator import check_X_y, check_consistent_length

@@ -64,10 +64,10 @@ from .validator import (
 
 __all__ = [
     'array2hdf5', 'binning_statistic', 'categorize_target', 
-    'category_count', 'denormalizer', 'detect_categorical_columns', 
+    'category_count', 'detect_categorical_columns', 'normalizer', 
     'extract_target', 'fancier_downloader', 'fillNaN', 'get_target', 
     'interpolate_grid', 'interpolate_data', 'labels_validator', 
-    'make_df', 'normalizer', 'remove_outliers', 'remove_target_from_array', 
+    'make_df', 'remove_outliers', 'remove_target_from_array', 
     'rename_labels_in', 'scale_y', 'select_features', 
     'smooth1d', 'smoothing', 'soft_bin_stat', 'speed_rowwise_process', 
     'nan_to_mode', 'handle_outliers', 'fill_NaN', 'map_values',
@@ -5216,142 +5216,6 @@ def nan_to_mode(
 
     return arr
 
-def normalizer(
-    *arrays: tuple[np.ndarray], 
-    method: str = '01', 
-    scaler: str = 'naive', 
-    allow_nan: bool = False, 
-    axis: Optional[int] = None) -> List[np.ndarray]:
-    """
-    Normalize given arrays using a specified method and scaler, optionally 
-    along a specified axis. 
-    
-    Handles non-numeric data and NaNs according to the parameters.
-
-    Parameters
-    ----------
-    arrays : tuple of np.ndarray
-        A tuple containing one or more arrays (either 1D or 2D) to be normalized.
-    method : str, default '01'
-        Specifies the normalization method to apply. Options include:
-        - '01' : Normalizes the data to the range [0, 1].
-        - 'zscore' : Uses Z-score normalization (standardization).
-        - 'sum' : Scales the data so that the sum is 1.
-        Note that the 'sum' method is not compatible with the 'sklearn' scaler.
-    scaler : str, default 'naive'
-        Specifies the type of scaling technique to use. Options include:
-        - 'naive' : Simple mathematical operations based on the method.
-        - 'sklearn' : Utilizes scikit-learn's MinMaxScaler or StandardScaler,
-          depending on the `method` specified.
-    allow_nan : bool, default False
-        Determines how NaN values should be handled. If False, the function 
-        will raise an error if NaN values are present. If True, NaNs will be 
-        replaced with zero or handled by an imputer,
-        depending on the context.
-    axis : int, optional
-        The axis along which to normalize the data. By default (None), the 
-        data is normalized based on all elements. If specified, normalization 
-        is done along the axis for 2D arrays:
-        - axis=0 : Normalize each column.
-        - axis=1 : Normalize each row.
-
-    Returns
-    -------
-    list of np.ndarray
-        A list of normalized arrays. If only one array is provided, a single 
-        normalized array is returned.
-
-    Raises
-    ------
-    ValueError
-        If `allow_nan` is False and NaNs are detected.
-        If an invalid normalization method or combination of scaler and method 
-        is specified.
-
-    Notes
-    -----
-    - The function internally converts pandas DataFrames and Series to numpy 
-      arrays for processing.
-    - Non-numeric data types within arrays are filtered out before normalization.
-    - It's important to consider the scale of values and distribution of data
-      when choosing a normalization method,
-      as each method can significantly affect the outcome and interpretation 
-      of results.
-
-    Examples
-    --------
-    >>> import numpy as np 
-    >>> from gofast.utils.base_utils import normalizer 
-    >>> arr = np.array([10, 20, 30, 40, 50])
-    >>> normalizer(arr, method='01', scaler='naive')
-    array([0. , 0.25, 0.5 , 0.75, 1. ])
-    
-    >>> arr2d = np.array([[1, 2], [3, 4]])
-    >>> normalizer(arr2d, method='zscore', axis=0)
-    array([[-1., -1.], [ 1.,  1.]])
-    """
-    from sklearn.preprocessing import MinMaxScaler, StandardScaler
-
-    def _normalize_array(arr, method, scaler):
-        arr = _nan_checker(arr, allow_nan = allow_nan )
-        if scaler in ['sklearn', 'scikit-learn']:
-            is_array_1d =False 
-            if method == 'sum':
-                raise ValueError("`sum` method is not valid with `scaler`='sklearn'.")
-            scaler_object = MinMaxScaler() if method == '01' else StandardScaler()
-            
-            if arr.ndim ==1: 
-                arr = ( 
-                    np.asarray(arr).reshape(-1, 0) if axis ==0 
-                    else np.asarray(arr).reshape(1, -1)  
-                    )
-                is_array_1d =True 
-            scaled = scaler_object.fit_transform(
-                arr if axis == 0 else arr.T).T if axis == 0 else\
-                scaler_object.fit_transform(arr.T).T
-            if is_array_1d: 
-                scaled = scaled.flatten() 
-        else:  # naive scaling
-            arr, name_or_columns, index  = pandas_manager(arr )
-            if axis is None:
-                arr_min = np.min(arr)
-                arr_max = np.max(arr)
-            else:
-                arr_min = np.min(arr, axis=axis, keepdims=True)
-                arr_max = np.max(arr, axis=axis, keepdims=True)
-
-            if method == '01':
-                scaled = (arr - arr_min) / (arr_max - arr_min)
-            elif method in [ 'z-score', 'zscore']:
-                mean = np.mean(arr, axis=axis, keepdims=True)
-                std = np.std(arr, axis=axis, keepdims=True)
-                scaled = (arr - mean) / std
-            elif method == 'sum':
-                sum_val = np.sum(arr, axis=axis, keepdims=True)
-                scaled = arr / sum_val
-            else:
-                raise ValueError(f"Unknown method '{method}'. Valid methods"
-                                 " are '01', 'zscore', and 'sum'.")
-                
-        # revert back to series or dataframe is given as it 
-        if name_or_columns is not None: 
-            scaled = pandas_manager(
-                scaled, todo='set', 
-                name_or_columns=name_or_columns, 
-                index= index 
-                )
-
-        return scaled
-    # Normalize each array
-    normalized_arrays = []
-    for arr in arrays:
-        if not hasattr(arr, '__array__'):
-            arr = np.asarray(arr)
-        arr = _handle_non_numeric(arr)
-        normalized = _normalize_array(arr, method, scaler)
-        normalized_arrays.append(normalized)
-    
-    return normalized_arrays[0] if len(normalized_arrays) == 1 else normalized_arrays
 
 def smooth1d(
     ar,
@@ -5911,129 +5775,144 @@ def interpolate_data(
     
     return result
 
-def denormalizer(
-    data: Union[np.ndarray, pd.Series, pd.DataFrame], 
-    min_value: float, max_value: float, 
+def normalizer(
+    *arrays: tuple[np.ndarray], 
     method: str = '01', 
-    std_dev_factor: float = 3
-    ) -> Union[np.ndarray, pd.Series, pd.DataFrame]:
+    scaler: str = 'naive', 
+    allow_nan: bool = False, 
+    axis: Optional[int] = None) -> List[np.ndarray]:
     """
-    Denormalizes data from a normalized scale back to its original scale.
+    Normalize given arrays using a specified method and scaler, optionally 
+    along a specified axis. 
+    
+    Handles non-numeric data and NaNs according to the parameters.
 
     Parameters
     ----------
-    data : Union[np.ndarray, pd.Series, pd.DataFrame]
-        The data to be denormalized, can be a NumPy array, 
-        pandas Series, or pandas DataFrame.
-    min_value : float
-        The minimum value of the original scale before normalization.
-    max_value : float
-        The maximum value of the original scale before normalization.
-    method : str, optional
-        The normalization method used. Supported methods are:
-        - '01' : Min-Max normalization to range [0, 1].
-        - 'zscore' : Standard score normalization (zero mean, unit variance).
-        - 'sum' : Normalization by sum of elements.
-        Default is '01'.
-    std_dev_factor : float, optional
-        The factor determining the range for standard deviation. 
-        This is used only for 'zscore' method. Default is 3.
+    arrays : tuple of np.ndarray
+        A tuple containing one or more arrays (either 1D or 2D) to be normalized.
+    method : str, default '01'
+        Specifies the normalization method to apply. Options include:
+        - '01' : Normalizes the data to the range [0, 1].
+        - 'zscore' : Uses Z-score normalization (standardization).
+        - 'sum' : Scales the data so that the sum is 1.
+        Note that the 'sum' method is not compatible with the 'sklearn' scaler.
+    scaler : str, default 'naive'
+        Specifies the type of scaling technique to use. Options include:
+        - 'naive' : Simple mathematical operations based on the method.
+        - 'sklearn' : Utilizes scikit-learn's MinMaxScaler or StandardScaler,
+          depending on the `method` specified.
+    allow_nan : bool, default False
+        Determines how NaN values should be handled. If False, the function 
+        will raise an error if NaN values are present. If True, NaNs will be 
+        replaced with zero or handled by an imputer,
+        depending on the context.
+    axis : int, optional
+        The axis along which to normalize the data. By default (None), the 
+        data is normalized based on all elements. If specified, normalization 
+        is done along the axis for 2D arrays:
+        - axis=0 : Normalize each column.
+        - axis=1 : Normalize each row.
 
     Returns
     -------
-    Union[np.ndarray, pd.Series, pd.DataFrame]
-        The denormalized data, converted back to its original scale.
+    list of np.ndarray
+        A list of normalized arrays. If only one array is provided, a single 
+        normalized array is returned.
 
     Raises
     ------
     ValueError
-        If an unsupported normalization method is provided.
+        If `allow_nan` is False and NaNs are detected.
+        If an invalid normalization method or combination of scaler and method 
+        is specified.
 
     Notes
     -----
-    The denormalization process depends on the normalization method:
-    
-    - For Min-Max normalization ('01'):
-     .. math:: 
-         
-         `denormalized\_data = data \cdot (max\_value - min\_value) + min\_value`
-    
-    - For z-score normalization ('zscore'):
-      Assuming the original data follows a normal distribution:
-          
-      .. math:: 
-          `denormalized\_data = data \cdot std\_dev + mean`
-      where 
-      
-      .. math::
-          `mean = \frac{min\_value + max\_value}{2}`
-      and 
-      
-      .. math::
-          `std\_dev = \frac{max\_value - min\_value}{2 \cdot std\_dev\_factor}`
-    
-    - For sum normalization ('sum'):
-        
-      .. math::
-          
-          `denormalized\_data = data \cdot \frac{max\_value - min\_value}{\sum(data)} + min\_value`
+    - The function internally converts pandas DataFrames and Series to numpy 
+      arrays for processing.
+    - Non-numeric data types within arrays are filtered out before normalization.
+    - It's important to consider the scale of values and distribution of data
+      when choosing a normalization method,
+      as each method can significantly affect the outcome and interpretation 
+      of results.
 
     Examples
     --------
-    >>> import numpy as np
-    >>> import pandas as pd
-    >>> from gofast.utils.base_utils import denormalizer 
+    >>> import numpy as np 
+    >>> from gofast.utils.base_utils import normalizer 
+    >>> arr = np.array([10, 20, 30, 40, 50])
+    >>> normalizer(arr, method='01', scaler='naive')
+    array([0. , 0.25, 0.5 , 0.75, 1. ])
     
-    >>> normalized_data = np.array([0, 0.5, 1])
-    >>> min_value = 10
-    >>> max_value = 20
-    >>> denormalized_data = denormalizer(normalized_data, min_value, max_value)
-    >>> print(denormalized_data)
-    [10. 15. 20.]
-
-    >>> normalized_series = pd.Series([0, 0.5, 1])
-    >>> denormalized_series = denormalizer(normalized_series, min_value, max_value)
-    >>> print(denormalized_series)
-    0    10.0
-    1    15.0
-    2    20.0
-    dtype: float64
-
-    >>> normalized_df = pd.DataFrame([[0, 0.5], [1, 0.2]])
-    >>> denormalized_df = denormalizer(normalized_df, min_value, max_value)
-    >>> print(denormalized_df)
-         0     1
-    0  10.0  15.0
-    1  20.0  12.0
+    >>> arr2d = np.array([[1, 2], [3, 4]])
+    >>> normalizer(arr2d, method='zscore', axis=0)
+    array([[-1., -1.], [ 1.,  1.]])
     """
+    from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
-    if isinstance(data, (pd.Series, pd.DataFrame)):
-        data_values = data.to_numpy()
-        is_pandas = True
-    else:
-        data_values = np.asarray(data)
-        is_pandas = False
+    def _normalize_array(arr, method, scaler):
+        arr = _nan_checker(arr, allow_nan = allow_nan )
+        if scaler in ['sklearn', 'scikit-learn']:
+            is_array_1d =False 
+            if method == 'sum':
+                raise ValueError(
+                    "`sum` method is not valid with `scaler`='sklearn'.")
+            scaler_object = MinMaxScaler() if method == '01' else StandardScaler()
+            
+            if arr.ndim ==1: 
+                arr = ( 
+                    np.asarray(arr).reshape(-1, 0) if axis ==0 
+                    else np.asarray(arr).reshape(1, -1)  
+                    )
+                is_array_1d =True 
+            scaled = scaler_object.fit_transform(
+                arr if axis == 0 else arr.T).T if axis == 0 else\
+                scaler_object.fit_transform(arr.T).T
+            if is_array_1d: 
+                scaled = scaled.flatten() 
+        else:  # naive scaling
+            arr, name_or_columns, index  = pandas_manager(arr )
+            if axis is None:
+                arr_min = np.min(arr)
+                arr_max = np.max(arr)
+            else:
+                arr_min = np.min(arr, axis=axis, keepdims=True)
+                arr_max = np.max(arr, axis=axis, keepdims=True)
 
-    if method == '01':
-        denormalized_data = data_values * (max_value - min_value) + min_value
-    elif method == 'zscore':
-        mean = (min_value + max_value) / 2
-        # Adjusting for specified standard deviation factor
-        std_dev = (max_value - min_value) /  (2 * std_dev_factor)  
-        denormalized_data = data_values * std_dev + mean
-    elif method == 'sum':
-        total = np.sum(data_values)
-        denormalized_data = data_values * (max_value - min_value) / total + min_value
-    else:
-        raise ValueError(f"Unsupported normalization method: {method}")
+            if method == '01':
+                scaled = (arr - arr_min) / (arr_max - arr_min)
+            elif method in [ 'z-score', 'zscore']:
+                mean = np.mean(arr, axis=axis, keepdims=True)
+                std = np.std(arr, axis=axis, keepdims=True)
+                scaled = (arr - mean) / std
+            elif method == 'sum':
+                sum_val = np.sum(arr, axis=axis, keepdims=True)
+                scaled = arr / sum_val
+            else:
+                raise ValueError(f"Unknown method '{method}'. Valid methods"
+                                 " are '01', 'zscore', and 'sum'.")
+                
+        # revert back to series or dataframe is given as it 
+        if name_or_columns is not None: 
+            scaled = pandas_manager(
+                scaled, todo='set', 
+                name_or_columns=name_or_columns, 
+                index= index 
+                )
 
-    if is_pandas:
-        if isinstance(data, pd.Series):
-            return pd.Series(denormalized_data, index=data.index, name=data.name)
-        elif isinstance(data, pd.DataFrame):
-            return pd.DataFrame(denormalized_data, index=data.index, columns=data.columns)
-    else:
-        return denormalized_data
+        return scaled
+    # Normalize each array
+    normalized_arrays = []
+    for arr in arrays:
+        if not hasattr(arr, '__array__'):
+            arr = np.asarray(arr)
+        arr = _handle_non_numeric(arr)
+        normalized = _normalize_array(arr, method, scaler)
+        normalized_arrays.append(normalized)
+    
+    return normalized_arrays[0] if len(
+        normalized_arrays) == 1 else normalized_arrays   
 
 def _handle_get_action(
         data: Any, action: str, error: str) -> Union[bool, Tuple[np.ndarray, Any]]:

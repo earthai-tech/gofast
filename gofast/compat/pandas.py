@@ -279,11 +279,12 @@ def select_dtypes(
 
     # Ensure that df is a pandas DataFrame
     if not isinstance(df, pd.DataFrame):
-        raise TypeError("Expected a pandas DataFrame, but got a {}.".format(type(df).__name__))
+        raise TypeError("Expected a pandas DataFrame, but got a {}.".format(
+            type(df).__name__))
 
     # If dtypes is 'numeric', default to ['int64', 'float64']
     if dtypes == 'numeric':
-        dtypes = ['int64', 'float64']
+        dtypes = ['int64', 'float64', "int32", 'float32']
 
     # If dtypes is a string, convert it to a list
     if isinstance(dtypes, str):
@@ -302,8 +303,9 @@ def select_dtypes(
     exclude = excl if excl is not None else []
 
     # Handle NaN inclusion/exclusion logic for numeric types
-    if include_nan and 'float64' in dtypes: 
-        dtypes = list(set(dtypes) - {'float64'})  # Remove 'float64' if NaN is included
+    if dtypes is not None:
+        if include_nan and 'float64' in dtypes: 
+            dtypes = list(set(dtypes) - {'float64'})  # Remove 'float64' if NaN is included
     
     # Select columns based on specified dtypes
     selected_df = df.copy() 

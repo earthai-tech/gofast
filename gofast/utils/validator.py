@@ -3184,7 +3184,8 @@ def parameter_validator(
             return normalize_string(
                 param_value, target_strs=target_strs,
                 return_target_only=True,
-                match_method=match_method, raise_exception=raise_exception, 
+                match_method=match_method, 
+                raise_exception=raise_exception, 
                 **kws
             )
         return param_value  # Return the original value if it's None or empty
