@@ -18,15 +18,14 @@ import json
 import shutil
 import warnings 
 from six.moves import urllib 
-from typing import Optional, List
-
+from typing import Optional, List, Dict
+import pandas as pd 
 try:
     from tqdm import tqdm
     TQDM_AVAILABLE = True
 except ImportError:
     TQDM_AVAILABLE = False
 
-# Flag to indicate if 'rarfile' is available
 try:
     import rarfile
     RAR_AVAILABLE = True
@@ -36,8 +35,13 @@ except ImportError:
 from .._gofastlog import gofastlog 
 from ..api.property import BaseClass
 from ..compat.sklearn import validate_params 
+from ..core.io import export_data
 from ..decorators import EnsureMethod
-from .deps_utils import is_installing, is_module_installed, ensure_pkg
+from .deps_utils import ( 
+    is_installing, 
+    is_module_installed, 
+    ensure_pkg
+)
 
 
 __all__= [
@@ -47,12 +51,12 @@ __all__= [
     "url_checker", 
     "validate_url", 
     "validate_url_by_validators", 
-    "fetch_json_data_from_url"
+    "fetch_json_data_from_url", 
+    "export_pkg_downloads"
 ]
 
 # Initialize logging for the extractor
 logger = gofastlog.get_gofast_logger(__name__)
-
 
 @EnsureMethod("fetch", error="ignore", mode="soft")
 class RemoteDataLoader(BaseClass):
@@ -296,7 +300,9 @@ class RemoteDataLoader(BaseClass):
                 tar_ref.extractall(extract_dir)
                 logger.debug(f"Extracted tar archive at {self.destination_path}")
         else:
-            logger.warning(f"No extraction performed; unsupported archive format: {self.destination_path}")
+            logger.warning(
+                "No extraction performed; unsupported archive"
+                f" format: {self.destination_path}")
             self.destination_path_ = self.destination_path  # No extraction, use original path
             return
         # Update destination_path_ to extraction directory
@@ -515,9 +521,183 @@ class ArchiveExtractor(BaseClass):
 
         return filtered_members
 
+@ensure_pkg("requests", 
+            extra=" `requests` is required to fetch API data.", 
+            partial_check=False)
+@ensure_pkg("pypistats", 
+            extra="`pypistats` to is required to fetch PyPI download "
+                     "stats.", 
+            partial_check=True, 
+            condition=lambda *args, **kw: kw.get("platform") == "pypi")
+def export_pkg_downloads(
+    url: Optional[str],
+    pkg: str,
+    field_mapping: Optional[Dict[str, str]] = None,
+    index: bool = False,
+    savefile: Optional[str] = None,
+    platform: str = "conda",
+    verbose: int = 0,
+    **kw
+):
+    r"""
+    Export package download statistics from Anaconda (Conda) or PyPI.
+
+    This function fetches JSON data from the provided API URL, extracts 
+    specified fields based on a user-defined mapping, and exports the data 
+    to an output file using gofast's export functionality. The output is 
+    formatted as a DataFrame and then saved as an Excel or CSV file. The 
+    function employs the helper methods `url_checker` and `export_data` 
+    to ensure URL validity and file export respectively.
+
+    Parameters
+    ----------
+    url : `str`, optional
+        The API endpoint URL that returns package download data in JSON 
+        format. If ``None``, the URL is automatically determined based on 
+        the ``platform`` and ``pkg`` arguments.
+    
+    pkg : `str`
+        The name of the package (e.g. ``"watex"``). This is included in 
+        the output under the column ``Package``.
+    
+    field_mapping : `dict`, optional
+        A dictionary mapping DataFrame column names to keys in the API 
+        response. For example, ``{"Total Downloads": "download_count"}``. 
+        Defaults to ``{"Total Downloads": "download_count"}`` if not 
+        provided.
+    
+    index : `bool`, optional
+        Whether to include the DataFrame index in the exported file.
+        Default is ``False``.
+    
+    savefile : `str`, optional
+        The output filename (including path) for the exported data.
+        If not provided, defaults to ``"{pkg}_downloads.xlsx"``.
+    
+    platform : `str`, optional
+        The package source platform, either ``"conda"`` (Anaconda) or 
+        ``"pypi"`` (Python Package Index). This determines how the API 
+        response is processed.
+    
+    verbose : `int`, optional
+        Verbosity level controlling logging output:
+          - ``1``: Basic info-level messages.
+          - ``2``: Debug-level messages.
+          - ``3``: Full debug logs.
+    
+    **kw : `dict`
+        Additional keyword arguments to pass to the 
+        ``export_data()`` function from the :py:mod:`gofast.core.io` module.
+    
+    Returns
+    -------
+    None
+        The function writes the package download statistics to an output 
+        file and prints a confirmation message.
+
+    Example
+    -------
+    >>> from gofast.utils.net_utils import export_pkg_downloads
+    >>> export_pkg_downloads(
+    ...     url="https://api.anaconda.org/package/conda-forge/watex",
+    ...     pkg="watex",
+    ...     field_mapping={"Total Downloads": "download_count"},
+    ...     savefile="watex_downloads.xlsx",
+    ...     platform="conda",
+    ...     verbose=2
+    ... )
+    [INFO] Fetching CONDA stats for package: watex
+    [DEBUG] API Response: { ... }
+    Excel file saved: watex_downloads.xlsx
+
+    Notes
+    -----
+    - This function uses the helper functions `url_checker` (to validate 
+      URLs) and `export_data` (to export data to a file) from the gofast 
+      package.
+    - The mathematical operation is represented as extracting key-value 
+      pairs from the API response and forming a DataFrame:
+      
+      .. math::
+      
+          \mathrm{DF} = \{ (\texttt{col}_i, \, r[k_i]) \mid 
+          \texttt{col}_i \in C, \, k_i \in K \}
+      
+    - For further details, see the documentation of `url_checker` and 
+      `export_data`.
+
+
+    See Also
+    --------
+    url_checker : Utility to validate and format URLs.
+    export_data : Function to export a DataFrame to Excel or CSV.
+    
+    """
+    import requests 
+    # Validate the URL using `url_checker`.
+    url = url_checker(url, install=True, error="raise")
+    
+    # Automatically determine API URL if not provided.
+    if url is None:
+        if platform == "conda":
+            url = f"https://api.anaconda.org/package/conda-forge/{pkg}"
+        elif platform == "pypi":
+            url = f"https://pypistats.org/api/packages/{pkg}/recent"
+        else:
+            raise ValueError("Invalid platform. Use 'conda' or 'pypi'.")
+    
+    if verbose >= 1:
+        print(f"[INFO] Fetching {platform.upper()} stats for package: {pkg}")
+    
+    # Fetch JSON data from the API.
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as e:
+        print(f"[ERROR] Failed to fetch data: {e}")
+        logger.error (f"[ERROR] Failed to fetch data: {e}")
+        return
+    
+    if verbose >= 2:
+        print(f"[DEBUG] API Response:\n{data}")
+    
+    # Use default field mapping if not provided.
+    if field_mapping is None:
+        field_mapping = {"Total Downloads": "download_count"}
+        if verbose >= 2:
+            print("[DEBUG] Using default field mapping:",
+                  field_mapping)
+    
+    # Prepare the data dictionary.
+    data_dict = {}
+    if pkg is not None:
+        data_dict["Package"] = [pkg]
+    
+    for col, key in field_mapping.items():
+        data_dict[col] = [data.get(key, "N/A")]
+        if verbose >= 3:
+            print(f"[DEBUG] Extracted {col}: {data_dict[col]}")
+    
+    # Create a DataFrame from the data.
+    df = pd.DataFrame(data_dict)
+    if verbose >= 2:
+        print("[DEBUG] DataFrame created:\n", df)
+    
+    # Set output filename.
+    savefile = savefile or f"{pkg}_downloads.csv"
+    if verbose >= 1:
+        print(f"[INFO] Saving output to: {savefile}")
+    
+    # Export the DataFrame using gofast's export_data().
+    export_data(df, file_paths=savefile, verbose=verbose,
+                index=index, **kw
+     )
+    
+    print(f"Excel file saved: {savefile}")
 
 def url_checker (url: str , install:bool = False, 
-                 raises:str ='ignore')-> bool : 
+                 error:str ='ignore')-> bool : 
     """
     check whether the URL is reachable or not. 
     
@@ -530,7 +710,7 @@ def url_checker (url: str , install:bool = False,
         link to the url for checker whether it is reachable 
     install: bool, 
         Action to install the 'requests' module if module is not install yet.
-    raises: str 
+    error: str 
         raise errors when url is not recheable rather than returning ``0``.
         if `raises` is ``ignore``, and module 'requests' is not installed, it 
         will use the django url validator. However, the latter only assert 
@@ -567,7 +747,7 @@ def url_checker (url: str , install:bool = False,
         if install: 
             success  = is_installing('requests', DEVNULL=True) 
         if not success: 
-            if raises=='raises': 
+            if error=='raise': 
                 raise ModuleNotFoundError(
                     "auto-installation of 'requests' failed."
                     " Install it mannually.")
@@ -586,7 +766,7 @@ def url_checker (url: str , install:bool = False,
                 isr =0 
         
         except requests.exceptions.RequestException as e:
-            if raises=='raises': 
+            if error=='raise': 
                 raise SystemExit(f"{url}: is not reachable \nErr: {e}")
             else: isr =0 
             

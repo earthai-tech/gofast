@@ -3878,6 +3878,7 @@ def extract_target(
     if isinstance(target, np.ndarray):
         target = np.squeeze(target)
 
+    target = to_series (target, handle_2d="passthrough")
     if return_y_X:
         return target, data
     return target

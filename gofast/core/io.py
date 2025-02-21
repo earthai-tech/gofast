@@ -1346,11 +1346,13 @@ def export_data(
                 warnings.warn(warning_msg)
         
         # Prepare writer-specific options if provided
-        writer_kwargs = writer_options.get(extension.lower(), {}) if writer_options else {}
+        writer_kwargs = writer_options.get(
+            extension.lower(), {}) if writer_options else {}
         # Merge any additional keyword arguments passed to the function
         writer_kwargs.update(kwargs)
         
         # Attempt to write the DataFrame to the specified file path
+        writer_kwargs= _get_valid_kwargs(writer_func, writer_kwargs)
         try:
             writer_func(file_path, **writer_kwargs)
             if verbose >= 1:

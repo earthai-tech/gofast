@@ -35,9 +35,12 @@ from ..compat.sklearn import (
     Hidden, 
    validate_params
 )
-from ..decorators import DynamicMethod
+from ..decorators import DynamicMethod, isdf 
 from ..utils.deps_utils import ensure_pkg 
+from ..utils.ts_utils import ts_validator 
 from ..utils.validator import validate_sequences, check_consistent_length 
+from ..utils.validator import parameter_validator 
+
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 
 if KERAS_BACKEND:
@@ -50,7 +53,8 @@ __all__ = [
     "create_sequences",
     "compute_forecast_horizon", 
     "prepare_future_data", 
-    "compute_anomaly_scores", 
+    "compute_anomaly_scores",
+    "reshape_xtft_data"
    ]
 
 @check_params(
@@ -1985,3 +1989,340 @@ def set_default_params(
         return_sequences = True
 
     return quantiles, scales, return_sequences
+
+
+@isdf
+def reshape_xtft_data(
+    df,
+    dt_col,
+    target_col,
+    dynamic_cols,
+    static_cols= None,
+    future_cols= None,
+    spatial_cols= None,  # e.g., ("longitude", "latitude")
+    time_steps = 4,
+    forecast_horizons= 1,
+    to_datetime = None,
+    model="xtft", 
+    error="raise", 
+    verbose= 3
+):
+    """
+    Reshape data for sequence models (XTFT/TFT) by generating rolling 
+    sequences.
+    
+    This function transforms the input DataFrame into rolling sequences
+    suitable for sequence-to-sequence models such as XTFT and TFT. It 
+    generates aligned sequences of dynamic, static, and future features 
+    along with target values. If spatial columns are provided, the DataFrame 
+    is grouped accordingly; otherwise, the entire DataFrame is treated as a 
+    single group.
+    
+    Parameters
+    ----------
+    df            : `pandas.DataFrame`
+        The input DataFrame containing time series data. It must include a 
+        datetime column specified by the ``dt_col``.
+    dt_col        : `str`
+        The name of the datetime column in `df`. This column is processed 
+        using the inline method ``ts_validator`` to ensure proper datetime 
+        formatting.
+    target_col    : `str`
+        The column in `df` holding the target values for forecasting.
+    dynamic_cols  : `list` or `str`
+        A list (or a single string) of column names representing dynamic 
+        features that vary over time. These columns are managed by the inline 
+        method ``columns_manager``.
+    static_cols   : `list` or `str`, optional
+        A list (or a single string) of column names representing static 
+        features that remain constant within a group. Processed via 
+        ``columns_manager``. If omitted, static data is set to ``None``.
+    future_cols   : `list` or `str`, optional
+        A list (or a single string) of column names representing future 
+        covariates used for forecasting. Managed via ``columns_manager``. If 
+        not provided, future data is set to ``None``.
+    spatial_cols  : `list` or `str`, optional
+        Column names used to group the DataFrame by spatial location 
+        (e.g., ``"longitude"`` and ``"latitude"``). If omitted, the entire 
+        DataFrame is treated as a single group.
+    time_steps    : `int`, optional
+        The number of consecutive time steps to include in each rolling 
+        sequence.
+    forecast_horizons : `int`, optional
+        The number of future time steps to forecast for each input sequence.
+    to_datetime   : `str`, optional
+        Specifies the conversion rule for the datetime column. Acceptable 
+        values include ``"auto"``, ``"Y"``, ``"M"``, ``"W"``, ``"D"``, 
+        ``"H"``, ``"min"``, and ``"s"``.
+    model : `str`, optional
+        The model type for which data is being reshaped. Supported values 
+        include ``"xtft"`` and ``"tft"``. For these models, both static and 
+        future features are required; otherwise, consider models such as 
+        ``"lstm"``.
+    error         : `str`, optional
+        Determines the behavior when required features are missing. Options 
+        are ``"raise"``, ``"warn"``, or ``"ignore"``.
+    verbose       : `int`, optional
+        The verbosity level for logging. Levels are:
+          - ``1``: Basic information.
+          - ``2``: Detailed processing steps.
+          - ``3``: Debug-level information including internal shapes.
+    
+    Returns
+    -------
+    tuple of `numpy.ndarray` or `None`
+        A tuple containing four arrays:
+          - ``static_data``  : Array of static feature sequences or 
+            ``None`` if static features are not provided.
+          - ``dynamic_data`` : Array of dynamic feature sequences.
+          - ``future_data``  : Array of future covariate sequences or 
+            ``None`` if future features are not provided.
+          - ``target_data``  : Array of target value sequences.
+    
+    Examples
+    --------
+    >>> from gofast.nn.utils import reshape_xtft_data
+    >>> static_data, dynamic_data, future_data, target_data = 
+    ...     reshape_xtft_data(
+    ...         df,
+    ...         dt_col           = "date",
+    ...         target_col       = "target",
+    ...         dynamic_cols     = ["feat1", "feat2"],
+    ...         static_cols      = ["static1"],
+    ...         future_cols      = ["future1"],
+    ...         spatial_cols     = ["longitude", "latitude"],
+    ...         time_steps       = 4,
+    ...         forecast_horizons= 1,
+    ...         to_datetime      = "auto",
+    ...         model            = "xtft",
+    ...         error            = "raise",
+    ...         verbose          = 3
+    ...     )
+    
+    Notes
+    -----
+    - The function uses inline methods such as ``ts_validator``, 
+      ``columns_manager``, and ``exist_features`` for data validation 
+      and processing.
+    - If ``spatial_cols`` are not provided, the entire DataFrame is treated 
+      as one group, and the group key is labeled as 
+      ``<Undefined location>``.
+    - The rolling sequence generation is based on a sliding window approach, 
+      where each input sequence of ``time_steps`` is paired with a target 
+      sequence of the subsequent ``forecast_horizons`` rows.
+    - For models like XTFT and TFT, both static and future features are 
+      critical for optimal performance [1]_.
+      
+      The function constructs rolling windows for input sequences. For a 
+      given time series :math:`\mathbf{X} = [\mathbf{x}_1, \ldots, 
+      \mathbf{x}_N]` and target series :math:`\mathbf{Y} = [y_1, \ldots, 
+      y_N]`, a rolling window at index :math:`i` is defined as:
+      
+      .. math::
+      
+         \mathbf{X}^{(i)} =
+         \begin{bmatrix}
+           \mathbf{x}_{i} \\
+           \mathbf{x}_{i+1} \\
+           \vdots \\
+           \mathbf{x}_{i+T-1}
+         \end{bmatrix}
+      
+      and the corresponding target is given by:
+      
+      .. math::
+      
+         \mathbf{Y}^{(i)} =
+         \begin{bmatrix}
+           y_{i+T} \\
+           y_{i+T+1} \\
+           \vdots \\
+           y_{i+T+H-1}
+         \end{bmatrix}
+      
+      where :math:`T` is the ``time_steps`` and :math:`H` is the 
+      ``forecast_horizons``.
+    
+    See Also
+    --------
+    gofast.utils.ts_utils.ts_validator :
+        Validates and converts the datetime column.
+    gofast.core.handlers.columns_manager` :
+        Formats and validates lists of column names.
+    gofast.core.checks.exist_features` : 
+        Checks for the existence of specified columns in a DataFrame.
+
+    """
+    # -- Model-specific requirements --
+    model= parameter_validator(
+        "model", target_strs={"xtft", "tft", "any","lstm", None}
+        )(model)
+    
+    if model in ["xtft", "tft"]:
+        msg = (
+            f"Using {model.upper()} requires both static_cols"
+            " and future_cols to be provided. If these columns"
+            " are missing, consider using an alternative model"
+            " (e.g., LSTM) that does not depend on these features,"
+            " or set ``model='any'``"
+        )
+        if static_cols is None or future_cols is None:
+            if error == "raise":
+                raise ValueError(msg)
+            elif error == "warn":
+                warnings.warn(msg)
+            else:
+                if verbose >= 1:
+                    print("Warning:", msg)
+            
+    # Validate and convert the datetime column.
+    df = ts_validator(
+        df,
+        dt_col     = dt_col,
+        to_datetime= to_datetime,
+        as_index   = False,
+        verbose    = verbose
+    )
+    exist_features(df, target_col, name='Target column')
+    # Manage spatial columns.
+    spatial_cols = columns_manager(
+        spatial_cols,
+        empty_as_none = False
+    )
+    if spatial_cols:
+        spatial_cols = list(spatial_cols)  # ensure list type
+        exist_features(
+            df,
+            features = spatial_cols,
+            name = "Spatial columns"
+        )
+        group_by_cols = spatial_cols
+    else:
+        # No spatial columns provided;
+        # process entire DataFrame as one group.
+        group_by_cols = None
+
+    # Sort the DataFrame.
+    if group_by_cols:
+        sorted_cols = [dt_col] + group_by_cols
+        df = df.sort_values(sorted_cols).reset_index(drop=True)
+        grouped = df.groupby(group_by_cols)
+    else:
+        df = df.sort_values(dt_col).reset_index(drop=True)
+        grouped = [(None, df)]
+
+    # Ensure required columns are in list format.
+    dynamic_cols = columns_manager(dynamic_cols)
+    exist_features(
+        df,
+        features = dynamic_cols,
+        name = "Dynamic columns"
+    )
+    if static_cols:
+        static_cols = columns_manager(static_cols)
+        exist_features(
+            df,
+            features = static_cols,
+            name = "Static columns"
+        )
+    if future_cols:
+        future_cols = columns_manager(future_cols)
+        exist_features(
+            df,
+            features = future_cols,
+            name = "Future columns"
+        )
+
+    # Initialize lists for sequence data.
+    static_data  = []
+    dynamic_data = []
+    future_data  = []
+    target_data  = []
+
+    # Process each group (location or entire DataFrame).
+    for key, group in grouped:
+        if not spatial_cols:
+            key = "<Undefined location>"  # default key for no spatial info
+
+        # Sort group by datetime.
+        group = group.sort_values(dt_col)
+
+        # Extract static features if provided.
+        if static_cols:
+            static_values = group.iloc[0][static_cols].values
+        else:
+            static_values = None
+
+        # Generate rolling sequences.
+        for i in range(len(group) - time_steps - forecast_horizons + 1):
+            sequence_data = group.iloc[i : i + time_steps]
+            dynamic_seq   = sequence_data[dynamic_cols].values
+
+            # Handle future features if provided.
+            if future_cols:
+                future_seq = np.repeat(
+                    sequence_data[future_cols].iloc[0].values.reshape(1, -1),
+                    time_steps,
+                    axis = 0,
+                )
+            else:
+                future_seq = None
+
+            # Extract target values for forecast horizon.
+            target_seq = group.iloc[
+                i + time_steps : i + time_steps + forecast_horizons
+            ][target_col].values
+
+            if verbose >= 3:
+                print(f"\nLocation: {key}")
+                if static_cols:
+                    print(f"  Static shape           : "
+                          f"{static_values.shape}")
+                else:
+                    print("  Static features not provided")
+                print(f"  Dynamic shape          : "
+                      f"{dynamic_seq.shape}")
+                if future_cols:
+                    print(f"  Future shape           : "
+                          f"{future_seq.shape}")
+                else:
+                    print("  Future features not provided")
+                print(f"  Target (before reshape): "
+                      f"{target_seq.shape}")
+
+            # Reshape target to (forecast_horizons, 1).
+            target_seq = target_seq.reshape(forecast_horizons, 1)
+            if verbose >= 3:
+                print(f"  Target (after reshape) : "
+                      f"{target_seq.shape}")
+
+            # Append sequences to lists.
+            if static_cols:
+                static_data.append(static_values)
+            dynamic_data.append(dynamic_seq)
+            if future_cols:
+                future_data.append(future_seq)
+            target_data.append(target_seq)
+
+        if verbose >= 2:
+            print(f"\nProcessed sequences for location: {key}")
+            print(f"  Total sequences so far: {len(target_data)}")
+
+    # Convert lists to NumPy arrays (or set to None if empty).
+    static_data  = np.array(static_data) if static_data else None
+    dynamic_data = np.array(dynamic_data) if dynamic_data else None
+    future_data  = np.array(future_data) if future_data else None
+    target_data  = np.array(target_data) if target_data else None
+
+    if verbose >= 1:
+        print("\nFinal data shapes:")
+        print(f"  Static Data : {static_data.shape}" if static_data is not None 
+              else "  Static Data : None")
+        print(f"  Dynamic Data: {dynamic_data.shape}" if dynamic_data is not None 
+              else "  Dynamic Data: None")
+        print(f"  Future Data : {future_data.shape}" if future_data is not None 
+              else "  Future Data : None")
+        print(f"  Target Data : {target_data.shape}" if target_data is not None 
+              else "  Target Data : None")
+
+    return static_data, dynamic_data, future_data, target_data

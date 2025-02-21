@@ -973,7 +973,10 @@ def plot_donut_charts(
                     ax.legend(wedges, slice_labels, loc=legend_loc)
 
         # Title
-        ax.set_title(data.columns[i])
+        try:
+            ax.set_title(data.columns[i])
+        except: 
+            pass 
 
     # Hide unused axes
     if n_rows > 1:
@@ -1303,10 +1306,13 @@ def donut_chart_in(
     # Colors
     if isinstance(colors, str):
         # if user passes "cs4", "tab20", etc., we can try a colormap
-        cmap = plt.get_cmap(colors)
-        # build a color list
-        n = len(values)
-        colors = [cmap(i / n) for i in range(n)]
+        try:
+            cmap = plt.get_cmap(colors)
+            # build a color list
+            n = len(values)
+            colors = [cmap(i / n) for i in range(n)]
+        except: 
+            colors = make_plot_colors(values, colors=colors,)
     elif not colors:
         # fallback to default
         colors = plt.rcParams['axes.prop_cycle'].by_key().get('color', None)
@@ -1754,7 +1760,7 @@ def donut_chart(
         explode = extend_values(explode, target= plot_values)
         
     # Plot the donut chart
-    wedges, texts, autotexts = ax.pie(
+    wedges, *_= ax.pie(
         plot_values,
         labels=labels,
         colors=colors,
@@ -1768,7 +1774,8 @@ def donut_chart(
         wedgeprops=wedgeprops,
         **kwargs
     )
-
+    # ifautopct
+    # texts, autotexts
     # Set aspect ratio to be equal
     ax.axis('equal')
 

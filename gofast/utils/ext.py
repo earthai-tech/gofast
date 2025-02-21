@@ -867,7 +867,7 @@ def spread_coverage(
         to q90. If a single number is provided, it is applied to both.
     sigma_err : float, default 0
         Shuffles a fraction of the computed q10 and q90 values to add 
-        noise. When ``sigma_err`` is ``0``, no shuffling is applied; 
+        error. When ``sigma_err`` is ``0``, no shuffling is applied; 
         when ``sigma_err`` is ``1``, all q10 and q90 values are randomly 
         shuffled; when ``sigma_err`` is, for example, ``0.3``, then 
         30% of the predictions are randomly shuffled while the 
