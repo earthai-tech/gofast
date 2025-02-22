@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from ._config import PlotConfig 
+from ._config import PlotConfig  as config
 from .evaluate import ( 
     EvalPlotter, 
     MetricPlotter, 
@@ -90,6 +90,8 @@ from .utils import (
     boxplot, 
     plot_r_squared, 
     plot_text, 
+) 
+from .suite import (
     plot_spatial_features, 
     plot_categorical_feature, 
     plot_sensitivity, 
@@ -108,7 +110,7 @@ from .utils import (
     )
 
 __all__= [
-    "PlotConfig", 
+    "config", 
     
     "MetricPlotter", 
     "EvalPlotter",

@@ -299,7 +299,7 @@ def miv_score(
 
     See Also
     --------
-    gofast.plot.utils.plot_pertubations: 
+    gofast.plot.suite.plot_pertubations: 
         Plot feature perturbation effects for multiple perturbation values 
         using MIV metrics.
     gofast.metrics_special.relative_sensitivity_score: 
@@ -870,7 +870,7 @@ def relative_sensitivity_score(
     
     # Plot results if requested
     if plot_type is not None:
-        from .plot.utils import plot_sensitivity 
+        from .plot.suite import plot_sensitivity 
         plot_sensitivity(
             sensitivity_values, 
             baseline= baseline_predictions, 

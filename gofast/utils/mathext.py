@@ -170,7 +170,7 @@ def compute_importances(
     pkg=None,
     as_frame=True,
     xai_methods=None,
-    return_rank=True,
+    return_rank=False,
     normalize=False,
     keep_mean_importance=False,
 ):

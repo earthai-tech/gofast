@@ -2143,12 +2143,22 @@ def columns_manager(
     if isinstance(columns, (int, float)):
         columns = [columns]
         
+    elif callable(columns): 
+        columns=[columns] 
+        
+    ## Use inspect to determine if it is a class.
+    # Alternatively, if the object is not iterable (has no __iter__ attribute),
+    # we assume it's a single model instance.
+    if inspect.isclass(columns) or not hasattr(columns, '__iter__'):
+        columns = [columns]
+        
     # If columns is a string, split by separator or use regex
-    if isinstance(columns, str):
+    elif isinstance(columns, str):
         if separator is not None:
             columns = columns.split(separator)
         else:
-            columns = str2columns(columns, regex=regex, pattern=pattern)
+            columns = str2columns(
+                columns, regex=regex, pattern=pattern)
     
     # If columns is any iterable object, convert it to a list
     elif isinstance(columns, Iterable) : 
@@ -2158,7 +2168,7 @@ def columns_manager(
             if error == 'raise':
                 raise ValueError(f"Error converting columns to list: {e}")
             elif error == 'warn':
-                warnings.warn(f"Warning: Could not convert columns to list: {e}")
+                warnings.warn(f"Could not convert columns to list: {e}")
             else:
                 pass  # Ignore errors silently
 
@@ -2179,6 +2189,19 @@ def columns_manager(
         # Convert all items to string if requested
         if to_string:
             columns = [str(col) for col in columns]
+    else: 
+        # If 'columns' is not a string, list, or tuple, 
+        # then it might be a single object 
+        # (for example, an instance of RandomForestRegressor).
+        # In such a case, we attempt to check if it is iterable. 
+        # Since an instance of RandomForestRegressor
+        # is neither callable nor a class, nor is it iterable 
+        # (i.e., it has no __iter__ # attribute), we wrap it into a list.
+        if not isinstance(columns, (str, list, tuple)):
+            try:
+                iter(columns)
+            except:
+                columns = [columns]
 
     return columns
 

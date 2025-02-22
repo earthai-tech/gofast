@@ -70,6 +70,9 @@ MODULE_MAPPING = {
          "reorder_importances", 
          "spread_coverage", 
          "denormalize_in", 
+         "normalize_in", 
+         "to_ranking", 
+         "to_importances", 
         ], 
     'io_utils':[ 
         'deserialize_data', 

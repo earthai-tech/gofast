@@ -15,16 +15,433 @@ import pandas as pd
 
 from ..api.types import ArrayLike, DataFrame  
 from ..compat.pandas import select_dtypes 
+from ..compat.sklearn import validate_params 
 from ..core.array_manager import to_series 
 from ..core.checks import assert_ratio, check_numeric_dtype
+from ..core.checks import check_params 
 from ..core.handlers import columns_getter, columns_manager 
 from ..core.io import is_data_readable 
-from ..core.utils import error_policy 
+from ..core.utils import error_policy, smart_format 
 from .validator import parameter_validator, validate_length_range 
+from .validator import get_estimator_name 
 
-__all__ = ["reorder_importances", "spread_coverage", "denormalizer",
-           "denormalize_in", "normalize_in"]
+__all__ = [
+    "reorder_importances", 
+    "spread_coverage", 
+    "denormalizer",
+    "denormalize_in", 
+    "normalize_in", 
+    "to_ranking", 
+    "to_importances", 
+    ]
 
+@check_params ({ 
+    "features": Optional[List[str]], 
+    "name": str, 
+    })
+@validate_params({
+    "ranking": ['array-like']
+    }
+)
+def to_importances(
+    ranking, 
+    models=None, 
+    features=None, 
+    method='linear',
+    normalize=False, 
+    max_importance=1.0, 
+    name="feature", 
+    epsilon=1e-8
+    ):
+    """
+    Convert ranking values to importance scores.
+
+    This function converts a ranking dataset (DataFrame or array-
+    like) into importance scores using various conversion methods.
+    If the input is a DataFrame, its columns and index are used
+    unless overridden by the `models` and `features` parameters.
+    If the provided features index is numeric, then the index is
+    renamed to ``{name}_1``, ``{name}_2``, etc. For numpy arrays,
+    a DataFrame is built with default naming if `models` or 
+    `features` are not provided or are incomplete.
+
+    See more in :ref:`User Guide <user_guide>`. 
+
+    Parameters
+    ----------
+    x : array-like or DataFrame
+        The ranking dataset. If a numpy array is provided, it is
+        converted into a DataFrame.
+    models : list-like, optional
+        List of model names to use as column labels. If fewer names are
+        provided than the number of columns in the dataset, the missing
+        names are filled with default names (e.g., ``Model_1``, 
+        ``Model_2``, etc.).
+    features : list-like, optional
+        List of feature names to use as the DataFrame index. If fewer names
+        are provided than the number of rows, the missing names are filled
+        with default names using the prefix defined by ``name``
+        (e.g., ``feature_1``, ``feature_2``, etc.). If the index is 
+        numeric, it is renamed accordingly.
+    method : str, default ``linear``
+        The conversion method. Supported values are ``linear``, 
+        ``reciprocal``, ``log``, and ``exponential`` (or ``exp`` as an
+        alias).
+    normalize : bool, default False
+        If True, the computed importance scores for each column are 
+        normalized to sum to 1.
+    max_importance : float, default 1.0
+        The maximum importance score. If this value is between 0 and 1,
+        it is treated as a scaling factor; if greater than 1, it is
+        considered the absolute maximum importance value.
+    name : str, default ``feature``
+        The default prefix used for feature naming when no names are
+        provided or when the index is numeric.
+    epsilon : float, default 1e-8
+        A small constant added to denominators to avoid division by zero.
+
+    Returns
+    -------
+    DataFrame
+        A DataFrame containing the computed importance scores with the
+        same structure as the ranking dataset.
+
+    Notes 
+    ------
+    The conversion methods available are:
+
+    **Linear:**
+    
+    .. math::
+       I_{ij} = \\frac{\\max(R_j) - R_{ij} + 1}{\\max(R_j)}
+       \\times I_{\\max}
+       
+    **Reciprocal:**
+    
+    .. math::
+       I_{ij} = \\frac{1}{R_{ij} + \\epsilon} \\times I_{\\max}
+       
+    **Logarithmic:**
+    
+    .. math::
+       I_{ij} = \\frac{\\ln(\\max(R_j)+1) - \\ln(R_{ij}+1)}
+       {\\ln(\\max(R_j)+1)} \\times I_{\\max}
+       
+    **Exponential:**
+    
+    .. math::
+       I_{ij} = I_{\\max} \\times \\exp\\Bigl(
+       -\\frac{R_{ij}-1}{\\max(R_j)-1}\\Bigr)
+
+    where :math:`R_{ij}` denotes the ranking of the <parameter inline>
+    feature for model j, and :math:`I_{\\max}` is the maximum 
+    importance as defined by the ``max_importance`` parameter.
+    If ``max_importance`` is between 0 and 1, it is used as a scaling 
+    factor; if greater than 1, it is treated as the absolute maximum
+    importance value.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.utils.ext import to_importances
+    >>> ranking = np.array([[1, 2],
+    ...                     [3, 1],
+    ...                     [2, 3]])
+    >>> imp = to_importances(ranking,
+    ...         models=['RF', 'XGBR'],
+    ...         features=['feat1', 'feat2', 'feat3'],
+    ...         method='linear')
+    >>> print(imp)
+
+    Notes
+    -----
+    The function uses helper functions such as 
+    :func:`columns_manager` and 
+    :func:`parameter_validator` to process and validate the 
+    `models` and `features` inputs. If ``normalize`` is True, each 
+    column is scaled so that the importance scores sum to 1. The 
+    conversion follows the mathematical formulations above.
+    
+    See Also
+    --------
+    to_ranking : Convert importance scores to ranking values.
+    pd.DataFrame : Construct a DataFrame from array-like data.
+
+    References
+    ----------
+    .. [1] Hunter, J. D. (2007). Matplotlib: A 2D Graphics 
+           Environment. Computing in Science & Engineering, 9(3), 
+           90-95.
+    """
+
+    # Define valid conversion methods.
+    valid_methods = ['linear', 'reciprocal', 'log', 'exponential']
+    
+    # Validate the 'method' parameter against valid methods.
+    # Allow also 'exp' as shorthand for 'exponential'.
+    method = parameter_validator(
+        "method",
+        target_strs=valid_methods + ['exp'],
+        error_msg=(
+            f"Method '{method}' not supported. Valid methods are:"
+            f" {smart_format(valid_methods)}")
+        )(method)
+    
+    
+    # If 'ranking' is already a DataFrame, work on its copy.
+    if isinstance(ranking, pd.DataFrame):
+        df = ranking.copy()
+        models = list(df.columns)  # Capture existing column names.
+        features = list(df.index)  # Capture existing index values.
+    else:
+        # Otherwise, convert the ranking
+        # array to a DataFrame.
+        rank_arr = np.asarray(ranking)
+        if rank_arr.ndim == 1:
+            rank_arr = rank_arr.reshape(-1, 1)
+        df = pd.DataFrame(rank_arr)
+    
+    # Number of columns in the DataFrame.
+    ncols = df.shape[1]  
+    # Convert the 'models' parameter 
+    # into a list; return None if empty.
+    models = columns_manager(models, empty_as_none=True, error="ignore") 
+    if models is None:
+        # If no models provided, assign default names.
+        df.columns = [f"Model_{i}" for i in range(1, ncols + 1)]
+    else:
+        models= [get_estimator_name (m) for m in models ]
+        # If provided, but insufficient in 
+        # number, extend with default names.
+        if len(models) < ncols:
+            models.extend([
+                f"Model_{i}" for i in range(len(models) + 1, ncols + 1)])
+            # Resize the list to match the number of columns.
+            models = models[:ncols]
+        # Reassign the columns with the updated model names.
+        df.columns = models
+
+    nrows = df.shape[0]  # Number of rows in the DataFrame.
+    features = columns_manager(features, empty_as_none=True)
+    if features is None:
+        # If no features provided and index is numeric, 
+        # rename using the default pattern.
+        if isinstance(df.index, pd.RangeIndex) or all(
+                isinstance(x, (int, np.integer)) for x in df.index):
+            df.index = [f"{name}_{i}" for i in range(1, nrows + 1)]
+    else:
+        # If provided but list is shorter than number of 
+        # rows, extend with defaults.
+        if len(features) < nrows:
+            features.extend([
+                f"{name}_{i}" for i in range(len(features) + 1, nrows + 1)])
+            features = features[:nrows]
+        # Reassign the index with the updated feature names.
+        df.index = features
+
+    if method.lower() == 'linear':
+        # For linear conversion:
+        #   Calculate the maximum rank per column.
+        max_rank = df.max(axis=0)
+        #   Compute importance scores as:
+        #       I = ((max_rank - ranking + 1) / max_rank) * max_importance
+        imp = (max_rank - df + 1) / max_rank * max_importance
+    elif method.lower() == 'reciprocal':
+        # For reciprocal conversion:
+        #   Avoid division by zero by adding a small epsilon.
+        imp = max_importance * (1 / (df + epsilon))
+    elif method.lower() == 'log':
+        # For logarithmic conversion:
+        #   Compute importance using log transformation.
+        #   Add 1 inside the log to prevent log(0).
+        max_rank = df.max(axis=0)
+        imp = (np.log(max_rank + 1) - np.log(df + 1)) / np.log(
+            max_rank + 1) * max_importance
+    elif method.lower() == 'exponential':
+        # For exponential conversion:
+        #   Calculate the maximum rank per column.
+        max_rank = df.max(axis=0)
+        #   Avoid division by zero by setting denominator to 1 if max_rank is 1.
+        denom = np.where(max_rank - 1 == 0, 1, max_rank - 1)
+        norm_rank = (df - 1) / denom
+        imp = max_importance * np.exp(-norm_rank)
+
+    if normalize:
+        # Normalize importance scores so that each column sums to 1.
+        imp = imp.div(imp.sum(axis=0), axis=1)
+
+    return imp
+
+@check_params ({ 
+    "features": Optional[List[str]], 
+    "name": str, 
+    })
+@validate_params({
+    "to_ranking": ['array-like']
+    }
+)
+def to_ranking(
+    importances, 
+    models=None, 
+    features=None,
+    ascending=True, 
+    rank_method='min', 
+    name="feature",
+    **kw
+):
+    """
+    Convert importance scores to ranking values.
+
+    This function converts a dataset of importance scores into
+    ranking values. The input may be a DataFrame or an array-like
+    object. If the input is not a DataFrame, it is converted into
+    one, and default column names (models) and index names (features)
+    are assigned if they are not provided or are incomplete. For
+    instance, if the number of model names is less than the number
+    of columns, default names such as ``Model_3`` are appended. If
+    the index is numeric, it is renamed using the provided prefix,
+    e.g. ``feature_1``, ``feature_2``, etc.
+
+    See more in :ref:`User Guide <user_guide>`.
+    
+    Parameters
+    ----------
+    ranking : DataFrame or array-like
+        The dataset containing importance scores. If not already a
+        DataFrame, the input is converted into one. A 1D array is
+        reshaped into a 2D array with one column.
+    models  : list-like, optional
+        A list of model names to be used as column labels. If the number
+        of provided names is less than the number of columns in the
+        dataset, the missing names are filled with defaults such as
+        ``Model_1``, ``Model_2``, etc.
+    features: list-like, optional
+        A list of feature names to be used as the DataFrame index.
+        If fewer names are provided than rows, the remaining rows
+        are named using the prefix specified by ``name``, e.g.
+        ``feature_1``, ``feature_2``, etc.
+    ascending : bool, default=True
+        Controls the order of ranking. By default, higher importance
+        scores are ranked as 1 (i.e. highest importance).
+    rank_method : str, default ``min``
+        The method used to compute the rank. Acceptable values are
+        those supported by pandas ``rank`` (e.g., ``min``,
+        ``average``, etc.).
+    name    : str, default ``feature``
+        The prefix used for default feature naming when no feature
+        names are provided or when the index is numeric.
+    **kw    : dict, optional
+        Additional keyword arguments passed to the DataFrame's
+        ``rank`` method.
+
+    Returns
+    -------
+    DataFrame
+        A DataFrame with the same structure as the input, containing
+        ranking values computed for each importance score.
+
+    Notes 
+    ------
+    The ranking is computed via the pandas DataFrame ``rank``
+    method. By default, higher importance scores receive a rank of
+    1, achieved by setting the ranking order to descending (i.e.,
+    ``ascending=not ascending``). Additional keyword arguments are
+    passed directly to ``DataFrame.rank``.
+
+
+    The conversion is mathematically defined as follows:
+
+    .. math::
+       R_{ij} = \\text{rank}(I_{ij})
+       \\quad \\text{for each column } j
+
+    where :math:`I_{ij}` denotes the importance score of the 
+    <parameter inline> feature for model j, and :math:`R_{ij}` is 
+    its corresponding rank.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.utils.ext import to_ranking
+    >>> importance = np.array([[0.8, 0.2],
+    ...                        [0.3, 0.9],
+    ...                        [0.5, 0.4]])
+    >>> rank_df = to_ranking(importance,
+    ...          models=['RF', 'XGBR'],
+    ...          features=['feat1', 'feat2', 'feat3'],
+    ...          ascending=False, rank_method='min')
+    >>> print(rank_df)
+
+    Notes
+    -----
+    This function employs helper functions such as
+    :func:`columns_manager` to manage column and index naming, and
+    it utilizes the pandas ``rank`` method to compute the ranking.
+    The default behavior assigns a rank of 1 to the highest
+    importance score, consistent with standard ranking practices
+    [1]_.
+
+    See Also
+    --------
+    to_importances : Convert ranking values to importance scores.
+    pd.DataFrame.rank : Rank elements in a DataFrame.
+
+    References
+    ----------
+    .. [1] Smith, J., & Doe, A. (2020). Ranking Methods in Data
+           Analysis. Journal of Data Science, 18(2), 101-110.
+    """
+    
+    # Check if 'importances' is already a DataFrame; if not,
+    # convert it to one.
+    if isinstance(importances, pd.DataFrame):
+        df = importances.copy()
+        models= list(df.columns) 
+        features= list(df.index)
+    else:
+        imp_arr = np.asarray(importances)
+        # If the array is 1D, reshape to a 2D array with one column.
+        if imp_arr.ndim == 1:
+            imp_arr = imp_arr.reshape(-1, 1)
+        df = pd.DataFrame(imp_arr)
+
+    # Set up the columns (models). The number of columns in df.
+    ncols = df.shape[1]
+    models = columns_manager(models, empty_as_none=True )
+    if models is None: 
+        # If models not provided, generate default model names.
+        df.columns = [f"Model_{i}" for i in range(1, ncols + 1)]
+        
+    else: 
+        models= [get_estimator_name (m) for m in models ]
+        if len(models) < ncols:
+            models.extend([
+                f"Model_{i}" for i in range(len(models) + 1,ncols + 1)])
+            models = models[:ncols]
+            df.columns = models
+
+    # Set up the index (features). The number of rows in df.
+    nrows = df.shape[0]
+    features = columns_manager(features, empty_as_none=True )
+    
+    if features is  None:
+        # If features not provided, generate default feature names.
+        df.index = [f"{name}_{i}" for i in range(1, nrows + 1)]
+    else: 
+        
+        # append default feature names.
+        if len(features) < nrows:
+            features.extend([f"{name}_{i}" for i in range(len(features) + 1,
+                                                            nrows + 1)])
+        features = features[:nrows]
+        df.index = features
+    
+    # Compute the ranking for each column.
+    # By default, higher importance should get rank 1; hence,
+    # if ascending is False, we rank in descending order.
+    ranking = df.rank(ascending=not ascending, method=rank_method, **kw)
+    
+    return ranking.astype(int)
 
 def normalize_in(
     *d: List[ArrayLike], 

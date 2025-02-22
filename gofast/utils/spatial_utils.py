@@ -61,6 +61,12 @@ from .validator import (
     validate_length_range 
     )
 
+HAS_TQDM=True 
+try: 
+    from tqdm import tqdm 
+except: 
+    HAS_TQDM = False 
+    
 __all__ = [
      'adaptive_moving_average',
      'assert_doi',
@@ -1134,7 +1140,8 @@ def spatial_sampling(
     stratify_by=['year'],
     spatial_bins=10,
     spatial_cols=None,
-    random_state=42
+    random_state=42, 
+    verbose=1, 
 ):
     """
     Sample spatial data intelligently to represent the distribution
@@ -1175,6 +1182,11 @@ def spatial_sampling(
         sampling. If more than two columns are provided, an error is raised.
     random_state : int, optional
         Random seed for reproducibility. Default is ``42``.
+        
+    verbose: bool, default=False, 
+       If `True`, displays a progress bar and detailed status messages
+       during execution. Useful for monitoring the process, especially
+       when working with large datasets.
 
     Returns
     -------
@@ -1241,7 +1253,6 @@ def spatial_sampling(
            Journal of Computer Science*, 1(2), 111-117.
 
     """
-
     data = data.copy()
     # Set default spatial columns if not specified
     if spatial_cols is None:
@@ -1305,23 +1316,51 @@ def spatial_sampling(
         raise ValueError(
             "spatial_bins must be int or tuple/list of int."
         )
+    
+    # if verbose and HAS_TQDM are True.
+    if verbose and HAS_TQDM:
+        progbar = tqdm(
+            zip(spatial_cols, n_bins_list, ['x_bin', 'y_bin']),
+            total=len(spatial_cols),
+            ascii=True,
+            ncols=77,
+            desc=f"{'Creating spat. bins: ' + str(len(spatial_cols)):<20}"
+        )
     # Create spatial bins
     for col, n_bins, axis in zip(
-        spatial_cols, n_bins_list, ['x_bin', 'y_bin']
-    ):
+            spatial_cols, n_bins_list, ['x_bin', 'y_bin']):
         data[axis] = pd.qcut(
             data[col],
             q=n_bins,
             duplicates='drop'
         )
+        if verbose and HAS_TQDM:
+            progbar.update(1)
+    
+    if verbose and HAS_TQDM:
+        progbar.close()
+
+
     # Create combined stratification key
     strat_columns = stratify_by + [
         axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]
     ]
-    data['strat_key'] = data[strat_columns].apply(
-        lambda row: '_'.join(row.values.astype(str)),
-        axis=1
-    )
+    if verbose and len(data) > 10_000:
+        print("\nGenerating stratification keys...") 
+        print(f"This may take some time for {len(data):,}"
+              " records. Please be patient...")
+              
+    # data['strat_key'] = data[strat_columns].apply(
+    #     lambda row: '_'.join(row.values.astype(str)),
+    #     axis=1
+    # )
+    # Using .agg and .astype(str) for vectorized string concatenation
+    data['strat_key'] = data[strat_columns].astype(str).agg('_'.join, axis=1)
+
+    # Verbose message when done
+    if verbose and len(data)> 10_000:
+        print("Stratification keys generated successfully"
+              f" for {len(data):,} records.")
     # Determine total number of samples
     if isinstance(sample_size, float):
         if not 0 < sample_size < 1:
@@ -1340,6 +1379,9 @@ def spatial_sampling(
         )
     # Group data by stratification key
     grouped = data.groupby('strat_key')
+    if verbose:
+        print(f"Data grouped into {len(grouped):,} stratified bins.")
+        
     # Calculate number of samples per group
     group_sizes = grouped.size()
     total_size = group_sizes.sum()
@@ -1351,6 +1393,17 @@ def spatial_sampling(
     # Sample data from each group
     sampled_indices = []
     np.random.seed(random_state)
+    # Use tqdm to wrap the grouped iterator 
+    # if verbose and HAS_TQM are True.
+    if verbose and HAS_TQDM:
+        progbar = tqdm(
+            grouped,
+            total=len(grouped),
+            ascii=True,
+            ncols=77,
+            desc=f"Sampling {n_samples:,} records"
+        )
+    
     for strat_value, group in grouped:
         n = group_sample_sizes.loc[strat_value]
         if n > 0 and len(group) > 0:
@@ -1364,6 +1417,12 @@ def spatial_sampling(
             sampled_indices.extend(
                 sampled_group.index
             )
+        if verbose and HAS_TQDM:
+            progbar.update(1)
+            
+    if verbose and HAS_TQDM:
+        progbar.close() 
+        
     # Create the sampled DataFrame
     sampled_data = data.loc[
         sampled_indices
@@ -1375,9 +1434,14 @@ def spatial_sampling(
     sampled_data = sampled_data.drop(
         columns=cols_to_drop
     )
+    if verbose:
+        print(f"\nSampling completed: {len(sampled_indices):,}"
+              " records selected.")
+        
     return sampled_data.reset_index(
         drop=True
     )
+
 
 @validate_params({ 
     'y': ['array-like'], 
