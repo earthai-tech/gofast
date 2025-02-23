@@ -699,6 +699,7 @@ def plot_ranking(
             pkg=pkg,
             as_frame=True,
             xai_methods=xai_methods,
+            ascending=False, 
             return_rank=return_rank,
             normalize=normalize
         )
@@ -775,8 +776,8 @@ def plot_ranking(
         figsize = flex_figsize(
             matrix_to_plot, 
             figsize=figsize, 
-            base= (4, 12) if plot_type=='ranking' else (5, 12), 
-            min_base=(4, 7)
+            base= (3, 12) if plot_type=='ranking' else (4, 12), 
+            min_base=(3, 7)
             
             )
     plt.figure(figsize=figsize)

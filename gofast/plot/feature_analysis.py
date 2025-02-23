@@ -270,11 +270,11 @@ def plot_feature_importances(
     References
     ----------
     .. [1] Breiman, L. (2001). "Random Forests". Machine
-       Learning, 45(1), 5–32.
+         Learning, 45(1), 5–32.
     .. [2] Liu, J., Liu, W., Allechy, F.B., Zheng, Z., Liu, R., 
-       Kouadio, K.L., 2024. Machine learning-based techniques for land 
-       subsidence simulation in an urban area. J. Environ. Manage. 352, 17.
-       https://doi.org/https://doi.org/10.1016/j.jenvman.2024.120078
+         Kouadio, K.L., 2024. Machine learning-based techniques for land 
+         subsidence simulation in an urban area. J. Environ. Manage. 352, 17.
+         https://doi.org/https://doi.org/10.1016/j.jenvman.2024.120078
     """
     # "to_frame_if" is used for consistency since 
     # decorator Dataify handle the series case.

@@ -15,12 +15,12 @@ import pandas as pd
 
 from ..api.types import ArrayLike, DataFrame  
 from ..compat.pandas import select_dtypes 
-from ..compat.sklearn import validate_params 
+from ..compat.sklearn import validate_params  
 from ..core.array_manager import to_series 
 from ..core.checks import assert_ratio, check_numeric_dtype
 from ..core.checks import check_params 
 from ..core.handlers import columns_getter, columns_manager 
-from ..core.io import is_data_readable 
+from ..core.io import is_data_readable
 from ..core.utils import error_policy, smart_format 
 from .validator import parameter_validator, validate_length_range 
 from .validator import get_estimator_name 
@@ -51,6 +51,7 @@ def to_importances(
     normalize=False, 
     max_importance=1.0, 
     name="feature", 
+    ascending=False, 
     epsilon=1e-8
     ):
     """
@@ -97,6 +98,19 @@ def to_importances(
     name : str, default ``feature``
         The default prefix used for feature naming when no names are
         provided or when the index is numeric.
+    ascending : bool or None, default=False
+        Determines the sorting order of the importance matrix based on 
+        the mean importance scores across all models.
+
+        - `True`  → Computes the mean importance for each feature and
+          sorts **from lowest to highest**.
+        - `False` (default) → Computes the mean importance for each 
+          feature and sorts **from highest to lowest**.
+        - `None` → **No sorting is applied**, and the importance
+          matrix remains unchanged.
+
+        After sorting, the **mean importance column** used for 
+        sorting is automatically removed.
     epsilon : float, default 1e-8
         A small constant added to denominators to avoid division by zero.
 
@@ -173,7 +187,6 @@ def to_importances(
            Environment. Computing in Science & Engineering, 9(3), 
            90-95.
     """
-
     # Define valid conversion methods.
     valid_methods = ['linear', 'reciprocal', 'log', 'exponential']
     
@@ -187,7 +200,9 @@ def to_importances(
             f" {smart_format(valid_methods)}")
         )(method)
     
-    
+    if isinstance (ranking, pd.Series): 
+        ranking = ranking.to_frame()
+
     # If 'ranking' is already a DataFrame, work on its copy.
     if isinstance(ranking, pd.DataFrame):
         df = ranking.copy()
@@ -269,7 +284,26 @@ def to_importances(
     if normalize:
         # Normalize importance scores so that each column sums to 1.
         imp = imp.div(imp.sum(axis=0), axis=1)
-
+        
+    # Sorting Importance Matrix Based on `ascending` Parameter
+    if ascending is True:
+        # Compute mean importance across features
+        # and sort from lowest to highest
+        imp["mean_importance"] = imp.mean(axis=1)
+        imp = imp.sort_values(
+            by="mean_importance", ascending=True
+            ).drop(columns=["mean_importance"])
+    
+    elif ascending is False:
+        # Compute mean importance across features
+        # and sort from highest to lowest
+        imp["mean_importance"] = imp.mean(axis=1)
+        imp = imp.sort_values(
+            by="mean_importance", ascending=False
+            ).drop(columns=["mean_importance"])
+    
+    imp = to_series(imp, handle_2d ="passthrough")
+    
     return imp
 
 @check_params ({ 
@@ -285,7 +319,7 @@ def to_ranking(
     models=None, 
     features=None,
     ascending=True, 
-    rank_method='min', 
+    rank_method='min',
     name="feature",
     **kw
 ):
@@ -394,6 +428,9 @@ def to_ranking(
     
     # Check if 'importances' is already a DataFrame; if not,
     # convert it to one.
+    if isinstance (importances, pd.Series): 
+        importances=importances.to_frame()
+        
     if isinstance(importances, pd.DataFrame):
         df = importances.copy()
         models= list(df.columns) 
@@ -440,6 +477,8 @@ def to_ranking(
     # By default, higher importance should get rank 1; hence,
     # if ascending is False, we rank in descending order.
     ranking = df.rank(ascending=not ascending, method=rank_method, **kw)
+    
+    ranking = to_series (ranking, handle_2d ="passthrough")
     
     return ranking.astype(int)
 

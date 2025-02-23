@@ -172,7 +172,8 @@ def compute_importances(
     xai_methods=None,
     return_rank=False,
     normalize=False,
-    keep_mean_importance=False,
+    ascending=False, 
+    keep_mean=False,
 ):
     r"""
     Compute feature importances or ranks from one or multiple
@@ -240,7 +241,14 @@ def compute_importances(
         If ``True``, normalizes the computed importances
         (e.g. to sum to 1). Only applies to the final
         DataFrame or array. 
-    keep_mean_importance : bool, optional
+    ascending : bool or None, default=False
+        Determines the sorting order of the importance matrix 
+        based on the mean importance scores across all models.
+        - `True`  → Computes the mean importance for each 
+          feature and sorts **from lowest to highest**.
+        - `False` (default) → Computes the mean importance  
+          for each feature and sorts **from highest to lowest**.
+    keep_mean : bool, optional
         If ``True``, stores a column `"mean_importance"` with
         the average across models, and a `"mean_rank"`.
         Otherwise, these summary columns are dropped before
@@ -456,14 +464,14 @@ def compute_importances(
 
     # 11) Rank each column in descending order of importance
     ranking_matrix = importances_df.rank(
-        ascending=False,
+        ascending=ascending,
         axis=0
     ).astype(int)
 
     # If multiple models, also rank by mean_importance
     if "mean_importance" in importances_df.columns:
         ranking_matrix["mean_rank"] = importances_df["mean_importance"].rank(
-            ascending=False
+            ascending=ascending
         ).astype(int)
 
     # 12) Sort by "mean_rank" if it exists, else by the first column
@@ -471,18 +479,18 @@ def compute_importances(
         ranking_matrix = ranking_matrix.sort_values(
             by="mean_rank",
             axis=0,
-            ascending=True
+            ascending=not ascending
         )
     else:
         # Fallback: sort by the first model's ranks
         ranking_matrix = ranking_matrix.sort_values(
             by=ranking_matrix.columns[0],
             axis=0,
-            ascending=True
+            ascending=not ascending
         )
 
     # 13) Optionally remove mean_importance and mean_rank columns
-    if not keep_mean_importance:
+    if not keep_mean:
         importances_df.drop(
             columns=["mean_importance"],
             errors='ignore',

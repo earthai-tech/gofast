@@ -264,9 +264,7 @@ def extract_zones_from(
     if data is not None:
         z, x, y = extract_array_from(
             data,
-            z,
-            x,
-            y,
+            z, x, y,
             handle_unknown='raise',  # raise if columns not found
             error='raise',
             check_size=True,         # ensure x,y,z have same length
@@ -844,14 +842,21 @@ def get_xy_coordinates(
 
 @is_data_readable 
 @isdf
+@validate_params ({ 
+    'data': ['array-like'], 
+    'method': [StrOptions({"abs", "absolute",  "relative"}), None], 
+    })
 def batch_spatial_sampling(
     data,
     sample_size=0.1,
     n_batches=10,
-    stratify_by=['year'],
+    stratify_by=None,
     spatial_bins=10,
     spatial_cols=None,
-    random_state=42
+    method="abs", 
+    min_relative_ratio=.01, 
+    random_state=42, 
+    verbose=1, 
 ):
     """
     Batch resample spatial data with stratification over spatial and
@@ -884,11 +889,10 @@ def batch_spatial_sampling(
         samples are divided as evenly as possible among the batches. The
         default is ``10``.
 
-    stratify_by : list of str, optional
+    stratify_by : str, list of str, optional
         A list of column names in `data` to use for stratification. The
         sampling will ensure that the distribution of these columns in
-        each batch matches the distribution in the original dataset. The
-        default is ``['year']``.
+        each batch matches the distribution in the original dataset.
 
     spatial_bins : int or tuple/list of int, optional
         The number of bins to divide the spatial coordinates into for
@@ -907,11 +911,49 @@ def batch_spatial_sampling(
         providing both spatial columns is recommended for more accurate
         sampling. If more than two columns are provided, an error is
         raised.
+    
+    method : str, {'abs', 'relative'}, default='abs'
+        Defines how the sample size is determined:
+        - ``'abs'`` or ``'absolute'``: Uses a **fixed** sampling proportion
+          based on `sample_size`.
+        - ``'relative'``: Dynamically **scales** sampling based on dataset
+          stratification, ensuring that all stratification groups receive
+          a proportional sample while maintaining a minimum sampling ratio
+          (controlled by `min_relative_ratio`).
+        
+        When ``method='relative'``, the function ensures that even small
+        stratification groups receive a sufficient sample by applying
+        `min_relative_ratio`.
 
+    min_relative_ratio : float, default=0.01
+        Controls the **minimum allowable fraction** of records that 
+        must be sampled when ``method='relative'``.
+
+        - Ensures that no group is **undersampled** to zero, even if
+          its natural proportion in the dataset is very small.
+        - Must be a value between ``0`` and ``1``.
+        - The default value (``0.01``) means that at **least 1% of the
+          total dataset** will be sampled from each stratification group,
+          regardless of its relative size.
+        
+        **Example Scenarios:**
+        
+        - If `min_relative_ratio=0.05`, then each group **must** 
+          contribute **at least 5%** of the total dataset size (if possible).
+        - If a group is too small to reach this minimum, its entire
+          subset is sampled instead.
+        - This ensures that no group receives **less than
+        ``min_relative_ratio × total samples**``.
+        
     random_state : int, optional
         Controls the randomness of the sampling for reproducibility. This
         integer seed is used to initialize the random number generator.
         The default is ``42``.
+    
+    verbose: bool, default=False, 
+       If `True`, displays a progress bar and detailed status messages
+       during execution. Useful for monitoring the process, especially
+       when working with large datasets.
 
     Returns
     -------
@@ -962,22 +1004,82 @@ def batch_spatial_sampling(
 
     Examples
     --------
-    >>> from gofast.utils.spatialutils import batch_spatial_sampling
+    Examples
+    --------
+    **Case 1: Stratified Sampling (Using 'year' and 'geological_category')**
+    
+    >>> from gofast.utils.spatial_utils import batch_spatial_sampling
+    >>> import pandas as pd
+    >>> import numpy as np
+    
+    >>> # Create a sample dataset
+    >>> np.random.seed(42)
+    >>> df = pd.DataFrame({
+    ...     "id": np.arange(10_000),
+    ...     "longitude": np.random.uniform(-180, 180, 10_000),  # Geographic range
+    ...     "latitude": np.random.uniform(-90, 90, 10_000),     # Geographic range
+    ...     "year": np.random.randint(1990, 2025, 10_000),  # Temporal feature
+    ...     "geological_category": np.random.choice(
+    ...         ["Sedimentary", "Metamorphic", "Igneous"], 10_000
+    ...     ),
+    ...     "value": np.random.randn(10_000)  # Random numerical data
+    ... })
+    
+    >>> # Perform stratified batch sampling
     >>> sampled_batches = batch_spatial_sampling(
     ...     data=df,
-    ...     sample_size=0.05,
+    ...     sample_size=0.05,  # 5% of total data
     ...     n_batches=5,
-    ...     stratify_by=['year', 'geological_category'],
+    ...     stratify_by=['year', 'geological_category'],  # Stratify by year & geology type
     ...     spatial_bins=(10, 15),
     ...     spatial_cols=['longitude', 'latitude'],
     ...     random_state=42
     ... )
+    
     >>> for i, batch in enumerate(sampled_batches):
     ...     print(f"Batch {i+1}: {batch.shape}")
+    
+    Creating 5 stratified batches with a total of 500 samples...
+    Batch Sampling Progress: 100%|██████████| 5/5 [00:01<00:00,  4.43it/s]
+    Batch sampling completed. 5 batches created.
+    
+    **Stratified Sampling Results:**
+    Batch 1: (100, 6)
+    Batch 2: (100, 6)
+    Batch 3: (100, 6)
+    Batch 4: (100, 6)
+    Batch 5: (100, 6)
+    
+    **Case 2: Random Sampling (Without Stratification)**
+    
+    >>> sampled_batches = batch_spatial_sampling(
+    ...     data=df,
+    ...     sample_size=0.05,
+    ...     n_batches=5,
+    ...     stratify_by=None,  # No stratification
+    ...     spatial_bins=(10, 15),
+    ...     spatial_cols=['longitude', 'latitude'],
+    ...     random_state=42
+    ... )
+    
+    >>> for i, batch in enumerate(sampled_batches):
+    ...     print(f"Batch {i+1}: {batch.shape}")
+    
+    Creating 5 random batches with a total of 500 samples...
+    Batch Sampling Progress: 100%|██████████| 5/5 [00:00<00:00, 247.27it/s]
+    Batch sampling completed. 5 batches created.
+    
+    **Random Sampling Results:**
+    Batch 1: (100, 6)
+    Batch 2: (100, 6)
+    Batch 3: (100, 6)
+    Batch 4: (100, 6)
+    Batch 5: (100, 6)
+
 
     See Also
     --------
-    resample_spatial_data : Perform stratified sampling without batching.
+    spatial_sampling : Perform stratified sampling without batching.
 
     References
     ----------
@@ -986,7 +1088,6 @@ def batch_spatial_sampling(
            Journal of Computer Science*, 1(2), 111-117.
 
     """
-
     data = data.copy()
     total_samples = sample_size
     if isinstance(sample_size, float):
@@ -1014,6 +1115,7 @@ def batch_spatial_sampling(
     rng = np.random.RandomState(random_state)
 
     # Set default spatial columns if not specified
+    spatial_cols = columns_manager(spatial_cols) 
     if spatial_cols is None:
         spatial_cols = []
         if 'longitude' in data.columns:
@@ -1077,13 +1179,25 @@ def batch_spatial_sampling(
             duplicates='drop'
         )
     # Create combined stratification key in original data
-    strat_columns = stratify_by + [
-        axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]
-    ]
-    data['strat_key'] = data[strat_columns].apply(
-        lambda row: '_'.join(row.values.astype(str)),
-        axis=1
-    )
+    # Create combined stratification key
+    if stratify_by is not None:
+        strat_columns = stratify_by + [
+            axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]
+        ]
+        if verbose and len(data) > 10_000:
+            print(f"\nGenerating stratification keys for {len(data):,}"
+                  " records...")
+            print(" This may take some time. Please be patient...")
+
+        # Optimized vectorized concatenation
+        data['strat_key'] = data[strat_columns].astype(str).agg('_'.join, axis=1)
+
+        if verbose and len(data) > 10_000:
+            print("Stratification keys generated"
+                  f" successfully for {len(data):,} records.")
+    else:
+        data['strat_key'] = 'all_data'  # Single group for random sampling
+        
     # Initialize remaining data
     remaining_data = data.copy()
     batches = []
@@ -1091,26 +1205,59 @@ def batch_spatial_sampling(
     # Set initial random state
     rng = np.random.RandomState(random_state)
 
+    if verbose:
+        print(f"\nCreating {n_batches} stratified batches with"
+              f" a total of {total_samples:,} samples...")
+
+    # TQDM progress bar
+    if verbose and HAS_TQDM:
+        progbar = tqdm(
+            range(n_batches),
+            total=n_batches,
+            ascii=True,
+            ncols=80,
+            desc="Batch Sampling Progress"
+        )
+    
+    if method=="relative": 
+        min_relative_ratio= assert_ratio(
+            min_relative_ratio, bounds=(0, 1), 
+            excludes = (0, 1), 
+            name="`min_relative_ratio`"
+        )
     for batch_idx in range(n_batches):
-        # Adjust sample size for batches if total_samples is not divisible by n_batches
+        # Adjust sample size for batches if total_samples
+        # is not divisible by n_batches
         if batch_idx < leftover:
             batch_sample_size = sample_size_per_batch + 1
         else:
             batch_sample_size = sample_size_per_batch
 
-        if batch_sample_size > len(remaining_data):
-            batch_sample_size = len(remaining_data)
-
+        # if batch_sample_size > len(remaining_data):
+        #     batch_sample_size = len(remaining_data)
+        batch_sample_size = min(batch_sample_size, len(remaining_data))
+        
         # Group remaining data by stratification key
         grouped = remaining_data.groupby('strat_key')
         # Calculate number of samples per group
         group_sizes = grouped.size()
         total_size = group_sizes.sum()
-        group_sample_sizes = (
-            (group_sizes / total_size * batch_sample_size)
-            .round()
-            .astype(int)
-        )
+        
+        if method in ["abs", "absolute"]:
+            group_sample_sizes = (
+                (group_sizes / total_size * batch_sample_size)
+                .round()
+                .astype(int)
+            )
+        else:  # "relative"
+            relative_scale = np.clip(batch_sample_size / len(
+                remaining_data), min_relative_ratio, 1)
+            group_sample_sizes = (
+                (group_sizes * relative_scale)
+                .round()
+                .astype(int)
+            )
+    
         # Sample data from each group
         sampled_indices = []
         for strat_value, group in grouped:
@@ -1124,22 +1271,54 @@ def batch_spatial_sampling(
         # Create the sampled DataFrame
         batch_sampled_data = remaining_data.loc[sampled_indices]
         batches.append(batch_sampled_data.drop(
-            columns=['strat_key'] + [axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]]))
+            columns=['strat_key'] + [axis for axis in [
+                'x_bin', 'y_bin'][:len(spatial_cols)]]))
         # Remove sampled data from remaining_data
         remaining_data = remaining_data.drop(index=sampled_indices)
         if len(remaining_data) == 0:
             break  # No more data to sample
+        
+        if verbose and HAS_TQDM:
+            progbar.update(1)
 
+    if verbose and HAS_TQDM:
+        progbar.close()
+    
+    if verbose:
+        print(f"\nBatch sampling completed. {len(batches)} batches created.")
+    
+    has_empty_batches = any([ b.empty for b in batches])
+    
+    if verbose and has_empty_batches:
+        warnings.warn(
+            "\nNo records were sampled. This is likely due to"
+            " insufficient data for the specified stratification"
+            f" columns {stratify_by}. To resolve this, consider:\n"
+            " • Using a different stratification method.\n"
+            " • Increasing the dataset size to include more"
+            " representative data.\n"
+            " • Adjusting the sample size to ensure sufficient"
+            " records per group.\n"
+            " • Or, setting `stratify_by=None` to perform"
+            " random sampling instead."
+        )
+        
     return batches
 
 @is_data_readable 
 @isdf
+@validate_params ({ 
+    'data': ['array-like'], 
+    'method': [StrOptions({"abs", "absolute",  "relative"}), None], 
+    })
 def spatial_sampling(
     data,
     sample_size=0.01,
-    stratify_by=['year'],
+    stratify_by=None,
     spatial_bins=10,
     spatial_cols=None,
+    method='abs', 
+    min_relative_ratio=.01, 
     random_state=42, 
     verbose=1, 
 ):
@@ -1166,7 +1345,7 @@ def spatial_sampling(
         If int, represents the absolute number of samples to select.
         Default is ``0.01`` (1% of the data).
     stratify_by : list of str, optional
-        List of column names to stratify by. Default is ``['year']``.
+        List of column names to stratify by.
     spatial_bins : int or tuple/list of int, optional
         Number of bins to divide the spatial coordinates into.
         If an integer, the same number of bins is used for all spatial
@@ -1180,6 +1359,40 @@ def spatial_sampling(
         column is provided or found, a warning is issued, suggesting that
         providing both spatial columns is recommended for more accurate
         sampling. If more than two columns are provided, an error is raised.
+        
+    method : str, {'abs', 'relative'}, default='abs'
+        Defines how the sample size is determined:
+        - ``'abs'`` or ``'absolute'``: Uses a **fixed** sampling proportion
+          based on `sample_size`.
+        - ``'relative'``: Dynamically **scales** sampling based on dataset
+          stratification, ensuring that all stratification groups receive
+          a proportional sample while maintaining a minimum sampling ratio
+          (controlled by `min_relative_ratio`).
+        
+        When ``method='relative'``, the function ensures that even small
+        stratification groups receive a sufficient sample by applying
+        `min_relative_ratio`.
+
+    min_relative_ratio : float, default=0.01
+        Controls the **minimum allowable fraction** of records that 
+        must be sampled when ``method='relative'``.
+
+        - Ensures that no group is **undersampled** to zero, even if
+          its natural proportion in the dataset is very small.
+        - Must be a value between ``0`` and ``1``.
+        - The default value (``0.01``) means that at **least 1% of the
+          total dataset** will be sampled from each stratification group,
+          regardless of its relative size.
+        
+        **Example Scenarios:**
+        
+        - If `min_relative_ratio=0.05`, then each group **must** 
+          contribute **at least 5%** of the total dataset size (if possible).
+        - If a group is too small to reach this minimum, its entire
+          subset is sampled instead.
+        - This ensures that no group receives **less than
+        ``min_relative_ratio × total samples**``.
+
     random_state : int, optional
         Random seed for reproducibility. Default is ``42``.
         
@@ -1227,7 +1440,7 @@ def spatial_sampling(
 
     Examples
     --------
-    >>> from gofast.utils.spatialutils import spatial_sampling
+    >>> from gofast.utils.spatial_utils import spatial_sampling
     >>> import pandas as pd
     >>> # Assume 'df' is a pandas DataFrame with columns
     >>> # 'longitude', 'latitude', 'year', and other data.
@@ -1245,6 +1458,7 @@ def spatial_sampling(
     --------
     pandas.qcut : Quantile-based discretization function used for binning.
     sklearn.model_selection.StratifiedShuffleSplit : For stratified sampling.
+    batch_spatial_sampling: Resample spatial data with batching. 
 
     References
     ----------
@@ -1255,6 +1469,8 @@ def spatial_sampling(
     """
     data = data.copy()
     # Set default spatial columns if not specified
+    spatial_cols= columns_manager(spatial_cols)
+
     if spatial_cols is None:
         spatial_cols = []
         if 'longitude' in data.columns:
@@ -1340,7 +1556,7 @@ def spatial_sampling(
     if verbose and HAS_TQDM:
         progbar.close()
 
-
+    stratify_by= columns_manager(stratify_by, empty_as_none=False )
     # Create combined stratification key
     strat_columns = stratify_by + [
         axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]
@@ -1382,46 +1598,68 @@ def spatial_sampling(
     if verbose:
         print(f"Data grouped into {len(grouped):,} stratified bins.")
         
-    # Calculate number of samples per group
-    group_sizes = grouped.size()
-    total_size = group_sizes.sum()
-    group_sample_sizes = (
-        (group_sizes / total_size * n_samples)
-        .round()
-        .astype(int)
-    )
-    # Sample data from each group
-    sampled_indices = []
-    np.random.seed(random_state)
-    # Use tqdm to wrap the grouped iterator 
-    # if verbose and HAS_TQM are True.
-    if verbose and HAS_TQDM:
-        progbar = tqdm(
-            grouped,
-            total=len(grouped),
-            ascii=True,
-            ncols=77,
-            desc=f"Sampling {n_samples:,} records"
-        )
-    
-    for strat_value, group in grouped:
-        n = group_sample_sizes.loc[strat_value]
-        if n > 0 and len(group) > 0:
-            sampled_group = group.sample(
-                n=min(n, len(group)),
-                random_state=np.random.randint(
-                    0,
-                    10000
-                )
+    # Apply stratification if stratify_by is provided
+    if stratify_by is not None:
+        # Calculate number of samples per group
+        group_sizes = grouped.size()
+        total_size = group_sizes.sum()
+        
+        if method in ["abs", "absolute"]:
+            group_sample_sizes = (
+                (group_sizes / total_size * n_samples)
+                .round()
+                .astype(int)
             )
-            sampled_indices.extend(
-                sampled_group.index
+        else:  # "relative"
+            min_relative_ratio = assert_ratio(
+                min_relative_ratio, bounds=(0, 1), 
+                exclude_values= [0, 1], 
+                name="`min_relative_ratio`"
+            ) 
+            relative_scale = np.clip(
+                n_samples / len(data), min_relative_ratio, 1)  
+            group_sample_sizes = (
+                (group_sizes * relative_scale)
+                .round()
+                .astype(int)
             )
+        
+        # Sample data from each group
+        sampled_indices = []
+        np.random.seed(random_state)
+        # Use tqdm to wrap the grouped iterator 
+        # if verbose and HAS_TQM are True.
         if verbose and HAS_TQDM:
-            progbar.update(1)
-            
-    if verbose and HAS_TQDM:
-        progbar.close() 
+            progbar = tqdm(
+                grouped,
+                total=len(grouped),
+                ascii=True,
+                ncols=77,
+                desc=f"Sampling {n_samples:,} records"
+            )
+        
+        for strat_value, group in grouped:
+            n = group_sample_sizes.loc[strat_value]
+            if n > 0 and len(group) > 0:
+                sampled_group = group.sample(
+                    n=min(n, len(group)),
+                    random_state=np.random.randint(
+                        0, 10_000
+                    )
+                )
+                sampled_indices.extend(
+                    sampled_group.index
+                )
+            if verbose and HAS_TQDM:
+                progbar.update(1)
+                
+        if verbose and HAS_TQDM:
+            progbar.close() 
+    else: 
+        sampled_indices = np.random.choice(
+            data.index, size=n_samples,
+            replace=False
+        )
         
     # Create the sampled DataFrame
     sampled_data = data.loc[
@@ -1437,7 +1675,21 @@ def spatial_sampling(
     if verbose:
         print(f"\nSampling completed: {len(sampled_indices):,}"
               " records selected.")
-        
+    
+    if verbose and sampled_data.empty:
+        warnings.warn(
+            "\nNo records were sampled. This is likely due to"
+            " insufficient data for the specified stratification"
+            f" columns {stratify_by}. To resolve this, consider:\n"
+            " • Using a different stratification method.\n"
+            " • Increasing the dataset size to include more"
+            " representative data.\n"
+            " • Adjusting the sample size to ensure sufficient"
+            " records per group.\n"
+            " • Or, setting `stratify_by=None` to perform"
+            " random sampling instead."
+        )
+
     return sampled_data.reset_index(
         drop=True
     )
@@ -1594,7 +1846,7 @@ def savgol_coeffs(window_length, polyorder, deriv=0, delta=1.0, pos=None,
 
     Examples
     --------
-    >>> from gofast.exmath.signal import savgol_coeffs
+    >>> from gofast.utils.spatial_utils import savgol_coeffs
     >>> savgol_coeffs(5, 2)
     array([-0.08571429,  0.34285714,  0.48571429,  0.34285714, -0.08571429])
     >>> savgol_coeffs(5, 2, deriv=1)
@@ -2309,7 +2561,7 @@ def extract_coordinates2(X, Xt=None, columns=None):
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.utils.spatialutils import extract_coordinates
+    >>> from gofast.utils.spatial_utils import extract_coordinates
     >>> X = np.array([[1, 2], [3, 4]])
     >>> Xt = np.array([[5, 6], [7, 8]])
     >>> extract_coordinates(X, Xt )

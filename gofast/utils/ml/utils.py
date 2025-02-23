@@ -17,6 +17,7 @@ from sklearn.model_selection import StratifiedShuffleSplit
 from ...api.types import List, Tuple, Dict, Optional, Union, Series
 from ...api.types import ArrayLike, DataFrame, Callable
 from ...compat.sklearn import train_test_split
+from ...core.array_manager import array_preserver, return_if_preserver_failed
 from ...core.checks import is_iterable, str2columns 
 from ...core.io import is_data_readable
 from ...core.utils import smart_format
@@ -586,7 +587,7 @@ def smart_label_classifier(
 
     Examples
     --------
-    >>> from gofast.utils.mlutils import smart_label_classifier
+    >>> from gofast.utils.ml.utils import smart_label_classifier
     >>> import numpy as np
     >>> y = np.arange(0, 7, 0.5)
     
@@ -628,11 +629,13 @@ def smart_label_classifier(
     .. [2] Lee, K., & Singh, P. (2019). *Threshold-Based Classification
        Techniques*. Journal of Machine Learning, 9(2), 67-80.
     """
-
+    # Preserve the structure of the input array/Series/DataFrame.
+    collected = array_preserver(y, action='collect')
+    
     name = None
     if isinstance(y, pd.Series) and hasattr(y, "name"):
         name = y.name
-
+    
     arr = np.asarray(y).squeeze()
 
     if not _is_arraylike_1d(arr):
@@ -716,6 +719,23 @@ def smart_label_classifier(
     else:
         arr_mapped = arr_mapped if name is None else pd.Series(
             arr_mapped, name=name
+        )
+    
+    # Attempt to restore original structure (index, shape, etc.)
+    collected['processed'] = [arr_mapped]
+    try:
+        arr_mapped = array_preserver(
+            collected,
+            solo_return=True,
+            action='restore',
+            deep_restore=True, 
+        )
+    except Exception:
+        # If it fails, fallback to raw DataFrame, optional ignore warnings
+        arr_mapped = return_if_preserver_failed(
+            arr_mapped,
+            warn="ignore",
+            verbose=0
         )
 
     return arr_mapped
