@@ -48,7 +48,8 @@ from ..utils.validator import (
     validate_sequences, 
     check_consistent_length, 
     parameter_validator,
-    validate_keras_model, 
+    validate_keras_model,
+    is_frame
 )
 from ..metrics_special import coverage_score
 
@@ -2341,7 +2342,6 @@ def reshape_xtft_data(
 
     return static_data, dynamic_data, future_data, target_data
 
-
 @check_empty(
     params=['train_data', "dynamic_features"],
     none_as_empty=True, 
@@ -2361,7 +2361,7 @@ def generate_forecast(
     time_steps=3,
     q=None,           # default quantiles: [0.1, 0.5, 0.9]
     tname=None,       # target name, e.g., 'subsidence'
-    forecast_dt=None, # if 'auto', derive from dt_col; else, manual
+    forecast_dt=None, # if 'auto', derive from dt_col; else, manual [2023, 2024, 2025, 2026]
     savefile=None,    # default filename if None
     verbose=3
 ):
@@ -2385,10 +2385,10 @@ def generate_forecast(
     xtft_model : object
         A validated Keras model instance. It is processed by the 
         ``validate_keras_model`` method [1]_.
-    train_data   : pandas.DataFrame
+    train_data : pandas.DataFrame
         The training data containing historical records. Must include 
         the `dt_col` and all required feature columns.
-    dt_col       : str
+    dt_col : str
         Name of the column representing time. It may be a datetime or 
         numeric column (e.g. ``"year"``).
     dynamic_features : list of str
@@ -2400,10 +2400,10 @@ def generate_forecast(
     static_features  : list of str, optional
         List of static feature names. If not provided, a dummy input is 
         used.
-    test_data    : pandas.DataFrame, optional
+    test_data : pandas.DataFrame, optional
         DataFrame containing actual values used for evaluation. If 
         provided, it is used to compute the R² and coverage score.
-    mode         : str, optional
+    mode : str, optional
         Forecast mode. Must be either ``"quantile"`` or ``"point"``. In 
         ``quantile`` mode, predictions for multiple quantiles (default: 
         [0.1, 0.5, 0.9]) are computed.
@@ -2416,11 +2416,11 @@ def generate_forecast(
     time_steps   : int, optional
         Number of past time steps to use as input for the model. Default 
         is 3.
-    q           : list of float, optional
+    q : list of float, optional
         List of quantiles for use in ``quantile`` mode. Default is 
         [0.1, 0.5, 0.9]. Each quantile is validated by the 
         ``assert_ratio`` function.
-    tname        : str, optional
+    tname : str, optional
         Target variable name used for constructing forecast result 
         columns. Defaults to ``"target"``.
     forecast_dt  : list or str, optional
@@ -2442,22 +2442,20 @@ def generate_forecast(
     
     Examples
     --------
-    .. code-block:: python
-    
-        >>> from gofast.nn.utils import generate_forecast
-        >>> forecast = generate_forecast(
-        ...     xtft_model=my_model,
-        ...     train_data=train_df,
-        ...     dt_col="date",
-        ...     dynamic_features=["feat1", "feat2"],
-        ...     static_features=["stat1"],
-        ...     forecast_horizon=5,
-        ...     time_steps=3,
-        ...     tname="price",
-        ...     mode="quantile",
-        ...     verbose=3
-        ... )
-        >>> print(forecast.head())
+    >>> from gofast.nn.utils import generate_forecast
+    >>> forecast = generate_forecast(
+    ...     xtft_model=my_model,
+    ...     train_data=train_df,
+    ...     dt_col="date",
+    ...     dynamic_features=["feat1", "feat2"],
+    ...     static_features=["stat1"],
+    ...     forecast_horizon=5,
+    ...     time_steps=3,
+    ...     tname="price",
+    ...     mode="quantile",
+    ...     verbose=3
+    ... )
+    >>> print(forecast.head())
     
     Notes
     -----
@@ -2477,16 +2475,26 @@ def generate_forecast(
     
     See Also
     --------
-    ``validate_keras_model``, ``columns_manager``, 
-    ``check_datetime``, ``check_spatial_columns``, 
-    ``assert_ratio``, ``coverage_score``
-    
+    gofast.nn.utils.reshape_xtft_data:
+        Function to reshape data for XTFT models.
+    gofast.utils.validator.validate_keras_model:
+        Function to validate Keras model compatibility.
+    gofast.core.handlers.columns_manager: 
+        Utility to manage and format column names.
+    gofast.core.checks.check_datetime: 
+        Function to check and validate datetime columns.
+    gofast.core.checks.check_spatial_columns: 
+        Function to validate spatial columns in data.
+    gofast.core.checks.assert_ratio: 
+        Function to validate and assert ratio values.
+    gofast.metrics_special.coverage_score: 
+        Function to compute coverage score for quantile predictions.
+
     References
     ----------
     .. [1] Kouadio et al., "Gofast Forecasting Model", Journal of 
-       Advanced Forecasting, 2023.
+       Advanced Forecasting, 2025. (In Review)
     """
-
 
     # Validate the model
     xtft_model = validate_keras_model(
@@ -2568,6 +2576,58 @@ def generate_forecast(
             "Forecasting for dates/periods: {}"
             .format(forecast_dt)
         )
+
+    # Handle situations where forecast_dt
+    # length differs from forecast_horizon
+    if len(forecast_dt) < forecast_horizon:
+        # Case 1: forecast_dt has fewer dates than forecast_horizon.
+        missing_dates = forecast_horizon - len(forecast_dt)
+        
+        # Assuming the last date is the starting point for new dates.
+        last_date = forecast_dt[-1]
+        
+        # Append missing dates based on inferred frequency or context.
+        if pd.api.types.is_datetime64_any_dtype(train_data[dt_col]):
+            inferred_freq = pd.infer_freq(
+                train_data[dt_col].sort_values()
+            )
+            
+            if inferred_freq:
+                new_dates = [
+                    last_date + pd.Timedelta(days=i)
+                    for i in range(1, missing_dates + 1)
+                ]
+            else:
+                new_dates = [
+                    last_date + pd.Timedelta(days=i)
+                    for i in range(1, missing_dates + 1)
+                ]
+                
+            forecast_dt.extend(new_dates)
+            
+            # Issue a warning that the user might 
+            # want to double-check the forecast dates.
+            warnings.warn(
+                f"The provided forecast_dt is shorter than the"
+                f" forecast_horizon ({len(forecast_dt)} dates"
+                f" instead of {forecast_horizon}). "
+                f"The missing dates have been filled with sequential"
+                f" dates starting from {last_date}.",
+                category=UserWarning
+            )
+    
+    elif len(forecast_dt) > forecast_horizon:
+        # Case 2: forecast_dt has more dates than forecast_horizon.
+        # Trim the forecast_dt list
+        forecast_dt = forecast_dt[:forecast_horizon]  
+        # Issue a verbose message to indicate
+        # the truncation of forecast dates.
+        if verbose >= 1:
+            print(
+                f"forecast_dt contained more dates than"
+                " forecast_horizon. Only the first"
+                f" {forecast_horizon} dates have been used."
+            )
 
     # Determine iteration base: group by spatial_cols or use global
     if spatial_cols:
@@ -2716,7 +2776,9 @@ def generate_forecast(
 
     # Evaluation if test_data is provided
     if test_data is not None:
-        eval_date = forecast_dt[0]
+        # Rather to use forecast_dt 
+        eval_date= test_data[dt_col].unique()[0] 
+        # eval_date = forecast_dt[0]
         forecast_eval = forecast_df[
             forecast_df[dt_col] == eval_date
         ]
@@ -2907,11 +2969,17 @@ def visualize_forecasts(
 
     References
     ----------
-    .. [1] Authors et al., "Gofast Forecasting Model", Journal of
-       Advanced Forecasting, 2023.
+    .. [1] Kouadio L. et al., "Gofast Forecasting Model", Journal of
+       Advanced Forecasting, 2025. (In review)
     """
     import matplotlib.pyplot as plt
-
+    
+    test_data = is_frame (
+        test_data, 
+        df_only=True,
+        objname="Test data", 
+        error="raise"
+    )
     # Determine evaluation periods.
     if eval_period is None:
         unique_periods = sorted(test_data[dt_col].unique())

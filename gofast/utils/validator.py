@@ -5996,7 +5996,12 @@ def set_array_back (X, *,  to_frame=False, columns = None, input_name ='X'):
         
     return X, columns 
 
-def convert_array_to_pandas(X, *, to_frame=False, columns=None, input_name='X'):
+def convert_array_to_pandas(
+    X, *, 
+    to_frame=False,
+    columns=None, 
+    input_name='X'
+    ):
     """
     Converts an array-like object to a pandas DataFrame or Series, applying
     provided column names or series name.
@@ -6064,15 +6069,17 @@ def convert_array_to_pandas(X, *, to_frame=False, columns=None, input_name='X'):
                                  f" but columns implied {len(columns)}")
             X = pd.DataFrame(X, columns=columns)
         else:
-            raise ValueError(f"{input_name} cannot be converted to DataFrame with given columns.")
+            raise ValueError(
+                f"{input_name} cannot be converted to DataFrame with given columns.")
 
     return X, columns
 
 def is_frame(
     arr,
     df_only=False,
-    raise_exception=False,
-    objname=None
+    raise_exception=False,  
+    objname=None,
+    error="raise",  
 ):
     r"""
     Check if `arr` is a pandas DataFrame or Series.
@@ -6091,11 +6098,16 @@ def is_frame(
         If True, only verifies that `arr` is a DataFrame. If False,
         checks for either a DataFrame or a Series. Default is False.
     raise_exception : bool, optional
-        If True and `arr` is not a valid frame (depending on `df_only`),
-        a TypeError is raised with a detailed message. Default is False.
+        If True, this will override `error="raise"`. This parameter
+        is deprecated and will be removed soon. Default is False.
+    error : str, optional
+        Determines the action when `arr` is not a valid frame. Can be:
+        - ``"raise"``: Raises a TypeError.
+        - ``"warn"``: Issues a warning.
+        - ``"ignore"``: Does nothing. Default is ``"raise"``.
     objname : str or None, optional
-        A custom name used in the error message if `raise_exception`
-        is True. If None, a generic name is used.
+        A custom name used in the error message if `error` is set to
+        ``"raise"``. If None, a generic name is used.
 
     Returns
     -------
@@ -6106,8 +6118,8 @@ def is_frame(
     Raises
     ------
     TypeError
-        If `raise_exception=True` and `arr` is not a valid frame. The
-        error message guides the user to provide the correct type
+        If `error="raise"` and `arr` is not a valid frame. The error
+        message guides the user to provide the correct type 
         (`DataFrame` or `DataFrame or Series`).
 
     Notes
@@ -6135,13 +6147,23 @@ def is_frame(
     >>> is_frame(s, df_only=True)
     False
 
-    If `raise_exception=True`:
+    If `error="raise"`:
 
-    >>> is_frame(s, df_only=True, raise_exception=True, objname='Input')
+    >>> is_frame(s, df_only=True, error="raise", objname='Input')
     Traceback (most recent call last):
         ...
     TypeError: 'Input' parameter expects a DataFrame. Got 'Series'
     """
+    
+    # Handle deprecation for `raise_exception`
+    if raise_exception and error !="raise":
+        warnings.warn(
+            "'raise_exception' is deprecated and will be replaced by 'error'."
+            " The 'error' parameter is now used for specifying error handling.",
+            category=DeprecationWarning
+        )
+        error = "raise"  # Fall back to 'raise' if raise_exception is True
+
     # Determine if arr qualifies as a frame based on df_only
     if df_only:
         obj_is_frame = (
@@ -6154,14 +6176,21 @@ def is_frame(
             (hasattr(arr, 'name') or hasattr(arr, 'columns'))
         )
 
-    # If not valid and raise_exception is True, raise TypeError
-    if not obj_is_frame and raise_exception:
-        objname = objname or 'Input'
-        objname = f"{objname!r} parameter expects"
-        expected = 'a DataFrame' if df_only else 'a DataFrame or Series'
-        raise TypeError(
-            f"{objname} {expected}. Got {type(arr).__name__!r}"
-        )
+    # If not valid and error is set to 'raise', raise TypeError
+    if not obj_is_frame:
+        if error == "raise":
+            objname = objname or 'Input'
+            objname = f"{objname!r} parameter expects"
+            expected = 'a DataFrame' if df_only else 'a DataFrame or Series'
+            raise TypeError(
+                f"{objname} {expected}. Got {type(arr).__name__!r}"
+            )
+        elif error == "warn":
+            warning_msg = (
+                f"Warning: {objname or 'Input'} expects "
+                f"a DataFrame or Series. Got {type(arr).__name__!r}."
+            )
+            warnings.warn(warning_msg, category=UserWarning)
 
     return obj_is_frame
 
