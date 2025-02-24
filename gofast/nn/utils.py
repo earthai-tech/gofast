@@ -2796,7 +2796,9 @@ def visualize_forecasts(
     y=None,                
     cmap="coolwarm",       
     max_cols=3, 
-    axis="on",            
+    axis="on",  
+    show_grid=True,
+    grid_props=None,           
     verbose=1,
              
 ):
@@ -2855,7 +2857,11 @@ def visualize_forecasts(
         number of periods exceeds ``max_cols``, a new row is started.
     axis: str, optional, 
        Wether to keep the axis of set it to False. 
-       
+    show_grid: bool, default=True, 
+       Visualize the grid 
+    grid_props: dict, optional 
+       Grid properties for visualizations. If none the properties is 
+       infered as ``{"linestyle":":", 'alpha':0.7}``.
     verbose : int, optional
         Verbosity level. Controls the amount of output printed.
 
@@ -2999,7 +3005,11 @@ def visualize_forecasts(
             sc_actual, ax=ax_actual,
             label=tname.capitalize()
         )
-
+        if show_grid: 
+            if grid_props is None: 
+                grid_props = {"linestyle":":", 'alpha':0.7}
+            ax_actual.grid (True, **grid_props)
+            
         # Plot predicted values.
         ax_pred = axes[row_idx + 1, col_idx]
         sc_pred = ax_pred.scatter(
@@ -3019,6 +3029,12 @@ def visualize_forecasts(
             ax_pred.set_axis_off()
         else: 
             ax_pred.set_axis_on()
+            
+        if show_grid: 
+            if grid_props is None: 
+                grid_props = {"linestyle":":", 'alpha':0.7}
+            ax_pred.grid (True, **grid_props)
+            
         fig.colorbar(
             sc_pred, ax=ax_pred,
             label=pred_label
