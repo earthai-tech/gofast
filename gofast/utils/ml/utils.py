@@ -731,7 +731,7 @@ def smart_label_classifier(
             deep_restore=True, 
         )
     except Exception:
-        # If it fails, fallback to raw DataFrame, optional ignore warnings
+        # If it fails, fallback to raw arr_mapped, optional ignore warnings
         arr_mapped = return_if_preserver_failed(
             arr_mapped,
             warn="ignore",
@@ -805,6 +805,7 @@ def _assert_labels_from_values(
     order: str = 'soft'
 ) -> Tuple[List[Union[int, str]], Dict[Union[int, float], Union[int, str]]]:
     unique_labels = list(np.unique(arr))
+    
     if not is_iterable(labels):
         labels = [labels]
 
@@ -932,7 +933,8 @@ def _extract_target(
         y = np.array(target)
         target_names = ["target"]
     else:
-        raise ValueError("Unsupported target type or target does not match X dimensions.")
+        raise ValueError(
+            "Unsupported target type or target does not match X dimensions.")
     
     check_consistent_length(X, y)
     

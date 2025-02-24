@@ -19,12 +19,17 @@ from typing import List, Tuple, Optional, Union, Dict, Callable, Any
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
+from sklearn.metrics import r2_score
 
 from ..core.checks import (
     ParamsValidator, 
     are_all_frames_valid, 
     exist_features, 
-    check_params 
+    check_params, 
+    check_spatial_columns,
+    check_empty,
+    assert_ratio,
+    check_datetime,
     )
 from ..core.handlers import TypeEnforcer, columns_manager 
 from ..core.io import is_data_readable 
@@ -33,13 +38,19 @@ from ..compat.sklearn import (
     Interval, 
     HasMethods, 
     Hidden, 
-   validate_params
+    validate_params
 )
 from ..decorators import DynamicMethod, isdf 
 from ..utils.deps_utils import ensure_pkg 
 from ..utils.ts_utils import ts_validator 
-from ..utils.validator import validate_sequences, check_consistent_length 
-from ..utils.validator import parameter_validator 
+from ..utils.validator import ( 
+    assert_xy_in  , 
+    validate_sequences, 
+    check_consistent_length, 
+    parameter_validator,
+    validate_keras_model, 
+)
+from ..metrics_special import coverage_score
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 
@@ -54,7 +65,10 @@ __all__ = [
     "compute_forecast_horizon", 
     "prepare_future_data", 
     "compute_anomaly_scores",
-    "reshape_xtft_data"
+    "reshape_xtft_data", 
+    "generate_forecast", 
+    "visualize_forecasts", 
+    
    ]
 
 @check_params(
@@ -2326,3 +2340,689 @@ def reshape_xtft_data(
               else "  Target Data : None")
 
     return static_data, dynamic_data, future_data, target_data
+
+
+@check_empty(
+    params=['train_data', "dynamic_features"],
+    none_as_empty=True, 
+    allow_none=False
+ )
+def generate_forecast(
+    xtft_model,
+    train_data,
+    dt_col,           # e.g., 'year' or datetime column
+    dynamic_features,
+    future_features=None,
+    static_features=None,
+    test_data=None,   # used for evaluation if provided
+    mode="quantile",  # "quantile" or "point"
+    spatial_cols=None,
+    forecast_horizon=4,
+    time_steps=3,
+    q=None,           # default quantiles: [0.1, 0.5, 0.9]
+    tname=None,       # target name, e.g., 'subsidence'
+    forecast_dt=None, # if 'auto', derive from dt_col; else, manual
+    savefile=None,    # default filename if None
+    verbose=3
+):
+    """
+    Generate forecast using the XTFT model.
+    
+    This function uses a pre-trained Keras model to forecast future 
+    values based on provided historical data. The model receives three 
+    inputs: `X_static`, `X_dynamic`, and `X_future`, and outputs 
+    predictions over a specified forecast horizon.
+    
+    .. math::
+    
+       y_{t+i} = f\Bigl(X_{\text{static}},\; 
+       X_{\text{dynamic}},\; X_{\text{future}}\Bigr)
+       
+    for :math:`i = 1, \dots, forecast_horizon`.
+    
+    Parameters
+    ----------
+    xtft_model : object
+        A validated Keras model instance. It is processed by the 
+        ``validate_keras_model`` method [1]_.
+    train_data   : pandas.DataFrame
+        The training data containing historical records. Must include 
+        the `dt_col` and all required feature columns.
+    dt_col       : str
+        Name of the column representing time. It may be a datetime or 
+        numeric column (e.g. ``"year"``).
+    dynamic_features : list of str
+        List of dynamic feature column names. They are formatted via 
+        ``columns_manager``.
+    future_features  : list of str, optional
+        List of future feature names. These columns are tiled over the 
+        forecast horizon.
+    static_features  : list of str, optional
+        List of static feature names. If not provided, a dummy input is 
+        used.
+    test_data    : pandas.DataFrame, optional
+        DataFrame containing actual values used for evaluation. If 
+        provided, it is used to compute the R² and coverage score.
+    mode         : str, optional
+        Forecast mode. Must be either ``"quantile"`` or ``"point"``. In 
+        ``quantile`` mode, predictions for multiple quantiles (default: 
+        [0.1, 0.5, 0.9]) are computed.
+    spatial_cols : list of str, optional
+        List of spatial column names for grouping the data. When provided,
+        forecasts are computed per location; otherwise, a global 
+        forecast is performed.
+    forecast_horizon : int, optional
+        Number of future periods to forecast. Default is 4.
+    time_steps   : int, optional
+        Number of past time steps to use as input for the model. Default 
+        is 3.
+    q           : list of float, optional
+        List of quantiles for use in ``quantile`` mode. Default is 
+        [0.1, 0.5, 0.9]. Each quantile is validated by the 
+        ``assert_ratio`` function.
+    tname        : str, optional
+        Target variable name used for constructing forecast result 
+        columns. Defaults to ``"target"``.
+    forecast_dt  : list or str, optional
+        List of forecast dates or ``"auto"`` to derive dates from `dt_col`. 
+        In auto mode, if `dt_col` is datetime, frequency is inferred using 
+        ``pd.infer_freq``.
+    savefile     : str, optional
+        Path to the CSV file where forecast results will be saved. If not 
+        provided, a default filename is generated.
+    verbose      : int, optional
+        Verbosity level (0-7). Controls the amount of execution output.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame containing the forecast results. In ``quantile`` mode, 
+        each forecast period includes columns for each quantile; in 
+        ``point`` mode, a single prediction column is provided.
+    
+    Examples
+    --------
+    .. code-block:: python
+    
+        >>> from gofast.nn.utils import generate_forecast
+        >>> forecast = generate_forecast(
+        ...     xtft_model=my_model,
+        ...     train_data=train_df,
+        ...     dt_col="date",
+        ...     dynamic_features=["feat1", "feat2"],
+        ...     static_features=["stat1"],
+        ...     forecast_horizon=5,
+        ...     time_steps=3,
+        ...     tname="price",
+        ...     mode="quantile",
+        ...     verbose=3
+        ... )
+        >>> print(forecast.head())
+    
+    Notes
+    -----
+    The function groups data by `spatial_cols` if provided, and 
+    formats features via ``columns_manager``. It validates the time 
+    column using ``check_datetime`` and uses dummy inputs for missing 
+    static or future features. The forecast is produced by invoking 
+    ``xtft_model.predict`` on a list containing static, dynamic, and 
+    future inputs. The predictions are generated as follows:
+    
+    .. math::
+    
+       \hat{y}_{t+i} = f\Bigl(X_{\text{static}},\;
+       X_{\text{dynamic}},\; X_{\text{future}}\Bigr)
+    
+    where :math:`i` denotes the forecast period.
+    
+    See Also
+    --------
+    ``validate_keras_model``, ``columns_manager``, 
+    ``check_datetime``, ``check_spatial_columns``, 
+    ``assert_ratio``, ``coverage_score``
+    
+    References
+    ----------
+    .. [1] Kouadio et al., "Gofast Forecasting Model", Journal of 
+       Advanced Forecasting, 2023.
+    """
+
+
+    # Validate the model
+    xtft_model = validate_keras_model(
+        xtft_model,
+        deep_check=True
+    )
+    if verbose >= 1:
+        print(
+            "\nGenerating {} forecast for {} periods..."
+            .format(mode, forecast_horizon)
+        )
+
+    # Format features
+    dynamic_features = columns_manager(
+        dynamic_features, empty_as_none=False
+    )
+    static_features = (
+        columns_manager(static_features)
+        if static_features is not None else None
+    )
+    future_features = (
+        columns_manager(future_features)
+        if future_features is not None else None
+    )
+
+    if spatial_cols:
+        spatial_cols = columns_manager(spatial_cols)
+        check_spatial_columns(spatial_cols)
+
+    # Set default quantiles if not provided
+    if q is None:
+        q = [0.1, 0.5, 0.9]
+    q = columns_manager(q)
+    q = [assert_ratio(
+        r,bounds=(0, 1),excludes=[0, 1], name=f"quantile '{r}'")for r in q
+    ]
+
+    # Set default target name
+    if tname is None:
+        tname = "target"
+
+    # Check dt_col data type
+    check_datetime(
+        train_data,
+        ops="check_only",
+        consider_dt_as="numeric",
+        accept_dt=True
+    )
+
+    # Determine forecast dates; if None, set to "auto"
+    if forecast_dt is None:
+        forecast_dt = "auto"
+    if forecast_dt == "auto":
+        last_date = train_data[dt_col].max()
+        if pd.api.types.is_datetime64_any_dtype(
+                train_data[dt_col]):
+            inferred_freq = pd.infer_freq(
+                train_data[dt_col].sort_values()
+            )
+            if inferred_freq is None:
+                inferred_freq = 'D'
+                if verbose >= 2:
+                    print(
+                        "Could not infer frequency; defaulting "
+                        "to daily."
+                    )
+            forecast_dt = pd.date_range(
+                start=last_date +
+                pd.Timedelta(1, unit=inferred_freq[0]),
+                periods=forecast_horizon
+            ).tolist()
+        else:
+            forecast_dt = [
+                last_date + i
+                for i in range(1, forecast_horizon + 1)
+            ]
+    if verbose >= 2:
+        print(
+            "Forecasting for dates/periods: {}"
+            .format(forecast_dt)
+        )
+
+    # Determine iteration base: group by spatial_cols or use global
+    if spatial_cols:
+        unique_locations = (
+            train_data[spatial_cols]
+            .drop_duplicates()
+            .reset_index(drop=True)
+        )
+    else:
+        unique_locations = pd.DataFrame({"global": [0]})
+
+    forecast_results = []
+
+    # Iterate over each location or global forecast
+    for idx, loc in unique_locations.iterrows():
+        if spatial_cols:
+            condition = np.ones(len(train_data), dtype=bool)
+            for col in spatial_cols:
+                condition &= (train_data[col] == loc[col])
+            location_data = (
+                train_data[condition]
+                .sort_values(dt_col)
+                .iloc[-time_steps:]
+            )
+        else:
+            location_data = (
+                train_data.sort_values(dt_col)
+                .iloc[-time_steps:]
+            )
+            loc = {}  # dummy global location
+
+        if len(location_data) < time_steps:
+            loc_str = (tuple(loc.values())
+                       if spatial_cols else "global")
+            if verbose >= 2:
+                print(
+                    "Skipping {} - Insufficient data (requires {} "
+                    "steps).".format(loc_str, time_steps)
+                )
+            continue
+
+        # Prepare model inputs
+        model_inputs = {}
+
+        # Static features: use last row or dummy array
+        dummy=[]
+        if static_features:
+            X_static_forecast = (
+                location_data.iloc[-1][static_features]
+                .values.reshape(1, -1)
+            )
+        else:
+            X_static_forecast = np.zeros((1, 1))
+            dummy.append("static")
+            
+        model_inputs['static'] = X_static_forecast
+
+        # Dynamic features: use last time_steps rows
+        X_dynamic_forecast = (
+            location_data[dynamic_features]
+            .values.reshape(1, time_steps, -1)
+        )
+        model_inputs['dynamic'] = X_dynamic_forecast
+
+        # Future features: tile first row or dummy input
+        if future_features:
+            X_future_forecast = (
+                np.tile(
+                    location_data[future_features].iloc[0].values,
+                    (time_steps, 1)
+                ).reshape(1, time_steps, -1)
+            )
+        else:
+            X_future_forecast = np.zeros((1, time_steps, 1))
+            dummy.append("future")
+            
+        model_inputs['future'] = X_future_forecast
+
+        if len(dummy) != 0:
+            warnings.warn(
+                "Expected three inputs for the transformer model."
+                " Proceeding with the following dummy input(s) {}"
+                " may result in suboptimal performance or"
+                " unexpected behavior. Use at your own risk."
+                .format(", ".join(dummy))
+            )
+        # Run prediction
+        try:
+            y_pred_forecast = xtft_model.predict(
+                [model_inputs['static'],
+                 model_inputs['dynamic'],
+                 model_inputs['future']]
+            )
+        except Exception as e:
+            loc_str = (tuple(loc.values())
+                       if spatial_cols else "global")
+            print(
+                "Error predicting for {}: {}"
+                .format(loc_str, str(e))
+            )
+            continue
+        else:
+            loc_str = (tuple(loc.values())
+                       if spatial_cols else "global")
+            if verbose >= 3:
+                print(
+                    "Predicted for {} - Shape: {}"
+                    .format(loc_str, y_pred_forecast.shape)
+                )
+
+        # Build forecast entries for each forecast period
+        for i, period in enumerate(forecast_dt):
+            forecast_entry = {}
+            if spatial_cols:
+                for col in spatial_cols:
+                    forecast_entry[col] = loc[col]
+            forecast_entry[dt_col] = period
+
+            if mode == "quantile":
+                for qi, quantile in enumerate(q):
+                    col_name = "{}_q{}".format(
+                        tname, int(quantile * 100)
+                    )
+                    forecast_entry[col_name] = y_pred_forecast[0, i, qi]
+            else:
+                col_name = "{}_pred".format(tname)
+                forecast_entry[col_name] = y_pred_forecast[0, i, 0]
+
+            forecast_results.append(forecast_entry)
+
+    forecast_df = pd.DataFrame(forecast_results)
+    if verbose >= 3:
+        print("\nForecasting completed. Sample results:")
+        print(forecast_df.head())
+
+    if savefile is None:
+        savefile = "{}_forecast_{}_results.csv"\
+                   .format(mode, tname)
+
+    forecast_df.to_csv(savefile, index=False)
+    if verbose >= 1:
+        print(
+            "Forecast results saved to: {}"
+            .format(savefile)
+        )
+
+    # Evaluation if test_data is provided
+    if test_data is not None:
+        eval_date = forecast_dt[0]
+        forecast_eval = forecast_df[
+            forecast_df[dt_col] == eval_date
+        ]
+
+        if spatial_cols:
+            exist_features(test_data, spatial_cols)
+            test_data_sorted = (
+                test_data.sort_values(by=spatial_cols)
+                .reset_index(drop=True)
+            )
+            forecast_eval_sorted = (
+                forecast_eval.sort_values(by=spatial_cols)
+                .reset_index(drop=True)
+            )
+        else:
+            test_data_sorted = (
+                test_data.sort_values(by=dt_col)
+                .reset_index(drop=True)
+            )
+            forecast_eval_sorted = (
+                forecast_eval.sort_values(by=dt_col)
+                .reset_index(drop=True)
+            )
+
+        actual = test_data_sorted[tname].values
+        pred_col = (f"{tname}_q50"
+                    if mode == "quantile"
+                    else f"{tname}_pred")
+        predicted = forecast_eval_sorted[pred_col].values
+
+        try:
+            r2 = r2_score(actual, predicted)
+            print(
+                "XTFT Model R² Score: {:.4f}"
+                .format(r2)
+            )
+        except Exception as e:
+            print(
+                "xxx Error computing R² Score: {}"
+                .format(str(e))
+            )
+
+        if mode == "quantile":
+            try:
+                lower_col = "{}_q{}".format(
+                    tname, int(q[0] * 100)
+                )
+                upper_col = "{}_q{}".format(
+                    tname, int(q[-1] * 100)
+                )
+                cov = coverage_score(
+                    y_true=actual,
+                    y_lower=forecast_eval_sorted[lower_col],
+                    y_upper=forecast_eval_sorted[upper_col]
+                )
+                print(
+                    "Coverage Score: {:.4f}"
+                    .format(cov)
+                )
+            except Exception as e:
+                print(
+                    "xxx Error computing Coverage Score: {}"
+                    .format(str(e))
+                )
+
+    return forecast_df
+
+def visualize_forecasts(
+    forecast_df,
+    test_data,
+    dt_col,
+    tname,
+    eval_period=None,      
+    mode="quantile",       
+    kind="spatial",        
+    x=None,                
+    y=None,                
+    cmap="coolwarm",       
+    max_cols=3, 
+    axis="on",            
+    verbose=1,
+             
+):
+    r"""
+    Visualize forecast results and actual test data for one or more
+    evaluation periods.
+
+    The function plots a grid of scatter plots comparing actual values
+    with forecasted predictions. Each evaluation period yields two plots:
+    one for actual values and one for predicted values. If multiple
+    evaluation periods are provided, the grid layout wraps after
+    ``max_cols`` columns.
+
+    .. math::
+
+       \hat{y}_{t+i} = f\Bigl(
+       X_{\text{static}},\;X_{\text{dynamic}},\;
+       X_{\text{future}}\Bigr)
+
+    for :math:`i = 1, \dots, N`, where :math:`N` is the forecast horizon.
+
+    Parameters
+    ----------
+    forecast_df : pandas.DataFrame
+        DataFrame containing forecast results with a time column,
+        spatial coordinates, and prediction columns.
+    test_data   : pandas.DataFrame
+        DataFrame containing actual values along with spatial
+        coordinates.
+    dt_col      : str
+        Name of the time column used to filter forecast results (e.g.
+        ``"year"``).
+    tname : str
+        Target variable name used to construct forecast columns (e.g.
+        ``"subsidence"``). This argument is required.
+    eval_period : scalar or list, optional
+        Evaluation period(s) used to select forecast results. If set to
+        ``None``, the function selects up to three unique periods from
+        ``test_data[dt_col]``.
+    mode        : str, optional
+        Forecast mode. Must be either ``"quantile"`` or ``"point"``.
+        Default is ``"quantile"``.
+    kind        : str, optional
+        Type of visualization. If ``"spatial"``, spatial columns are
+        required; otherwise, the provided `x` and `y` columns are used.
+    x : str, optional
+        Column name for the x-axis. For non-spatial plots, this must be
+        provided or will be inferred via ``assert_xy_in``.
+    y : str, optional
+        Column name for the y-axis. For non-spatial plots, this must be
+        provided or will be inferred via ``assert_xy_in``.
+    cmap : str, optional
+        Colormap used for scatter plots. Default is ``"coolwarm"``.
+    max_cols : int, optional
+        Maximum number of evaluation periods to plot per row. If the
+        number of periods exceeds ``max_cols``, a new row is started.
+    axis: str, optional, 
+       Wether to keep the axis of set it to False. 
+       
+    verbose : int, optional
+        Verbosity level. Controls the amount of output printed.
+
+    Returns
+    -------
+    None
+        The function displays the visualization plot.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> from gofast.nn.utils import visualize_forecasts
+        >>> visualize_forecasts(
+        ...     forecast_df=forecast_results,
+        ...     test_data=test_data,
+        ...     dt_col="year",
+        ...     tname="subsidence",
+        ...     eval_period=[2023, 2024],
+        ...     mode="quantile",
+        ...     kind="spatial",
+        ...     cmap="coolwarm",
+        ...     max_cols=2,
+        ...     verbose=1
+        ... )
+
+    Notes
+    -----
+    - In ``quantile`` mode, the function uses the column
+      ``<tname>_q50`` for visualization.
+    - In ``point`` mode, the column ``<tname>_pred`` is used.
+    - For spatial visualizations, if ``x`` and ``y`` are not provided,
+      they default to ``"longitude"`` and ``"latitude"``.
+    - The evaluation period(s) are determined by filtering
+      ``forecast_df[dt_col] == <eval_period>``.
+    - Use ``assert_xy_in`` to validate that the x and y columns exist in
+      the provided DataFrames.
+
+    See Also
+    --------
+    generate_forecast : Function to generate forecast results.
+    coverage_score   : Function to compute the coverage score.
+
+    References
+    ----------
+    .. [1] Authors et al., "Gofast Forecasting Model", Journal of
+       Advanced Forecasting, 2023.
+    """
+    import matplotlib.pyplot as plt
+
+    # Determine evaluation periods.
+    if eval_period is None:
+        unique_periods = sorted(test_data[dt_col].unique())
+        if verbose:
+            print("No eval_period provided; using up to three unique " +
+                  "periods from test_data.")
+        eval_periods = unique_periods[:3]
+    elif not isinstance(eval_period, (list, tuple)):
+        eval_periods = [eval_period]
+    else:
+        eval_periods = eval_period
+
+    # Determine x and y columns.
+    if kind == "spatial":
+        if x is None and y is None:
+            x, y = "longitude", "latitude"
+        check_spatial_columns(test_data, spatial_cols=(x, y ))
+        x, y = assert_xy_in(x, y, data=test_data)
+    else:
+        if x is None or y is None:
+            raise ValueError("For non-spatial kind, both x and y must be provided.")
+        x, y = assert_xy_in(x, y, data=forecast_df)
+
+    # Determine prediction column based on mode.
+    if mode == "quantile":
+        pred_col   = f"{tname}_q50"
+        pred_label = f"Predicted {tname} (q50)"
+    elif mode == "point":
+        pred_col   = f"{tname}_pred"
+        pred_label = f"Predicted {tname}"
+    else:
+        raise ValueError("Mode must be either 'quantile' or 'point'.")
+
+    n_periods = len(eval_periods)
+    n_cols = min(n_periods, max_cols)
+    n_rows = int(np.ceil(n_periods / max_cols))
+    total_rows = n_rows * 2  # Two rows per evaluation period.
+
+    # Create grid of subplots.
+    fig, axes = plt.subplots(
+        total_rows, n_cols, figsize=(5 * n_cols, 4 * total_rows)
+    )
+
+    # Ensure axes is a 2D array.
+    if total_rows == 1 and n_cols == 1:
+        axes = np.array([[axes]])
+    elif total_rows == 1:
+        axes = np.array([axes])
+    elif n_cols == 1:
+        axes = axes.reshape(total_rows, 1)
+
+    # Loop over evaluation periods and plot.
+    for idx, period in enumerate(eval_periods):
+        col_idx = idx % n_cols
+        row_idx = (idx // n_cols) * 2
+
+        # Filter data for the current period.
+        forecast_subset = forecast_df[
+            forecast_df[dt_col] == period
+        ]
+        test_subset = test_data[
+            test_data[dt_col] == period
+        ]
+
+        if forecast_subset.empty or test_subset.empty:
+            if verbose:
+                print(f"Warning: No data for period {period}; skipping.")
+            continue
+
+        # Plot actual values.
+        ax_actual = axes[row_idx, col_idx]
+        sc_actual = ax_actual.scatter(
+            test_subset[x],
+            test_subset[y],
+            c=test_subset[tname],
+            cmap=cmap,
+            alpha=0.7,
+            edgecolors='k'
+        )
+        ax_actual.set_title(
+            f"Actual {tname.capitalize()} ({period})"
+        )
+        ax_actual.set_xlabel(x.capitalize())
+        ax_actual.set_ylabel(y.capitalize())
+        if axis=="off": 
+            ax_actual.set_axis_off()
+        else: 
+            ax_actual.set_axis_on()
+
+        fig.colorbar(
+            sc_actual, ax=ax_actual,
+            label=tname.capitalize()
+        )
+
+        # Plot predicted values.
+        ax_pred = axes[row_idx + 1, col_idx]
+        sc_pred = ax_pred.scatter(
+            forecast_subset[x],
+            forecast_subset[y],
+            c=forecast_subset[pred_col],
+            cmap=cmap,
+            alpha=0.7,
+            edgecolors='k'
+        )
+        ax_pred.set_title(
+            f"{pred_label} ({period})"
+        )
+        ax_pred.set_xlabel(x.capitalize())
+        ax_pred.set_ylabel(y.capitalize())
+        if axis=="off": 
+            ax_pred.set_axis_off()
+        else: 
+            ax_pred.set_axis_on()
+        fig.colorbar(
+            sc_pred, ax=ax_pred,
+            label=pred_label
+        )
+
+    plt.tight_layout()
+    plt.show()

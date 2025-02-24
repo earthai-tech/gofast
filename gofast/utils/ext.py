@@ -7,6 +7,7 @@ the core capabilities of the gofast package.
 """
 from __future__ import annotations 
 
+import re
 import copy
 import warnings 
 from typing import List, Union, Optional, Tuple 
@@ -22,6 +23,7 @@ from ..core.checks import check_params
 from ..core.handlers import columns_getter, columns_manager 
 from ..core.io import is_data_readable
 from ..core.utils import error_policy, smart_format 
+from ..decorators import isdf 
 from .validator import parameter_validator, validate_length_range 
 from .validator import get_estimator_name 
 
@@ -33,7 +35,356 @@ __all__ = [
     "normalize_in", 
     "to_ranking", 
     "to_importances", 
+    "parse_used_columns", 
+    "evaluate_df", 
     ]
+
+
+@check_params ({ 
+    "expr": Union[str, List[str]], 
+    "op_cols": Optional[List[str]]
+ })
+@isdf 
+def evaluate_df(
+    df,
+    expr,
+    op_cols=None,       
+    local_dict=None,    
+    global_dict=None,   
+    drop_cols=False,    
+    engine='python',
+    inplace=False,      
+    error='raise',      
+    **eval_kw
+):
+    """
+    Evaluate one or multiple expressions on a pandas DataFrame
+    and store the results in new or existing columns.
+
+    This public function ``evaluate_df`` leverages
+    :meth:`pandas.DataFrame.eval` to dynamically compute
+    expressions and assign the results back into the DataFrame.
+    Given an input :math:`expr`, the function computes:
+
+    .. math::
+       \\text{result} = \\text{df.eval}(expr, \\dots)
+
+    The outcome can be in-place or returned as a new DataFrame,
+    depending on ``inplace``. Additional dictionaries can be
+    passed via ``local_dict`` or ``global_dict`` for variable
+    references in expressions [1]_. See notes for best practices.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input DataFrame on which expressions will be
+        evaluated.
+    expr : str or list of str
+        One or multiple expressions to evaluate. If a list is
+        provided, each expression is computed sequentially.
+    op_cols : str or list of str, optional
+        Names of the columns to store the evaluated results. If
+        multiple expressions are given and no ``op_cols`` are
+        provided, default column names such as ``eval_0`` will be
+        used. If a single expression is supplied without
+        ``op_cols``, defaults to ``eval.name``.
+    local_dict : dict, optional
+        A dictionary of local variables available in the
+        expression engine. These override variables in
+        ``global_dict``.
+    global_dict : dict, optional
+        A dictionary of global variables available in the
+        expression engine.
+    drop_cols : bool or list of str, optional
+        If ``True`` or ``original``, any columns used in the
+        expressions are dropped after evaluation. If a list of
+        column names is provided, those columns are specifically
+        dropped. Defaults to ``False``.
+    engine : {'python', 'numexpr'}, optional
+        Parser engine to use for expression evaluation. Defaults
+        to ``'python'``.
+    inplace : bool, optional
+        If ``True``, modifies the original DataFrame directly.
+        Otherwise, it returns a copy with the evaluated results.
+        Defaults to ``False``.
+    error : {'raise', 'warn', 'ignore'}, optional
+        Error-handling strategy. ``'raise'`` (default) raises
+        exceptions. ``'warn'`` emits a warning. ``'ignore'``
+        silently skips any errors.
+    **eval_kw
+        Additional keyword arguments passed on to
+        :meth:`pandas.DataFrame.eval`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The modified DataFrame containing the evaluated results.
+        If ``inplace`` is ``False``, this is a new DataFrame.
+
+    Examples
+    --------
+    >>> from gofast.utils.ext import evaluate_df
+    >>> import pandas as pd
+    >>> data = {
+    ...     "colA": [10, 20, 30, 40],
+    ...     "colB": [1, 2, 3, 4],
+    ...     "colC": [5, 6, 7, 8]
+    ... }
+    >>> df = pd.DataFrame(data)
+
+    1. Simple usage: create a new column as the sum of ``colA``
+       and ``colB``.
+
+    >>> df_result_1 = evaluate_df(
+    ...     df=df,
+    ...     expr="colA + colB",
+    ...     op_cols="sumAB"
+    ... )
+    >>> df_result_1
+       colA  colB  colC  sumAB
+    0    10     1     5     11
+    1    20     2     6     22
+    2    30     3     7     33
+    3    40     4     8     44
+
+    2. Overwrite an existing column (modify in place) by
+       multiplying ``colA`` and ``colC``:
+
+    >>> evaluate_df(
+    ...     df=df,
+    ...     expr="colA * colC",
+    ...     op_cols="colB",
+    ...     inplace=True
+    ... )
+    >>> df
+       colA  colB  colC
+    0    10    50     5
+    1    20   120     6
+    2    30   210     7
+    3    40   320     8
+
+    3. Use ``local_dict`` to define a variable ``factor`` and
+       multiply ``colA`` by this factor:
+
+    >>> df_result_3 = evaluate_df(
+    ...     df=df,
+    ...     expr="colA * factor",
+    ...     op_cols="scaledA",
+    ...     local_dict={"factor": 100},
+    ...     inplace=False
+    ... )
+    >>> df_result_3
+       colA  colB  colC  scaledA
+    0    10    50     5     1000
+    1    20   120     6     2000
+    2    30   210     7     3000
+    3    40   320     8     4000
+
+    4. A more complex expression referencing multiple columns and
+       a constant from ``global_dict``:
+
+    >>> MY_CONSTANT = 2.5
+    >>> df_result_4 = evaluate_df(
+    ...     df=df,
+    ...     expr="((colA + colC) * MY_CONSTANT) / colB",
+    ...     op_cols="complexCalc",
+    ...     global_dict=globals(),
+    ...     inplace=False
+    ... )
+    >>> df_result_4
+       colA  colB  colC  complexCalc
+    0    10    50     5     0.750000
+    1    20   120     6     0.541667
+    2    30   210     7     0.440476
+    3    40   320     8     0.375000
+
+    Notes
+    -----
+    Exercise caution when evaluating untrusted expressions.
+    Internally, this function uses the pandas
+    :meth:`DataFrame.eval` method which depends on Python's
+    :math:`eval` mechanism. For advanced usage or optimization,
+    consider using the ``'numexpr'`` engine if available.
+
+    See Also
+    --------
+    pandas.DataFrame.eval : The underlying pandas method used for
+        expression parsing and evaluation.
+
+    References
+    ----------
+    .. [1] McKinney, Wes. *Python for Data Analysis*, 2nd Edition,
+       O'Reilly Media, 2017.
+    """
+    # Apply error policy with base='ignore'
+    error = error_policy(
+        error,
+        base="ignore"
+    )
+
+    # Parse expressions and operation columns
+    expr = columns_manager(
+        expr,
+        pattern=None
+    )
+    op_cols = columns_manager(
+        op_cols,
+        empty_as_none=True
+    )
+
+    # Decide which DataFrame to work on
+    new_df = df if inplace else df.copy()
+
+    # Track columns used in expressions for dropping later
+    all_used_cols = []
+
+    # Multiple expressions
+    if len(expr) > 1:
+        # Default column names if none provided
+        if op_cols is None:
+            op_cols = [
+                f"eval_{i}"
+                for i in range(len(expr))
+            ]
+        else:
+            # Ensure op_cols length matches expr length
+            if len(op_cols) < len(expr):
+                if error == "raise":
+                    raise ValueError(
+                        "op_cols length must "
+                        "match expr length."
+                    )
+                elif error in ["warn", "ignore"]:
+                    if error == "warn":
+                        warnings.warn(
+                            "op_cols length < expr "
+                            "length; extending with "
+                            "defaults."
+                        )
+                    needed = len(expr) - len(op_cols)
+                    op_cols += [
+                        f"eval_{i+len(op_cols)}"
+                        for i in range(needed)
+                    ]
+            elif len(op_cols) > len(expr):
+                if error == "raise":
+                    raise ValueError(
+                        "op_cols length must "
+                        "match expr length."
+                    )
+                elif error in ["warn", "ignore"]:
+                    if error == "warn":
+                        warnings.warn(
+                            "op_cols length > expr "
+                            "length; truncating extra "
+                            "names."
+                        )
+                    op_cols = op_cols[: len(expr)]
+
+        # Evaluate expressions and store results
+        for operation, col_name in zip(expr, op_cols):
+            used_cols = _parse_used_columns(
+                new_df,
+                operation
+            )
+            all_used_cols.extend(used_cols)
+            try:
+                result = new_df.eval(
+                    expr=operation,
+                    engine=engine,
+                    local_dict=local_dict,
+                    global_dict=global_dict,
+                    **eval_kw
+                )
+            except Exception as e:
+                if error == "raise":
+                    raise ValueError(
+                        f"Error evaluating "
+                        f"'{operation}': {e}"
+                    )
+                elif error == "warn":
+                    warnings.warn(
+                        f"Error evaluating "
+                        f"'{operation}': {e}"
+                    )
+                    result = None
+                else:
+                    result = None
+
+            if result is None:
+                continue
+            else:
+                new_df[col_name] = result
+
+    # Single expression
+    else:
+        expression = expr[0]
+        used_cols = _parse_used_columns(
+            new_df,
+            expression
+        )
+        all_used_cols.extend(used_cols)
+
+        if op_cols is None:
+            op_cols = "eval.name"
+        elif isinstance(op_cols, list) and len(op_cols) == 1:
+            op_cols = op_cols[0]
+        elif isinstance(op_cols, list) and len(op_cols) != 1:
+            if error == "raise":
+                raise ValueError(
+                    "op_cols must have length 1 "
+                    "for a single expression."
+                )
+            elif error == "warn":
+                warnings.warn(
+                    "op_cols has unexpected length; "
+                    "using the first element."
+                )
+                op_cols = op_cols[0]
+            else:
+                op_cols = op_cols[0]
+
+        try:
+            result = new_df.eval(
+                expr=expression,
+                engine=engine,
+                local_dict=local_dict,
+                global_dict=global_dict,
+                **eval_kw
+            )
+        except Exception as e:
+            if error == "raise":
+                raise ValueError(
+                    f"Error evaluating "
+                    f"'{expression}': {e}"
+                )
+            elif error == "warn":
+                warnings.warn(
+                    f"Error evaluating "
+                    f"'{expression}': {e}"
+                )
+                result = None
+            else:
+                result = None
+        else: 
+            
+            new_df[op_cols] = result
+
+    # Drop columns if requested
+    if drop_cols:
+        if drop_cols is True or drop_cols == "original":
+            all_used_cols = list(set(all_used_cols))
+            new_df.drop(
+                columns=all_used_cols,
+                inplace=True
+            )
+        elif isinstance(drop_cols, list):
+            new_df.drop(
+                columns=drop_cols,
+                inplace=True
+            )
+
+    return new_df
 
 @check_params ({ 
     "features": Optional[List[str]], 
@@ -1598,3 +1949,104 @@ def spread_coverage(
         return output
     
     return pred_q10, pred_q50, pred_q90
+
+def _parse_used_columns(df, expression):
+    """
+    Parse and return the list of columns in ``df`` used within
+    a single expression string.
+    """
+    used_cols = []
+    for col in df.columns:
+        pattern = r"\b" + re.escape(col) + r"\b"
+        if re.search(pattern, expression):
+            used_cols.append(col)
+    return used_cols
+
+
+@isdf
+def parse_used_columns(
+    df,
+    expression
+):
+    """
+    Extracts a list of DataFrame columns that appear 
+    in the given ``expression``.
+
+    For each column name, it constructs a pattern that accounts
+    for bracket notation and standalone references. Under the
+    hood, it uses Python's built-in regular expressions, matching 
+    word boundaries or bracketed occurrences. The extracted 
+    columns are returned as a list, ensuring duplicates are 
+    removed. If the ``expression`` is invalid or not a string, an 
+    empty list is returned.
+
+    The approach can be summarized as a pattern-matching problem:
+
+    .. math::
+       \\text{pattern} = \\text{Regex}(\\text{col}) 
+       \\times \\text{boundaries}
+
+    where :math:`boundaries` are word delimiters or bracket 
+    notations. This helps prevent partial matches of column 
+    substrings.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame whose columns are examined.
+    expression : str
+        The string expression potentially referencing 
+        DataFrame columns.
+
+    Returns
+    -------
+    list of str
+        A list of columns found within the given 
+        ``expression``.
+
+    Examples
+    --------
+    >>> from gofast.utils.ext import parse_used_columns
+    >>> import pandas as pd
+    >>> data = {'A': [1, 2], 'B': [3, 4]}
+    >>> df = pd.DataFrame(data)
+    >>> parse_used_columns(df, "A + B")
+    ['A', 'B']
+    >>> parse_used_columns(df, "df['A'] + df['B']")
+    ['A', 'B']
+
+    Notes
+    -----
+    Make sure to pass a valid string ``expression``. If it is 
+    empty or None, an empty list is returned. This function uses 
+    regex lookups which might not account for all possible edge 
+    cases [1]_.
+
+    See Also
+    --------
+    evaluate_df : A function that utilizes column detection 
+        during expression parsing.
+
+    References
+    ----------
+    .. [1] McKinney, Wes. *Python for Data Analysis*, 2nd Edition,
+       O'Reilly Media, 2017.
+    """
+    # Return empty list if expression is not a valid string
+    if not expression or not isinstance(expression, str):
+        return []
+
+    used_cols = set()
+    for col in df.columns:
+        # Pattern checks for bracket usage ("col" or 'col')
+        # or standalone references with negative/positive
+        # lookarounds to avoid partial matches.
+        pattern = (
+            rf"(\[\"{re.escape(col)}\"\]|"
+            rf"\['{re.escape(col)}'\]|"
+            rf"(?<![\w\"']){re.escape(col)}(?![\w\"']))"
+        )
+        if re.search(pattern, expression):
+            used_cols.add(col)
+
+    return list(used_cols)
