@@ -106,6 +106,109 @@ __all__=[
      'validate_yy'
  ]
 
+def check_forecast_mode(
+    mode, 
+    q=None, 
+    error="raise", 
+    ops="validate",  
+    ):
+    r"""
+    Check consistency between forecast mode and quantile values.
+
+    This function verifies that the provided forecast `mode`
+    is consistent with the quantile values (`q`). If the mode
+    is ``"point"`` and quantile values are provided, it will
+    either warn the user and reset `q` to ``None`` (if
+    ``error=="warn"``) or raise a ValueError (if
+    ``error=="raise"``). Similarly, if the mode is
+    ``"quantile"`` and no quantile values are provided, it will
+    either warn the user and set `q` to the default values
+    ``[0.1, 0.5, 0.9]`` (if ``error=="warn"``) or raise a
+    ValueError (if ``error=="raise"``).
+    
+    Additionally, if ``ops`` is set to ``"check_only"``, the function 
+    only performs the checks without modifying or returning ``q``.
+
+    Parameters
+    ----------
+    mode : str
+        Forecast mode, either ``"point"`` or
+        ``"quantile"``.
+    q : list of float, optional
+        List of quantile values. Defaults to ``None``.
+    error : str, optional
+        Error handling behavior. If set to ``"raise"``, a
+        ValueError is raised when an inconsistency is
+        detected. If set to ``"warn"``, a warning is issued
+        and a default behavior is applied.
+    ops : str, optional
+        Operation mode. If set to ``"check_only"``, the function only 
+        performs the checks without returning any value. If set to 
+        ``"validate"``, the function returns the validated 
+       (or updated) quantile values. Default is ``"validate"``.
+        
+ 
+    Returns
+    -------
+    q : list of float or None
+        The validated (or updated) quantile values if ``ops`` is 
+        ``"validate"``; otherwise, returns ``None``.
+    
+    Raises
+    ------
+    ValueError
+        If an inconsistency is detected and ``error`` is set to 
+        ``"raise"``.
+    
+    Examples
+    --------
+    >>> from gofast.utils.validator impor check_forecast_mode 
+    >>> check_forecast_mode("point", q=[0.1, 0.5, 0.9])
+    # Raises a ValueError or warns and returns None based on the error flag.
+    
+    >>> check_forecast_mode("quantile", q=None, error="warn")
+    # Issues a warning and returns [0.1, 0.5, 0.9].
+    
+    """
+    # Ensure mode is valid.
+    if mode not in ["point", "quantile"]:
+        raise ValueError(
+            "mode must be either 'point' or 'quantile'."
+        )
+    
+    # Handle the case for "point" mode.
+    if mode == "point":
+        if q is not None:
+            msg = (
+                "In point mode, quantile values (q) should be None. "
+                "Resetting q to None."
+            )
+            if error == "warn":
+                warnings.warn(msg)
+                q = None
+            elif error == "raise":
+                raise ValueError(msg)
+    
+    # Handle the case for "quantile" mode.
+    elif mode == "quantile":
+        if q is None:
+            msg = (
+                "In quantile mode, quantile values (q) must be provided. "
+                "Setting default quantiles to [0.1, 0.5, 0.9]."
+            )
+            if error == "warn":
+                warnings.warn(msg)
+                q = [0.1, 0.5, 0.9]
+            elif error == "raise":
+                raise ValueError(msg)
+                
+        # then validate quantiles 
+        q= validate_quantiles (q )
+    # If ops is "check_only", simply return None.
+    if ops == "check_only":
+        return None
+    else:
+        return q
 def check_donut_inputs(
     values=None,
     data=None,

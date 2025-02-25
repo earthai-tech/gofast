@@ -28,7 +28,7 @@ else:
 )
 def validate_anomaly_scores(
     anomaly_config: Optional[Dict[str, Any]],
-    forecast_horizons: int,
+    forecast_horizon: int,
 ) -> Optional[tf.Tensor]:
     """
     Validates and processes the ``anomaly_scores`` in the provided 
@@ -39,7 +39,7 @@ def validate_anomaly_scores(
         Dictionary that may contain:
             - 'anomaly_scores': Precomputed anomaly scores tensor.
             - 'anomaly_loss_weight': Weight for anomaly loss.
-    - ``forecast_horizons`` (int): 
+    - ``forecast_horizon`` (int): 
         The expected number of forecast horizons (second dimension 
         of `anomaly_scores`).
 
@@ -96,10 +96,10 @@ def validate_anomaly_scores(
             )
 
         # Validate that the second dimension matches `forecast_horizons`
-        if anomaly_scores.shape[1] != forecast_horizons:
+        if anomaly_scores.shape[1] != forecast_horizon:
             raise ValueError(
                 f"`anomaly_scores` second dimension must be "
-                f"{forecast_horizons}, but got "
+                f"{forecast_horizon}, but got "
                 f"{anomaly_scores.shape[1]}."
             )
 

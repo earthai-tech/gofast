@@ -5500,8 +5500,12 @@ def mask_by_reference(
 
         if len(matched_idx) == 0:
             # No match found for val
-            msg_val = (f"[mask_by_reference] No match found for '{val}' "
-                       f"in column '{ref_col}'.")
+            msg_val = (
+                f"[mask_by_reference] No matching value found for '{val}'"
+                f" in column '{ref_col}'. Ensure '{val}' exists in "
+                f"'{ref_col}' before applying the mask, or set"
+                " ``find_closest=True`` to select the closest match."
+            )
             if find_closest:
                 msg_val = (f"[mask_by_reference] Could not approximate '{val}' "
                            f"in numeric column '{ref_col}'.")

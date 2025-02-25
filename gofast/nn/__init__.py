@@ -107,6 +107,7 @@ if KERAS_BACKEND:
 
     # Get necessary classes and functions from Keras dependencies
     Layer = KERAS_DEPS.Layer 
+    tf_autograph=KERAS_DEPS.autograph
     # Equivalent to: from tensorflow.keras import activations
     try:
         activations = KERAS_DEPS.activations  
@@ -127,8 +128,8 @@ if KERAS_BACKEND:
         Custom Activation layer that wraps a Keras activation function
         and captures its name.
         """
-        def __init__(self, activation='relu', **kwargs):
-            super(Activation, self).__init__(**kwargs)
+        def __init__(self, activation='relu', **kw):
+            super().__init__(**kw)
             # Get the activation function; Keras will raise an error if invalid
             self.activation= activations.get(activation)
             # self.activation = activation  # Store the original activation parameter
@@ -143,9 +144,32 @@ if KERAS_BACKEND:
             else:
                 # Fallback to string representation
                 self.activation_name = str(activation)
+                
 
-        def call(self, inputs):
+        @tf_autograph.experimental.do_not_convert
+        def call(self, inputs, training=False):
+            r"""
+            Forward pass of the Activation layer.
+        
+            Applies the stored activation function to the input tensor.
+            The ``training`` parameter is accepted for API compatibility but
+            is not used in this implementation.
+        
+            Parameters
+            ----------
+            inputs : tf.Tensor
+                The input tensor on which the activation is applied.
+            training : bool, optional
+                Boolean flag indicating whether the layer is in training mode.
+                This argument is ignored. Default is ``False``.
+        
+            Returns
+            -------
+            tf.Tensor
+                The output tensor after applying the activation function.
+            """
             return self.activation(inputs)
+
 
         def get_config(self):
             config = super(Activation, self).get_config()

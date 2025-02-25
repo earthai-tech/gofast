@@ -51,7 +51,8 @@ from ..utils.validator import (
     parameter_validator,
     validate_keras_model,
     is_frame, 
-    validate_positive_integer 
+    validate_positive_integer, 
+    check_forecast_mode, 
 )
 from ..metrics_special import coverage_score
 
@@ -2448,6 +2449,8 @@ def generate_forecast(
     
     Examples
     --------
+    (1) Example refering to Train data only 
+    
     >>> from gofast.nn.transformers import XTFT
     >>> from gofast.nn.utils import generate_forecast
     >>> import pandas as pd
@@ -2470,11 +2473,10 @@ def generate_forecast(
     >>> # - X_static: (n_samples, static_input_dim)
     >>> # - X_dynamic: (n_samples, time_steps, dynamic_input_dim)
     >>> # - X_future:  (n_samples, time_steps, future_input_dim)
-    >>> # For this example, we assume there are no future features.
     >>> my_model = XTFT(
     ...     static_input_dim=1,           # "stat1"
     ...     dynamic_input_dim=2,          # "feat1" and "feat2"
-    ...     future_input_dim=0,           # No future features provided
+    ...     future_input_dim=1,           # features provided for dim1
     ...     forecast_horizon=5,           # Forecasting 5 periods ahead
     ...     quantiles=[0.1, 0.5, 0.9],
     ...     embed_dim=16,
@@ -2493,8 +2495,8 @@ def generate_forecast(
     >>> X_static = train_df[["stat1"]].values      # shape: (50, 1)
     >>> # Create a dummy dynamic input array of shape (50, 3, 2)
     >>> X_dynamic = np.random.rand(50, 3, 2)
-    >>> # Since no future features are provided, create an empty array
-    >>> X_future = np.empty((50, 3, 0))
+    >>> # Create a dummy features 
+    >>> X_future = np.random.rand(50, 3, 1)
     >>> # Create dummy target output from "price"
     >>> y_array = train_df["price"].values.reshape(50, 1, 1)
     >>> 
@@ -2517,6 +2519,149 @@ def generate_forecast(
     ...     time_steps=3,
     ...     tname="price",
     ...     mode="quantile",
+    ...     verbose=3
+    ... )
+    >>> print(forecast.head())
+    
+    (2) Example refering to Test data included.
+    
+    >>> # Create a dummy DataFrame with a date column,
+    >>> # two dynamic features ("feat1", "feat2"), one static feature ("stat1"),
+    >>> # and target "price".
+    >>> date_rng = pd.date_range(start="2020-01-01", periods=60, freq="D")
+    >>> data = {
+    ...     "date": date_rng,
+    ...     "feat1": np.random.rand(60),
+    ...     "feat2": np.random.rand(60),
+    ...     "stat1": np.random.rand(60),
+    ...     "price": np.random.rand(60)
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> 
+    >>> # Split the DataFrame into training and test sets.
+    >>> # Training data: dates before 2020-02-01
+    >>> # Test data: dates from 2020-02-01 onward.
+    >>> train_df = df[df["date"] < "2020-02-01"].copy()
+    >>> test_df  = df[df["date"] >= "2020-02-01"].copy()
+    >>> 
+    >>> # Create dummy input arrays for model fitting.
+    >>> # Assume time_steps = 3.
+    >>> X_static = train_df[["stat1"]].values      # Shape: (n_train, 1)
+    >>> X_dynamic = np.random.rand(len(train_df), 3, 2)
+    >>> X_future  = np.random.rand(len(train_df), 3, 1)
+    >>> # Create dummy target output from "price".
+    >>> y_array   = train_df["price"].values.reshape(len(train_df), 1, 1)
+    >>> 
+    >>> # Instantiate a dummy XTFT model.
+    >>> my_model = XTFT(
+    ...     static_input_dim=1,           # "stat1"
+    ...     dynamic_input_dim=2,          # "feat1" and "feat2"
+    ...     future_input_dim=1,           # For the provided future feature
+    ...     forecast_horizon=5,           # Forecasting 5 periods ahead
+    ...     quantiles=[0.1, 0.5, 0.9],
+    ...     embed_dim=16,
+    ...     max_window_size=3,
+    ...     memory_size=50,
+    ...     num_heads=2,
+    ...     dropout_rate=0.1,
+    ...     lstm_units=32,
+    ...     attention_units=32,
+    ...     hidden_units=16
+    ... )
+    >>> my_model.compile(optimizer="adam")
+    >>> 
+    >>> # Fit the model on the training data.
+    >>> my_model.fit(
+    ...     x=[X_static, X_dynamic, X_future],
+    ...     y=y_array,
+    ...     epochs=1,
+    ...     batch_size=8
+    ... )
+    >>> 
+    >>> # Generate forecast using the generate_forecast function.
+    >>> # This example uses test_df for evaluation, which will compute 
+    >>> # metrics like R² Score and Coverage Score.
+    >>> forecast = generate_forecast(
+    ...     xtft_model=my_model,
+    ...     train_data=train_df,
+    ...     dt_col="date",
+    ...     dynamic_features=["feat1", "feat2"],
+    ...     static_features=["stat1"],
+    ...     test_data=test_df.iloc[:5, :], # to fit the first horizon forecasting.
+    ...     forecast_horizon=5,
+    ...     time_steps=3,
+    ...     tname="price",
+    ...     mode="quantile",
+    ...     verbose=3
+    ... )
+    >>> print(forecast.head())
+
+    (3) Example of Point forecasting 
+
+    >>> # Create a dummy training DataFrame with a date column,
+    >>> # two dynamic features ("feat1", "feat2"), one static feature ("stat1"),
+    >>> # and target "price".
+    >>> date_rng = pd.date_range(start="2020-01-01", periods=50, freq="D")
+    >>> train_df = pd.DataFrame({
+    ...     "date": date_rng,
+    ...     "feat1": np.random.rand(50),
+    ...     "feat2": np.random.rand(50),
+    ...     "stat1": np.random.rand(50),
+    ...     "price": np.random.rand(50)
+    ... })
+    >>> 
+    >>> # Create dummy input arrays for model fitting.
+    >>> # X_static is derived from the static feature "stat1".
+    >>> X_static = train_df[["stat1"]].values      # shape: (50, 1)
+    >>> 
+    >>> # X_dynamic is a dummy dynamic array for "feat1" and "feat2".
+    >>> # For time_steps = 3, its shape is (50, 3, 2).
+    >>> X_dynamic = np.random.rand(50, 3, 2)
+    >>> 
+    >>> # X_future is a dummy array for future features.
+    >>> # Here, we assume a single future feature with shape (50, 3, 1).
+    >>> X_future = np.random.rand(50, 3, 1)
+    >>> 
+    >>> # Create dummy target output from "price".
+    >>> y_array = train_df["price"].values.reshape(50, 1, 1)
+    >>> 
+    >>> # Instantiate a dummy XTFT model.
+    >>> my_model = XTFT(
+    ...     static_input_dim=1,           # "stat1"
+    ...     dynamic_input_dim=2,          # "feat1" and "feat2"
+    ...     future_input_dim=1,           # Provided future feature
+    ...     forecast_horizon=5,           # Forecast 5 periods ahead
+    ...     quantiles=None,    # [0.1, 0.5, 0.9] Not used in point mode
+    ...     embed_dim=16,
+    ...     max_window_size=3,
+    ...     memory_size=50,
+    ...     num_heads=2,
+    ...     dropout_rate=0.1,
+    ...     lstm_units=32,
+    ...     attention_units=32,
+    ...     hidden_units=16
+    ... )
+    >>> my_model.compile(optimizer="adam")
+    >>> 
+    >>> # Fit the model on the dummy data.
+    >>> my_model.fit(
+    ...     x=[X_static, X_dynamic, X_future],
+    ...     y=y_array,
+    ...     epochs=1,
+    ...     batch_size=8
+    ... )
+    >>> 
+    >>> # Generate forecast using the generate_forecast function in point mode.
+    >>> forecast = generate_forecast(
+    ...     xtft_model=my_model,
+    ...     train_data=train_df,
+    ...     dt_col="date",
+    ...     dynamic_features=["feat1", "feat2"],
+    ...     static_features=["stat1"],
+    ...     forecast_horizon=5,
+    ...     time_steps=3,
+    ...     tname="price",
+    ...     mode="point",
     ...     verbose=3
     ... )
     >>> print(forecast.head())
@@ -2589,11 +2734,15 @@ def generate_forecast(
         check_spatial_columns(spatial_cols)
 
     # Set default quantiles if not provided
+    q=check_forecast_mode(mode, q, error="warn", ops="validate")
+    
     if q is None:
         q = [0.1, 0.5, 0.9]
+    
     q = columns_manager(q)
     q = [assert_ratio(
-        r,bounds=(0, 1),excludes=[0, 1], name=f"quantile '{r}'")for r in q
+        r,bounds=(0, 1),exclude_values=[0, 1], 
+        name=f"quantile '{r}'")for r in q
     ]
 
     # Set default target name
@@ -2773,17 +2922,20 @@ def generate_forecast(
         if len(dummy) != 0:
             warnings.warn(
                 "Expected three inputs for the transformer model."
-                " Proceeding with the following dummy input(s) {}"
+                " Proceeding with the following dummy input(s) '{}'"
                 " may result in suboptimal performance or"
                 " unexpected behavior. Use at your own risk."
                 .format(", ".join(dummy))
             )
+
         # Run prediction
         try:
             y_pred_forecast = xtft_model.predict(
-                [model_inputs['static'],
-                 model_inputs['dynamic'],
-                 model_inputs['future']]
+                [
+                    np.asarray(model_inputs['static'], dtype=np.float32),
+                    np.asarray(model_inputs['dynamic'], dtype=np.float32),
+                    np.asarray(model_inputs['future'], dtype=np.float32)
+                ]
             )
         except Exception as e:
             loc_str = (tuple(loc.values())
@@ -2815,10 +2967,10 @@ def generate_forecast(
                     col_name = "{}_q{}".format(
                         tname, int(quantile * 100)
                     )
-                    forecast_entry[col_name] = y_pred_forecast[0, i, qi]
+                    forecast_entry[col_name] = y_pred_forecast[0, i, qi].item()
             else:
                 col_name = "{}_pred".format(tname)
-                forecast_entry[col_name] = y_pred_forecast[0, i, 0]
+                forecast_entry[col_name] = y_pred_forecast[0, i, 0].item()
 
             forecast_results.append(forecast_entry)
 
@@ -2840,17 +2992,61 @@ def generate_forecast(
 
     # Evaluation if test_data is provided
     if test_data is not None:
-        # Rather to use forecast_dt 
-        eval_date= test_data[dt_col].unique()[0] 
-        # eval_date = forecast_dt[0]
+        
+        # Obtain unique evaluation dates from test_data 
+        # and forecast_df,then sort them.
+        eval_dates_test = np.sort(test_data[dt_col].unique())
+        eval_dates_forecast = np.sort(
+            forecast_df[dt_col].unique()
+        )
+        
+        # Compute the intersection of dates available in both
+        # DataFrames.
+        eval_dates = np.intersect1d(
+            eval_dates_test, eval_dates_forecast
+        )
+        if verbose >=3:
+            print("Common evaluation dates:\n", eval_dates)
+        
+        # If the number of common dates exceeds forecast_horizon,
+        # warn the user and select only the first forecast_horizon
+        # dates.
+        if len(eval_dates) > forecast_horizon:
+            warnings.warn(
+                f"The number of unique evaluation dates "
+                f"({len(eval_dates)}) in test_data exceeds the "
+                f"forecast_horizon ({forecast_horizon}). Only"
+                f" the first {forecast_horizon} dates will"
+                " be used for evaluation."
+            )
+            eval_dates = eval_dates[:forecast_horizon]
+        # If fewer common dates than forecast_horizon are found,
+        # warn the user that evaluation will proceed with available dates.
+        elif len(eval_dates) < forecast_horizon:
+            warnings.warn(
+                f"Only {len(eval_dates)} unique evaluation"
+                " dates were found, which is less than the"
+                f" forecast_horizon ({forecast_horizon})."
+                " Evaluation will be performed on the"
+                " available dates."
+            )
+        
+        # Filter forecast_df and test_data to only include rows with
+        # the common evaluation dates.
         forecast_eval = forecast_df[
-            forecast_df[dt_col] == eval_date
+            forecast_df[dt_col].isin(eval_dates)
+        ]
+        # forecast_eval = forecast_df[
+        #     forecast_df[dt_col] == eval_dates
+        # ]
+        test_data_filtered = test_data[
+            test_data[dt_col].isin(eval_dates)
         ]
 
         if spatial_cols:
             exist_features(test_data, spatial_cols)
             test_data_sorted = (
-                test_data.sort_values(by=spatial_cols)
+                test_data_filtered.sort_values(by=spatial_cols)
                 .reset_index(drop=True)
             )
             forecast_eval_sorted = (
@@ -2859,7 +3055,7 @@ def generate_forecast(
             )
         else:
             test_data_sorted = (
-                test_data.sort_values(by=dt_col)
+                test_data_filtered.sort_values(by=dt_col)
                 .reset_index(drop=True)
             )
             forecast_eval_sorted = (
@@ -2872,7 +3068,7 @@ def generate_forecast(
                     if mode == "quantile"
                     else f"{tname}_pred")
         predicted = forecast_eval_sorted[pred_col].values
-
+   
         try:
             r2 = r2_score(actual, predicted)
             print(
@@ -3182,7 +3378,6 @@ def forecast_single_step(
     dt_col=None,
     mode="quantile",
     spatial_cols=None,
-    # time_steps=3,
     q=None,
     tname=None,
     forecast_dt=None,
@@ -3275,17 +3470,86 @@ def forecast_single_step(
     Examples
     --------
 
+    >>> from gofast.nn.transformers import XTFT
     >>> from gofast.nn.utils import forecast_single_step
-    >>> # Assume X_static, X_dynamic, X_future, and y_array are preprocessed.
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> 
+    >>> # Create a dummy training DataFrame with a date column,
+    >>> # two dynamic features ("feat1", "feat2"), a static feature ("stat1"),
+    >>> # and dummy spatial features ("longitude", "latitude"), as well as the
+    >>> # target variable "subsidence".
+    >>> date_rng = pd.date_range(start="2020-01-01", periods=50, freq="D")
+    >>> train_df = pd.DataFrame({
+    ...     "date": date_rng,
+    ...     "longitude": np.random.uniform(-180, 180, 50),
+    ...     "latitude": np.random.uniform(-90, 90, 50),
+    ...     "feat1": np.random.rand(50),
+    ...     "feat2": np.random.rand(50),
+    ...     "stat1": np.random.rand(50),
+    ...     "subsidence": np.random.rand(50)
+    ... })
+    >>> 
+    >>> # Prepare dummy inputs for the model.
+    >>> # For the static input, combine the spatial feature "longitude" and the
+    >>> # static feature "stat1". The forecast_single_step function expects that,
+    >>> # if spatial_cols is provided, the first two columns of X_static correspond
+    >>> # to the spatial coordinates.
+    >>> X_static = train_df[["longitude", "stat1"]].values   # shape: (50, 2)
+    >>> 
+    >>> # Create a dummy dynamic input array for "feat1" and "feat2".
+    >>> # Assume time_steps = 3, so the shape is (50, 3, 2).
+    >>> X_dynamic = np.random.rand(50, 3, 2)
+    >>> 
+    >>> # Create a dummy future input array.
+    >>> # For this example, assume one future feature with shape (50, 3, 1).
+    >>> X_future = np.random.rand(50, 3, 1)
+    >>> 
+    >>> # Create dummy target output from "subsidence", reshaped to (50, 1, 1)
+    >>> y_array = train_df["subsidence"].values.reshape(50, 1, 1)
+    >>> 
+    >>> # Instantiate a dummy XTFT model.
+    >>> # The model expects:
+    >>> #   - X_static with shape (n_samples, static_input_dim)
+    >>> #   - X_dynamic with shape (n_samples, time_steps, dynamic_input_dim)
+    >>> #   - X_future with shape (n_samples, time_steps, future_input_dim)
+    >>> my_model = XTFT(
+    ...     static_input_dim=2,         # "longitude" and "stat1"
+    ...     dynamic_input_dim=2,        # "feat1" and "feat2"
+    ...     future_input_dim=1,         # One future feature
+    ...     forecast_horizon=1,         # Single-step forecast
+    ...     quantiles=[0.1, 0.5, 0.9],
+    ...     embed_dim=16,
+    ...     max_window_size=3,
+    ...     memory_size=50,
+    ...     num_heads=2,
+    ...     dropout_rate=0.1,
+    ...     lstm_units=32,
+    ...     attention_units=32,
+    ...     hidden_units=16
+    ... )
+    >>> my_model.compile(optimizer="adam")
+    >>> 
+    >>> # Fit the model on the dummy data.
+    >>> my_model.fit(
+    ...     x=[X_static, X_dynamic, X_future],
+    ...     y=y_array,
+    ...     epochs=1,
+    ...     batch_size=8
+    ... )
+    >>> 
+    >>> # Package the inputs as expected by forecast_single_step.
     >>> inputs = [X_static, X_dynamic, X_future]
+    >>> 
+    >>> # Generate a single-step quantile forecast.
     >>> forecast_df = forecast_single_step(
     ...     xtft_model=my_model,
     ...     inputs=inputs,
     ...     y=y_array,
-    ...     dt_col="year",
-    ...     mode="quantile",
+    ...     dt_col="date",                # The time column name in the output
+    ...     mode="quantile",              # Can be "quantile" or "point"
     ...     spatial_cols=["longitude", "latitude"],
-    ...     time_steps=3,
+    ...     q=[0.1, 0.5, 0.9],
     ...     tname="subsidence",
     ...     apply_mask=True,
     ...     mask_values=0,
@@ -3293,6 +3557,7 @@ def forecast_single_step(
     ...     verbose=3
     ... )
     >>> print(forecast_df.head())
+
     
     Notes
     -----
@@ -3332,10 +3597,11 @@ def forecast_single_step(
               mode)
 
     # Set default quantiles for quantile mode.
+    q=check_forecast_mode(mode, q, error="warn", ops="validate")
     if mode == "quantile":
         if q is None:
             q = [0.1, 0.5, 0.9]
-        q = [assert_ratio(r, bounds=(0, 1), excludes=[0, 1],
+        q = [assert_ratio(r, bounds=(0, 1), exclude_values=[0, 1],
                           name=f"quantile '{r}'")
              for r in q]
 
@@ -3344,7 +3610,15 @@ def forecast_single_step(
         tname = "target"
 
     # Generate predictions.
-    y_pred = xtft_model.predict([X_static, X_dynamic, X_future])
+    y_pred = xtft_model.predict(
+        [
+            np.asarray(X_static, dtype=np.float32),
+            np.asarray(X_dynamic, dtype=np.float32),
+            np.asarray(X_future, dtype=np.float32)
+        ]
+        # [X_static, X_dynamic, X_future
+        #  ]
+        )
 
     pred_df = pd.DataFrame()
 
@@ -3393,21 +3667,35 @@ def forecast_single_step(
         else:
             mask_cols = [f"{tname}_pred"]
             
-        pred_df = mask_by_reference(
-            data=pred_df,
-            ref_col=f"{tname}_actual",
-            values=mask_values,
-            fill_value=mask_fill_value,
-            mask_columns=mask_cols
-        )
-
+        # Check if the provided mask_values exists in the
+        # reference column. If not, warn the user and"
+        # skip applying mask_by_reference.
+        ref_col = f"{tname}_actual"
+        unique_vals = pred_df[ref_col].unique()
+        if mask_values not in unique_vals:
+            warnings.warn(
+                f"[mask_by_reference] No matching value"
+                f" found for '{mask_values}' in {tname}"
+                f" column. Masking will be skipped."
+                f" Please ensure that the '{mask_values}'"
+                f" exists in the '{tname}' column before"
+                " applying the mask."
+            )
+        else:
+            pred_df = mask_by_reference(
+                data=pred_df,
+                ref_col=ref_col,
+                values=mask_values,
+                fill_value=mask_fill_value,
+                mask_columns=mask_cols
+            )
+            
     # If y is provided, compute evaluation metrics.
     if y is not None:
         r2 = r2_score(y.flatten(), eval_pred)
         if verbose >= 1:
             print(f"XTFT Model R² Score: {r2:.4f}")
         if mode == "quantile":
-
             lower_col = f"{tname}_q{int(q[0]*100)}"
             upper_col = f"{tname}_q{int(q[-1]*100)}"
             cov = coverage_score(
@@ -3534,25 +3822,143 @@ def forecast_multi_step(
     
     Examples
     --------
+
+    >>> from gofast.nn.transformers import XTFT
     >>> from gofast.nn.utils import forecast_multi_step
+    >>> from gofast.nn.losses import combined_quantile_loss 
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> 
+    >>> # Create a dummy training DataFrame with a date column,
+    >>> # spatial features ("longitude", "latitude"), two dynamic 
+    >>> # features ("feat1", "feat2"), a static feature ("stat1"), and 
+    >>> # the target variable "subsidence".
+    >>> date_rng = pd.date_range(start="2020-01-01", periods=60, 
+    ...                          freq="D")
+    >>> train_df = pd.DataFrame({
+    ...     "date": date_rng,
+    ...     "longitude": np.random.uniform(-180, 180, 60),
+    ...     "latitude": np.random.uniform(-90, 90, 60),
+    ...     "feat1": np.random.rand(60),
+    ...     "feat2": np.random.rand(60),
+    ...     "stat1": np.random.rand(60),
+    ...     "subsidence": np.random.rand(60)
+    ... })
+    >>> 
+    >>> # Prepare dummy input arrays for model training.
+    >>> # X_static is constructed using "longitude" and "stat1".
+    >>> X_static = train_df[["longitude", "stat1"]].values  
+    >>> # X_dynamic for "feat1" and "feat2" with time_steps = 3.
+    >>> X_dynamic = np.random.rand(60, 3, 2)
+    >>> # X_future is a dummy future feature array with shape (60, 3, 1).
+    >>> X_future = np.random.rand(60, 3, 1)
+    >>> # Target output from "subsidence" reshaped to 
+    >>> # (60, 1, 1). For multi-step forecast, forecast_horizon is 4.
+    >>> forecast_horizon = 4
+    >>> y_array = train_df["subsidence"].values.reshape(60, 1, 1)
+    >>> 
+    >>> # Instantiate a dummy XTFT model.
+    >>> my_model = XTFT(
+    ...     static_input_dim=2,    # "longitude" and "stat1"
+    ...     dynamic_input_dim=2,   # "feat1" and "feat2"
+    ...     future_input_dim=1,    # One future feature
+    ...     forecast_horizon=forecast_horizon,
+    ...     quantiles=[0.1, 0.5, 0.9],
+    ...     embed_dim=16,
+    ...     max_window_size=3,
+    ...     memory_size=50,
+    ...     num_heads=2,
+    ...     dropout_rate=0.1,
+    ...     lstm_units=32,
+    ...     attention_units=32,
+    ...     hidden_units=16
+    ... )
+    >>> my_model.compile(
+    ...    optimizer="adam", 
+    ...    loss=combined_quantile_loss(my_model.quantiles)
+    ...    )
+    >>> 
+    >>> # Fit the model on the dummy data for demonstration.
+    >>> my_model.fit(
+    ...     x=[X_static, X_dynamic, X_future],
+    ...     y=y_array,
+    ...     epochs=1,
+    ...     batch_size=8
+    ... )
+    >>> 
+    >>> # Generate forecast datetime values for the forecast horizon.
+    >>> forecast_dates = pd.date_range(start="2020-02-01", 
+    ...                                periods=forecast_horizon, freq="D")
+    >>> 
+    >>> # Package inputs as expected by forecast_multi_step.
     >>> inputs = [X_static, X_dynamic, X_future]
-    >>> forecast_df = forecast_multi_step(
+    >>> 
+    >>> # Generate a multi-step forecast in quantile mode.
+    >>> forecast_df_quantile = forecast_multi_step(
     ...     xtft_model=my_model,
     ...     inputs=inputs,
-    ...     forecast_horizon=4,
+    ...     forecast_horizon=forecast_horizon,
     ...     y=y_array,
-    ...     dt_col="year",
+    ...     dt_col="date",
     ...     mode="quantile",
     ...     spatial_cols=["longitude", "latitude"],
-    ...     time_steps=3,
+    ...     q=[0.1, 0.5, 0.9],
     ...     tname="subsidence",
     ...     forecast_dt=forecast_dates,
-    ...     apply_mask=True,
-    ...     mask_values=0,
-    ...     mask_fill_value=0,
+    ...     apply_mask=False,
     ...     verbose=3
     ... )
-    >>> print(forecast_df.head())
+    >>> print("Quantile Forecast:")
+    >>> print(forecast_df_quantile.head())
+    >>> 
+    
+    (2) For point forecast
+    
+    >>> # Instantiate a dummy XTFT model.
+    >>> my_model = XTFT(
+    ...     static_input_dim=2,    # "longitude" and "stat1"
+    ...     dynamic_input_dim=2,   # "feat1" and "feat2"
+    ...     future_input_dim=1,    # One future feature
+    ...     forecast_horizon=forecast_horizon,
+    ...     quantiles=None, # set quantiles to None
+    ...     embed_dim=16,
+    ...     max_window_size=3,
+    ...     memory_size=50,
+    ...     num_heads=2,
+    ...     dropout_rate=0.1,
+    ...     lstm_units=32,
+    ...     attention_units=32,
+    ...     hidden_units=16
+    ... )
+    >>> my_model.compile(
+    ...    optimizer="adam", loss="mse", 
+    ...    )
+    >>> 
+    >>> # Fit the model on the dummy data for demonstration.
+    >>> my_model.fit(
+    ...     x=[X_static, X_dynamic, X_future],
+    ...     y=y_array,
+    ...     epochs=1,
+    ...     batch_size=8
+    ... )
+    
+    >>> # Generate a multi-step forecast in point mode.
+    >>> forecast_df_point = forecast_multi_step(
+    ...     xtft_model=my_model,
+    ...     inputs=inputs,
+    ...     forecast_horizon=forecast_horizon,
+    ...     y=y_array,
+    ...     dt_col="date",
+    ...     mode="point",
+    ...     spatial_cols=["longitude", "latitude"],
+    ...     tname="subsidence",
+    ...     forecast_dt=forecast_dates,
+    ...     apply_mask=False,
+    ...     verbose=3
+    ... )
+    >>> print("Point Forecast:")
+    >>> print(forecast_df_point.head())
+
     
     Notes
     -----
@@ -3579,7 +3985,6 @@ def forecast_multi_step(
     assert_ratio         : Function to verify quantile ratios.
 
     """
-
     # Validate inputs: expect a list/tuple of three elements.
     if not isinstance(inputs, (list, tuple)) or len(inputs) != 3:
         raise ValueError(
@@ -3594,10 +3999,11 @@ def forecast_multi_step(
         print("\nGenerating multi-step forecast in mode:", mode)
 
     # Set default quantiles for quantile mode.
+    q=check_forecast_mode(mode, q, error="warn", ops="validate")
     if mode == "quantile":
         if q is None:
             q = [0.1, 0.5, 0.9]
-        q = [assert_ratio(r, bounds=(0, 1), excludes=[0, 1],
+        q = [assert_ratio(r, bounds=(0, 1), exclude_values=[0, 1],
                           name=f"quantile '{r}'")
              for r in q]
 
@@ -3605,15 +4011,38 @@ def forecast_multi_step(
     if tname is None:
         tname = "target"
 
-    # Generate predictions.
-    y_pred = xtft_model.predict([X_static, X_dynamic, X_future])
-    # Expected y_pred shape: (n_samples, forecast_horizons, n_outputs)
-
+    # Generate predictions using the XTFT model.
+    y_pred = xtft_model.predict(
+        [
+            np.asarray(X_static, dtype=np.float32),
+            np.asarray(X_dynamic, dtype=np.float32),
+            np.asarray(X_future, dtype=np.float32)
+        ]
+    ).squeeze(-1)
+ 
     rows = []
     n_samples = X_static.shape[0]
+    
+    # Determine available forecast steps based on y.
+    available_steps = forecast_horizon
+    if y is not None:
+        if len(y.shape) == 3:
+            if y.shape[1] < forecast_horizon:
+                warnings.warn(
+                    f"Provided y has forecast steps "
+                    f"({y.shape[1]}) which is less than the "
+                    f"specified forecast_horizon ({forecast_horizon}). "
+                    "Evaluation will be performed on the"
+                    " available steps."
+                )
+            available_steps = min(forecast_horizon, y.shape[1])
+        else:
+            # For non-3D y, use its length along axis 0.
+            available_steps = forecast_horizon
+    
     # Loop over each sample and each forecast step.
     for j in range(n_samples):
-        for i in range(forecast_horizon):
+        for i in range(available_steps):
             row = {}
             # Add spatial columns if provided.
             if spatial_cols is not None and len(spatial_cols) >= 2:
@@ -3621,15 +4050,13 @@ def forecast_multi_step(
                 row[spatial_cols[1]] = X_static[j, 1]
             # Add dt_col if provided.
             if dt_col is not None:
-                if forecast_dt is not None and len(
-                        forecast_dt) == forecast_horizon:
+                if (forecast_dt is not None and
+                    len(forecast_dt) == forecast_horizon):
                     row[dt_col] = forecast_dt[i]
                 else:
                     row[dt_col] = None
-            # Add actual target if y is provided.
+            # Add actual target value if y is provided.
             if y is not None:
-                # y shape: (n_samples, forecast_horizon, 1) 
-                # or (n_samples, forecast_horizon)
                 if len(y.shape) == 3:
                     row[f"{tname}_actual"] = y[j, i, 0]
                 else:
@@ -3637,17 +4064,20 @@ def forecast_multi_step(
             # Assign prediction columns based on mode.
             if mode == "quantile":
                 for iq, quantile in enumerate(q):
-                    col_name = f"{tname}_q{int(quantile * 100)}_step{i+1}"
+                    col_name = (
+                        f"{tname}_q{int(quantile * 100)}_step{i+1}"
+                    )
                     row[col_name] = y_pred[j, i, iq]
-                # For evaluation, use the median quantile (assumed to be q[1]).
             elif mode == "point":
                 col_name = f"{tname}_pred_step{i+1}"
-                row[col_name] = y_pred[j, i, 0]
+                row[col_name] = y_pred[j, i]
             else:
-                raise ValueError("Mode must be either 'quantile' or 'point'.")
+                raise ValueError(
+                    "Mode must be either 'quantile' or 'point'."
+                )
             rows.append(row)
+    
     pred_df = pd.DataFrame(rows)
-
     # Optionally apply masking.
     if apply_mask:
         if mask_values is None or mask_fill_value is None:
@@ -3657,57 +4087,99 @@ def forecast_multi_step(
             )
         if y is None:
             raise ValueError("y must be provided to apply masking.")
+        
         if mode == "quantile":
-            mask_cols = [f"{tname}_q{int(quant*100)}_step{i+1}" 
-                         for i in range(forecast_horizon)
-                         for quant in [q[0], q[-1]]]
+            mask_cols = [
+                f"{tname}_q{int(quant*100)}_step{i+1}"
+                for i in range(forecast_horizon)
+                for quant in [q[0], q[-1]]
+            ]
         else:
             mask_cols = [
-                f"{tname}_pred_step{i+1}" for i in range(forecast_horizon)]
-        pred_df = mask_by_reference(
-            data=pred_df,
-            ref_col=f"{tname}_actual",
-            values=mask_values,
-            fill_value=mask_fill_value,
-            mask_columns=mask_cols
-        )
+                f"{tname}_pred_step{i+1}"
+                for i in range(forecast_horizon)
+            ]
+        
+        # Check if the provided mask_values exists in the reference column.
+        ref_col = f"{tname}_actual"
+        unique_vals = pred_df[ref_col].unique()
+        if mask_values not in unique_vals:
+            warnings.warn(
+                "[mask_by_reference] No matching value"
+                f" found for '{mask_values}' in {tname}"
+                " column. Masking will be skipped. Please"
+                " ensure the value exists before applying "
+                "the mask."
+            )
+        else:
+            pred_df = mask_by_reference(
+                data=pred_df,
+                ref_col=ref_col,
+                values=mask_values,
+                fill_value=mask_fill_value,
+                mask_columns=mask_cols
+            )
 
     # If y is provided, compute evaluation metrics.
     if y is not None:
-        # Flatten actual and predicted values.
+        # Determine the number of available steps from y.
+        available_steps = forecast_horizon
+        if len(y.shape) == 3:
+            if y.shape[1] < forecast_horizon:
+                warnings.warn(
+                    f"Provided y has forecast steps "
+                    f"({y.shape[1]}) which is less than the "
+                    f"specified forecast_horizon ({forecast_horizon}). "
+                    "Evaluation will use available steps."
+                )
+            available_steps = min(forecast_horizon, y.shape[1])
+        else:
+            available_steps = forecast_horizon
+    
+        # Compute evaluation predictions using available_steps.
         if mode == "quantile":
-            # Use median prediction (q[1]) for evaluation.
             median_preds = []
             for j in range(n_samples):
-                for i in range(forecast_horizon):
+                for i in range(available_steps):
                     median_preds.append(y_pred[j, i, 1])
             eval_pred = np.array(median_preds)
         else:
-            eval_pred = y_pred[:, :, 0].flatten()
-        r2 = r2_score(y.flatten(), eval_pred)
+            eval_pred = y_pred[:, :available_steps].flatten()
+    
+        # Adjust y to only include available forecast steps.
+        if len(y.shape) == 3:
+            y_eval = y[:, :available_steps, 0].flatten()
+        else:
+            y_eval = y.flatten()
+    
+        # Compute R² Score.
+        r2 = r2_score(y_eval, eval_pred)
         if verbose >= 1:
             print(f"XTFT Model R² Score: {r2:.4f}")
+    
+        # For quantile mode, compute Coverage Score.
         if mode == "quantile":
             lower = []
             upper = []
             for j in range(n_samples):
-                for i in range(forecast_horizon):
+                for i in range(available_steps):
                     lower.append(y_pred[j, i, 0])
                     upper.append(y_pred[j, i, -1])
             lower = np.array(lower)
             upper = np.array(upper)
-            cov = coverage_score(y.flatten(), lower, upper)
+            cov = coverage_score(y_eval, lower, upper)
             if verbose >= 1:
                 print(f"XTFT Model Coverage Score: {cov:.4f}")
-
+ 
     # Save results if requested.
     if savefile is None:
         savefile = f"{mode}_forecast_{tname}_multi_step.csv"
     pred_df.to_csv(savefile, index=False)
     if verbose >= 1:
         print(f"Forecast results saved to: {savefile}")
-
+    
     return pred_df
+
 
 def generate_xtft_forecast(
         xtft_model,
@@ -3729,7 +4201,7 @@ def generate_xtft_forecast(
     
     forecast_horizon = validate_positive_integer(
         forecast_horizon, "forecast_horizon", 
-        msg = f"forecast_horizon must be at least 1. Got {forecast_horizon}"
+        msg = f"forecast_horizon must be at least 1. Got '{forecast_horizon}'"
     )
     if forecast_horizon == 1:
         return forecast_single_step(
@@ -3945,3 +4417,5 @@ References
 .. [1] Kouadio et al., "Gofast Forecasting Model", Journal of Advanced
    Forecasting, 2025. (In Review)
 """
+
+

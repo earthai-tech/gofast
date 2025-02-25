@@ -40,15 +40,22 @@ if KERAS_BACKEND:
     maximum=KERAS_DEPS.maximum
     reduce_mean=KERAS_DEPS.reduce_mean 
     rank=KERAS_DEPS.rank 
+    register_keras_serializable=KERAS_DEPS.register_keras_serializable
     
     
 DEP_MSG = dependency_message('loss') 
 
-__all__ = ['quantile_loss', 'quantile_loss_multi', 'anomaly_loss']
+__all__ = [
+    'quantile_loss', 
+    'quantile_loss_multi', 
+    'anomaly_loss', 
+    'combined_quantile_loss'
+ ]
 
 
 @ParamsValidator({'quantiles': [Real, 'array-like']})
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable('Gofast')
 def combined_quantile_loss(quantiles):
     """
     Creates a combined quantile loss function for multiple quantiles.
@@ -101,6 +108,7 @@ def combined_quantile_loss(quantiles):
 
 @check_params({"q": Real})
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable('Gofast')
 def quantile_loss(q):
     """
     Quantile (Pinball) Loss Function for Quantile Regression.
@@ -250,6 +258,7 @@ def quantile_loss(q):
      }
   )
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable('Gofast')
 def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     """
     Multi-Quantile (Pinball) Loss Function for Quantile Regression.
@@ -416,6 +425,7 @@ def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     }
 )
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+@register_keras_serializable('Gofast')
 def anomaly_loss(anomaly_scores, anomaly_loss_weight=1.0):
     """
     Compute the anomaly loss based on given anomaly scores and a 
