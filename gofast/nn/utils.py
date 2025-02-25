@@ -18,6 +18,7 @@ from typing import List, Tuple, Optional, Union, Dict, Callable, Any
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from sklearn.ensemble import IsolationForest
 from sklearn.metrics import r2_score
 
@@ -43,7 +44,7 @@ from ..compat.sklearn import (
 from ..decorators import DynamicMethod, isdf 
 from ..utils.data_utils import mask_by_reference 
 from ..utils.deps_utils import ensure_pkg 
-from ..utils.ts_utils import ts_validator 
+from ..utils.ts_utils import ts_validator, filter_by_period 
 from ..utils.validator import ( 
     assert_xy_in  , 
     validate_sequences, 
@@ -3108,9 +3109,9 @@ def generate_forecast(
 
 def visualize_forecasts(
     forecast_df,
-    test_data,
     dt_col,
     tname,
+    test_data=None, 
     eval_period=None,      
     mode="quantile",       
     kind="spatial",        
@@ -3122,7 +3123,6 @@ def visualize_forecasts(
     show_grid=True,
     grid_props=None,           
     verbose=1,
-             
 ):
     r"""
     Visualize forecast results and actual test data for one or more
@@ -3147,15 +3147,14 @@ def visualize_forecasts(
     forecast_df : pandas.DataFrame
         DataFrame containing forecast results with a time column,
         spatial coordinates, and prediction columns.
-    test_data   : pandas.DataFrame
-        DataFrame containing actual values along with spatial
-        coordinates.
     dt_col      : str
         Name of the time column used to filter forecast results (e.g.
         ``"year"``).
     tname : str
         Target variable name used to construct forecast columns (e.g.
         ``"subsidence"``). This argument is required.
+        
+        
     eval_period : scalar or list, optional
         Evaluation period(s) used to select forecast results. If set to
         ``None``, the function selects up to three unique periods from
@@ -3194,21 +3193,78 @@ def visualize_forecasts(
 
     Examples
     --------
-    .. code-block:: python
+    Example 1: **Spatial Visualization**
+    
+    In this example, we visualize the forecasted and actual values of the
+    **subsidence** target variable, using **longitude** and **latitude**
+    for the spatial coordinates. We visualize the results for two
+    evaluation periods (2023 and 2024), using **quantile** mode for the forecast.
 
-        >>> from gofast.nn.utils import visualize_forecasts
-        >>> visualize_forecasts(
-        ...     forecast_df=forecast_results,
-        ...     test_data=test_data,
-        ...     dt_col="year",
-        ...     tname="subsidence",
-        ...     eval_period=[2023, 2024],
-        ...     mode="quantile",
-        ...     kind="spatial",
-        ...     cmap="coolwarm",
-        ...     max_cols=2,
-        ...     verbose=1
-        ... )
+    >>> from gofast.nn.utils import visualize_forecasts
+    >>> forecast_results = pd.DataFrame({
+    >>>     'longitude': [-103.808151, -103.808151, -103.808151],
+    >>>     'latitude': [0.473152, 0.473152, 0.473152],
+    >>>     'subsidence_q50': [0.3, 0.4, 0.5],
+    >>>     'subsidence': [0.35, 0.42, 0.49],
+    >>>     'date': ['2023-01-01', '2023-01-02', '2023-01-03']
+    >>> })
+    >>> test_data = pd.DataFrame({
+    >>>     'longitude': [-103.808151, -103.808151, -103.808151],
+    >>>     'latitude': [0.473152, 0.473152, 0.473152],
+    >>>     'subsidence': [0.35, 0.41, 0.49],
+    >>>     'date': ['2023-01-01', '2023-01-02', '2023-01-03']
+    >>> })
+    >>> forecast_df_quantile = visualize_forecasts(
+    >>>     forecast_df=forecast_results,
+    >>>     test_data=test_data,
+    >>>     dt_col="date",
+    >>>     tname="subsidence",
+    >>>     eval_period=[2023, 2024],
+    >>>     mode="quantile",
+    >>>     kind="spatial",
+    >>>     cmap="coolwarm",
+    >>>     max_cols=2,
+    >>>     verbose=1
+    >>> )
+    
+    Example 2: **Non-Spatial Visualization**
+    
+    In this example, we visualize the forecasted and actual values of the
+    **subsidence** target variable in a **non-spatial** context. The columns
+    `longitude` and `latitude` are still provided but used for non-spatial
+    x and y axes. Evaluation is for 2023.
+
+    >>> from gofast.nn.utils import visualize_forecasts
+    >>> forecast_results = pd.DataFrame({
+    >>>     'longitude': [-103.808151, -103.808151, -103.808151],
+    >>>     'latitude': [0.473152, 0.473152, 0.473152],
+    >>>     'subsidence_pred': [0.35, 0.41, 0.48],
+    >>>     'subsidence': [0.36, 0.43, 0.49],
+    >>>     'date': ['2023-01-01', '2023-01-02', '2023-01-03']
+    >>> })
+    >>> test_data = pd.DataFrame({
+    >>>     'longitude': [-103.808151, -103.808151, -103.808151],
+    >>>     'latitude': [0.473152, 0.473152, 0.473152],
+    >>>     'subsidence': [0.36, 0.42, 0.50],
+    >>>     'date': ['2023-01-01', '2023-01-02', '2023-01-03']
+    >>> })
+    >>> forecast_df_point = visualize_forecasts(
+    >>>     forecast_df=forecast_results,
+    >>>     test_data=test_data,
+    >>>     dt_col="date",
+    >>>     tname="subsidence",
+    >>>     eval_period=[2023],
+    >>>     mode="point",
+    >>>     kind="non-spatial",
+    >>>     x="longitude",
+    >>>     y="latitude",
+    >>>     cmap="viridis",
+    >>>     max_cols=1,
+    >>>     axis="off",
+    >>>     show_grid=True,
+    >>>     grid_props={"linestyle": "--", "alpha": 0.5},
+    >>>     verbose=2
+    >>> )
 
     Notes
     -----
@@ -3232,38 +3288,51 @@ def visualize_forecasts(
     .. [1] Kouadio L. et al., "Gofast Forecasting Model", Journal of
        Advanced Forecasting, 2025. (In review)
     """
-    import matplotlib.pyplot as plt
-    
-    test_data = is_frame (
-        test_data, 
+
+    # Check that forecast_df is a valid DataFrame
+    is_frame (
+        forecast_df, 
         df_only=True,
-        objname="Test data", 
+        objname="Forecast data", 
         error="raise"
     )
-    # Determine evaluation periods.
+
+    # Check if test_data is provided, else set it to None
+    if test_data is not None: 
+        is_frame (
+            test_data, 
+            df_only=True,
+            objname="Test data", 
+            error="raise"
+        )
+        test_data =filter_by_period (test_data, eval_period, dt_col)
+   
+    # Determine evaluation periods
+    forecast_df =filter_by_period (forecast_df, eval_period, dt_col)
+    
     if eval_period is None:
-        unique_periods = sorted(test_data[dt_col].unique())
+        unique_periods = sorted(forecast_df[dt_col].unique())
         if verbose:
             print("No eval_period provided; using up to three unique " +
-                  "periods from test_data.")
+                  "periods from forecast data.")
         eval_periods = unique_periods[:3]
     elif not isinstance(eval_period, (list, tuple)):
         eval_periods = [eval_period]
     else:
         eval_periods = eval_period
 
-    # Determine x and y columns.
+    # Determine x and y columns for spatial or non-spatial visualization
     if kind == "spatial":
         if x is None and y is None:
             x, y = "longitude", "latitude"
-        check_spatial_columns(test_data, spatial_cols=(x, y ))
-        x, y = assert_xy_in(x, y, data=test_data)
+        check_spatial_columns(forecast_df, spatial_cols=(x, y ))
+        x, y = assert_xy_in(x, y, data=forecast_df, asarray=False)
     else:
         if x is None or y is None:
             raise ValueError("For non-spatial kind, both x and y must be provided.")
-        x, y = assert_xy_in(x, y, data=forecast_df)
+        x, y = assert_xy_in(x, y, data=forecast_df, asarray=False)
 
-    # Determine prediction column based on mode.
+    # Set prediction column based on forecast mode
     if mode == "quantile":
         pred_col   = f"{tname}_q50"
         pred_label = f"Predicted {tname} (q50)"
@@ -3278,12 +3347,12 @@ def visualize_forecasts(
     n_rows = int(np.ceil(n_periods / max_cols))
     total_rows = n_rows * 2  # Two rows per evaluation period.
 
-    # Create grid of subplots.
+    # Create grid of subplots
     fig, axes = plt.subplots(
         total_rows, n_cols, figsize=(5 * n_cols, 4 * total_rows)
     )
 
-    # Ensure axes is a 2D array.
+    # Ensure axes is a 2D array
     if total_rows == 1 and n_cols == 1:
         axes = np.array([[axes]])
     elif total_rows == 1:
@@ -3291,85 +3360,76 @@ def visualize_forecasts(
     elif n_cols == 1:
         axes = axes.reshape(total_rows, 1)
 
-    # Loop over evaluation periods and plot.
+    # Loop over evaluation periods and plot
     for idx, period in enumerate(eval_periods):
         col_idx = idx % n_cols
         row_idx = (idx // n_cols) * 2
 
-        # Filter data for the current period.
-        forecast_subset = forecast_df[
-            forecast_df[dt_col] == period
-        ]
-        test_subset = test_data[
-            test_data[dt_col] == period
-        ]
+        # Filter data for the current period using 'isin' for robustness
+        forecast_subset = forecast_df[forecast_df[dt_col].isin([period])]
+        
+        if test_data is not None:
+            test_subset = test_data[test_data[dt_col].isin([period])]
+        else:
+            test_subset = forecast_subset  # If no test_data, use forecast_df itself
 
         if forecast_subset.empty or test_subset.empty:
             if verbose:
                 print(f"Warning: No data for period {period}; skipping.")
             continue
 
-        # Plot actual values.
+        # Plot actual values
         ax_actual = axes[row_idx, col_idx]
         sc_actual = ax_actual.scatter(
-            test_subset[x],
-            test_subset[y],
+            test_subset[x.name],
+            test_subset[y.name],
             c=test_subset[tname],
             cmap=cmap,
             alpha=0.7,
             edgecolors='k'
         )
-        ax_actual.set_title(
-            f"Actual {tname.capitalize()} ({period})"
-        )
-        ax_actual.set_xlabel(x.capitalize())
-        ax_actual.set_ylabel(y.capitalize())
-        if axis=="off": 
+        ax_actual.set_title(f"Actual {tname.capitalize()} ({period})")
+        ax_actual.set_xlabel(x.name.capitalize())
+        ax_actual.set_ylabel(y.name.capitalize())
+        if axis == "off": 
             ax_actual.set_axis_off()
         else: 
             ax_actual.set_axis_on()
 
-        fig.colorbar(
-            sc_actual, ax=ax_actual,
-            label=tname.capitalize()
-        )
+        fig.colorbar(sc_actual, ax=ax_actual, label=tname.capitalize())
         if show_grid: 
             if grid_props is None: 
-                grid_props = {"linestyle":":", 'alpha':0.7}
-            ax_actual.grid (True, **grid_props)
-            
-        # Plot predicted values.
+                grid_props = {"linestyle": ":", 'alpha': 0.7}
+            ax_actual.grid(True, **grid_props)
+
+        # Plot predicted values
         ax_pred = axes[row_idx + 1, col_idx]
         sc_pred = ax_pred.scatter(
-            forecast_subset[x],
-            forecast_subset[y],
+            forecast_subset[x.name],
+            forecast_subset[y.name],
             c=forecast_subset[pred_col],
             cmap=cmap,
             alpha=0.7,
             edgecolors='k'
         )
-        ax_pred.set_title(
-            f"{pred_label} ({period})"
-        )
-        ax_pred.set_xlabel(x.capitalize())
-        ax_pred.set_ylabel(y.capitalize())
-        if axis=="off": 
+        ax_pred.set_title(f"{pred_label} ({period})")
+        ax_pred.set_xlabel(x.name.capitalize())
+        ax_pred.set_ylabel(y.name.capitalize())
+        if axis == "off": 
             ax_pred.set_axis_off()
         else: 
             ax_pred.set_axis_on()
-            
+
         if show_grid: 
             if grid_props is None: 
-                grid_props = {"linestyle":":", 'alpha':0.7}
-            ax_pred.grid (True, **grid_props)
-            
-        fig.colorbar(
-            sc_pred, ax=ax_pred,
-            label=pred_label
-        )
+                grid_props = {"linestyle": ":", 'alpha': 0.7}
+            ax_pred.grid(True, **grid_props)
+
+        fig.colorbar(sc_pred, ax=ax_pred, label=pred_label)
 
     plt.tight_layout()
     plt.show()
+
 
 def forecast_single_step(
     xtft_model,
@@ -4417,5 +4477,4 @@ References
 .. [1] Kouadio et al., "Gofast Forecasting Model", Journal of Advanced
    Forecasting, 2025. (In Review)
 """
-
 

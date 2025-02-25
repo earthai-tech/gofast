@@ -1030,7 +1030,7 @@ def smart_ts_detector(
     
     if to_datetime is not None and to_datetime not in valid_formats: 
         raise ValueError(
-            "Invalid `to_datetime` format '{to_datetime}'."
+           f"Invalid `to_datetime` format '{to_datetime}'."
             f" Expect one of {smart_format(valid_formats,'or')}"
         )
     # Check if already datetime

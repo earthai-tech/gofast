@@ -45,9 +45,200 @@ __all__= [
     'ts_engineering','ts_validator','visual_inspection', 
     'ts_corr_analysis', 'transform_stationarity','ts_split', 
     'ts_outlier_detector', 'create_lag_features', 
-    'select_and_reduce_features', 'get_decomposition_method'
+    'select_and_reduce_features', 'get_decomposition_method', 
+    'filter_by_period'
  ]
 
+def filter_by_period(
+    df, eval_periods, 
+    dt_col =None, 
+    ):
+    """
+    Filter a DataFrame based on the provided evaluation periods.
+
+    The function filters the rows of the DataFrame where the values in the
+    :param:`dt_col` match the provided :param:`eval_periods`. The function 
+    supports filtering by various time granularities, such as year, month, 
+    day, week, hour, minute, and second, based on the provided periods.
+
+    The function performs the following operation:
+    
+    .. math::
+        filtered\_df = df[dt_{col}.isin(eval_{periods})]
+
+    It checks whether the values in the :math:`dt_{col}` match any of the 
+    values in the :math:`eval_{periods}` and filters the DataFrame accordingly.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame to be filtered. It must contain a column with 
+        date/time information specified in :param:`dt_col`.
+  
+    eval_periods : list of str or str
+        A list or single string containing the periods to filter
+        the DataFrame. The periods can be of varying granularity:
+        - Year (`'YYYY'`)
+        - Month (`'YYYY-MM'`)
+        - Exact Date (`'YYYY-MM-DD'`)
+        - Week (`'YYYY-Www'`)
+        - Hour (`'YYYY-MM-DD HH'`)
+        - Minute (`'YYYY-MM-DD HH:MM'`)
+        - Second (`'YYYY-MM-DD HH:MM:SS'`)
+    dt_col : str, optional
+        The name of the column containing date or time information. 
+        The values in this column are used to match the periods in 
+        :param:`eval_periods`. This column should be of type `datetime`.
+        If ``None`` index is infered as `dt_col`. If not datetime, an 
+        error is raised. 
+        
+    Returns
+    -------
+    pandas.DataFrame
+        The filtered DataFrame containing only the rows that match the 
+        evaluation periods specified in :param:`eval_periods`.
+
+    Examples
+    --------
+    >>> from gofast.utils.ts_utils import filter_by_period
+    >>> df = pd.DataFrame({
+    ...     'dt_col': ['2023-01-01', '2023-01-02', '2023-03-03', '2022-05-05'],
+    ...     'value': [10, 20, 30, 40]
+    ... })
+    >>> df['dt_col'] = pd.to_datetime(df['dt_col'])
+    >>> eval_periods = ['2023']
+    >>> filtered_df = filter_by_period(df, eval_periods, 'dt_col')
+    >>> print(filtered_df)
+        dt_col  value
+    0 2023-01-01     10
+    1 2023-01-02     20
+    2 2023-03-03     30
+
+    >>> eval_periods = ['2023-01']
+    >>> filtered_df = filter_by_period(df, eval_periods, 'dt_col')
+    >>> print(filtered_df)
+        dt_col  value
+    0 2023-01-01     10
+    1 2023-01-02     20
+
+    >>> eval_periods = ['2023-01-01']
+    >>> filtered_df = filter_by_period(df, eval_periods, 'dt_col')
+    >>> print(filtered_df)
+        dt_col  value
+    0 2023-01-01     10
+
+    >>> eval_periods = ['2023-W01']
+    >>> filtered_df = filter_by_period(df, eval_periods, 'dt_col')
+    >>> print(filtered_df)
+        dt_col  value
+    0 2023-01-01     10
+    1 2023-01-02     20
+
+    Notes
+    -----
+    - This function is flexible and can handle a wide range of 
+      datetime formats.
+    - The function uses the pandas `.isin()` method to perform
+      the filtering based on the provided :param:`eval_periods`.
+    - The :param:`eval_periods` parameter can contain periods 
+      of various granularities (e.g., year, month, exact date),
+      and the function will handle these correctly 
+      by comparing the appropriate level of detail 
+      (e.g., only the year, month, or exact date).
+    - The :param:`dt_col` in the DataFrame must be of type
+      `datetime`. If it's not, it will be converted to 
+      `datetime` internally.
+    - If :param:`eval_periods` is a single string, it is
+      automatically converted into a list.
+
+    See Also
+    --------
+    pandas.DataFrame: The pandas DataFrame object that provides
+    methods such as `isin` to filter data.
+    
+    References
+    ----------
+    .. [1] Kouadio L. et al., "Time Series Filtering in DataFrames", 
+       Journal of Data Processing, 2025. (In review)
+    """
+    # Validate the datetime column and
+    # ensure it is in the correct format
+    df, dt_col =ts_validator(
+        df.copy(), dt_col=dt_col, 
+        to_datetime="auto", 
+        as_index=False, 
+        error="raise", 
+        verbose=1, 
+        return_dt_col=True, 
+    )
+    
+    # Ensure dt_col is of datetime type
+    df[dt_col] = pd.to_datetime(df[dt_col])
+    
+    # If eval_periods is a single 
+    # string, convert it to a list
+    eval_periods= columns_manager(eval_periods, to_string=True)
+
+    # Prepare the filtered DataFrame
+    filtered_df = df.copy()
+    
+    # Filter by year (e.g., '2023')
+        # Year
+    if all(len(period) == 4 for period in eval_periods):  
+        filtered_df = filtered_df[filtered_df[dt_col].dt.year.isin(
+            [int(period) for period in eval_periods])]
+    
+    # Filter by month (e.g., '2023-01')
+        # Year-Month
+    elif all(len(period) == 7 for period in eval_periods):  
+        filtered_df = filtered_df[
+            filtered_df[dt_col].dt.strftime(
+                '%Y-%m').isin(eval_periods)]
+    
+    # Filter by exact date (e.g., '2023-01-01')
+        # Exact Date
+    elif all(len(period) == 10 for period in eval_periods):  
+        filtered_df = filtered_df[
+            filtered_df[dt_col].dt.strftime(
+                '%Y-%m-%d').isin(eval_periods)]
+    
+    # Filter by week (e.g., '2023-W01')
+    elif all(len(period) == 7 and period[4] == 'W' 
+             for period in eval_periods):  # Year-Wk
+        filtered_df = filtered_df[
+            filtered_df[dt_col].dt.strftime(
+                '%Y-W%U').isin(eval_periods)]
+    
+    # Filter by hour (e.g., '2023-01-01 10')
+        # Year-Month-Day Hour
+    elif all(len(period) == 13 for period in eval_periods):  
+        filtered_df = filtered_df[
+            filtered_df[dt_col].dt.strftime(
+                '%Y-%m-%d %H').isin(eval_periods)]
+    
+    # Filter by minute (e.g., '2023-01-01 10:30')
+        # Year-Month-Day Hour:Min
+    elif all(len(period) == 16 for period in eval_periods):  
+        filtered_df = filtered_df[
+            filtered_df[dt_col].dt.strftime(
+                '%Y-%m-%d %H:%M').isin(eval_periods)]
+    
+    # Filter by second (e.g., '2023-01-01 10:30:00')
+        # Year-Month-Day Hour:Min:Sec
+    elif all(len(period) == 19 for period in eval_periods):  
+        filtered_df = filtered_df
+        [filtered_df[dt_col].dt.strftime(
+            '%Y-%m-%d %H:%M:%S').isin(eval_periods)]
+    
+    else:
+        raise ValueError(
+            "eval_periods should contain valid year, month, day, "
+            "week, hour, minute, or second format."
+        )
+    
+    return filtered_df
+    
+    
 def ts_validator(
     df,
     dt_col=None,

@@ -4990,6 +4990,39 @@ def assert_xy_in (
         
     return ( np.array(x), np.array (y) ) if asarray else (x, y )  
 
+def _validate_input(ignore: str, x, y, _is_arraylike_1d):
+    """
+    Validates that x and y are one-dimensional array-like structures based
+    on the ignore parameter.
+
+    Parameters
+    ----------
+    ignore : str
+        Specifies which variable ('x' or 'y') to ignore during validation.
+    x, y : array-like
+        The variables to be validated.
+    _is_arraylike_1d : function
+        Function to check if the input is array-like and one-dimensional.
+
+    Raises
+    ------
+    ValueError
+        If the non-ignored variable(s) are not one-dimensional array-like structures.
+    """
+    validation_checks = {
+        'x': lambda: _is_arraylike_1d(y),
+        'y': lambda: _is_arraylike_1d(x),
+        'both': lambda: _is_arraylike_1d(x) and _is_arraylike_1d(y)
+    }
+
+    check = validation_checks.get(ignore, validation_checks['both'])
+    if not check():
+        if ignore in ['x', 'y']:
+            raise ValueError(f"Expected '{'y' if ignore == 'x' else 'x'}' to be"
+                             " a one-dimensional array-like structure.")
+        else:
+            raise ValueError("Expected both 'x' and 'y' to be one-dimensional "
+                             "array-like structures.")
 def validate_numeric(
     value, 
     convert_to='float', 
@@ -5168,39 +5201,7 @@ def is_array_like(obj, numpy_check=False):
     return isinstance(obj, Iterable) and not isinstance(obj, str)
 
 
-def _validate_input(ignore: str, x, y, _is_arraylike_1d):
-    """
-    Validates that x and y are one-dimensional array-like structures based
-    on the ignore parameter.
 
-    Parameters
-    ----------
-    ignore : str
-        Specifies which variable ('x' or 'y') to ignore during validation.
-    x, y : array-like
-        The variables to be validated.
-    _is_arraylike_1d : function
-        Function to check if the input is array-like and one-dimensional.
-
-    Raises
-    ------
-    ValueError
-        If the non-ignored variable(s) are not one-dimensional array-like structures.
-    """
-    validation_checks = {
-        'x': lambda: _is_arraylike_1d(y),
-        'y': lambda: _is_arraylike_1d(x),
-        'both': lambda: _is_arraylike_1d(x) and _is_arraylike_1d(y)
-    }
-
-    check = validation_checks.get(ignore, validation_checks['both'])
-    if not check():
-        if ignore in ['x', 'y']:
-            raise ValueError(f"Expected '{'y' if ignore == 'x' else 'x'}' to be"
-                             " a one-dimensional array-like structure.")
-        else:
-            raise ValueError("Expected both 'x' and 'y' to be one-dimensional "
-                             "array-like structures.")
 
 def _is_numeric_dtype (o, to_array =False ): 
     """ Determine whether the argument has a numeric datatype, when
