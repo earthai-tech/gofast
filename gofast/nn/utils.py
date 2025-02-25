@@ -41,6 +41,7 @@ from ..compat.sklearn import (
     validate_params
 )
 from ..decorators import DynamicMethod, isdf 
+from ..utils.data_utils import mask_by_reference 
 from ..utils.deps_utils import ensure_pkg 
 from ..utils.ts_utils import ts_validator 
 from ..utils.validator import ( 
@@ -49,7 +50,8 @@ from ..utils.validator import (
     check_consistent_length, 
     parameter_validator,
     validate_keras_model,
-    is_frame
+    is_frame, 
+    validate_positive_integer 
 )
 from ..metrics_special import coverage_score
 
@@ -69,6 +71,10 @@ __all__ = [
     "reshape_xtft_data", 
     "generate_forecast", 
     "visualize_forecasts", 
+    "forecast_multi_step", 
+    "forecast_single_step", 
+    "generate_xtft_forecast", 
+    
     
    ]
 
@@ -2442,7 +2448,65 @@ def generate_forecast(
     
     Examples
     --------
+    >>> from gofast.nn.transformers import XTFT
     >>> from gofast.nn.utils import generate_forecast
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> 
+    >>> # Create a dummy training DataFrame with a date column,
+    >>> # dynamic features "feat1", "feat2", static feature "stat1",
+    >>> # and target "price".
+    >>> date_rng = pd.date_range(start="2020-01-01", periods=50, freq="D")
+    >>> train_df = pd.DataFrame({
+    ...     "date": date_rng,
+    ...     "feat1": np.random.rand(50),
+    ...     "feat2": np.random.rand(50),
+    ...     "stat1": np.random.rand(50),
+    ...     "price": np.random.rand(50)
+    ... })
+    >>> 
+    >>> # Prepare a dummy XTFT model with example parameters.
+    >>> # Note: The model expects the following input shapes:
+    >>> # - X_static: (n_samples, static_input_dim)
+    >>> # - X_dynamic: (n_samples, time_steps, dynamic_input_dim)
+    >>> # - X_future:  (n_samples, time_steps, future_input_dim)
+    >>> # For this example, we assume there are no future features.
+    >>> my_model = XTFT(
+    ...     static_input_dim=1,           # "stat1"
+    ...     dynamic_input_dim=2,          # "feat1" and "feat2"
+    ...     future_input_dim=0,           # No future features provided
+    ...     forecast_horizon=5,           # Forecasting 5 periods ahead
+    ...     quantiles=[0.1, 0.5, 0.9],
+    ...     embed_dim=16,
+    ...     max_window_size=3,
+    ...     memory_size=50,
+    ...     num_heads=2,
+    ...     dropout_rate=0.1,
+    ...     lstm_units=32,
+    ...     attention_units=32,
+    ...     hidden_units=16
+    ... )
+    >>> my_model.compile(optimizer="adam")
+    >>> 
+    >>> # Create dummy input arrays for model fitting.
+    >>> # For simplicity, assume time_steps = 3 and use random data.
+    >>> X_static = train_df[["stat1"]].values      # shape: (50, 1)
+    >>> # Create a dummy dynamic input array of shape (50, 3, 2)
+    >>> X_dynamic = np.random.rand(50, 3, 2)
+    >>> # Since no future features are provided, create an empty array
+    >>> X_future = np.empty((50, 3, 0))
+    >>> # Create dummy target output from "price"
+    >>> y_array = train_df["price"].values.reshape(50, 1, 1)
+    >>> 
+    >>> # Fit the model on the dummy data.
+    >>> my_model.fit(
+    ...     x=[X_static, X_dynamic, X_future],
+    ...     y=y_array,
+    ...     epochs=1,
+    ...     batch_size=8
+    ... )
+    >>> 
+    >>> # Generate forecast using the generate_forecast function.
     >>> forecast = generate_forecast(
     ...     xtft_model=my_model,
     ...     train_data=train_df,
@@ -2456,7 +2520,7 @@ def generate_forecast(
     ...     verbose=3
     ... )
     >>> print(forecast.head())
-    
+
     Notes
     -----
     The function groups data by `spatial_cols` if provided, and 
@@ -3110,3 +3174,774 @@ def visualize_forecasts(
 
     plt.tight_layout()
     plt.show()
+
+def forecast_single_step(
+    xtft_model,
+    inputs, 
+    y=None,
+    dt_col=None,
+    mode="quantile",
+    spatial_cols=None,
+    # time_steps=3,
+    q=None,
+    tname=None,
+    forecast_dt=None,
+    apply_mask=False,
+    mask_values=None,
+    mask_fill_value=None,
+    savefile=None,
+    verbose=3
+):
+    """
+    Generate a single-step forecast using the XTFT model.
+    
+    This function generates a forecast for a single future time step
+    using a pre-trained XTFT deep learning model. The model takes three
+    inputs: `X_static`, `X_dynamic`, and `X_future`, and produces a
+    prediction according to the formulation:
+    
+    .. math::
+    
+        \hat{y}_{t+1} = f\Bigl( X_{\text{static}},\;
+        X_{\text{dynamic}},\; X_{\text{future}} \Bigr)
+    
+    where :math:`f` is the trained XTFT model. The predictions can be
+    either quantile-based or point-based, as determined by the `mode`
+    parameter.
+    
+    Parameters
+    ----------
+    xtft_model : object
+        A validated Keras model instance. The model is expected to be
+        verified via ``validate_keras_model``.
+    inputs : list or tuple of numpy.ndarray
+        A list containing three elements: ``X_static``, ``X_dynamic``,
+        and ``X_future``. If ``spatial_cols`` is provided, it is assumed
+        that the first column of ``X_static`` corresponds to the first
+        spatial coordinate and the second column to the second spatial
+        coordinate of the original training data.
+    y : numpy.ndarray, optional
+        Actual target values. If provided, evaluation metrics such as
+        R² Score and (in quantile mode) the coverage score are computed.
+    dt_col : str, optional
+        Name of the time column (e.g. ``"year"``). If provided, a column
+        with this name is added to the output DataFrame. The actual time
+        values must be supplied externally.
+    mode : str, optional
+        Forecast mode. Must be either ``"quantile"`` or ``"point"``.
+        In quantile mode, predictions are generated for multiple
+        quantiles (default: ``0.1``, ``0.5``, and ``0.9``).
+    spatial_cols : list of str, optional
+        List of spatial column names. If provided, it must contain at least
+        two elements and correspond to the first and second columns of the
+        original training data's ``X_static``.
+    q : list of float, optional
+        List of quantiles for quantile forecasting. Default is
+        ``[0.1, 0.5, 0.9]`` when `mode` is ``"quantile"``.
+    tname : str, optional
+        Target variable name for predictions. This name is used to
+        construct output column names (e.g. ``"subsidence"``). Default is
+        ``"target"``.
+    forecast_dt : any, optional
+        Forecast datetime information. Not used in this function but may be
+        provided for compatibility.
+    apply_mask : bool, optional
+        If True, applies a masking function (``mask_by_reference``) to
+        replace predictions in non-subsiding areas. Requires that both
+        ``mask_values`` and ``mask_fill_value`` are provided.
+    mask_values : scalar, optional
+        Reference value(s) used for masking. Must be provided if
+        ``apply_mask`` is True.
+    mask_fill_value : scalar, optional
+        Value used to fill masked predictions. Must be provided if
+        ``apply_mask`` is True.
+    savefile : str, optional
+        Path to a CSV file where the forecast results will be saved.
+        If not provided, a default filename is generated.
+    verbose : int, optional
+        Verbosity level controlling printed output. Higher values result in
+        more detailed output.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame containing the forecast results. In quantile mode,
+        the output includes columns for each quantile (e.g.
+        ``<tname>_q10``, ``<tname>_q50``, ``<tname>_q90``). In point mode,
+        a single prediction column (``<tname>_pred``) is provided. If `y`
+        is provided, an additional column with the actual target values
+        (``<tname>_actual``) is included.
+    
+    Examples
+    --------
+
+    >>> from gofast.nn.utils import forecast_single_step
+    >>> # Assume X_static, X_dynamic, X_future, and y_array are preprocessed.
+    >>> inputs = [X_static, X_dynamic, X_future]
+    >>> forecast_df = forecast_single_step(
+    ...     xtft_model=my_model,
+    ...     inputs=inputs,
+    ...     y=y_array,
+    ...     dt_col="year",
+    ...     mode="quantile",
+    ...     spatial_cols=["longitude", "latitude"],
+    ...     time_steps=3,
+    ...     tname="subsidence",
+    ...     apply_mask=True,
+    ...     mask_values=0,
+    ...     mask_fill_value=0,
+    ...     verbose=3
+    ... )
+    >>> print(forecast_df.head())
+    
+    Notes
+    -----
+    - In quantile mode, the function computes predictions for multiple
+      quantiles and uses the median (``0.5``) for evaluation.
+    - If ``spatial_cols`` is provided, it must be the first and second
+      columns of the original training data's ``X_static``.
+    - The function internally utilizes ``validate_keras_model`` for model
+      validation, ``assert_ratio`` for quantile verification, and
+      ``mask_by_reference`` for masking operations.
+    - Evaluation metrics such as R² Score and Coverage Score are computed
+      if actual target values (`y`) are provided.
+    - The prediction output is expected to have the shape
+      :math:`(n, 1, m)`, where :math:`m` is the number of outputs (e.g., the
+      number of quantiles in quantile mode, or 1 in point mode) [1]_.
+    
+    See Also
+    --------
+    generate_forecast_multi_step : Function for multi-step forecasts.
+    coverage_score            : Function to compute the coverage score.
+    validate_keras_model      : Function to validate a Keras model.
+    assert_ratio              : Function to validate quantile ratios.
+    
+    """
+    # Validate inputs: expect a list/tuple of three elements.
+    if not isinstance(inputs, (list, tuple)) or len(inputs) != 3:
+        raise ValueError(
+            "inputs must be a list or tuple containing "
+            "[X_static, X_dynamic, X_future]."
+        )
+    X_static, X_dynamic, X_future = inputs
+
+    # Validate model
+    xtft_model = validate_keras_model(xtft_model, deep_check=True)
+    if verbose >= 1:
+        print("\nGenerating single-step forecast in mode:",
+              mode)
+
+    # Set default quantiles for quantile mode.
+    if mode == "quantile":
+        if q is None:
+            q = [0.1, 0.5, 0.9]
+        q = [assert_ratio(r, bounds=(0, 1), excludes=[0, 1],
+                          name=f"quantile '{r}'")
+             for r in q]
+
+    # Set default target name if not provided.
+    if tname is None:
+        tname = "target"
+
+    # Generate predictions.
+    y_pred = xtft_model.predict([X_static, X_dynamic, X_future])
+
+    pred_df = pd.DataFrame()
+
+    if spatial_cols is not None and len(spatial_cols) >= 2:
+        pred_df[spatial_cols[0]] = X_static[:, 0]
+        pred_df[spatial_cols[1]] = X_static[:, 1]
+    # Otherwise, if no spatial_cols, do nothing.
+
+    # Optionally add dt_col if provided 
+    # (dt values must be supplied externally).
+    if dt_col is not None:
+        # User is responsible for adding dt values.
+        pred_df[dt_col] = None
+
+    # If y is provided, add actual target values.
+    if y is not None:
+        pred_df[f"{tname}_actual"] = y.flatten()
+
+    # Assign prediction columns based on mode.
+    if mode == "quantile":
+        for i, quantile in enumerate(q):
+            col_name = f"{tname}_q{int(quantile * 100)}"
+            pred_df[col_name] = y_pred[:, 0, i]
+        eval_pred = pred_df[f"{tname}_q50"].values
+    elif mode == "point":
+        col_name = f"{tname}_pred"
+        pred_df[col_name] = y_pred[:, 0, 0]
+        eval_pred = pred_df[col_name].values
+    else:
+        raise ValueError("Mode must be either 'quantile' or 'point'.")
+
+    # Optionally apply masking.
+    if apply_mask:
+        if mask_values is None or mask_fill_value is None:
+            raise ValueError(
+                "mask_values and mask_fill_value must be provided "
+                "when apply_mask is True."
+            )
+        if y is None:
+            raise ValueError("y must be provided to apply masking.")
+        if mode == "quantile":
+            mask_cols=[] 
+            for quantile in q:
+                mask_cols.append (f"{tname}_q{int(quantile * 100)}")
+  
+        else:
+            mask_cols = [f"{tname}_pred"]
+            
+        pred_df = mask_by_reference(
+            data=pred_df,
+            ref_col=f"{tname}_actual",
+            values=mask_values,
+            fill_value=mask_fill_value,
+            mask_columns=mask_cols
+        )
+
+    # If y is provided, compute evaluation metrics.
+    if y is not None:
+        r2 = r2_score(y.flatten(), eval_pred)
+        if verbose >= 1:
+            print(f"XTFT Model R² Score: {r2:.4f}")
+        if mode == "quantile":
+
+            lower_col = f"{tname}_q{int(q[0]*100)}"
+            upper_col = f"{tname}_q{int(q[-1]*100)}"
+            cov = coverage_score(
+                y_true=y.flatten(),
+                y_lower=pred_df[lower_col],
+                y_upper=pred_df[upper_col]
+            )
+            if verbose >= 1:
+                print(f"XTFT Model Coverage Score: {cov:.4f}")
+
+    # Save results if requested.
+    if savefile is None:
+        savefile = f"{mode}_forecast_{tname}_single_step.csv"
+    pred_df.to_csv(savefile, index=False)
+    if verbose >= 1:
+        print(f"Forecast results saved to: {savefile}")
+
+    return pred_df
+
+def forecast_multi_step(
+    xtft_model,
+    inputs,
+    forecast_horizon,
+    y=None,
+    dt_col=None,
+    mode="quantile",
+    spatial_cols=None,
+    q=None,
+    tname=None,
+    forecast_dt=None,
+    apply_mask=False,
+    mask_values=None,
+    mask_fill_value=None,
+    savefile=None,
+    verbose=3
+    ):
+    """
+    Generate a multi-step forecast using the XTFT model.
+    
+    This function generates forecasts for multiple future time steps 
+    using a pre-trained XTFT deep learning model. The model takes 
+    three inputs: `X_static`, `X_dynamic`, and `X_future`, and produces 
+    predictions according to the formulation:
+    
+    .. math::
+    
+        \hat{y}_{t+i} = f\Bigl( X_{\text{static}},\; 
+        X_{\text{dynamic}},\; X_{\text{future}} \Bigr)
+    
+    for :math:`i = 1, \dots, forecast_horizon`, where :math:`f` is the 
+    trained XTFT model.
+    
+    Parameters
+    ----------
+    xtft_model : object
+        A validated Keras model instance. The model is expected to be 
+        verified via ``validate_keras_model``.
+    inputs : list or tuple of numpy.ndarray
+        A list containing three elements: ``X_static``, ``X_dynamic``, and 
+        ``X_future``. If ``spatial_cols`` is provided, it is assumed that 
+        the first two columns of ``X_static`` correspond to the first and 
+        second spatial coordinates of the original training data.
+    forecast_horizon : int
+        The number of future time steps to forecast. For example, if 
+        ``forecast_horizon`` is 4, the model will generate predictions for 
+        4 steps ahead.
+    y : numpy.ndarray, optional
+        Actual target values. If provided, evaluation metrics such as R² 
+        Score and, in quantile mode, the coverage score are computed.
+    dt_col : str, optional
+        Name of the time column (e.g. ``"year"``). If provided, a column 
+        with this name is added to the output DataFrame. The actual time 
+        values must be supplied externally.
+    mode : str, optional
+        Forecast mode. Must be either ``"quantile"`` or ``"point"``. In 
+        quantile mode, predictions are generated for multiple quantiles 
+        (default: ``[0.1, 0.5, 0.9]``); in point mode, a single prediction 
+        is generated.
+    spatial_cols : list of str, optional
+        A list of spatial column names. If provided, it must contain at least 
+        two elements corresponding to the first and second columns of the 
+        original training data's ``X_static``.
+    time_steps : int, optional
+        The number of historical time steps used as input. Default is 
+        ``3``.
+    q : list of float, optional
+        List of quantile values for quantile forecasting. The default is 
+        ``[0.1, 0.5, 0.9]`` when ``mode`` is ``"quantile"``.
+    tname : str, optional
+        Target variable name used to construct output column names. For 
+        instance, if ``tname`` is ``"subsidence"``, then output columns may 
+        be named ``"subsidence_q10_step1"``, ``"subsidence_q50_step2"``, etc. 
+        Default is ``"target"``.
+    forecast_dt : any, optional
+        Forecast datetime information. If provided and its length matches 
+        ``forecast_horizon``, its values are added to the output DataFrame.
+    apply_mask : bool, optional
+        If True, applies masking via ``mask_by_reference`` to replace 
+        predictions in non-subsiding areas. Requires that both 
+        ``mask_values`` and ``mask_fill_value`` are provided.
+    mask_values : scalar, optional
+        The reference value(s) used for masking. Must be provided if 
+        ``apply_mask`` is True.
+    mask_fill_value : scalar, optional
+        The value used to fill masked predictions. Must be provided if 
+        ``apply_mask`` is True.
+    savefile : str, optional
+        File path to save the forecast results as a CSV file. If not 
+        provided, a default filename is generated.
+    verbose : int, optional
+        Verbosity level controlling printed output. Higher values produce 
+        more detailed messages.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame containing the multi-step forecast results. In 
+        quantile mode, the DataFrame includes columns for each quantile 
+        and each forecast step (e.g. ``<tname>_q10_step1``, 
+        ``<tname>_q50_step2``, etc.); in point mode, it contains a single 
+        prediction column per forecast step (e.g. ``<tname>_pred_step1``). 
+        If ``y`` is provided, an additional column (``<tname>_actual``) is 
+        included.
+    
+    Examples
+    --------
+    >>> from gofast.nn.utils import forecast_multi_step
+    >>> inputs = [X_static, X_dynamic, X_future]
+    >>> forecast_df = forecast_multi_step(
+    ...     xtft_model=my_model,
+    ...     inputs=inputs,
+    ...     forecast_horizon=4,
+    ...     y=y_array,
+    ...     dt_col="year",
+    ...     mode="quantile",
+    ...     spatial_cols=["longitude", "latitude"],
+    ...     time_steps=3,
+    ...     tname="subsidence",
+    ...     forecast_dt=forecast_dates,
+    ...     apply_mask=True,
+    ...     mask_values=0,
+    ...     mask_fill_value=0,
+    ...     verbose=3
+    ... )
+    >>> print(forecast_df.head())
+    
+    Notes
+    -----
+    - In quantile mode, predictions are generated for each specified 
+      quantile for every forecast step, and the median (``0.5``) is used 
+      for evaluation.
+    - In point mode, a single prediction is generated per forecast step.
+    - The output prediction array is expected to have the shape 
+      :math:`(n, forecast\_horizon, m)`, where :math:`n` is the number of 
+      samples and :math:`m` is the number of outputs per step (e.g., number 
+      of quantiles in quantile mode or 1 in point mode).
+    - The provided ``spatial_cols`` must correspond to the first two 
+      columns of the original training data's ``X_static``.
+    - Evaluation metrics such as R² Score and Coverage Score (in 
+      quantile mode) are computed if actual target values (``y``) are provided.
+    - The DataFrame is constructed by iterating over each sample and 
+      each forecast step.
+    
+    See Also
+    --------
+    forecast_single_step : Function for single-step forecasts.
+    coverage_score       : Function to compute the coverage score.
+    validate_keras_model : Function to validate a Keras model.
+    assert_ratio         : Function to verify quantile ratios.
+
+    """
+
+    # Validate inputs: expect a list/tuple of three elements.
+    if not isinstance(inputs, (list, tuple)) or len(inputs) != 3:
+        raise ValueError(
+            "inputs must be a list or tuple containing "
+            "[X_static, X_dynamic, X_future]."
+        )
+    X_static, X_dynamic, X_future = inputs
+
+    # Validate model.
+    xtft_model = validate_keras_model(xtft_model, deep_check=True)
+    if verbose >= 1:
+        print("\nGenerating multi-step forecast in mode:", mode)
+
+    # Set default quantiles for quantile mode.
+    if mode == "quantile":
+        if q is None:
+            q = [0.1, 0.5, 0.9]
+        q = [assert_ratio(r, bounds=(0, 1), excludes=[0, 1],
+                          name=f"quantile '{r}'")
+             for r in q]
+
+    # Set default target name if not provided.
+    if tname is None:
+        tname = "target"
+
+    # Generate predictions.
+    y_pred = xtft_model.predict([X_static, X_dynamic, X_future])
+    # Expected y_pred shape: (n_samples, forecast_horizons, n_outputs)
+
+    rows = []
+    n_samples = X_static.shape[0]
+    # Loop over each sample and each forecast step.
+    for j in range(n_samples):
+        for i in range(forecast_horizon):
+            row = {}
+            # Add spatial columns if provided.
+            if spatial_cols is not None and len(spatial_cols) >= 2:
+                row[spatial_cols[0]] = X_static[j, 0]
+                row[spatial_cols[1]] = X_static[j, 1]
+            # Add dt_col if provided.
+            if dt_col is not None:
+                if forecast_dt is not None and len(
+                        forecast_dt) == forecast_horizon:
+                    row[dt_col] = forecast_dt[i]
+                else:
+                    row[dt_col] = None
+            # Add actual target if y is provided.
+            if y is not None:
+                # y shape: (n_samples, forecast_horizon, 1) 
+                # or (n_samples, forecast_horizon)
+                if len(y.shape) == 3:
+                    row[f"{tname}_actual"] = y[j, i, 0]
+                else:
+                    row[f"{tname}_actual"] = y[j, i]
+            # Assign prediction columns based on mode.
+            if mode == "quantile":
+                for iq, quantile in enumerate(q):
+                    col_name = f"{tname}_q{int(quantile * 100)}_step{i+1}"
+                    row[col_name] = y_pred[j, i, iq]
+                # For evaluation, use the median quantile (assumed to be q[1]).
+            elif mode == "point":
+                col_name = f"{tname}_pred_step{i+1}"
+                row[col_name] = y_pred[j, i, 0]
+            else:
+                raise ValueError("Mode must be either 'quantile' or 'point'.")
+            rows.append(row)
+    pred_df = pd.DataFrame(rows)
+
+    # Optionally apply masking.
+    if apply_mask:
+        if mask_values is None or mask_fill_value is None:
+            raise ValueError(
+                "mask_values and mask_fill_value must be provided "
+                "when apply_mask is True."
+            )
+        if y is None:
+            raise ValueError("y must be provided to apply masking.")
+        if mode == "quantile":
+            mask_cols = [f"{tname}_q{int(quant*100)}_step{i+1}" 
+                         for i in range(forecast_horizon)
+                         for quant in [q[0], q[-1]]]
+        else:
+            mask_cols = [
+                f"{tname}_pred_step{i+1}" for i in range(forecast_horizon)]
+        pred_df = mask_by_reference(
+            data=pred_df,
+            ref_col=f"{tname}_actual",
+            values=mask_values,
+            fill_value=mask_fill_value,
+            mask_columns=mask_cols
+        )
+
+    # If y is provided, compute evaluation metrics.
+    if y is not None:
+        # Flatten actual and predicted values.
+        if mode == "quantile":
+            # Use median prediction (q[1]) for evaluation.
+            median_preds = []
+            for j in range(n_samples):
+                for i in range(forecast_horizon):
+                    median_preds.append(y_pred[j, i, 1])
+            eval_pred = np.array(median_preds)
+        else:
+            eval_pred = y_pred[:, :, 0].flatten()
+        r2 = r2_score(y.flatten(), eval_pred)
+        if verbose >= 1:
+            print(f"XTFT Model R² Score: {r2:.4f}")
+        if mode == "quantile":
+            lower = []
+            upper = []
+            for j in range(n_samples):
+                for i in range(forecast_horizon):
+                    lower.append(y_pred[j, i, 0])
+                    upper.append(y_pred[j, i, -1])
+            lower = np.array(lower)
+            upper = np.array(upper)
+            cov = coverage_score(y.flatten(), lower, upper)
+            if verbose >= 1:
+                print(f"XTFT Model Coverage Score: {cov:.4f}")
+
+    # Save results if requested.
+    if savefile is None:
+        savefile = f"{mode}_forecast_{tname}_multi_step.csv"
+    pred_df.to_csv(savefile, index=False)
+    if verbose >= 1:
+        print(f"Forecast results saved to: {savefile}")
+
+    return pred_df
+
+def generate_xtft_forecast(
+        xtft_model,
+        inputs,
+        forecast_horizon,
+        y=None,
+        dt_col=None,
+        mode="quantile",
+        spatial_cols=None,
+        q=None,
+        tname=None,
+        forecast_dt=None,
+        apply_mask=False,
+        mask_values=None,
+        mask_fill_value=None,
+        savefile=None,
+        verbose=3
+    ):
+    
+    forecast_horizon = validate_positive_integer(
+        forecast_horizon, "forecast_horizon", 
+        msg = f"forecast_horizon must be at least 1. Got {forecast_horizon}"
+    )
+    if forecast_horizon == 1:
+        return forecast_single_step(
+            xtft_model=xtft_model,
+            inputs=inputs,
+            y=y,
+            dt_col=dt_col,
+            mode=mode,
+            spatial_cols=spatial_cols,
+            q=q,
+            tname=tname,
+            forecast_dt=forecast_dt,
+            apply_mask=apply_mask,
+            mask_values=mask_values,
+            mask_fill_value=mask_fill_value,
+            savefile=savefile,
+            verbose=verbose
+        )
+    elif forecast_horizon > 1:
+        return forecast_multi_step(
+            xtft_model=xtft_model,
+            inputs=inputs,
+            forecast_horizon=forecast_horizon,
+            y=y,
+            dt_col=dt_col,
+            mode=mode,
+            spatial_cols=spatial_cols,
+            q=q,
+            tname=tname,
+            forecast_dt=forecast_dt,
+            apply_mask=apply_mask,
+            mask_values=mask_values,
+            mask_fill_value=mask_fill_value,
+            savefile=savefile,
+            verbose=verbose
+        )
+
+generate_xtft_forecast.__doc__="""\
+Generate forecasts using a pre-trained XTFT model based on the forecast
+horizon.
+
+There are two approaches to generating forecasts with an XTFT model:
+
+1. A monolithic function (e.g. ``generate_forecast``) that handles both
+   single-step and multi-step forecasts within a single implementation.
+   This approach results in a single, large function that internally
+   branches its logic based on the value of the forecast horizon.
+   
+2. A modular design where the single-step and multi-step forecasting
+   functionalities are separated into two distinct functions (e.g.
+   ``forecast_single_step`` and ``forecast_multi_step``), with a thin
+   wrapper (e.g. ``generate_xtft_forecast``) that dispatches to the
+   appropriate function based on the forecast horizon.
+
+The modular approach (2) is generally preferred because it separates
+concerns and improves code readability, maintainability, and unit testing.
+Each function becomes responsible for a well-defined task: one for
+single-step forecasts and one for multi-step forecasts. The wrapper
+function, which we propose to name ``generate_xtft_forecast``, simply
+selects the correct method based on the forecast horizon. Use this
+approach when your application may need to handle both short- and long-
+term forecasts, as it keeps the codebase modular and easier to debug.
+
+Below is an implementation of the wrapper function 
+``generate_xtft_forecast`` that calls 
+``forecast_single_step`` when ``forecast_horizon`` equals 1 and 
+``forecast_multi_step`` when ``forecast_horizon`` is greater than 1.
+
+Parameters
+----------
+xtft_model : object
+    A validated Keras model instance. The model is expected to be
+    verified via ``validate_keras_model``.
+inputs : list or tuple of numpy.ndarray
+    A list containing three elements: ``X_static``, ``X_dynamic``, and
+    ``X_future``. If ``spatial_cols`` is provided, it is assumed that
+    the first two columns of ``X_static`` correspond to the first and
+    second spatial coordinates of the original training data.
+forecast_horizon : int
+    The number of future time steps to forecast. A value of 1 triggers a
+    single-step forecast; values greater than 1 trigger a multi-step forecast.
+y : numpy.ndarray, optional
+    Actual target values for evaluation. If provided, evaluation metrics
+    (e.g., R² Score, and in quantile mode, the coverage score) are computed.
+dt_col : str, optional
+    Name of the time column (e.g. ``"year"``). If provided, the output
+    DataFrame includes a column with these values.
+mode : str, optional
+    Forecast mode, either ``"quantile"`` or ``"point"``. In quantile mode,
+    predictions are generated for multiple quantiles (default: ``[0.1, 0.5,
+    0.9]``); in point mode, a single prediction is generated.
+spatial_cols : list of str, optional
+    List of spatial column names. If provided, it must contain at least two
+    elements corresponding to the first and second columns of the original
+    training data's ``X_static``.
+time_steps : int, optional
+    The number of historical time steps used as input.
+q : list of float, optional
+    List of quantile values for quantile forecasting. Default is
+    ``[0.1, 0.5, 0.9]`` when ``mode`` is ``"quantile"``.
+tname : str, optional
+    Target variable name used to construct output column names (e.g.,
+    ``"subsidence"``). Default is ``"target"``.
+forecast_dt : any, optional
+    Forecast datetime information. If provided and its length matches
+    ``forecast_horizon``, its values are added to the output DataFrame.
+apply_mask : bool, optional
+    If True, applies masking (via ``mask_by_reference``) to adjust
+    predictions in non-subsiding areas. Requires that both ``mask_values``
+    and ``mask_fill_value`` are provided.
+mask_values : scalar, optional
+    The reference value(s) used for masking. Must be provided if
+    ``apply_mask`` is True.
+mask_fill_value : scalar, optional
+    The value used to fill masked predictions. Must be provided if
+    ``apply_mask`` is True.
+savefile : str, optional
+    File path to save the forecast results as a CSV file. If not provided,
+    a default filename is generated.
+verbose : int, optional
+    Verbosity level controlling printed output.
+
+Returns
+-------
+pandas.DataFrame
+    A DataFrame containing the forecast results. In quantile mode, the
+    output includes columns for each quantile and forecast step (e.g.
+    ``<tname>_q10_step1``, ``<tname>_q50_step2``, etc.); in point mode,
+    it contains a single prediction column per forecast step (e.g.
+    ``<tname>_pred_step1``). If ``y`` is provided, an additional column
+    (``<tname>_actual``) is included.
+
+Examples
+--------
+
+>>> from gofast.nn.transformers import XTFT
+>>> from gofast.nn.utils import generate_xtft_forecast
+>>> import numpy as np
+>>> 
+>>> # Prepare a dummy XTFT model with example parameters.
+>>> my_model = XTFT(
+...     static_input_dim=10,
+...     dynamic_input_dim=5,
+...     future_input_dim=3,
+...     forecast_horizon=1,          # This parameter will be updated in the
+...                                  # wrapper function based on forecast_horizon.
+...     quantiles=[0.1, 0.5, 0.9],
+...     embed_dim=32,
+...     max_window_size=3,
+...     memory_size=100,
+...     num_heads=4,
+...     dropout_rate=0.1,
+...     lstm_units=64,
+...     attention_units=64,
+...     hidden_units=32
+... )
+>>> my_model.compile(optimizer='adam')
+>>> 
+>>> # Create dummy input data.
+>>> X_static = np.random.rand(100, 10)
+>>> X_dynamic = np.random.rand(100, 3, 5)
+>>> X_future  = np.random.rand(100, 3, 3)
+>>> y_array   = np.random.rand(100, 1, 1)  # For single-step target output.
+>>> inputs    = [X_static, X_dynamic, X_future]
+>>> 
+>>> # Fit the model with dummy data.
+>>> my_model.fit(
+...     x=[X_static, X_dynamic, X_future],
+...     y=y_array,
+...     epochs=1,
+...     batch_size=32
+... )
+>>> 
+>>> # Example for a single-step forecast:
+>>> forecast_df = generate_xtft_forecast(
+...     xtft_model=my_model,
+...     inputs=inputs,
+...     forecast_horizon=1,
+...     y=y_array,
+...     dt_col="year",
+...     mode="quantile",
+...     spatial_cols=["longitude", "latitude"],
+...     tname="subsidence",
+...     verbose=3
+... )
+>>> print(forecast_df.head())
+>>> 
+>>> # Example for a multi-step forecast:
+>>> forecast_dates = ["2023", "2024", "2025", "2026"]
+>>> forecast_df = generate_xtft_forecast(
+...     xtft_model=my_model,
+...     inputs=inputs,
+...     forecast_horizon=4,
+...     y=y_array,
+...     dt_col="year",
+...     mode="point",
+...     spatial_cols=["longitude", "latitude"],
+...     tname="subsidence",
+...     forecast_dt=forecast_dates,
+...     verbose=3
+... )
+>>> print(forecast_df.head())
+
+See Also
+--------
+forecast_single_step : Generates a single-step forecast.
+forecast_multi_step  : Generates a multi-step forecast.
+validate_keras_model : Validates a Keras model.
+coverage_score       : Computes the coverage score.
+
+References
+----------
+.. [1] Kouadio et al., "Gofast Forecasting Model", Journal of Advanced
+   Forecasting, 2025. (In Review)
+"""

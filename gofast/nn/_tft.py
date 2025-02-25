@@ -382,7 +382,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
         Number of attention heads in the multi-head attention layer.
     dropout_rate : float, default=0.1
         Dropout rate for various layers (GRNs, attention, etc.).
-    forecast_horizons : int, default=1
+    forecast_horizon : int, default=1
         Number of timesteps to forecast into the future.
     quantiles : list of float, optional
         List of quantiles for probabilistic forecasting. If `None`, a 
@@ -410,7 +410,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
     ...     hidden_units=32,
     ...     num_heads=4,
     ...     dropout_rate=0.1,
-    ...     forecast_horizons=7,
+    ...     forecast_horizon=7,
     ...     quantiles=[0.1, 0.5, 0.9],
     ...     activation='elu',
     ...     use_batch_norm=True,
@@ -446,7 +446,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
         "hidden_units"     : [Interval(Integral, 1, None, closed='left'), None],
         "num_heads"        : [Interval(Integral, 1, None, closed='left')],
         "dropout_rate"     : [Interval(Real, 0, 1, closed="both")],
-        "forecast_horizons": [Interval(Integral, 1, None, closed='left')],
+        "forecast_horizon": [Interval(Integral, 1, None, closed='left')],
         "quantiles"        : ['array-like', None],
         "activation"       : [StrOptions({"elu", "relu", "tanh", "sigmoid",
                                           "linear", "gelu"})],
@@ -464,7 +464,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
         hidden_units=32,
         num_heads=4,
         dropout_rate=0.1,
-        forecast_horizons=1,
+        forecast_horizon=1,
         quantiles=None,
         activation='elu',
         use_batch_norm=False,
@@ -482,7 +482,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
             f"hidden_units={hidden_units}, "
             f"num_heads={num_heads}, "
             f"dropout_rate={dropout_rate}, "
-            f"forecast_horizons={forecast_horizons}, "
+            f"forecast_horizon={forecast_horizon}, "
             f"quantiles={quantiles}, "
             f"activation={activation}, "
             f"use_batch_norm={use_batch_norm}, "
@@ -496,7 +496,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
         self.hidden_units      = hidden_units
         self.num_heads         = num_heads
         self.dropout_rate      = dropout_rate
-        self.forecast_horizons = forecast_horizons
+        self.forecast_horizon = forecast_horizon
         self.quantiles         = quantiles
         self.use_batch_norm    = use_batch_norm
         self.num_lstm_layers   = num_lstm_layers
@@ -673,7 +673,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
         -------
         tf.Tensor
             Final predicted sequences of shape 
-            (batch_size, forecast_horizons, num_quantiles or 1).
+            (batch_size, forecast_horizon, num_quantiles or 1).
         """
         self.logger.debug("Starting call method with inputs.")
 
@@ -757,10 +757,10 @@ class NTemporalFusionTransformer(Model, NNLearner):
             attention_output, training=training
             )
 
-        # 10. Slice the last `forecast_horizons` steps for final prediction
+        # 10. Slice the last `forecast_horizon` steps for final prediction
         #     and apply output projection (either quantiles or point).
         self.logger.debug("Generating Final Output...")
-        decoder_steps = self.forecast_horizons
+        decoder_steps = self.forecast_horizon
         outputs = temporal_feature[:, -decoder_steps:, :]
 
         if self.quantiles:
@@ -793,7 +793,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
             'hidden_units'      : self.hidden_units,
             'num_heads'         : self.num_heads,
             'dropout_rate'      : self.dropout_rate,
-            'forecast_horizons' : self.forecast_horizons,
+            'forecast_horizon' : self.forecast_horizon,
             'quantiles'         : self.quantiles,
             'activation'        : self.activation_name,
             'use_batch_norm'    : self.use_batch_norm,
@@ -849,10 +849,10 @@ dynamic_input_dim : int
 {params.base.num_heads}
 {params.base.dropout_rate} 
 
-forecast_horizons : int, optional
+forecast_horizon : int, optional
     The number of time steps to forecast. Default is ``1``. This parameter
     defines the number of future time steps the model will predict. For
-    multi-step forecasting, set ``forecast_horizons`` to the desired number
+    multi-step forecasting, set ``forecast_horizon`` to the desired number
     of future steps.
 
 {params.base.quantiles} 

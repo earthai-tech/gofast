@@ -784,7 +784,7 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
         hidden_units=32,
         num_heads=4,
         dropout_rate=0.1,
-        forecast_horizons=1,
+        forecast_horizon=1,
         quantiles=None,
         activation='elu',
         use_batch_norm=False,
@@ -802,7 +802,7 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
         self.hidden_units        = hidden_units
         self.num_heads           = num_heads
         self.dropout_rate        = dropout_rate
-        self.forecast_horizons   = forecast_horizons
+        self.forecast_horizon   = forecast_horizon
         self.quantiles           = quantiles
         self.activation          = activation
         self.use_batch_norm      = use_batch_norm
@@ -826,7 +826,7 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
             hidden_units=self.hidden_units,
             num_heads=self.num_heads,
             dropout_rate=self.dropout_rate,
-            forecast_horizons=self.forecast_horizons,
+            forecast_horizon=self.forecast_horizon,
             quantiles=self.quantiles,
             activation=self.activation,
             use_batch_norm=self.use_batch_norm,
@@ -841,7 +841,7 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
             print(f"hidden_units: {self.hidden_units}")
             print(f"num_heads: {self.num_heads}")
             print(f"dropout_rate: {self.dropout_rate}")
-            print(f"forecast_horizons: {self.forecast_horizons}")
+            print(f"forecast_horizon: {self.forecast_horizon}")
             print(f"quantiles: {self.quantiles}")
             print(f"activation: {self.activation}")
             print(f"use_batch_norm: {self.use_batch_norm}")
@@ -914,7 +914,7 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
         # Reshape y to match model output
         y = y.reshape(
             -1, 
-            self.forecast_horizons, 
+            self.forecast_horizon, 
             self.static_input_dim
         )
         if self.verbose >= 6:
@@ -1001,7 +1001,7 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
         # static_size = self.num_static_vars * self.static_input_dim
         # dynamic_size = self.forecast_horizon * self.num_dynamic_vars * self.dynamic_input_dim
         static_size = self.static_input_dim
-        dynamic_size = self.forecast_horizons * self.dynamic_input_dim
+        dynamic_size = self.forecast_horizon * self.dynamic_input_dim
         total_size = static_size + dynamic_size
         
         if self.verbose >= 6:
@@ -1033,7 +1033,7 @@ class TFTWrapper(BaseEstimator, RegressorMixin):
         X_dynamic = X[:, static_size:]
         X_dynamic = X_dynamic.reshape(
             (X_dynamic.shape[0], 
-             self.forecast_horizons, 
+             self.forecast_horizon, 
              # self.num_dynamic_vars, 
              self.dynamic_input_dim)
         )
@@ -1107,7 +1107,7 @@ class XTFTWrapper(BaseEstimator, RegressorMixin):
     >>>
     >>> # Sample data
     >>> batch_size = 50
-    >>> forecast_horizons = 20
+    >>> forecast_horizon = 20
     >>> static_input_dim = 10
     >>> dynamic_input_dim = 45
     >>> future_covariate_dim = 5
@@ -1115,11 +1115,11 @@ class XTFTWrapper(BaseEstimator, RegressorMixin):
     >>>
     >>> # Synthetic inputs:
     >>> static_input = np.random.randn(batch_size, static_input_dim).astype(np.float32)
-    >>> dynamic_input = np.random.randn(batch_size, forecast_horizons, dynamic_input_dim).astype(np.float32)
-    >>> future_covariate_input = np.random.randn(batch_size, forecast_horizons, future_covariate_dim).astype(np.float32)
+    >>> dynamic_input = np.random.randn(batch_size, forecast_horizon, dynamic_input_dim).astype(np.float32)
+    >>> future_covariate_input = np.random.randn(batch_size, forecast_horizon, future_covariate_dim).astype(np.float32)
     >>>
     >>> # Synthetic target
-    >>> y = np.random.randn(batch_size, forecast_horizons, output_dim).astype(np.float32)
+    >>> y = np.random.randn(batch_size, forecast_horizon, output_dim).astype(np.float32)
     >>>
     >>> # Initialize the XTFTWrapper
     >>> xtft = XTFTWrapper(
@@ -1127,7 +1127,7 @@ class XTFTWrapper(BaseEstimator, RegressorMixin):
     ...     dynamic_input_dim=dynamic_input_dim,
     ...     future_input_dim=future_covariate_dim,
     ...     embed_dim=32,
-    ...     forecast_horizons=forecast_horizons,
+    ...     forecast_horizon=forecast_horizon,
     ...     quantiles=[0.1, 0.5, 0.9],
     ...     max_window_size=10,
     ...     memory_size=100,
@@ -1164,7 +1164,7 @@ class XTFTWrapper(BaseEstimator, RegressorMixin):
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')],
         "future_input_dim": [Interval(Integral, 0, None, closed='left')],
         "embed_dim": [Interval(Integral, 1, None, closed='left')],
-        "forecast_horizons": [Interval(Integral, 1, None, closed='left')],
+        "forecast_horizon": [Interval(Integral, 1, None, closed='left')],
         "quantiles": ['array-like',  None],
         "max_window_size": [Interval(Integral, 1, None, closed='left')],
         "memory_size": [Interval(Integral, 1, None, closed='left')],
@@ -1190,7 +1190,7 @@ class XTFTWrapper(BaseEstimator, RegressorMixin):
         future_input_dim,
         static_input_dim,
         embed_dim=32,
-        forecast_horizons=1,
+        forecast_horizon=1,
         quantiles=None,
         max_window_size=10,
         memory_size=100,
@@ -1218,7 +1218,7 @@ class XTFTWrapper(BaseEstimator, RegressorMixin):
         self.dynamic_input_dim    = dynamic_input_dim
         self.future_input_dim     = future_input_dim
         self.embed_dim            = embed_dim
-        self.forecast_horizons    = forecast_horizons
+        self.forecast_horizon    = forecast_horizon
         self.quantiles            = quantiles
         self.max_window_size      = max_window_size
         self.memory_size          = memory_size
@@ -1251,7 +1251,7 @@ class XTFTWrapper(BaseEstimator, RegressorMixin):
             dynamic_input_dim=self.dynamic_input_dim,
             future_input_dim=self.future_input_dim,
             embed_dim=self.embed_dim,
-            forecast_horizons=self.forecast_horizons,
+            forecast_horizon=self.forecast_horizon,
             quantiles=self.quantiles,
             max_window_size=self.max_window_size,
             memory_size=self.memory_size,
@@ -1276,7 +1276,7 @@ class XTFTWrapper(BaseEstimator, RegressorMixin):
             print(f"dynamic_input_dim: {self.dynamic_input_dim}")
             print(f"future_input_dim: {self.future_input_dim}")
             print(f"embed_dim: {self.embed_dim}")
-            print(f"forecast_horizons: {self.forecast_horizons}")
+            print(f"forecast_horizon: {self.forecast_horizon}")
             print(f"quantiles: {self.quantiles}")
             print(f"max_window_size: {self.max_window_size}")
             print(f"memory_size: {self.memory_size}")
@@ -1414,17 +1414,17 @@ class XTFTWrapper(BaseEstimator, RegressorMixin):
 
         Expected shapes:
         - static_input: (batch_size, static_input_dim)
-        - dynamic_input: (batch_size, forecast_horizons, dynamic_input_dim)
-        - future_covariate_input: (batch_size, forecast_horizons, future_input_dim)
+        - dynamic_input: (batch_size, forecast_horizon, dynamic_input_dim)
+        - future_covariate_input: (batch_size, forecast_horizon, future_input_dim)
 
         Total features = static_input_dim
-                       + forecast_horizons * dynamic_input_dim
-                       + forecast_horizons * future_input_dim
+                       + forecast_horizon * dynamic_input_dim
+                       + forecast_horizon * future_input_dim
         """
         batch_size = X.shape[0]
         static_size = self.static_input_dim
-        dynamic_size = self.forecast_horizons * self.dynamic_input_dim
-        future_size = self.forecast_horizons * self.future_input_dim
+        dynamic_size = self.forecast_horizon * self.dynamic_input_dim
+        future_size = self.forecast_horizon * self.future_input_dim
         total_expected = static_size + dynamic_size + future_size
 
         if X.shape[1] != total_expected:
@@ -1441,10 +1441,10 @@ class XTFTWrapper(BaseEstimator, RegressorMixin):
         X_static = X_static.reshape((batch_size, self.static_input_dim))
         # Extract dynamic features
         X_dynamic = X[:, static_size:static_size+dynamic_size]
-        X_dynamic = X_dynamic.reshape((batch_size, self.forecast_horizons, self.dynamic_input_dim))
+        X_dynamic = X_dynamic.reshape((batch_size, self.forecast_horizon, self.dynamic_input_dim))
         # Extract future covariate features
         X_future = X[:, static_size+dynamic_size:]
-        X_future = X_future.reshape((batch_size, self.forecast_horizons, self.future_input_dim))
+        X_future = X_future.reshape((batch_size, self.forecast_horizon, self.future_input_dim))
 
         if self.verbose >= 3:
             print(f"X_static shape: {X_static.shape}")
@@ -1654,7 +1654,7 @@ def create_tft_model(
     "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')],
     "future_input_dim": [Interval(Integral, 0, None, closed='left')],
     "embed_dim": [Interval(Integral, 1, None, closed='left')],
-    "forecast_horizons": [Interval(Integral, 1, None, closed='left')],
+    "forecast_horizon": [Interval(Integral, 1, None, closed='left')],
     "quantiles": ['array-like',  None],
     "max_window_size": [Interval(Integral, 1, None, closed='left')],
     "memory_size": [Interval(Integral, 1, None, closed='left')],
@@ -1679,7 +1679,7 @@ def create_xtft_model(
     future_input_dim: int,
     static_input_dim: int,
     embed_dim: int = 32,
-    forecast_horizons: int = 1,
+    forecast_horizon: int = 1,
     quantiles: Optional[List[float]] = None,
     max_window_size: int = 10,
     memory_size: int = 100,
@@ -1745,7 +1745,7 @@ def create_xtft_model(
     Raises
     ------
     ValueError
-        If `forecast_horizons` is not a positive integer.
+        If `forecast_horizon` is not a positive integer.
 
     TypeError
         If `quantiles` is provided but is not a list of floats between 0 and 1.
@@ -1759,7 +1759,7 @@ def create_xtft_model(
     >>> static_input_dim = 10
     >>> dynamic_input_dim = 45
     >>> future_covariate_dim = 5
-    >>> forecast_horizons = 20
+    >>> forecast_horizon = 20
     >>> output_dim = 1
     >>>
     >>> # Create and compile the XTFT model
@@ -1768,7 +1768,7 @@ def create_xtft_model(
     ...     dynamic_input_dim=dynamic_input_dim,
     ...     future_input_dim=future_covariate_dim,
     ...     embed_dim=32,
-    ...     forecast_horizons=forecast_horizons,
+    ...     forecast_horizon=forecast_horizon,
     ...     quantiles=[0.1, 0.5, 0.9],
     ...     max_window_size=10,
     ...     memory_size=100,
@@ -1815,8 +1815,8 @@ def create_xtft_model(
     KerasRegressor : scikit-learn wrapper for Keras models.
     """
 
-    if not isinstance(forecast_horizons, int) or forecast_horizons < 1:
-        raise ValueError("`forecast_horizons` must be a positive integer.")
+    if not isinstance(forecast_horizon, int) or forecast_horizon < 1:
+        raise ValueError("`forecast_horizon` must be a positive integer.")
 
     if quantiles is not None:
         if (not isinstance(quantiles, list) or 
@@ -1829,7 +1829,7 @@ def create_xtft_model(
         dynamic_input_dim=dynamic_input_dim,
         future_input_dim=future_input_dim,
         embed_dim=embed_dim,
-        forecast_horizons=forecast_horizons,
+        forecast_horizon=forecast_horizon,
         quantiles=quantiles,
         max_window_size=max_window_size,
         memory_size=memory_size,

@@ -91,14 +91,13 @@ class XTFT(Model, NNLearner):
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "future_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "embed_dim": [Interval(Integral, 1, None, closed='left')],
-        "forecast_horizons": [Interval(Integral, 1, None, closed='left')], 
+        "forecast_horizon": [Interval(Integral, 1, None, closed='left')], 
         "quantiles": ['array-like', StrOptions({'auto'}),  None],
         "max_window_size": [Interval(Integral, 1, None, closed='left')],
         "memory_size": [Interval(Integral, 1, None, closed='left')], 
         "num_heads": [Interval(Integral, 1, None, closed='left')],
         "dropout_rate": [Interval(Real, 0, 1, closed="both")],
         "output_dim": [Interval(Integral, 1, None, closed='left')],
-        "forecast_horizon": [Interval(Integral, 1, None, closed='left')],
         "attention_units": [
             'array-like', 
             Interval(Integral, 1, None, closed='left')
@@ -133,7 +132,7 @@ class XTFT(Model, NNLearner):
         dynamic_input_dim: int,
         future_input_dim: int,
         embed_dim: int = 32,
-        forecast_horizons: int = 1,
+        forecast_horizon: int = 1,
         quantiles: Union[str, List[float], None] = None,
         max_window_size: int = 10,
         memory_size: int = 100,
@@ -165,7 +164,7 @@ class XTFT(Model, NNLearner):
             f"dynamic_input_dim={dynamic_input_dim}, "
             f"future_input_dim={future_input_dim}, "
             f"embed_dim={embed_dim}, "
-            f"forecast_horizons={forecast_horizons}, "
+            f"forecast_horizon={forecast_horizon}, "
             f"quantiles={quantiles}, "
             f"max_window_size={max_window_size},"
             f" memory_size={memory_size}, num_heads={num_heads}, "
@@ -188,7 +187,7 @@ class XTFT(Model, NNLearner):
         self.dynamic_input_dim = dynamic_input_dim
         self.future_input_dim = future_input_dim
         self.embed_dim = embed_dim
-        self.forecast_horizons = forecast_horizons
+        self.forecast_horizon = forecast_horizon
         self.quantiles = quantiles
         self.max_window_size = max_window_size
         self.memory_size = memory_size
@@ -230,7 +229,7 @@ class XTFT(Model, NNLearner):
         )
         self.multi_decoder = MultiDecoder(
             output_dim=output_dim,
-            num_horizons=forecast_horizons
+            num_horizons=forecast_horizon
         )
         self.multi_resolution_attention_fusion = MultiResolutionAttentionFusion(
             units=attention_units,
@@ -282,7 +281,7 @@ class XTFT(Model, NNLearner):
         self.residual_dense = Dense(2 * embed_dim) if use_residuals else None
         self.final_dense = Dense(output_dim)
         
-
+    @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False):
         static_input , dynamic_input, future_input = validate_xtft_inputs (
             inputs =inputs,
@@ -502,7 +501,7 @@ class XTFT(Model, NNLearner):
         
         # Compute anomaly scores
         self.anomaly_scores= validate_anomaly_scores(
-            self.anomaly_config, forecast_horizons= self.forecast_horizons)
+            self.anomaly_config, forecast_horizon= self.forecast_horizon)
         
         self.anomaly_loss_weight= self.anomaly_config.get('anomaly_loss_weight')
         
@@ -597,7 +596,7 @@ class XTFT(Model, NNLearner):
             'dynamic_input_dim': self.dynamic_input_dim,
             'future_input_dim': self.future_input_dim,
             'embed_dim': self.embed_dim,
-            'forecast_horizons': self.forecast_horizons,
+            'forecast_horizon': self.forecast_horizon,
             'quantiles': self.quantiles,
             'max_window_size': self.max_window_size,
             'memory_size': self.memory_size,
@@ -685,7 +684,7 @@ embed_dim : int, optional
     choice prevents overfitting while ensuring the representation
     capacity is sufficient for complex patterns.
 
-forecast_horizons : int, optional
+forecast_horizon : int, optional
     Number of future time steps to predict. Default is ``1``. This
     parameter specifies how many steps ahead the model provides
     forecasts. For instance, `forecast_horizon=3` means the model
@@ -744,7 +743,7 @@ anomaly_config : dict, optional
         the following keys:
 
         - ``'anomaly_scores'`` : array-like, optional
-            Precomputed anomaly scores tensor of shape `(batch_size, forecast_horizons)`. 
+            Precomputed anomaly scores tensor of shape `(batch_size, forecast_horizon)`. 
             If not provided, anomaly loss will not be applied.
 
         - ``'anomaly_loss_weight'`` : float, optional
@@ -780,7 +779,7 @@ anomaly_config : dict, optional
             import tensorflow as tf
 
             # Define precomputed anomaly scores
-            precomputed_anomaly_scores = tf.random.normal((batch_size, forecast_horizons))
+            precomputed_anomaly_scores = tf.random.normal((batch_size, forecast_horizon))
 
             # Create anomaly_config dictionary
             anomaly_config = {{
@@ -889,7 +888,7 @@ Examples
 ...     static_input_dim=10,
 ...     dynamic_input_dim=45,
 ...     future_input_dim=5,
-...     forecast_horizons=3,
+...     forecast_horizon=3,
 ...     quantiles=None,# [0.1, 0.5, 0.9],
 ...     scales='auto',
 ...     final_agg='last'
@@ -959,7 +958,7 @@ class SuperXTFT(XTFT):
         dynamic_input_dim: int,
         future_input_dim: int,
         embed_dim: int = 32,
-        forecast_horizons: int = 1,
+        forecast_horizon: int = 1,
         quantiles: Union[str, List[float], None] = None,
         max_window_size: int = 10,
         memory_size: int = 100,
@@ -982,7 +981,7 @@ class SuperXTFT(XTFT):
             dynamic_input_dim=dynamic_input_dim,
             future_input_dim=future_input_dim,
             embed_dim=embed_dim,
-            forecast_horizons=forecast_horizons,
+            forecast_horizon=forecast_horizon,
             quantiles=quantiles,
             max_window_size=max_window_size,
             memory_size=memory_size,
@@ -1069,7 +1068,7 @@ class SuperXTFT(XTFT):
         # hierarchical_attention and cross_attention are defined in XTFT
         # We will wrap their outputs with GRNs after adding residuals 
         # and normalization
-        
+    @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False):
         static_input, dynamic_input, future_input = validate_xtft_inputs(
             inputs=inputs,
@@ -1328,7 +1327,7 @@ class SuperXTFT(XTFT):
         
         # Compute anomaly scores if configured
         self.anomaly_scores = validate_anomaly_scores(
-            self.anomaly_config, forecast_horizons=self.forecast_horizons
+            self.anomaly_config, forecast_horizon=self.forecast_horizon
         )
         
         self.anomaly_loss_weight = self.anomaly_config.get('anomaly_loss_weight')

@@ -199,7 +199,7 @@ dropout_rate : float, optional
     set to zero in each forward pass). The value should be between 0 and 1.
     The default is ``0.1`` i.e 10%. 
 
-forecast_horizons: int
+forecast_horizon: int
     The number of time steps ahead to predict. This defines how far into 
     the future the model will generate predictions. For example, if set 
     to 7, the model will predict 7 future time steps from the current 
@@ -472,7 +472,7 @@ embed_dim : int, optional
     choice prevents overfitting while ensuring the representation
     capacity is sufficient for complex patterns.
 
-forecast_horizons : int, optional
+forecast_horizon : int, optional
     Number of future time steps to predict. Default is ``1``. This
     parameter specifies how many steps ahead the model provides
     forecasts. For instance, `forecast_horizon=3` means the model
@@ -531,7 +531,7 @@ anomaly_config : dict, optional
         the following keys:
 
         - ``'anomaly_scores'`` : array-like, optional
-            Precomputed anomaly scores tensor of shape `(batch_size, forecast_horizons)`. 
+            Precomputed anomaly scores tensor of shape `(batch_size, forecast_horizon)`. 
             If not provided, anomaly loss will not be applied.
 
         - ``'anomaly_loss_weight'`` : float, optional
@@ -567,7 +567,7 @@ anomaly_config : dict, optional
             import tensorflow as tf
 
             # Define precomputed anomaly scores
-            precomputed_anomaly_scores = tf.random.normal((batch_size, forecast_horizons))
+            precomputed_anomaly_scores = tf.random.normal((batch_size, forecast_horizon))
 
             # Create anomaly_config dictionary
             anomaly_config = {{
@@ -676,7 +676,7 @@ _shared_docs [
     embed_dim : int, optional, default=32
         The dimensionality of embeddings used for features.
 
-    forecast_horizons : int, optional, default=1
+    forecast_horizon : int, optional, default=1
         The number of steps ahead for which predictions are generated.
 
     quantiles : Union[str, List[float], None], optional
@@ -833,7 +833,7 @@ _shared_docs [
   and probabilistic forecasts.
   
   XTFT predicts multiple horizons simultaneously. If 
-  `forecast_horizons = H`, the decoder produces:
+  `forecast_horizon = H`, the decoder produces:
   .. math::
      \mathbf{Y}_{decoder} = \text{MultiDecoder}(\mathbf{H}_{combined})
      
@@ -1015,7 +1015,7 @@ call(inputs, training=False)
     Depending on the presence of quantiles:
     - If ``quantiles`` is not `None`: 
       The output shape is :math:`(B, H, Q, D_{out})`, where 
-      :math:`H` is `forecast_horizons`, :math:`Q` is the number of
+      :math:`H` is `forecast_horizon`, :math:`Q` is the number of
       quantiles, and :math:`D_{out}` is `output_dim`.
     - If ``quantiles`` is `None`: 
       The output shape is :math:`(B, H, D_{out})`, providing a 

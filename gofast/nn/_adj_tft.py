@@ -72,7 +72,7 @@ class TFT(Model, NNLearner):
         "hidden_units": [Interval(Integral, 1, None, closed='left')], 
         "num_heads": [Interval(Integral, 1, None, closed='left')],
         "dropout_rate": [Interval(Real, 0, 1, closed="both")],
-        "forecast_horizons": [Interval(Integral, 1, None, closed='left')],
+        "forecast_horizon": [Interval(Integral, 1, None, closed='left')],
         "quantiles": ['array-like', StrOptions({'auto'}), None],
         "activation": [
             StrOptions({"elu", "relu", "tanh", "sigmoid", "linear", "gelu"}),
@@ -91,7 +91,7 @@ class TFT(Model, NNLearner):
         hidden_units=32, 
         num_heads=4,            
         dropout_rate=0.1,       
-        forecast_horizons=1,     
+        forecast_horizon=1,     
         quantiles=None,         
         activation='elu',       
         use_batch_norm=False,   
@@ -105,7 +105,7 @@ class TFT(Model, NNLearner):
         self.static_input_dim = static_input_dim
         self.num_heads = num_heads
         self.dropout_rate = dropout_rate
-        self.forecast_horizons = forecast_horizons
+        self.forecast_horizon = forecast_horizon
         self.activation = activation
         self.use_batch_norm = use_batch_norm
         self.lstm_units = lstm_units if lstm_units is not None else hidden_units
@@ -121,7 +121,7 @@ class TFT(Model, NNLearner):
             f"hidden_units={hidden_units}, "
             f"num_heads={num_heads}, "
             f"dropout_rate={dropout_rate}, "
-            f"forecast_horizons={forecast_horizons}, "
+            f"forecast_horizon={forecast_horizon}, "
             f"quantiles={quantiles}, "
             f"activation={activation}, "
             f"use_batch_norm={use_batch_norm}, "
@@ -259,9 +259,9 @@ class TFT(Model, NNLearner):
         
         # 4) Embed future inputs if provided
         if self.future_varsel is not None:
-            # ---> (batch_size, forecast_horizons, future_input_dim, 1)
+            # ---> (batch_size, forecast_horizon, future_input_dim, 1)
             future_inputs_expanded = tf_expand_dims(future_inputs, axis=-1)  
-            # ---> (batch_size, forecast_horizons, future_input_dim, hidden_units)
+            # ---> (batch_size, forecast_horizon, future_input_dim, hidden_units)
             future_embedded = self.future_embedding(future_inputs_expanded)  
             
             self.logger.debug(f"Future inputs shape: {future_inputs.shape}")
@@ -271,12 +271,12 @@ class TFT(Model, NNLearner):
             future_selected, future_weights = self.future_varsel(
                 future_embedded, 
                 training=training
-            )  # (batch_size, forecast_horizons, hidden_units)
+            )  # (batch_size, forecast_horizon, hidden_units)
             self.logger.debug(f"Future selected shape: {future_selected.shape}")
         else:
             # Placeholder for no future inputs
             future_selected = tf_zeros(
-                shape=(tf_shape(past_inputs)[0], self.forecast_horizons, self.hidden_units),
+                shape=(tf_shape(past_inputs)[0], self.forecast_horizon, self.hidden_units),
                 dtype=tf_float32
             )
             self.logger.info("No future inputs provided; using zero placeholder.")
@@ -286,7 +286,7 @@ class TFT(Model, NNLearner):
             future_selected, 
             initial_state=(state_h, state_c), 
             training=training
-        )  # (batch_size, forecast_horizons, lstm_units)
+        )  # (batch_size, forecast_horizon, lstm_units)
         self.logger.debug(f"Decoder output shape: {decoder_out.shape}")
         
         # 6) Embed and Variable Selection for static inputs if provided
@@ -313,20 +313,20 @@ class TFT(Model, NNLearner):
             decoder_out, 
             static_context=static_selected, 
             training=training
-        )  # (batch_size, forecast_horizons, hidden_units)
+        )  # (batch_size, forecast_horizon, hidden_units)
         self.logger.debug(f"Fused output shape: {fused_output.shape}")
         
         # 8) Final Projection
         outputs = self.output_layer(fused_output)  
-        # (batch_size, forecast_horizons, output_dim * num_quantiles) 
-        # or (batch_size, forecast_horizons, output_dim)
+        # (batch_size, forecast_horizon, output_dim * num_quantiles) 
+        # or (batch_size, forecast_horizon, output_dim)
         self.logger.debug(f"Output layer shape: {outputs.shape}")
         
         # Reshape if quantiles are provided
         if self.quantiles is not None:
             outputs = tf_reshape(
                 outputs, 
-                (-1, self.forecast_horizons, self.num_quantiles, self.output_dim)
+                (-1, self.forecast_horizon, self.num_quantiles, self.output_dim)
             )
             self.logger.debug(f"Reshaped outputs shape: {outputs.shape}")
         
@@ -373,7 +373,7 @@ class TFT(Model, NNLearner):
             'hidden_units'     : self.hidden_units,
             'num_heads'        : self.num_heads,
             'dropout_rate'     : self.dropout_rate,
-            'forecast_horizons': self.forecast_horizons,
+            'forecast_horizon': self.forecast_horizon,
             'quantiles'        : self.quantiles,
             'activation'       : self.activation,
             'use_batch_norm'   : self.use_batch_norm,
@@ -768,7 +768,7 @@ class VariableSelectionNetwork(Layer):
 #     # Define model parameters
 #     batch_size       = 2
 #     past_steps       = 4
-#     forecast_horizons  = 3
+#     forecast_horizon  = 3
 #     dynamic_input_dim = 5      # Number of dynamic (past) input features
 #     static_input_dim  = 6      # Number of static (metadata) input features
 #     future_input_dim  = 4      # Number of future (covariate) input features
@@ -787,7 +787,7 @@ class VariableSelectionNetwork(Layer):
 #         hidden_units=hidden_units,
 #         num_heads=num_heads,
 #         dropout_rate=dropout_rate,
-#         forecast_horizons=forecast_horizons,
+#         forecast_horizon=forecast_horizon,
 #         quantiles=quantiles,          # Set to None for deterministic predictions
 #         activation=activation,
 #         use_batch_norm=use_batch_norm,
@@ -810,14 +810,14 @@ class VariableSelectionNetwork(Layer):
 #     # Past inputs: (batch_size, past_steps, dynamic_input_dim)
 #     past_in = np.random.randn(num_samples, past_steps, dynamic_input_dim).astype(np.float32)
     
-#     # Future inputs: (batch_size, forecast_horizons, future_input_dim)
-#     future_in = np.random.randn(num_samples, forecast_horizons, future_input_dim).astype(np.float32)
+#     # Future inputs: (batch_size, forecast_horizon, future_input_dim)
+#     future_in = np.random.randn(num_samples, forecast_horizon, future_input_dim).astype(np.float32)
     
 #     # Static inputs: (batch_size, static_input_dim)
 #     static_in = np.random.randn(num_samples, static_input_dim).astype(np.float32)
     
-#     # Targets: (batch_size, forecast_horizons, output_dim)
-#     y_true = np.random.randn(num_samples, forecast_horizons, output_dim).astype(np.float32)
+#     # Targets: (batch_size, forecast_horizon, output_dim)
+#     y_true = np.random.randn(num_samples, forecast_horizon, output_dim).astype(np.float32)
     
 #     # Fit the model
 #     history = model.fit(
@@ -832,4 +832,4 @@ class VariableSelectionNetwork(Layer):
     
 #     # Predict using the model
 #     y_pred = model.predict((past_in, future_in, static_in))
-#     print(y_pred.shape)  # Expected: (batch_size, forecast_horizons, num_quantiles, output_dim) or (batch_size, forecast_horizons, output_dim)
+#     print(y_pred.shape)  # Expected: (batch_size, forecast_horizon, num_quantiles, output_dim) or (batch_size, forecast_horizon, output_dim)

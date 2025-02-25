@@ -157,7 +157,7 @@ class PositionalEncoding(Layer, NNLearner):
            in Neural Information Processing Systems* 
            (pp. 5998-6008).
     """
-
+    @tf_autograph.experimental.do_not_convert
     def call(self, inputs):
         r"""
         Forward pass that adds positional encoding to 
@@ -446,7 +446,8 @@ class GatedResidualNetwork(Layer, NNLearner):
                 self.units
             )
         super().build(input_shape)
-
+        
+    @tf_autograph.experimental.do_not_convert
     def call(self, x, training=False):
         r"""
         Forward pass of the GRN, which applies:
@@ -716,7 +717,7 @@ class StaticEnrichmentLayer(Layer, NNLearner):
             activation=self.activation_name,
             use_batch_norm=use_batch_norm
         )
-
+    @tf_autograph.experimental.do_not_convert
     def call(
             self,
             static_context_vector,
@@ -1031,7 +1032,7 @@ class TemporalAttentionLayer(Layer, NNLearner):
             activation=self.activation_name,
             use_batch_norm=use_batch_norm
         )
-
+    @tf_autograph.experimental.do_not_convert
     def call(self, inputs, context_vector, training=False):
         r"""
         Forward pass of the temporal attention layer.
@@ -2335,6 +2336,7 @@ class AnomalyLoss(Layer, NNLearner):
         super().__init__()
         self.weight = weight
 
+    @tf_autograph.experimental.do_not_convert
     def call(self, anomaly_scores: Tensor):
         r"""
         Forward pass that computes the mean squared
@@ -2498,6 +2500,7 @@ class MultiObjectiveLoss(Layer, NNLearner):
         self.quantile_loss_fn = quantile_loss_fn
         self.anomaly_loss_fn = anomaly_loss_fn
 
+    @tf_autograph.experimental.do_not_convert
     def call(self, y_true, y_pred, anomaly_scores=None,
              training=False):
         r"""
