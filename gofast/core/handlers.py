@@ -2158,7 +2158,10 @@ def columns_manager(
             columns = columns.split(separator)
         else:
             columns = str2columns(
-                columns, regex=regex, pattern=pattern)
+                columns, 
+                regex=regex, 
+                pattern=pattern
+        )
     
     # If columns is any iterable object, convert it to a list
     elif isinstance(columns, Iterable) : 

@@ -64,6 +64,7 @@ MODULE_MAPPING = {
         'has_duplicates', 
         'group_and_aggregate', 
         'mask_by_reference', 
+        'filter_by_isin', 
     ], 
     "ext":[ 
          'denormalizer',

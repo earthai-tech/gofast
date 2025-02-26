@@ -55,7 +55,7 @@ __all__ = [
 
 @ParamsValidator({'quantiles': [Real, 'array-like']})
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-@register_keras_serializable('Gofast')
+@register_keras_serializable('Gofast', name="combined_quantile_loss")
 def combined_quantile_loss(quantiles):
     """
     Creates a combined quantile loss function for multiple quantiles.
@@ -66,7 +66,8 @@ def combined_quantile_loss(quantiles):
     Returns:
     - loss function
     """
-    def loss(y_true, y_pred):
+    @register_keras_serializable('Gofast', name="c_qloss")
+    def c_qloss(y_true, y_pred):
         """
         Computes the combined quantile loss.
 
@@ -104,11 +105,11 @@ def combined_quantile_loss(quantiles):
     
     quantiles = validate_quantiles(quantiles )
 
-    return loss
+    return c_qloss
 
 @check_params({"q": Real})
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-@register_keras_serializable('Gofast')
+@register_keras_serializable('Gofast', name='quantile_loss')
 def quantile_loss(q):
     """
     Quantile (Pinball) Loss Function for Quantile Regression.
@@ -216,8 +217,8 @@ def quantile_loss(q):
            Press*.
     """
 
-   
-    def loss(y_true, y_pred):
+    @register_keras_serializable('Gofast', name='q_loss')
+    def q_loss(y_true, y_pred):
         """
         Compute the Quantile Loss (Pinball Loss) for a Given Batch.
 
@@ -250,7 +251,7 @@ def quantile_loss(q):
         )
         return loss
 
-    return loss
+    return q_loss
 
 @check_params (
     {
@@ -258,7 +259,7 @@ def quantile_loss(q):
      }
   )
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-@register_keras_serializable('Gofast')
+@register_keras_serializable('Gofast', name="quantile_loss_multi")
 def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     """
     Multi-Quantile (Pinball) Loss Function for Quantile Regression.
@@ -380,8 +381,8 @@ def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     .. [3] Koenker, R. (2005). Quantile Regression. *Cambridge University
            Press*.
     """
-
-    def loss(y_true, y_pred):
+    @register_keras_serializable('Gofast', name="q_loss_multi")
+    def q_loss_multi(y_true, y_pred):
         """
         Compute the Multi-Quantile Loss (Averaged Pinball Loss) for a Given 
         Batch.
@@ -416,7 +417,7 @@ def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     
     quantiles =validate_quantiles(quantiles)
     
-    return loss
+    return q_loss_multi
 
 @ParamsValidator(
     { 
@@ -425,7 +426,7 @@ def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     }
 )
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-@register_keras_serializable('Gofast')
+@register_keras_serializable('Gofast', name="anomaly_loss")
 def anomaly_loss(anomaly_scores, anomaly_loss_weight=1.0):
     """
     Compute the anomaly loss based on given anomaly scores and a 
@@ -526,8 +527,8 @@ def anomaly_loss(anomaly_scores, anomaly_loss_weight=1.0):
     anomaly_loss_weight =convert_to_tensor(
         anomaly_loss_weight, dtype=anomaly_scores.dtype
     )
-
-    def loss(y_true, y_pred):
+    @register_keras_serializable('Gofast', name="a_loss")
+    def a_loss(y_true, y_pred):
         return anomaly_loss_weight * reduce_mean(square(anomaly_scores))
 
-    return loss
+    return a_loss

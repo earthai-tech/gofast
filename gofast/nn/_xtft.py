@@ -51,7 +51,7 @@ if KERAS_BACKEND:
     tf_square=KERAS_DEPS.square 
     tf_autograph=KERAS_DEPS.autograph
     
-    from . import Activation 
+    # from . import Activation 
     from ._tensor_validation import validate_anomaly_scores 
     from ._tensor_validation import validate_xtft_inputs 
     
@@ -75,10 +75,10 @@ if KERAS_BACKEND:
             VariableSelectionNetwork,
         )
     
-DEP_MSG = dependency_message('transformers._xtft') 
+DEP_MSG = dependency_message('transformers') 
 
 
-@register_keras_serializable('Gofast')
+@register_keras_serializable('Gofast', name="XTFT")
 @doc (
     key_improvements= dedent(_shared_docs['xtft_key_improvements']), 
     key_functions= dedent(_shared_docs['xtft_key_functions']), 
@@ -149,14 +149,15 @@ class XTFT(Model, NNLearner):
         use_residuals: bool = True,
         use_batch_norm: bool = False,
         final_agg: str = 'last',
+        **kw, 
     ):
-        super().__init__()
+        super().__init__(**kw)
 
         # Initialize Logger
         self.logger = gofastlog().get_gofast_logger(__name__)
         
-        self.activation = Activation(activation) 
-        self.activation_name = self.activation.activation_name
+        #self.activation = Activation(activation) 
+        self.activation = activation #.activation
         
         self.logger.debug(
             "Initializing XTFT with parameters: "
@@ -174,7 +175,7 @@ class XTFT(Model, NNLearner):
             f" hidden_units={hidden_units}, "
             f"lstm_units={lstm_units}, "
             f"scales={scales}, "
-            f"activation={self.activation_name}, "
+            f"activation={self.activation}, "
             f"use_residuals={use_residuals}, "
             f"use_batch_norm={use_batch_norm}, "
             f"final_agg={final_agg}"
@@ -264,7 +265,7 @@ class XTFT(Model, NNLearner):
         )
         # ---------------------------------------------------------------------
         
-        self.static_dense = Dense(hidden_units, activation=self.activation_name)
+        self.static_dense = Dense(hidden_units, activation=self.activation)
         self.static_dropout = Dropout(dropout_rate)
         if self.use_batch_norm:
             self.static_batch_norm = LayerNormalization()
@@ -274,12 +275,12 @@ class XTFT(Model, NNLearner):
             units=hidden_units,
             dropout_rate=dropout_rate,
             use_time_distributed=False,
-            activation=self.activation_name,
+            activation=self.activation,
             use_batch_norm=self.use_batch_norm
         )
     
         self.residual_dense = Dense(2 * embed_dim) if use_residuals else None
-        self.final_dense = Dense(output_dim)
+        # self.final_dense = Dense(output_dim)
         
     @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False):
@@ -525,7 +526,8 @@ class XTFT(Model, NNLearner):
             # Compute anomaly loss and add it to the total loss
             anomaly_loss = self.anomaly_loss_layer(self.anomaly_scores)
             self.add_loss(self.anomaly_loss_weight * anomaly_loss)
-            self.logger.debug(f"Anomaly Loss Computed and Added: {anomaly_loss}")
+            self.logger.debug(
+                f"Anomaly Loss Computed and Added: {anomaly_loss}")
             
         return predictions
     
@@ -543,6 +545,7 @@ class XTFT(Model, NNLearner):
                 
             if self.anomaly_scores is not None:
                 # Define a total loss that includes both quantile loss and anomaly loss
+                @register_keras_serializable('Gofast', name="total_loss")
                 def total_loss(y_true, y_pred):
                     # Compute quantile loss
                     q_loss = quantile_loss_fn(y_true, y_pred)
@@ -614,7 +617,7 @@ class XTFT(Model, NNLearner):
             'hidden_units': self.hidden_units,
             'lstm_units': self.lstm_units,
             'scales': self.scales,
-            'activation': self.activation_name,
+            'activation': self.activation,
             'use_residuals': self.use_residuals,
             'use_batch_norm': self.use_batch_norm,
             'final_agg': self.final_agg
@@ -929,12 +932,7 @@ References
        Forecasting, 37(3), 1234-1245.
        
 """
-# TODO
-# UNDER MAINTENANCE: 
-    # FORCE STATIC INPUT TO HAVE (B, N ) # batch_size n_features  to 
-    # integrate into VSN ( variable Selection Networks ) and 
-    # reshape accordingly and to be used accross the neural networks. 
-    
+
 @Deprecated(
     "SuperXTFT is currently under maintenance and will be released soon. " 
     "Please stay updated for the upcoming release. For now, use the "
@@ -945,7 +943,7 @@ References
     ), 
     join='\n', 
 )
-@register_keras_serializable('Gofast')
+@register_keras_serializable('Gofast', name="SuperXTFT")
 class SuperXTFT(XTFT):
     """
     SuperXTFT: An enhanced version of XTFT with Variable Selection Networks (VSNs) 
@@ -975,6 +973,7 @@ class SuperXTFT(XTFT):
         use_residuals: bool = True,
         use_batch_norm: bool = False,
         final_agg: str = 'last',
+        **kw
     ):
         super().__init__(
             static_input_dim=static_input_dim,
@@ -998,6 +997,7 @@ class SuperXTFT(XTFT):
             use_residuals=use_residuals,
             use_batch_norm=use_batch_norm,
             final_agg=final_agg,
+            **kw, 
         )
         
         self.logger = gofastlog().get_gofast_logger(__name__)
@@ -1064,10 +1064,6 @@ class SuperXTFT(XTFT):
             use_batch_norm=use_batch_norm
         )
         
-        # Override attention layers to include Gate -> Add & Norm -> GRN pipeline
-        # hierarchical_attention and cross_attention are defined in XTFT
-        # We will wrap their outputs with GRNs after adding residuals 
-        # and normalization
     @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False):
         static_input, dynamic_input, future_input = validate_xtft_inputs(
@@ -1076,13 +1072,15 @@ class SuperXTFT(XTFT):
             dynamic_input_dim=self.dynamic_input_dim, 
             future_covariate_dim=self.future_input_dim, 
         )
-        # XXX DEBUGGING XTFT with var_sel 
-        
-        # Variable Selection for static, dynamic inputs and future covariate
-        selected_static = self.variable_selection_static(static_input, training=training)
-        print("selected_static.shape=", selected_static.shape)
-        selected_dynamic = self.variable_selection_dynamic(dynamic_input, training=training)
-        selected_future = self.variable_future_covariate(future_input, training=training)
+
+        # Variable Selection for static, dynamic
+        # inputs and future covariate
+        selected_static = self.variable_selection_static(
+            static_input, training=training)
+        selected_dynamic = self.variable_selection_dynamic(
+            dynamic_input, training=training)
+        selected_future = self.variable_future_covariate(
+            future_input, training=training)
         
         self.logger.debug(
             f"Selected Static Features Shape: {selected_static.shape}"
@@ -1100,13 +1098,11 @@ class SuperXTFT(XTFT):
             selected_static, 
             training=training
         )
-        print("normalized_static.shape=", normalized_static.shape)
         self.logger.debug(
             f"Normalized Static Shape: {normalized_static.shape}"
         )
         
         static_features = self.static_dense(normalized_static)
-        print("static_features.shape=", static_features.shape)
         if self.use_batch_norm:
             static_features = self.static_batch_norm(
                 static_features,
@@ -1124,7 +1120,6 @@ class SuperXTFT(XTFT):
         self.logger.debug(
             f"Static Features Shape: {static_features.shape}"
         )
-        print("static_features.shape=", static_features.shape)
         # Embeddings for dynamic and future covariates using selected_dynamic
         embeddings = self.multi_modal_embedding(
             [selected_dynamic, selected_future],
@@ -1247,7 +1242,7 @@ class SuperXTFT(XTFT):
             tf_expand_dims(static_features, axis=1),
             [1, time_steps, 1]
         )
-        print("static_features_expanded.shape=", static_features_expanded.shape)
+
         self.logger.debug(
             "Static Features Expanded Shape: "
             f"{static_features_expanded.shape}"
@@ -1260,7 +1255,7 @@ class SuperXTFT(XTFT):
             hierarchical_att_grn, 
             memory_attention_grn,
         ])
-        print("combined_features.shape=", combined_features.shape)
+
         self.logger.debug(
             f"Combined Features Shape: {combined_features.shape}"
         )
@@ -1353,36 +1348,8 @@ class SuperXTFT(XTFT):
         return predictions
     
     def compile(self, optimizer, loss=None, **kwargs):
-        if self.quantiles is None:
-            # Deterministic scenario
-            super().compile(
-                optimizer=optimizer, loss=loss or 'mse', **kwargs)
-        else:
-            # Probabilistic scenario with combined quantile loss and anomaly loss
-            quantile_loss_fn = combined_quantile_loss(self.quantiles)
-    
-            if not hasattr(self, 'anomaly_scores'): 
-                self.anomaly_scores = self.anomaly_config.get('anomaly_scores')
-                
-            if self.anomaly_scores is not None:
-                # Define a total loss that includes both quantile loss and anomaly loss
-                def total_loss(y_true, y_pred):
-                    # Compute quantile loss
-                    q_loss = quantile_loss_fn(y_true, y_pred)
+        super().compile (optimizer=optimizer, loss=loss, **kwargs)
         
-                    # Compute anomaly loss
-                    a_loss = self.anomaly_loss_layer(self.anomaly_scores)
-        
-                    # Combine losses
-                    return q_loss + a_loss
-        
-                super().compile(
-                    optimizer=optimizer, loss=total_loss, **kwargs)
-            else:
-                # Only quantile loss
-                super().compile(
-                    optimizer=optimizer, loss=quantile_loss_fn, **kwargs)
-    
     @ParamsValidator(
         { 
           'y_true': ['array-like:tf:transf'], 
@@ -1396,18 +1363,11 @@ class SuperXTFT(XTFT):
         y_pred: Tensor, 
         anomaly_scores: Tensor=None
     ) -> Tensor:
-        if not hasattr(self, 'anomaly_scores'): 
-            self.anomaly_scores = self.anomaly_config.get('anomaly_scores')
-                
-        if self.anomaly_scores is not None: 
-            check_consistent_length(y_true, y_pred, self.anomaly_scores)
-            # Compute the multi-objective loss
-            loss = self.multi_objective_loss(y_true, y_pred, self.anomaly_scores)
-            return loss
-        else: 
-            # When anomaly_loss_weight is None, y_true is a tensor
-            check_consistent_length(y_true, y_pred)
-            return self.multi_objective_loss(y_true, y_pred)
+        super().objective_loss(
+            y_true=y_true, y_pred=y_pred,
+            anomaly_scores=anomaly_scores
+        )
+      
     
     def get_config(self):
         config = super().get_config().copy()

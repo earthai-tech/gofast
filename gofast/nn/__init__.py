@@ -13,7 +13,7 @@ TensorFlow.
 """
 import warnings
 from .generate import create_sequences, data_generator
-from ..compat.tf import import_keras_dependencies, check_keras_backend, standalone_keras
+from ..compat.tf import import_keras_dependencies, check_keras_backend
 from ._config import configure_dependencies, Config as config
 
 # Set default configuration
@@ -105,84 +105,5 @@ if KERAS_BACKEND:
         "cross_validate_lstm",
     ]
 
-    # Get necessary classes and functions from Keras dependencies
-    Layer = KERAS_DEPS.Layer 
-    tf_autograph=KERAS_DEPS.autograph
-    # Equivalent to: from tensorflow.keras import activations
-    try:
-        activations = KERAS_DEPS.activations  
-    except (ImportError, AttributeError) as e: 
-        try: 
-            activations = standalone_keras('activations')
-        except: 
-            raise ImportError (str(e))
-    except: 
-        raise ImportError(
-                "Module 'activations' could not be imported from either "
-                "tensorflow.keras or standalone keras. Ensure that TensorFlow "
-                "or standalone Keras is installed and the module exists."
-            )
-
-    class Activation(Layer):
-        """
-        Custom Activation layer that wraps a Keras activation function
-        and captures its name.
-        """
-        def __init__(self, activation='relu', **kw):
-            super().__init__(**kw)
-            # Get the activation function; Keras will raise an error if invalid
-            self.activation= activations.get(activation)
-            # self.activation = activation  # Store the original activation parameter
-
-            # Assign activation name
-            if isinstance(activation, str):
-                self.activation_name = activation
-            elif callable(activation):
-                # Try to get the name from the activation function
-                self.activation_name = getattr(
-                    activation, '__name__', activation.__class__.__name__)
-            else:
-                # Fallback to string representation
-                self.activation_name = str(activation)
-                
-
-        @tf_autograph.experimental.do_not_convert
-        def call(self, inputs, training=False):
-            r"""
-            Forward pass of the Activation layer.
-        
-            Applies the stored activation function to the input tensor.
-            The ``training`` parameter is accepted for API compatibility but
-            is not used in this implementation.
-        
-            Parameters
-            ----------
-            inputs : tf.Tensor
-                The input tensor on which the activation is applied.
-            training : bool, optional
-                Boolean flag indicating whether the layer is in training mode.
-                This argument is ignored. Default is ``False``.
-        
-            Returns
-            -------
-            tf.Tensor
-                The output tensor after applying the activation function.
-            """
-            return self.activation(inputs)
-
-
-        def get_config(self):
-            config = super(Activation, self).get_config()
-            # Serialize the activation function properly
-            config.update({
-                'activation': activations.serialize(self.activation)
-            })
-            return config
-
-        def __repr__(self):
-            return f"{self.__class__.__name__}(activation={self.activation_name!r})"
-
-    # Add Activation to the list of public objects if __all__ is defined
-    __all__.extend(["Activation"])
 
     

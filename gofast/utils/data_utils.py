@@ -77,6 +77,7 @@ __all__= [
     'build_df', 
     'group_and_aggregate', 
     'mask_by_reference', 
+    'filter_by_isin', 
     ]
 
      
@@ -118,17 +119,7 @@ def build_df(
     `inspect_data`. Each ensures consistent data cleaning, 
     and structural analysis [1]_.
     
-    
-    .. math::
-       D_{frame}
-       = f(D_{input}, \text{columns, coerce })
-    
-    Given an input :math:`D_{input}` (which may be a dictionary,
-    list, NumPy array, or existing DataFrame), the function
-    applies transformations (e.g., numeric type coercion, column
-    sanitization) guided by parameters like `min_process`. When
-    :math:`min_process=True`, additional steps such as dropping
-    all-NaN columns and resetting indexes are invoked.
+    See more in :ref:`User Guide <user_guide>`. 
     
     Parameters
     ----------
@@ -215,6 +206,17 @@ def build_df(
     for automated data readiness. Integrity checks are
     performed if `integrity_check=True`, making sure the final
     DataFrame meets essential requirements.
+    
+    .. math::
+       D_{frame}
+       = f(D_{input}, \text{columns, coerce })
+    
+    Given an input :math:`D_{input}` (which may be a dictionary,
+    list, NumPy array, or existing DataFrame), the function
+    applies transformations (e.g., numeric type coercion, column
+    sanitization) guided by parameters like `min_process`. When
+    :math:`min_process=True`, additional steps such as dropping
+    all-NaN columns and resetting indexes are invoked.
     
     Examples
     --------
@@ -335,7 +337,8 @@ def group_and_aggregate(
     as_index: bool = True,
     dropna: bool = False,
     reset_index: bool = True,
-    verbose: int = 0
+    verbose: int = 0, 
+    savefile: Optional[str]=None, 
 ) -> pd.DataFrame:
     r"""
     Group and aggregate a pandas DataFrame based on specified columns and
@@ -1566,7 +1569,6 @@ def has_duplicates(
         
         return df_copy
 
-
 @validate_params ({ 
     'threshold':[Interval(Real, 0, 1, closed='neither')], 
     'error': [StrOptions({'raise', 'warn', 'ignore'})]
@@ -2310,7 +2312,8 @@ def pair_data(
     coerce: bool = False,
     force: bool = False,
     decimals: int = 7,
-    raise_warn: bool = True
+    raise_warn: bool = True, 
+    savefile=None, 
 ) -> pd.DataFrame:
     """
     Finds identical objects in multiple DataFrames and merges them 
@@ -3408,7 +3411,7 @@ def data_extractor(
     round_decimals: int = None,
     fillna_value: Any = None,
     unique: bool = False,
-    coerce_dtype: Any = None
+    coerce_dtype: Any = None, 
 ) -> Tuple[Union[Tuple[float, float], pd.DataFrame, None],
            pd.DataFrame, Tuple[str, ...]]:
     """
@@ -3695,6 +3698,7 @@ def replace_data(
         return concat_data(X), concat_data(y)
     return concat_data(X)
 
+@SaveFile
 @isdf 
 @validate_params ({ 
     "long_df": ['array-like'], 
@@ -3906,11 +3910,12 @@ def long_to_wide(
     # Reset the index to convert back to a normal DataFrame
     wide_df = wide_df.reset_index()
 
-    if savefile:
-        wide_df.to_csv(savefile, index=False)
+    # if savefile:
+    #     wide_df.to_csv(savefile, index=False)
 
     return wide_df
 
+@SaveFile 
 @isdf
 @validate_params ({ 
     "wide_df": ['array-like'], 
@@ -3932,6 +3937,7 @@ def wide_to_long(
     rename_columns=None, 
     rename_dict=None,
     error='raise',
+    savefile=None, 
     **kwargs
 ):
     """
@@ -4137,6 +4143,7 @@ def wide_to_long(
 
     return long_df
 
+@SaveFile 
 @is_data_readable
 @isdf 
 def repeat_feature_accross(
@@ -4148,7 +4155,8 @@ def repeat_feature_accross(
     custom_dates: List[Union[int, pd.Timestamp]] = None,
     drop_existing_date: bool = True,
     sort: bool = False,
-    inplace: bool = False
+    inplace: bool = False, 
+    savefile=None, 
 ) -> DataFrame:
     """
     Repeat static feature across multiple years or specified dates.
@@ -4369,6 +4377,7 @@ def repeat_feature_accross(
     else:
         return df_repeated.reset_index(drop=True)
 
+@SaveFile 
 def merge_datasets(
     *dfs, 
     on=None, 
@@ -4376,7 +4385,8 @@ def merge_datasets(
     fill_missing=False, 
     fill_value=None, 
     keep_duplicates=False, 
-    suffixes=('_x', '_y')
+    suffixes=('_x', '_y'), 
+    savefile=None, 
 ):
     """
     Merge multiple datasets into a single DataFrame.
@@ -5410,7 +5420,6 @@ def mask_by_reference(
     ... # Rows where A=0 => columns C,D replaced by 999, while B remains unchanged
     >>>
     """
-
     # --- Preliminary checks --- #
     if ref_col not in data.columns:
         msg = (f"[mask_by_reference] Column '{ref_col}' not found "
@@ -5534,3 +5543,156 @@ def mask_by_reference(
         print(f"[mask_by_reference] Distinct matched rows: {distinct_count}")
 
     return df
+
+@SaveFile 
+@isdf 
+def filter_by_isin(
+    df: pd.DataFrame,
+    *other_dfs: pd.DataFrame,
+    main_col: str,
+    columns: Optional[Union[str, List[str]]] = None,
+    how: str = "union",
+    invert: bool = False, 
+    savefile=None, 
+) -> pd.DataFrame:
+    """
+    Filter a DataFrame by checking whether values in one of its columns
+    appear (or do not appear) in one or more other DataFrames.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The main DataFrame to be filtered.
+    *other_dfs : pd.DataFrame
+        One or more additional DataFrames that provide the reference
+        values for the filtering.
+    main_col : str
+        Column in `df` whose values will be checked against the other
+        DataFrames.
+    columns : str or List[str], optional
+        Column names in the other DataFrames to use for collecting
+        reference values. If a single string is given, it applies
+        to all DataFrames in `other_dfs`. If a list of strings is
+        provided, it must match the number of DataFrames passed.
+        Defaults to None, in which case `main_col` is also used
+        for all DataFrames.
+    how : {'union', 'intersection'}, optional
+        How to combine the sets of valid values collected from the
+        other DataFrames:
+          - "union":  A value is valid if it appears in at least
+                      one of the other DataFrames.
+          - "intersection": A value is valid only if it appears
+                            in *all* the other DataFrames.
+        Defaults to "union".
+    invert : bool, optional
+        If True, invert the filtering so that rows are returned
+        only when the value in `main_col` is *not* in the
+        collected set. Defaults to False.
+
+    Returns
+    -------
+    pd.DataFrame
+        A filtered subset of `df` where `main_col` is (or is not)
+        found in the reference columns of the other DataFrames,
+        depending on the `invert` parameter and `how` mode.
+
+    Raises
+    ------
+    ValueError
+        If `columns` is a list but its length does not match
+        the number of `other_dfs`, or if `how` is not one
+        of the supported options.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.utils.data_utils import filter_by_isin
+    >>> # Suppose we have a main DataFrame:
+    ... df_main = pd.DataFrame({
+    ...     'subsidence': [40.49, 10.58, 8.01, 42.50, 25.97, 999.99],
+    ...     'other_col': ['A', 'B', 'C', 'D', 'E', 'F']
+    ... })
+    >>> # And another DataFrame with actual subsidence data:
+    ... df_ref = pd.DataFrame({
+    ...     'subsidence_actual': [40.49, 8.01, 25.97]
+    ... })
+    >>> # We can filter df_main to keep only rows whose
+    ... # 'subsidence' values appear in df_ref's 'subsidence_actual':
+    ... result = filter_by_isin(
+    ...     df_main,
+    ...     df_ref,
+    ...     main_col='subsidence',
+    ...     columns='subsidence_actual'
+    ... )
+    >>> result
+       subsidence other_col
+    0       40.49         A
+    2        8.01         C
+    4       25.97         E
+
+    >>> # If we invert the filtering:
+    ... result_inverted = filter_by_isin(
+    ...     df_main,
+    ...     df_ref,
+    ...     main_col='subsidence',
+    ...     columns='subsidence_actual',
+    ...     invert=True
+    ... )
+    >>> result_inverted
+       subsidence other_col
+    1       10.58         B
+    3       42.50         D
+    5      999.99         F
+    """
+    # Validate how parameter.
+    valid_how = {"union", "intersection"}
+    if how not in valid_how:
+        raise ValueError(
+            f"`how` must be one of {valid_how}, got '{how}' instead."
+        )
+    
+    exist_features(df, features= main_col, name="Main col")
+    
+    other_dfs = are_all_frames_valid(
+        *other_dfs, 
+        to_df =True,
+        ops="validate"
+        )
+    # Handle columns parameter (broadcast if needed).
+    if columns is None:
+        # Use `main_col` for all
+        columns_list = [main_col] * len(other_dfs)
+    elif isinstance(columns, str):
+        # Same single string for all other_dfs
+        columns_list = [columns] * len(other_dfs)
+    else:
+        # columns should be a list of strings
+        if len(columns) != len(other_dfs):
+            raise ValueError(
+                f"Number of items in `columns` ({len(columns)}) does not "
+                f"match the number of `other_dfs` ({len(other_dfs)})."
+            )
+        columns_list = columns
+
+    # Collect sets of valid values from each reference DataFrame.
+    sets_of_values = []
+    for ref_df, ref_col in zip(other_dfs, columns_list):
+        ref_values = set(ref_df[ref_col].dropna().unique())
+        sets_of_values.append(ref_values)
+
+    # Combine sets by union or intersection.
+    if not sets_of_values:
+        # If no other_dfs were provided, no filtering needed.
+        valid_values = set()
+    else:
+        if how == "union":
+            valid_values = set.union(*sets_of_values)
+        else:  # how == "intersection"
+            valid_values = set.intersection(*sets_of_values)
+
+    # Perform the filtering in df
+    mask = df[main_col].isin(valid_values)
+    if invert:
+        mask = ~mask
+
+    return df[mask].copy()

@@ -4240,7 +4240,6 @@ def forecast_multi_step(
     
     return pred_df
 
-
 def generate_xtft_forecast(
         xtft_model,
         inputs,

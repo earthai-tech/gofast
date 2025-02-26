@@ -7,7 +7,7 @@ Provides utilities for managing compatibility between TensorFlow's Keras and
 standalone Keras. It includes functions and classes for dynamically importing 
 Keras dependencies and checking the availability of TensorFlow or Keras.
 """
-
+import os
 import logging
 import warnings 
 import importlib
@@ -16,13 +16,33 @@ from functools import wraps
 from contextlib import contextmanager 
 from typing import Callable 
 
-# Attempt to import TensorFlow and set a flag based on availability
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+# 0 = all messages are logged (default)
+# 1 = filter out INFO messages
+# 2 = filter out INFO and WARNING messages
+# 3 = filter out INFO, WARNING, and ERROR messages
+
+# Disable OneDNN logs or usage (Optional):
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+
 try:
     import tensorflow as tf
     HAS_TF = True
 except ImportError:
     HAS_TF = False
-    
+else: 
+    # If TF is imported successfully, detect the version:
+    version_str = tf.__version__
+    major_version = int(version_str.split('.')[0])
+
+    if major_version >= 2:
+        # For TF 2.x:
+        tf.get_logger().setLevel('ERROR')
+    else:
+        # For older TF 1.x style (still works in tf.compat.v1):
+        tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+        
+
 __all__ = [
     'KerasDependencies',
     'check_keras_backend',
@@ -155,7 +175,7 @@ class KerasDependencies:
             'Embedding': ('layers', 'Embedding'), 
             'clone_model': ('models', 'clone_model'),
             'load_model': ('models', 'load_model'),
-            'register_keras_serializable': ('utils', 'register_keras_serializable')
+            'register_keras_serializable': ('saving', 'register_keras_serializable'), 
         }
 
         if name in mapping:

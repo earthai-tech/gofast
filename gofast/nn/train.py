@@ -27,9 +27,9 @@ from ..api.types import ArrayLike, Callable, Any, Generator
 from ..core.array_manager import denormalize
 from ..utils.deps_utils import ensure_pkg 
 from ..utils.validator import check_X_y, check_consistent_length
-from ..utils.validator import validate_keras_model
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
+from .validator import validate_keras_model
 
 if KERAS_BACKEND:
     Adam = KERAS_DEPS.Adam

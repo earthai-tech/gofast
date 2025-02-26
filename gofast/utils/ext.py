@@ -227,11 +227,11 @@ def evaluate_df(
         expr,
         pattern=None
     )
+
     op_cols = columns_manager(
         op_cols,
-        empty_as_none=True
+        pattern=None
     )
-
     # Decide which DataFrame to work on
     new_df = df if inplace else df.copy()
 
@@ -1308,24 +1308,151 @@ def denormalize_in(
                                  "denormalization.")
             return arr * ((common_max - common_min) / total) + common_min
    
-
 def denormalizer(
-    d, 
-    min_val: float, 
-    max_val: float, 
-    method: str = '01', 
-    std_dev_factor: float = 3, 
-    columns=None, 
+    d,
+    min_val: float,
+    max_val: float,
+    method: str = '01',
+    std_dev_factor: float = 3,
+    columns=None,
     epsilon=1e-8
-) -> Union[np.ndarray, pd.Series, pd.DataFrame]:
+):
     """
-    Denormalize data from a normalized scale back to its original 
-    scale. Supports both numeric and categorical data in pandas 
-    DataFrames. If `columns` is provided, only those columns are 
-    denormalized and later merged with the remaining categorical 
-    columns to preserve the original order. If no numeric columns 
-    are found, a warning is issued and the data is returned as is.
+    Denormalize data from a normalized scale back to its
+    original scale. This function supports three methods:
+    ``'01'``, ``'zscore'``, and ``'sum'``. It can process
+    both numeric and categorical data within a pandas
+    DataFrame, returning the denormalized numerical part
+    merged with any untouched categorical columns.
+
+    Internally, it uses `parameter_validator` to ensure
+    the ``method`` is valid. When a pandas or NumPy input
+    is purely numeric, `check_numeric_dtype` helps validate
+    the data type. In other scenarios, non-numeric columns
+    remain unchanged.
+
+    Parameters
+    ----------
+    d : ndarray, Series or DataFrame
+        Numeric data or a mix of numeric and
+        categorical columns that need to be
+        denormalized. Categorical columns remain
+        unchanged.
+    min_val : float
+        The minimum value used in the normalization
+        context. For method ``'01'``, it represents
+        the lower bound of the original scale. For
+        method ``'zscore'``, it combines with
+        ``max_val`` to derive the mean. For method
+        ``'sum'``, it is added back after rescaling.
+    max_val : float
+        The maximum value in the normalization
+        context. Similar usage as ``min_val`` but
+        acts as the upper bound or helps compute
+        the mean, depending on the method.
+    method : str, optional
+        The normalization mode. Valid options:
+        ``'01'``, ``'zscore'``, or ``'sum'``.
+        Defaults to ``'01'``. Each choice
+        triggers a different denormalization
+        formula as shown above.
+    std_dev_factor : float, optional
+        Used in method ``'zscore'`` to define how
+        the standard deviation is derived from
+        :math:`(max\_val - min\_val) / (2 \times
+        \text{std\_dev\_factor})`. Defaults to 3.
+    columns : list of str, optional
+        Columns to explicitly denormalize in a
+        DataFrame. Other columns are treated as
+        categorical and returned as is. If
+        unspecified, numeric columns are auto-
+        selected.
+    epsilon : float, optional
+        A small constant to guard against division
+        by zero in method ``'sum'``. Defaults to
+        1e-8.
+
+    Returns
+    -------
+    ndarray or Series or DataFrame
+        The denormalized data in the same type as
+        ``d``. If a DataFrame with numeric and
+        categorical columns is passed, it returns
+        a DataFrame with denormalized numeric
+        columns and untouched categoricals.
+
+    Notes
+    -----
+    - If no numeric columns are found in a
+      DataFrame, a warning is issued, and the
+      original DataFrame is returned unchanged.
+    - For method ``'sum'``, the sum of the data
+      (in normalized space) is used to compute
+      the scale. If that sum is below the
+      specified ``epsilon``, an error is raised.
+      
+    .. math::
+       \text{For `01`: } x_{\text{denorm}} \;=\;
+       x_{\text{norm}} \;\times\; (\text{max\_val} \;-\;
+       \text{min\_val})\;+\;\text{min\_val}
+
+    .. math::
+       \text{For `zscore`: } x_{\text{denorm}} \;=\;
+       x_{\text{norm}} \;\times\; \sigma\;+\;\mu
+
+    where :math:`\mu = \frac{\text{min\_val} +
+    \text{max\_val}}{2}` and :math:`\sigma =
+    \frac{\text{max\_val} - \text{min\_val}}{2 \times
+    \text{std\_dev\_factor}}`.
+
+    .. math::
+       \text{For `sum`: } x_{\text{denorm}} \;=\;
+       x_{\text{norm}} \;\times\; \left(\frac{\text{max\_val}
+       - \text{min\_val}}{\sum x_{\text{norm}}}\right)\;+\;
+       \text{min\_val}
+       
+    Examples
+    --------
+    >>> from gofast.utils.ext import denormalizer
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> # Example with NumPy array
+    ... arr_norm = np.array([0.2, 0.8])
+    >>> denorm_arr = denormalizer(arr_norm,
+    ...                           min_val=10,
+    ...                           max_val=20,
+    ...                           method='01')
+    >>> denorm_arr
+    array([12., 18.])
+
+    >>> # Example with DataFrame
+    ... df = pd.DataFrame({
+    ...     'A': [0.25, 0.75],
+    ...     'B': ['cat', 'dog']
+    ... })
+    >>> denorm_df = denormalizer(df, 0, 40, '01')
+    >>> denorm_df
+         A    B
+    0  10.0  cat
+    1  30.0  dog
+
+    See Also
+    --------
+    parameter_validator : Ensures that certain
+        string parameters (like ``method``)
+        belong to a predefined set of choices.
+
+    check_numeric_dtype : Validates and coerces
+        data to numeric type.
+
+    References
+    ----------
+    .. [1] "Normalization Techniques: A Survey of
+           Theoretical and Empirical Analysis."
+           *International Journal of Data Science*,
+           vol. 5, no. 2, pp. 45-62, 2020.
     """
+
     method =parameter_validator (
         "method", target_strs={"01","zscore", "sum" },
         error_msg=( f"Unsupported normalization method: {method}"))(method)

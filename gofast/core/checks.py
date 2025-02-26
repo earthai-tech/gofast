@@ -3310,10 +3310,22 @@ def str2columns(
     ['this', 'is', 'the', 'text', 'to', 'split', 'It', 'is', 'an:', 
     'example', 'of', 'splitting', 'str', 'to', 'text']
     """
-    pattern = pattern or r'[#&.*@!_,;\s-]\s*'
-    regex = regex or re.compile(pattern, flags=re.IGNORECASE)
-    text = list(filter(None, regex.split(str(text))))
-    return text
+    # If the user provided neither a pattern nor 
+    # a regex, just return the text as is.
+    if regex is None and pattern is None:
+        return [text]
+
+    # If a regex is provided, use it directly. 
+    # Otherwise, compile the pattern.
+    if regex is not None:
+        splitter = regex
+    else:
+        splitter = re.compile(pattern, flags=re.IGNORECASE)
+
+    # Perform the split, then filter out empty strings
+    parts = splitter.split(text)
+    parts = list(filter(None, parts))
+    return parts
 
 def _assert_all_types(
     obj: object,
