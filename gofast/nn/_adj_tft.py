@@ -48,7 +48,6 @@ if KERAS_BACKEND:
     tf_reduce_mean = KERAS_DEPS.reduce_mean
     tf_get_static_value=KERAS_DEPS.get_static_value
     
-    from . import Activation 
     from ._tensor_validation import validate_tft_inputs
     from ._tft import TemporalFusionTransformer
     from .losses import combined_quantile_loss 
@@ -552,9 +551,8 @@ class GatedResidualNetwork(Layer):
         # Define layers
         self.fc1 = Dense(self.hidden_units, activation=None)
         #self.activation_fn = Activation(self.activation)
-        self.activation = Activation(activation) 
-        self.activation_name = self.activation.activation_name
-        
+        self.activation = activation
+
         self.dropout= Dropout(self.dropout_rate)
         self.fc2 = Dense(self.output_units, activation=None)
         

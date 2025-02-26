@@ -50,7 +50,6 @@ from ..utils.validator import (
     validate_sequences, 
     check_consistent_length, 
     parameter_validator,
-    validate_keras_model,
     is_frame, 
     validate_positive_integer, 
     check_forecast_mode, 
@@ -58,11 +57,12 @@ from ..utils.validator import (
 from ..metrics_special import coverage_score
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
+from .validator import validate_keras_model, check_keras_model_status 
 
 if KERAS_BACKEND:
     Callback=KERAS_DEPS.Callback
     
-DEP_MSG = dependency_message('utils') 
+DEP_MSG = dependency_message('nn.utils') 
 
 __all__ = [
     "split_static_dynamic", 
@@ -2378,15 +2378,11 @@ def generate_forecast(
     
     This function uses a pre-trained Keras model to forecast future 
     values based on provided historical data. The model receives three 
-    inputs: `X_static`, `X_dynamic`, and `X_future`, and outputs 
-    predictions over a specified forecast horizon.
+    inputs: `X_static`, `X_dynamic`, and `X_future` re-built from 
+    `train_data`, and outputs predictions over a specified
+    forecast horizon.
     
-    .. math::
-    
-       y_{t+i} = f\Bigl(X_{\text{static}},\; 
-       X_{\text{dynamic}},\; X_{\text{future}}\Bigr)
-       
-    for :math:`i = 1, \dots, forecast_horizon`.
+    See more in :ref:`User Guide <user_guide>`. 
     
     Parameters
     ----------
@@ -2705,12 +2701,17 @@ def generate_forecast(
     .. [1] Kouadio et al., "Gofast Forecasting Model", Journal of 
        Advanced Forecasting, 2025. (In Review)
     """
-
     # Validate the model
     xtft_model = validate_keras_model(
         xtft_model,
         deep_check=True
     )
+    xtft_model = check_keras_model_status(
+        xtft_model, 
+        ops="validate", 
+        mode="fit"
+    )
+    
     if verbose >= 1:
         print(
             "\nGenerating {} forecast for {} periods..."
@@ -2966,7 +2967,7 @@ def generate_forecast(
             if mode == "quantile":
                 for qi, quantile in enumerate(q):
                     col_name = "{}_q{}".format(
-                        tname, int(quantile * 100)
+                        tname, int(round(quantile * 100))
                     )
                     forecast_entry[col_name] = y_pred_forecast[0, i, qi].item()
             else:

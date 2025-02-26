@@ -45,7 +45,6 @@ if KERAS_BACKEND:
     tf_shape = KERAS_DEPS.shape
     tf_rank=KERAS_DEPS.rank
     
-    from . import Activation 
     from ._tensor_validation import validate_tft_inputs
     from .components import GatedResidualNetwork, VariableSelectionNetwork 
     from .components import StaticEnrichmentLayer, TemporalAttentionLayer 
@@ -132,9 +131,8 @@ class TemporalFusionTransformer(Model, NNLearner):
         self.num_lstm_layers = num_lstm_layers
         self.lstm_units = lstm_units
         
-        self.activation = Activation(activation) 
-        self.activation_name = self.activation.activation_name
-        
+        self.activation = activation 
+       
         if quantiles is None:
             self.quantiles = None
             self.num_quantiles = 1
@@ -148,7 +146,7 @@ class TemporalFusionTransformer(Model, NNLearner):
             num_inputs=static_input_dim,
             units=hidden_units,
             dropout_rate=dropout_rate,
-            activation=self.activation_name,
+            activation=self.activation,
             use_batch_norm=use_batch_norm
         )
         self.dynamic_var_sel = VariableSelectionNetwork(
@@ -156,7 +154,7 @@ class TemporalFusionTransformer(Model, NNLearner):
             units=hidden_units,
             dropout_rate=dropout_rate,
             use_time_distributed=True,
-            activation=self.activation_name,
+            activation=self.activation,
             use_batch_norm=use_batch_norm
         )
 
@@ -169,13 +167,13 @@ class TemporalFusionTransformer(Model, NNLearner):
         self.static_context_grn = GatedResidualNetwork(
             hidden_units,
             dropout_rate,
-            activation=self.activation_name,
+            activation=self.activation,
             use_batch_norm=use_batch_norm
         )
         self.static_context_enrichment_grn = GatedResidualNetwork(
             hidden_units,
             dropout_rate,
-            activation=self.activation_name,
+            activation=self.activation,
             use_batch_norm=use_batch_norm
         )
 
@@ -203,7 +201,7 @@ class TemporalFusionTransformer(Model, NNLearner):
         self.logger.debug("Initializing Static Enrichment Layer...")
         self.static_enrichment = StaticEnrichmentLayer(
             hidden_units,
-            activation=self.activation_name,
+            activation=self.activation,
             use_batch_norm=use_batch_norm
         )
 
@@ -213,7 +211,7 @@ class TemporalFusionTransformer(Model, NNLearner):
             hidden_units,
             num_heads,
             dropout_rate,
-            activation=self.activation_name,
+            activation=self.activation,
             use_batch_norm=use_batch_norm
         )
 
@@ -223,7 +221,7 @@ class TemporalFusionTransformer(Model, NNLearner):
             hidden_units,
             dropout_rate,
             use_time_distributed=True,
-            activation=self.activation_name,
+            activation=self.activation,
             use_batch_norm=use_batch_norm
         )
 
@@ -336,7 +334,7 @@ class TemporalFusionTransformer(Model, NNLearner):
             'dropout_rate': self.dropout_rate,
             'forecast_horizon': self.forecast_horizon,
             'quantiles': self.quantiles,
-            'activation': self.activation_name,
+            'activation': self.activation,
             'use_batch_norm': self.use_batch_norm,
             'num_lstm_layers': self.num_lstm_layers,
             'lstm_units': self.lstm_units,
@@ -504,8 +502,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
 
         # Convert string activation to a Keras Activation layer 
         # for uniform usage across sub-layers.
-        self.activation      = Activation(activation)
-        self.activation_name = self.activation.activation_name
+        self.activation = activation
 
         # If quantiles are not provided, interpret as single output 
         # (deterministic). Otherwise, parse and store them.
@@ -526,7 +523,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
                 num_inputs=static_input_dim,
                 units=hidden_units,
                 dropout_rate=dropout_rate,
-                activation=self.activation_name,
+                activation=self.activation,
                 use_batch_norm=use_batch_norm
             ) if static_input_dim else None
         )
@@ -537,7 +534,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
             units=hidden_units,
             dropout_rate=dropout_rate,
             use_time_distributed=True,
-            activation=self.activation_name,
+            activation=self.activation,
             use_batch_norm=use_batch_norm
         )
 
@@ -549,7 +546,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
                 units=hidden_units,
                 dropout_rate=dropout_rate,
                 use_time_distributed=True,
-                activation=self.activation_name,
+                activation=self.activation,
                 use_batch_norm=use_batch_norm
             )
         else:
@@ -567,7 +564,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
             GatedResidualNetwork(
                 hidden_units,
                 dropout_rate,
-                activation=self.activation_name,
+                activation=self.activation,
                 use_batch_norm=use_batch_norm
             ) if static_input_dim else None
         )
@@ -575,7 +572,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
             GatedResidualNetwork(
                 hidden_units,
                 dropout_rate,
-                activation=self.activation_name,
+                activation=self.activation,
                 use_batch_norm=use_batch_norm
             ) if static_input_dim else None
         )
@@ -606,7 +603,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
         self.static_enrichment = (
             StaticEnrichmentLayer(
                 hidden_units,
-                activation=self.activation_name,
+                activation=self.activation,
                 use_batch_norm=use_batch_norm
             ) if static_input_dim else None
         )
@@ -618,7 +615,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
             hidden_units,
             num_heads,
             dropout_rate,
-            activation=self.activation_name,
+            activation=self.activation,
             use_batch_norm=use_batch_norm
         )
 
@@ -629,7 +626,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
             hidden_units,
             dropout_rate,
             use_time_distributed=True,
-            activation=self.activation_name,
+            activation=self.activation,
             use_batch_norm=use_batch_norm
         )
 
@@ -795,7 +792,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
             'dropout_rate'      : self.dropout_rate,
             'forecast_horizon' : self.forecast_horizon,
             'quantiles'         : self.quantiles,
-            'activation'        : self.activation_name,
+            'activation'        : self.activation,
             'use_batch_norm'    : self.use_batch_norm,
             'num_lstm_layers'   : self.num_lstm_layers,
             'lstm_units'        : self.lstm_units,
