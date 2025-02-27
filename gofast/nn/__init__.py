@@ -11,6 +11,12 @@ available, the module will raise an ImportError with instructions to install
 TensorFlow.
 
 """
+import os 
+# filter out TF INFO and WARNING messages
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # or "3"
+# Disable oneDNN custom operations
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+
 import warnings
 from .generate import create_sequences, data_generator
 from ..compat.tf import import_keras_dependencies, check_keras_backend

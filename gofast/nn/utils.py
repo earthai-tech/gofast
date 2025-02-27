@@ -2448,10 +2448,12 @@ def generate_forecast(
     --------
     (1) Example refering to Train data only 
     
-    >>> from gofast.nn.transformers import XTFT
-    >>> from gofast.nn.utils import generate_forecast
+    >>> import os 
     >>> import pandas as pd
     >>> import numpy as np
+    >>> from gofast.nn.transformers import XTFT
+    >>> from gofast.nn.losses import combined_quantile_loss
+    >>> from gofast.nn.utils import generate_forecast
     >>> 
     >>> # Create a dummy training DataFrame with a date column,
     >>> # dynamic features "feat1", "feat2", static feature "stat1",
@@ -2565,14 +2567,16 @@ def generate_forecast(
     ...     attention_units=32,
     ...     hidden_units=16
     ... )
-    >>> my_model.compile(optimizer="adam")
+    >>> loss_fn = combined_quantile_loss(my_model.quantiles) 
+    >>> my_model.compile(optimizer="adam", loss=loss_fn)
     >>> 
     >>> # Fit the model on the training data.
     >>> my_model.fit(
     ...     x=[X_static, X_dynamic, X_future],
     ...     y=y_array,
     ...     epochs=1,
-    ...     batch_size=8
+    ...     batch_size=8, 
+    ...     callbacks = [early_stopping, model_checkpoint]
     ... )
     >>> 
     >>> # Generate forecast using the generate_forecast function.
@@ -3671,6 +3675,11 @@ def forecast_single_step(
         tname = "target"
 
     # Generate predictions.
+    xtft_model = check_keras_model_status(
+        xtft_model, 
+        ops="validate", 
+        mode="fit"
+    )
     y_pred = xtft_model.predict(
         [
             np.asarray(X_static, dtype=np.float32),
@@ -4072,6 +4081,12 @@ def forecast_multi_step(
     if tname is None:
         tname = "target"
 
+    xtft_model= check_keras_model_status(
+        xtft_model, 
+        ops="validate", 
+        mode="fit",
+        error="warn"
+    )
     # Generate predictions using the XTFT model.
     y_pred = xtft_model.predict(
         [

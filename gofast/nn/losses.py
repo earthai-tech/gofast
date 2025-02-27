@@ -21,17 +21,21 @@ Dependencies:
 - KERAS_BACKEND: Configures backend setup for Keras.
 
 """
+import warnings 
 from numbers import Real 
-from typing import List
+from typing import List, Optional 
 
 from ..compat.sklearn import Interval
 from ..core.checks import ParamsValidator, check_params
 from ..utils.deps_utils import ensure_pkg
-from ..utils.validator import  validate_quantiles
+from ..utils.validator import  validate_quantiles, check_consistent_length 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
+from .validator import validate_keras_loss 
 
 if KERAS_BACKEND:
     K = KERAS_DEPS.backend
+    Loss=KERAS_DEPS.Loss
+    Tensor=KERAS_DEPS.Tensor 
     reduce_mean=KERAS_DEPS.reduce_mean 
     square=KERAS_DEPS.square 
     reshape=KERAS_DEPS.reshape 
@@ -49,67 +53,213 @@ __all__ = [
     'quantile_loss', 
     'quantile_loss_multi', 
     'anomaly_loss', 
-    'combined_quantile_loss'
+    'combined_quantile_loss', 
+    'combined_total_loss',
+    'objective_loss', 
  ]
+
+@register_keras_serializable(
+    package="gofast.nn.losses", name="objective_loss"
+ )
+def objective_loss(
+    multi_obj_layer: Loss,
+    anomaly_scores: Optional[Tensor] = None,
+):
+    """
+    Create a multi-objective Keras loss function that wraps
+    a `MultiObjectiveLoss` layer, optionally including anomaly
+    scores.
+
+    Parameters
+    ----------
+    multi_obj_layer : MultiObjectiveLoss
+        A `MultiObjectiveLoss` instance that combines
+        quantile loss and anomaly loss. Typically you
+        create it via:
+            MultiObjectiveLoss(
+                quantile_loss_fn=AdaptiveQuantileLoss(...),
+                anomaly_loss_fn=AnomalyLoss(...)
+            )
+    anomaly_scores : tf.Tensor or None, optional
+        Tensor of shape (B, H, D) representing anomaly scores.
+        If None, anomaly loss is omitted. Defaults to None.
+
+    Returns
+    -------
+    callable
+        A function `loss_fn(y_true, y_pred) -> scalar`,
+        suitable for `model.compile(loss=...)`.
+
+    Notes
+    -----
+    This function is "Keras-serializable" in that you can
+    save and load models using it.  Under the hood, it calls
+    `multi_obj_layer(y_true, y_pred, anomaly_scores)`. If
+    `anomaly_scores` is None, only the quantile loss is used.
+
+    Examples
+    --------
+    >>> from gofast.nn.components import (
+    ...    MultiObjectiveLoss, AdaptiveQuantileLoss, AnomalyLoss
+    ... )
+    >>> mo_loss = MultiObjectiveLoss(
+    ...     quantile_loss_fn=AdaptiveQuantileLoss([0.1, 0.5, 0.9]),
+    ...     anomaly_loss_fn=AnomalyLoss(weight=1.5)
+    ... )
+    >>> # Suppose anomaly_scores is some Tensor
+    >>> anomaly_scores = tf.random.normal((32, 10, 8))
+    >>> # Wrap everything as a single Keras loss function
+    >>> loss_fn = objective_loss(
+    ...     multi_obj_layer=mo_loss,
+    ...     anomaly_scores=anomaly_scores
+    ... )
+    >>> # Now you can do:
+    ... model.compile(optimizer="adam", loss=loss_fn)
+
+    See Also
+    --------
+    gofast.nn.losses.MultiObjectiveLoss : 
+        The layer combining quantile + anomaly losses.
+    """
+    from .components import MultiObjectiveLoss
+    # Optional: check if multi_obj_layer has a 'call' method
+    # or if it's a valid Keras layer. 
+    multi_obj_layer= validate_keras_loss (
+        multi_obj_layer, deep_check=True, 
+        ops="validate", 
+    )
+    if not isinstance(multi_obj_layer, MultiObjectiveLoss):
+        warnings.warn(
+            "Expected a MultiObjectiveLoss instance, got %s" % type(
+                multi_obj_layer)
+    )
+
+    @ParamsValidator(
+        {
+            "y_true": ["array-like:tf:transf"],
+            "y_pred": ["array-like:tf:transf"],
+        }
+    )
+    def _loss_fn(y_true, y_pred):
+        # If anomaly_scores is not None, we can do a length check:
+        if anomaly_scores is not None:
+            # Basic length check (optional)
+            check_consistent_length(y_true, y_pred, anomaly_scores)
+
+            # Actual call to multi_obj_layer
+            return multi_obj_layer(y_true, y_pred, anomaly_scores)
+        else:
+            check_consistent_length(y_true, y_pred)
+            return multi_obj_layer(y_true, y_pred)
+
+    return _loss_fn
 
 
 @ParamsValidator({'quantiles': [Real, 'array-like']})
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-@register_keras_serializable('Gofast', name="combined_quantile_loss")
-def combined_quantile_loss(quantiles):
+@register_keras_serializable("gofast.nn.losses", name="combined_quantile_loss")
+def combined_quantile_loss(quantiles: List[float]):
     """
-    Creates a combined quantile loss function for multiple quantiles.
+    Create a quantile loss function for multiple quantiles.
 
-    Parameters:
-    - quantiles (List[float]): List of quantiles to compute.
+    This top-level function is decorated so that if you do:
+        model.compile(loss=combined_quantile_loss([...]))
+    Keras can serialize/deserialize it.
 
-    Returns:
-    - loss function
+    Parameters
+    ----------
+    quantiles : list of float
+        List of quantiles to compute.
+
+    Returns
+    -------
+    callable
+        A loss function: loss_fn(y_true, y_pred).
+
+    Notes
+    -----
+    - We do not decorate the returned inner function
+      with @register_keras_serializable. This avoids
+      double registration conflicts.
     """
-    @register_keras_serializable('Gofast', name="c_qloss")
-    def c_qloss(y_true, y_pred):
-        """
-        Computes the combined quantile loss.
+    # Validate & store quantiles
+    quantiles = validate_quantiles(quantiles)
 
-        Parameters:
-        - y_true (tf.Tensor): True values of shape
-          (batch_size, forecast_horizons, output_dim)
-        - y_pred (tf.Tensor): Predicted quantiles of shape 
-          (batch_size, forecast_horizons, num_quantiles)
+    def _cqloss(y_true, y_pred):
+        # Expand y_true so it matches y_pred's quantile dimension
+        y_true_expanded = expand_dims(y_true, axis=2)  # => (B, H, 1, O)
 
-        Returns:
-        - Scalar loss value
-        """
-        # Expand y_true to match y_pred's shape by adding a quantile dimension
-        y_true_expanded = expand_dims(y_true, axis=2)  # (B, H, 1, O)
-
-        # Ensure y_pred has a singleton last dimension if output_dim=1
         if rank(y_pred) == 3:
-            y_pred = expand_dims(y_pred, axis=-1)  # (B, H, Q, 1)
+            # e.g. shape (B, H, Q) => expand last dim
+            y_pred = expand_dims(y_pred, axis=-1)  # => (B, H, Q, 1)
 
         # Broadcast y_true_expanded to match y_pred's shape
-        error = y_true_expanded - y_pred  # (B, H, Q, O)
-
+        # shape => (B, H, Q, O)
+        error = y_true_expanded - y_pred
         # Initialize loss
-        loss = 0.0
+        loss_val = 0.0
 
-        # Iterate over quantiles and accumulate loss
+        # Accumulate pinball losses for each quantile
         for i, q in enumerate(quantiles):
-            # Compute quantile loss
-            q_loss = maximum(q * error[:, :, i, :], (q - 1) * error[:, :, i, :])
+            q_loss = maximum(q * error[:, :, i, :],
+                             (q - 1) * error[:, :, i, :])
             # Aggregate loss (mean over batch, horizons, and output_dim)
-            loss += reduce_mean(q_loss)
+            loss_val += reduce_mean(q_loss)
 
         # Average loss over all quantiles
-        return loss / len(quantiles)
-    
-    quantiles = validate_quantiles(quantiles )
+        return loss_val / len(quantiles)
 
-    return c_qloss
+    return _cqloss
+
+@register_keras_serializable(package="gofast.nn.losses", name="combined_total_loss")
+def combined_total_loss(
+    quantiles: List[float],
+    anomaly_layer: Loss,   #  an instance of your AnomalyLoss
+    anomaly_scores: Tensor, 
+):
+    """
+    Create a total loss that adds quantile loss + anomaly loss.
+
+    Like above, only this top-level is decorated. The returned
+    function is not re-decorated.
+
+    Parameters
+    ----------
+    quantiles : list of float
+        Quantiles for the quantile loss part.
+    anomaly_layer : tf.keras.losses.Loss
+        A custom Loss or callable implementing anomaly loss.
+    anomaly_scores : tf.Tensor or np.ndarray
+        The anomaly scores needed for the anomaly loss.
+
+    Returns
+    -------
+    callable
+        A loss function: loss_fn(y_true, y_pred)
+    """
+    from .components import AnomalyLoss 
+    # Re-use the same logic from combined_quantile_loss
+    quantile_loss_fn = combined_quantile_loss(quantiles)
+    # validate layer
+    anomaly_layer =validate_keras_loss(
+        anomaly_layer, ops="validate", 
+    )
+    if not isinstance(anomaly_layer, AnomalyLoss):
+        warnings.warn(
+            "Expected a AnomalyLoss instance, got %s" % type(
+                anomaly_layer)
+    )
+    
+    def _total_loss(y_true, y_pred):
+        q_loss = quantile_loss_fn(y_true, y_pred)
+        a_loss = anomaly_layer(anomaly_scores)
+        return q_loss + a_loss
+
+    return _total_loss
 
 @check_params({"q": Real})
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-@register_keras_serializable('Gofast', name='quantile_loss')
+@register_keras_serializable("gofast.nn.losses", name='quantile_loss')
 def quantile_loss(q):
     """
     Quantile (Pinball) Loss Function for Quantile Regression.
@@ -216,9 +366,7 @@ def quantile_loss(q):
     .. [3] Koenker, R. (2005). Quantile Regression. *Cambridge University
            Press*.
     """
-
-    @register_keras_serializable('Gofast', name='q_loss')
-    def q_loss(y_true, y_pred):
+    def _q_loss(y_true, y_pred):
         """
         Compute the Quantile Loss (Pinball Loss) for a Given Batch.
 
@@ -251,15 +399,13 @@ def quantile_loss(q):
         )
         return loss
 
-    return q_loss
+    return _q_loss
 
-@check_params (
-    {
-     'quantiles': List[float]
-     }
+@check_params ({
+     'quantiles': List[float]}
   )
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-@register_keras_serializable('Gofast', name="quantile_loss_multi")
+@register_keras_serializable("gofast.nn.losses", name="quantile_loss_multi")
 def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     """
     Multi-Quantile (Pinball) Loss Function for Quantile Regression.
@@ -381,8 +527,7 @@ def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     .. [3] Koenker, R. (2005). Quantile Regression. *Cambridge University
            Press*.
     """
-    @register_keras_serializable('Gofast', name="q_loss_multi")
-    def q_loss_multi(y_true, y_pred):
+    def _q_loss_multi(y_true, y_pred):
         """
         Compute the Multi-Quantile Loss (Averaged Pinball Loss) for a Given 
         Batch.
@@ -417,7 +562,7 @@ def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     
     quantiles =validate_quantiles(quantiles)
     
-    return q_loss_multi
+    return _q_loss_multi
 
 @ParamsValidator(
     { 
@@ -426,7 +571,9 @@ def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     }
 )
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-@register_keras_serializable('Gofast', name="anomaly_loss")
+@register_keras_serializable(
+    "gofast.nn.losses", name="anomaly_loss"
+)
 def anomaly_loss(anomaly_scores, anomaly_loss_weight=1.0):
     """
     Compute the anomaly loss based on given anomaly scores and a 
@@ -475,11 +622,6 @@ def anomaly_loss(anomaly_scores, anomaly_loss_weight=1.0):
         `anomaly_scores`, computing the mean of the squared 
         anomaly scores and scaling by ``anomaly_loss_weight``.
     
-    Formulation 
-    ------------
-    
-    
-    
     Examples
     --------
     >>> from gofast.nn.losses import anomaly_loss
@@ -527,8 +669,8 @@ def anomaly_loss(anomaly_scores, anomaly_loss_weight=1.0):
     anomaly_loss_weight =convert_to_tensor(
         anomaly_loss_weight, dtype=anomaly_scores.dtype
     )
-    @register_keras_serializable('Gofast', name="a_loss")
-    def a_loss(y_true, y_pred):
+    @register_keras_serializable('gofast', name="a_loss")
+    def _a_loss(y_true, y_pred):
         return anomaly_loss_weight * reduce_mean(square(anomaly_scores))
 
-    return a_loss
+    return _a_loss

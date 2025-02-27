@@ -15,6 +15,8 @@ from ..utils.deps_utils import ensure_pkg
 from . import KERAS_DEPS,  KERAS_BACKEND, dependency_message
 
 if KERAS_BACKEND: 
+    Layer=KERAS_DEPS.Layer
+    Loss=KERAS_DEPS.Loss 
     Model= KERAS_DEPS.Model 
     Sequential=KERAS_DEPS.Sequential
     
@@ -22,8 +24,324 @@ DEP_MSG = dependency_message('nn.validator')
     
 __all__=[
     "is_keras_model", "validate_keras_model",
-    "check_keras_model_status"
+    "check_keras_model_status", "validate_keras_layer", 
+    "is_keras_layer", "validate_keras_loss", "is_keras_loss"
  ]
+
+def validate_keras_loss(
+    loss_obj: Any,
+    custom_check: Optional[Callable[[Any], bool]] = None,
+    deep_check: bool = False,
+    error: str = "raise",
+    ops: str = "check_only"
+) -> bool:
+    """
+    Validate an object as a Keras Loss, optionally with a custom check
+    and/or deep inspection of required functionalities.
+
+    Parameters
+    ----------
+    loss_obj : Any
+        The object to validate as a Keras loss.
+    custom_check : Callable[[Any], bool], optional
+        A user-provided callable returning True if `loss_obj`
+        meets certain criteria. If None, no custom check is performed.
+    deep_check : bool, optional
+        If True, verify that the object has attributes
+        typically expected of Keras `Loss` subclasses (e.g.,
+        'call', 'from_config', etc.). Defaults to False.
+    error : {'warn', 'raise'}, optional
+        When `ops='validate'`, indicates how to handle
+        validation failure:
+          - 'warn': issue a warning but return False
+          - 'raise': raise an exception
+        Defaults to 'raise'.
+    ops : {'check_only', 'validate'}, optional
+        - 'check_only': Return True/False if the object
+          is valid. No exceptions unless from custom_check.
+        - 'validate': Return the loss object if valid,
+          otherwise warn or raise (per `error`). Defaults
+          to 'check_only'.
+
+    Returns
+    -------
+    bool or loss_obj
+        If `ops='check_only'`, returns True if all checks pass,
+        False otherwise.
+        If `ops='validate'`, returns the `loss_obj` if it passes,
+        otherwise warns or raises an exception, returning False.
+
+    Raises
+    ------
+    TypeError
+        If the object is not a Keras `Loss`, or if `deep_check` fails
+        and `error='raise'`.
+    ValueError
+        If `custom_check` is provided and fails, and `error='raise'`.
+    ImportError
+        If TensorFlow is not installed.
+
+    Examples
+    --------
+    >>> import tensorflow as tf
+    >>> from tensorflow.keras.losses import MeanSquaredError
+    >>> from gofast.nn.validator import validate_keras_loss
+    >>> mse = MeanSquaredError()
+    >>> validate_keras_loss(mse)
+    True
+
+    >>> # Force deep_check
+    ... validate_keras_loss(mse, deep_check=True)
+    True
+
+    >>> # Provide a custom check
+    ... custom_name_check = lambda l: l.name == 'mean_squared_error'
+    >>> validate_keras_loss(mse, custom_check=custom_name_check)
+    True
+
+    >>> # If user wants to raise an error if checks fail
+    ... validate_keras_loss(mse, deep_check=True,
+    ...                     error='raise', ops='validate')
+    <tensorflow.python.keras.losses.MeanSquaredError object at 0x...>
+    """
+    # 1. Check if the object is a recognized Keras Loss
+    if not is_keras_loss(loss_obj):
+        msg = "Provided object is not a Keras Loss."
+        if ops == "validate":
+            if error == "raise":
+                raise TypeError(msg)
+            else:
+                warnings.warn(msg, category=UserWarning)
+                return False
+        return False
+
+    # 2. Optional deep check for required attributes
+    if deep_check:
+        required = ["call", "from_config"]  # or any others you consider essential
+        if not has_required_attributes(loss_obj, required):
+            msg = (f"Loss object lacks some required attributes: {required}.")
+            if ops == "validate":
+                if error == "raise":
+                    raise TypeError(msg)
+                else:
+                    warnings.warn(msg, category=UserWarning)
+                    return False
+            return False
+
+    # 3. Optional custom check
+    if custom_check is not None:
+        try:
+            if not custom_check(loss_obj):
+                msg = "Custom check returned False."
+                if ops == "validate":
+                    if error == "raise":
+                        raise ValueError(msg)
+                    else:
+                        warnings.warn(msg, category=UserWarning)
+                        return False
+                return False
+        except Exception as exc:
+            msg = f"Custom check raised an exception: {exc}"
+            if ops == "validate":
+                if error == "raise":
+                    raise ValueError(msg) from exc
+                else:
+                    warnings.warn(msg, category=UserWarning)
+                    return False
+            return False
+
+    # Passed all checks
+    if ops == "validate":
+        return loss_obj
+    return True
+
+def is_keras_loss(loss_obj: Any) -> bool:
+    """
+    Check if the given object is a Keras Loss instance.
+
+    This function attempts a lazy import of TensorFlow or
+    Keras dependencies, then returns True if `loss_obj`
+    is an instance of `tf.keras.losses.Loss`.
+
+    Parameters
+    ----------
+    loss_obj : Any
+        The object to check.
+
+    Returns
+    -------
+    bool
+        True if `loss_obj` is a recognized Keras loss,
+        otherwise False.
+
+    Raises
+    ------
+    ImportError
+        If TensorFlow or Keras is not installed.
+    """
+    return isinstance(loss_obj, Loss)
+
+def validate_keras_layer(
+    layer: Any,
+    custom_check: Optional[Callable[[Any], bool]] = None,
+    deep_check: bool = False,
+    error: str = "raise",
+    ops: str = "check_only",
+) -> bool:
+    """
+    Validate an object as a Keras Layer, optionally with a custom check 
+    and/or deep inspection of essential layer functionalities.
+
+    Parameters
+    ----------
+    layer : Any
+        The object to validate as a Keras layer.
+    custom_check : Callable[[Any], bool], optional
+        A callback that returns True if `layer` passes custom 
+        criteria. If None, no custom check is done.
+    deep_check : bool, optional
+        If True, verify that `layer` has certain expected 
+        attributes (e.g. 'build', 'call'). Defaults to False.
+    error : {'warn', 'raise'}, optional
+        How to handle validation failures when 
+        ``ops='validate'``:
+          - 'warn': issue a warning but return False
+          - 'raise': raise an exception
+        Defaults to 'raise'.
+    ops : {'check_only', 'validate'}, optional
+        The mode of operation:
+          - 'check_only': Return True/False if the object is 
+                          valid. (No exceptions raised 
+                          unless from the custom_check.)
+          - 'validate':   Return the layer itself if all checks 
+                          pass; otherwise warn or raise an error 
+                          (depending on `error`). Defaults to 
+                          'check_only'.
+
+    Returns
+    -------
+    bool or layer
+        If ops='check_only', returns True if `layer` passes 
+        all checks, False otherwise.
+        If ops='validate':
+          - If the layer fails any check, it either warns or 
+            raises, returning False or None if 'warn', or 
+            raising if 'raise'.
+          - If it passes, returns the actual layer object.
+
+    Raises
+    ------
+    TypeError
+        If the object is not a Keras layer, or if `deep_check` 
+        fails in 'raise' mode.
+    ValueError
+        If `custom_check` is provided and fails (in 'raise' mode).
+    ImportError
+        If TensorFlow is not installed.
+
+    Examples
+    --------
+    >>> import tensorflow as tf
+    >>> from gofast.nn.validator import validate_keras_layer
+    >>> layer = tf.keras.layers.Dense(10)
+    >>> validate_keras_layer(layer) 
+    True
+
+    >>> # Force deep check
+    ... validate_keras_layer(layer, deep_check=True)
+    True
+
+    >>> # Provide a custom check
+    ... custom_units_check = lambda lyr: getattr(lyr, 'units', 0) >= 10
+    >>> validate_keras_layer(layer, custom_check=custom_units_check)
+    True
+
+    >>> # If user wants to raise an error if checks fail
+    ... validate_keras_layer(layer, deep_check=True, 
+    ...                      error='raise', ops='validate')
+    <tf.keras.layers.core.Dense object at ...>
+    """
+    # 1. Check if it's a Keras layer
+    if not is_keras_layer(layer):
+        msg = "Provided object is not a Keras layer."
+        if ops == "validate":
+            if error == "raise":
+                raise TypeError(msg)
+            warnings.warn(msg, category=UserWarning)
+            return False
+        return False  # ops='check_only'
+
+    # 2. If deep_check is True, ensure essential attributes
+    if deep_check:
+        required = ["build", "call"]
+        if not has_required_attributes(layer, required):
+            msg = ("Layer lacks one or more essential methods: " 
+                   f"{required}")
+            if ops == "validate":
+                if error == "raise":
+                    raise TypeError(msg)
+                warnings.warn(msg, category=UserWarning)
+                return False
+            return False
+
+    # 3. If custom_check is provided, invoke it
+    if custom_check is not None:
+        try:
+            if not custom_check(layer):
+                # The custom check returned False
+                msg = "Custom layer check returned False."
+                if ops == "validate":
+                    if error == "raise":
+                        raise ValueError(msg)
+                    warnings.warn(msg, category=UserWarning)
+                    return False
+                return False
+        except Exception as exc:
+            # The custom check raised an Exception
+            msg = f"Custom check raised an exception: {exc}"
+            if ops == "validate":
+                if error == "raise":
+                    raise ValueError(msg) from exc
+                warnings.warn(msg, category=UserWarning)
+                return False
+            return False
+
+    # If we reach here, the layer passes all checks
+    if ops == "validate":
+        # Return the layer itself if all checks pass
+        return layer
+    
+    # ops == "check_only"
+    return True
+
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+def is_keras_layer(layer: Any) -> bool:
+    """
+    Check if the provided object is a Keras Layer.
+
+    This function attempts a lazy import of TensorFlow (or 
+    a Keras backend) to verify that ``layer`` inherits from
+    ``tf.keras.layers.Layer``.
+
+    Parameters
+    ----------
+    layer : Any
+        The object to check.
+
+    Returns
+    -------
+    bool
+        True if `layer` is an instance of 
+        ``tf.keras.layers.Layer``, otherwise False.
+
+    Raises
+    ------
+    ImportError
+        If TensorFlow (or Keras) is not installed.
+    """
+
+    return isinstance(layer, Layer)
+
 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 def is_keras_model(model: Any) -> bool:
@@ -166,7 +484,7 @@ def validate_keras_model(
 
 def check_keras_model_status(
     model,
-    mode: str = "fit",
+    mode: str = "build",
     ops: str = "check_only",
     error: str = "warn",
     err_msg: str = None
@@ -188,7 +506,7 @@ def check_keras_model_status(
                        (i.e., ``model.built`` is True).
           - 'fit':     Checks if the model has been
                        trained (i.e., ``optimizer.iterations > 0``).
-        Defaults to ``'fit'``.
+        Defaults to ``'build'``.
     ops : {'check_only', 'validate'}, optional
         The action to take with the result:
           - 'check_only': Return True/False. (No side effects.)

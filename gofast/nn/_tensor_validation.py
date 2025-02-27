@@ -20,7 +20,7 @@ except ImportError:
 else:
     config = TFConfig()
     # Enable compatibility mode for ndim
-    config.compat_ndim_enabled = True  
+    config.compat_ndim_enabled = True 
 
 @ensure_pkg(
     'tensorflow',

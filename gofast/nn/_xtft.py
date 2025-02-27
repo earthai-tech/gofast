@@ -12,11 +12,9 @@ from typing import List, Optional, Union, Dict, Any
 from .._gofastlog import gofastlog
 from ..api.docs import doc 
 from ..api.property import NNLearner 
-from ..core.checks import ParamsValidator 
 from ..compat.sklearn import validate_params, Interval, StrOptions 
 from ..utils.deps_utils import ensure_pkg
 from ..decorators import Appender , Deprecated
-from ..utils.validator import check_consistent_length 
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 from ._nn_docs import _shared_docs 
@@ -34,6 +32,7 @@ if KERAS_BACKEND:
     Concatenate=KERAS_DEPS.Concatenate 
     Tensor=KERAS_DEPS.Tensor
     register_keras_serializable=KERAS_DEPS.register_keras_serializable
+    
     tf_reduce_sum = KERAS_DEPS.reduce_sum
     tf_stack = KERAS_DEPS.stack
     tf_expand_dims = KERAS_DEPS.expand_dims
@@ -51,11 +50,13 @@ if KERAS_BACKEND:
     tf_square=KERAS_DEPS.square 
     tf_autograph=KERAS_DEPS.autograph
     
-    # from . import Activation 
+    tf_autograph.set_verbosity(0)
+
+    
     from ._tensor_validation import validate_anomaly_scores 
     from ._tensor_validation import validate_xtft_inputs 
     
-    from .losses import combined_quantile_loss
+    from .losses import combined_quantile_loss, combined_total_loss
     from .utils import set_default_params, set_anomaly_config 
     from .components import ( 
             AdaptiveQuantileLoss,
@@ -77,8 +78,7 @@ if KERAS_BACKEND:
     
 DEP_MSG = dependency_message('transformers') 
 
-
-@register_keras_serializable('Gofast', name="XTFT")
+@register_keras_serializable('gofast.nn.transformers', name="XTFT")
 @doc (
     key_improvements= dedent(_shared_docs['xtft_key_improvements']), 
     key_functions= dedent(_shared_docs['xtft_key_functions']), 
@@ -282,8 +282,11 @@ class XTFT(Model, NNLearner):
         self.residual_dense = Dense(2 * embed_dim) if use_residuals else None
         # self.final_dense = Dense(output_dim)
         
+    def call(self, inputs, training=False, **kwargs):
+        return self._call_impl(inputs, training=training, **kwargs)
+
     @tf_autograph.experimental.do_not_convert
-    def call(self, inputs, training=False):
+    def _call_impl(self, inputs, training=False, **kwargs):
         static_input , dynamic_input, future_input = validate_xtft_inputs (
             inputs =inputs,
             static_input_dim=self.static_input_dim, 
@@ -318,7 +321,7 @@ class XTFT(Model, NNLearner):
         self.logger.debug(
             f"Static Features Shape: {static_features.shape}"
         )
-        # XXX TODO # Fix apply --> GRN
+        # XXX TODO # check apply --> GRN
         static_features = self.grn_static(
             static_features, 
             training=training
@@ -530,67 +533,71 @@ class XTFT(Model, NNLearner):
                 f"Anomaly Loss Computed and Added: {anomaly_loss}")
             
         return predictions
+
+    def compile(self, optimizer, loss=None, **kws):
+        """
+        Compile the XTFT model, allowing an explicit user-specified loss
+        to override the defaults.
+
+        If the user provides a loss (loss=...), it is used regardless of
+        quantiles or anomaly scores. Otherwise, the method uses the
+        following logic:
+
+        - If ``self.quantiles`` is None, defaults to "mse"(or the
+          user-supplied ``loss``).
+        - If ``self.quantiles`` is not None, uses a quantile-based loss.
+          If ``anomaly_scores`` is present, a total loss is used that
+          adds anomaly loss on top.
+          
+        See also:
+        --------
+        gofast.nn.losses.combined_quantile_loss
+        gofast.nn.losses.combined_total_loss
+        """
+        # 1) If user explicitly provides a loss, respect that and skip defaults
+        if loss is not None:
+            super().compile(
+                optimizer=optimizer,
+                loss=loss,
+                **kws
+            )
+            return
     
-    def compile(self, optimizer, loss=None, **kwargs):
+        # 2) Otherwise, we handle the default logic
         if self.quantiles is None:
             # Deterministic scenario
             super().compile(
-                optimizer=optimizer, loss=loss or 'mse', **kwargs)
+                optimizer=optimizer,
+                loss="mean_squared_error",
+                **kws
+            )
+            return
+    
+        # Probabilistic scenario with quantiles
+        quantile_loss_fn = combined_quantile_loss(self.quantiles)
+    
+        if not hasattr(self, "anomaly_scores"):
+            self.anomaly_scores = self.anomaly_config.get("anomaly_scores")
+    
+        # If anomaly scores exist, add anomaly loss to the quantile loss
+        if self.anomaly_scores is not None:
+            total_loss_fn = combined_total_loss(
+                quantiles=self.quantiles,
+                anomaly_layer=self.anomaly_loss_layer,
+                anomaly_scores=self.anomaly_scores
+            )
+            super().compile(
+                optimizer=optimizer,
+                loss=total_loss_fn,
+                **kws
+            )
         else:
-            # Probabilistic scenario with combined quantile loss
-            quantile_loss_fn = combined_quantile_loss(self.quantiles)
-    
-            if not hasattr (self, 'anomaly_scores'): 
-                self.anomaly_scores = self.anomaly_config.get('anomaly_scores')
-                
-            if self.anomaly_scores is not None:
-                # Define a total loss that includes both quantile loss and anomaly loss
-                @register_keras_serializable('Gofast', name="total_loss")
-                def total_loss(y_true, y_pred):
-                    # Compute quantile loss
-                    q_loss = quantile_loss_fn(y_true, y_pred)
-    
-                    # Compute anomaly loss
-                    # anomaly_scores = self._get_anomaly_scores()
-                    a_loss = self.anomaly_loss_layer(self.anomaly_scores)
-    
-                    # Combine losses
-                    return q_loss + a_loss
-    
-                super().compile(
-                    optimizer=optimizer, loss=total_loss, **kwargs)
-            else:
-                # Only quantile loss
-                super().compile(
-                    optimizer=optimizer, loss=quantile_loss_fn, **kwargs)
-
-    @ParamsValidator(
-        { 
-          'y_true': ['array-like:tf:transf'], 
-          'y_pred': ['array-like:tf:transf'], 
-          'anomaly_scores':['array-like:tf:transf']
-        }, 
-    )
-    def objective_loss(
-        self, 
-        y_true: Tensor, 
-        y_pred: Tensor, 
-        anomaly_scores: Tensor=None
-    ) -> Tensor:
-        if not hasattr (self, 'anomaly_scores'): 
-            self.anomaly_scores = self.anomaly_config.get('anomaly_scores')
-            
-        if self.anomaly_scores is not None: 
-            check_consistent_length(y_true, y_pred, self.anomaly_scores)
-            # Expect y_true, 'y_pred, and 'anomaly_scores'
-            # Compute the multi-objective loss
-            loss = self.multi_objective_loss(y_true, y_pred, self.anomaly_scores)
-            return loss
-        else: 
-            # When anomaly_loss_weight is None, y_true is a tensor
-            check_consistent_length(y_true, y_pred)
-            return self.multi_objective_loss(y_true, y_pred)
-
+            # Only quantile loss
+            super().compile(
+                optimizer=optimizer,
+                loss=quantile_loss_fn,
+                **kws
+            )
 
     def get_config(self):
         config = super().get_config().copy()
@@ -634,305 +641,6 @@ class XTFT(Model, NNLearner):
         return cls(**config)
 
 
-XTFT.__doc__="""\
-Extreme Temporal Fusion Transformer (XTFT) model for complex time
-series forecasting.
-
-XTF is an advanced architecture for time series forecasting, particularly 
-suited to scenarios featuring intricate temporal patterns, multiple 
-forecast horizons, and inherent uncertainties [1]_. By extending the 
-original Temporal Fusion Transformer, XTFT incorporates additional modules
-and strategies that enhance its representational capacity, stability,
-and interpretability.
-
-See more in :ref:`User Guide <user_guide>`. 
-
-{key_improvements}
-
-Parameters
-----------
-dynamic_input_dim : int
-    Dimensionality of dynamic input features. These features vary
-    over time steps and typically include historical observations
-    of the target variable, and any time-dependent covariates such
-    as past sales, weather variables, or sensor readings. A higher
-    `dynamic_input_dim` enables the model to incorporate more
-    complex patterns from a richer set of temporal signals. These
-    features help the model understand seasonality, trends, and
-    evolving conditions over time.
-
-future_input_dim : int
-    Dimensionality of future known covariates. These are features
-    known ahead of time for future predictions (e.g., holidays,
-    promotions, scheduled events, or future weather forecasts).
-    Increasing `future_input_dim` enhances the model’s ability
-    to leverage external information about the future, improving
-    the accuracy and stability of multi-horizon forecasts.
-    
-static_input_dim : int
-    Dimensionality of static input features (no time dimension).  
-    These features remain constant over time steps and provide
-    global context or attributes related to the time series. For
-    example, a store ID or geographic location. Increasing this
-    dimension allows the model to utilize more contextual signals
-    that do not vary with time. A larger `static_input_dim` can
-    help the model specialize predictions for different entities
-    or conditions and improve personalized forecasts.
-    
-embed_dim : int, optional
-    Dimension of feature embeddings. Default is ``32``. After
-    variable transformations, inputs are projected into embeddings
-    of size `embed_dim`. Larger embeddings can capture more nuanced
-    relationships but may increase model complexity. A balanced
-    choice prevents overfitting while ensuring the representation
-    capacity is sufficient for complex patterns.
-
-forecast_horizon : int, optional
-    Number of future time steps to predict. Default is ``1``. This
-    parameter specifies how many steps ahead the model provides
-    forecasts. For instance, `forecast_horizon=3` means the model
-    predicts values for three future periods simultaneously.
-    Increasing this allows multi-step forecasting, but may
-    complicate learning if too large.
-
-quantiles : list of float or str, optional
-    Quantiles to predict for probabilistic forecasting. For example,
-    ``[0.1, 0.5, 0.9]`` indicates lower, median, and upper bounds.
-    If set to ``'auto'``, defaults to ``[0.1, 0.5, 0.9]``. If
-    `None`, the model makes deterministic predictions. Providing
-    quantiles helps the model estimate prediction intervals and
-    uncertainty, offering more informative and robust forecasts.
-
-max_window_size : int, optional
-    Maximum dynamic time window size. Default is ``10``. Defines
-    the length of the dynamic windowing mechanism that selects
-    relevant recent time steps for modeling. A larger `max_window_size`
-    enables the model to consider more historical data at once,
-    potentially capturing longer-term patterns, but may also
-    increase computational cost.
-
-memory_size : int, optional
-    Size of the memory for memory-augmented attention. Default is
-    ``100``. Introduces a fixed-size memory that the model can
-    attend to, providing a global context or reference to distant
-    past information. Larger `memory_size` can help the model
-    recall patterns from further back in time, improving long-term
-    forecasting stability.
-
-num_heads : int, optional
-    Number of attention heads. Default is ``4``. Multi-head
-    attention allows the model to attend to different representation
-    subspaces of the input sequence. Increasing `num_heads` can
-    improve model performance by capturing various aspects of the
-    data, but also raises the computational complexity and the
-    number of parameters.
-
-dropout_rate : float, optional
-    Dropout rate for regularization. Default is ``0.1``. Controls
-    the fraction of units dropped out randomly during training.
-    Higher values can prevent overfitting but may slow convergence.
-    A small to moderate `dropout_rate` (e.g. 0.1 to 0.3) is often
-    a good starting point.
-
-output_dim : int, optional
-    Dimensionality of the output. Default is ``1``. Determines how
-    many target variables are predicted at each forecast horizon.
-    For univariate forecasting, `output_dim=1` is typical. For
-    multi-variate forecasting, set a larger value to predict
-    multiple targets simultaneously.
-
-anomaly_config : dict, optional
-        Configuration dictionary for anomaly detection. It may contain 
-        the following keys:
-
-        - ``'anomaly_scores'`` : array-like, optional
-            Precomputed anomaly scores tensor of shape `(batch_size, forecast_horizon)`. 
-            If not provided, anomaly loss will not be applied.
-
-        - ``'anomaly_loss_weight'`` : float, optional
-            Weight for the anomaly loss in the total loss computation. 
-            Balances the contribution of anomaly detection against the 
-            primary forecasting task. A higher value emphasizes identifying 
-            and penalizing anomalies, potentially improving robustness to
-            irregularities in the data, while a lower value prioritizes
-            general forecasting performance.
-            If not provided, anomaly loss will not be applied.
-
-        **Behavior:**
-        If `anomaly_config` is `None`, both `'anomaly_scores'` and 
-        `'anomaly_loss_weight'` default to `None`, and anomaly loss is 
-        disabled. This means the model will perform forecasting without 
-        considering  any anomaly detection mechanisms.
-
-        **Examples:**
-        
-        - **Without Anomaly Detection:**
-            ```python
-            model = XTFT(
-                static_input_dim=10,
-                dynamic_input_dim=45,
-                future_input_dim=5,
-                anomaly_config=None,
-                ...
-            )
-            ```
-        
-        - **With Anomaly Detection:**
-            ```python
-            import tensorflow as tf
-
-            # Define precomputed anomaly scores
-            precomputed_anomaly_scores = tf.random.normal((batch_size, forecast_horizon))
-
-            # Create anomaly_config dictionary
-            anomaly_config = {{
-                'anomaly_scores': precomputed_anomaly_scores,
-                'anomaly_loss_weight': 1.0
-            }}
-
-            # Initialize the model with anomaly_config
-            model = XTFT(
-                static_input_dim=10,
-                dynamic_input_dim=45,
-                future_input_dim=5,
-                anomaly_config=anomaly_config,
-                ...
-            )
-            ```
-
-anomaly_loss_weight : float, optional
-    Weight of the anomaly loss term. Default is ``1.0``. 
-
-attention_units : int, optional
-    Number of units in attention layers. Default is ``32``.
-    Controls the dimensionality of internal representations in
-    attention mechanisms. More `attention_units` can allow the
-    model to represent more complex dependencies, but may also
-    increase risk of overfitting and computation.
-
-hidden_units : int, optional
-    Number of units in hidden layers. Default is ``64``. Influences
-    the capacity of various dense layers within the model, such as
-    those processing static features or for residual connections.
-    More units allow modeling more intricate functions, but can
-    lead to overfitting if not regularized.
-
-lstm_units : int or None, optional
-    Number of units in LSTM layers. Default is ``64``. If `None`,
-    LSTM layers may be disabled or replaced with another mechanism.
-    Increasing `lstm_units` improves the model’s ability to capture
-    temporal dependencies, but also raises computational cost and
-    potential overfitting.
-
-scales : list of int, str or None, optional
-    Scales for multi-scale LSTM. If ``'auto'``, defaults are chosen
-    internally. This parameter configures multiple LSTMs to operate
-    at different temporal resolutions. For example, `[1, 7, 30]`
-    might represent daily, weekly, and monthly scales. Multi-scale
-    modeling can enhance the model’s understanding of hierarchical
-    time structures and seasonalities.
-
-multi_scale_agg : str or None, optional
-    Aggregation method for multi-scale outputs. Options:
-    ``'last'``, ``'average'``, ``'flatten'``, ``'auto'``. If `None`,
-    no special aggregation is applied. This parameter determines
-    how the multiple scales’ outputs are combined. For instance,
-    `average` can produce a more stable representation by averaging
-    across scales, while `flatten` preserves all scale information
-    in a concatenated form.
-
-activation : str or callable, optional
-    Activation function. Default is ``'relu'``. Common choices
-    include ``'tanh'``, ``'elu'``, or a custom callable. The choice
-    of activation affects the model’s nonlinearity and can influence
-    convergence speed and final accuracy. For complex datasets,
-    experimenting with different activations may yield better
-    results.
-
-use_residuals : bool, optional
-    Whether to use residual connections. Default is ``True``.
-    Residuals help in stabilizing and speeding up training by
-    allowing gradients to flow more easily through the model and
-    mitigating vanishing gradients. They also enable deeper model
-    architectures without significant performance degradation.
-
-use_batch_norm : bool, optional
-    Whether to use batch normalization. Default is ``False``.
-    Batch normalization can accelerate training by normalizing
-    layer inputs, reducing internal covariate shift. It often makes
-    model training more stable and can improve convergence,
-    especially in deeper architectures. However, it adds complexity
-    and may not always be beneficial.
-
-final_agg : str, optional
-    Final aggregation of the time window. Options:
-    ``'last'``, ``'average'``, ``'flatten'``. Default is ``'last'``.
-    Determines how the time-windowed representations are reduced
-    into a final vector before decoding into forecasts. For example,
-    `last` takes the most recent time step's feature vector, while
-    `average` merges information across the entire window. Choosing
-    a suitable aggregation can influence forecast stability and
-    sensitivity to recent or aggregate patterns.
-
-**kwargs : dict
-    Additional keyword arguments passed to the model. These may
-    include configuration options for layers, optimizers, or
-    training routines not covered by the parameters above.
-
-{methods}
-
-{key_functions} 
-
-Examples
---------
->>> from gofast.nn._xtft import XTFT
->>> import tensorflow as tf
->>> model = XTFT(
-...     static_input_dim=10,
-...     dynamic_input_dim=45,
-...     future_input_dim=5,
-...     forecast_horizon=3,
-...     quantiles=None,# [0.1, 0.5, 0.9],
-...     scales='auto',
-...     final_agg='last'
-... )
->>> batch_size = 32
->>> time_steps = 20
->>> output_dim=1
->>> static_input = tf.random.normal([batch_size, 10])
->>> dynamic_input = tf.random.normal([batch_size, time_steps, 45])
->>> future_covariate_input = tf.random.normal([batch_size, time_steps, 5])
->>> output = model([static_input, dynamic_input, future_covariate_input])
->>> output.shape
-TensorShape([32, 3, 3, 1])
-
->>>  # True targets
->>> y_true_forecast = tf.random.normal([batch_size, 3, output_dim])
->>> model.compile(optimizer ='adam', loss=['mse'])
->>> output = model.fit(
-    x=[static_input, dynamic_input, future_covariate_input], 
-    y=y_true_forecast
-    )
->>> output
-1/1 [==============================] - 2s 2s/step - loss: 1.0534
-Out[8]: <keras.callbacks.History at 0x20474300640>
-
-
-See Also
---------
-gofast.nn.tft.TemporalFusionTransformer : 
-    The original TFT model for comparison.
-MultiHeadAttention : Keras layer for multi-head attention.
-LSTM : Keras LSTM layer for sequence modeling.
-
-References
-----------
-.. [1] Wang, X., et al. (2021). "Enhanced Temporal Fusion Transformer
-       for Time Series Forecasting." International Journal of
-       Forecasting, 37(3), 1234-1245.
-       
-"""
-
 @Deprecated(
     "SuperXTFT is currently under maintenance and will be released soon. " 
     "Please stay updated for the upcoming release. For now, use the "
@@ -943,7 +651,7 @@ References
     ), 
     join='\n', 
 )
-@register_keras_serializable('Gofast', name="SuperXTFT")
+@register_keras_serializable('gofast.nn.transformers', name="SuperXTFT")
 class SuperXTFT(XTFT):
     """
     SuperXTFT: An enhanced version of XTFT with Variable Selection Networks (VSNs) 
@@ -1064,8 +772,12 @@ class SuperXTFT(XTFT):
             use_batch_norm=use_batch_norm
         )
         
+        
+    def call(self, inputs, training=False, **kwargs):
+        return self._call_impl(inputs, training=training, **kwargs)
+    
     @tf_autograph.experimental.do_not_convert
-    def call(self, inputs, training=False):
+    def _call_impl(self, inputs, training=False, **kwargs):
         static_input, dynamic_input, future_input = validate_xtft_inputs(
             inputs=inputs,
             static_input_dim=self.static_input_dim, 
@@ -1350,24 +1062,6 @@ class SuperXTFT(XTFT):
     def compile(self, optimizer, loss=None, **kwargs):
         super().compile (optimizer=optimizer, loss=loss, **kwargs)
         
-    @ParamsValidator(
-        { 
-          'y_true': ['array-like:tf:transf'], 
-          'y_pred': ['array-like:tf:transf'], 
-          'anomaly_scores':['array-like:tf:transf']
-        }, 
-    )
-    def objective_loss(
-        self, 
-        y_true: Tensor, 
-        y_pred: Tensor, 
-        anomaly_scores: Tensor=None
-    ) -> Tensor:
-        super().objective_loss(
-            y_true=y_true, y_pred=y_pred,
-            anomaly_scores=anomaly_scores
-        )
-      
     
     def get_config(self):
         config = super().get_config().copy()
@@ -1379,3 +1073,387 @@ class SuperXTFT(XTFT):
         logger.debug("Creating SuperXTFT instance from config.")
         return cls(**config)
 
+
+XTFT.__doc__="""\
+Extreme Temporal Fusion Transformer (XTFT) model for complex time
+series forecasting.
+
+XTF is an advanced architecture for time series forecasting, particularly 
+suited to scenarios featuring intricate temporal patterns, multiple 
+forecast horizons, and inherent uncertainties [1]_. By extending the 
+original Temporal Fusion Transformer, XTFT incorporates additional modules
+and strategies that enhance its representational capacity, stability,
+and interpretability.
+
+See more in :ref:`User Guide <user_guide>`. 
+
+{key_improvements}
+
+Parameters
+----------
+dynamic_input_dim : int
+    Dimensionality of dynamic input features. These features vary
+    over time steps and typically include historical observations
+    of the target variable, and any time-dependent covariates such
+    as past sales, weather variables, or sensor readings. A higher
+    `dynamic_input_dim` enables the model to incorporate more
+    complex patterns from a richer set of temporal signals. These
+    features help the model understand seasonality, trends, and
+    evolving conditions over time.
+
+future_input_dim : int
+    Dimensionality of future known covariates. These are features
+    known ahead of time for future predictions (e.g., holidays,
+    promotions, scheduled events, or future weather forecasts).
+    Increasing `future_input_dim` enhances the model’s ability
+    to leverage external information about the future, improving
+    the accuracy and stability of multi-horizon forecasts.
+    
+static_input_dim : int
+    Dimensionality of static input features (no time dimension).  
+    These features remain constant over time steps and provide
+    global context or attributes related to the time series. For
+    example, a store ID or geographic location. Increasing this
+    dimension allows the model to utilize more contextual signals
+    that do not vary with time. A larger `static_input_dim` can
+    help the model specialize predictions for different entities
+    or conditions and improve personalized forecasts.
+    
+embed_dim : int, optional
+    Dimension of feature embeddings. Default is ``32``. After
+    variable transformations, inputs are projected into embeddings
+    of size `embed_dim`. Larger embeddings can capture more nuanced
+    relationships but may increase model complexity. A balanced
+    choice prevents overfitting while ensuring the representation
+    capacity is sufficient for complex patterns.
+
+forecast_horizon : int, optional
+    Number of future time steps to predict. Default is ``1``. This
+    parameter specifies how many steps ahead the model provides
+    forecasts. For instance, `forecast_horizon=3` means the model
+    predicts values for three future periods simultaneously.
+    Increasing this allows multi-step forecasting, but may
+    complicate learning if too large.
+
+quantiles : list of float or str, optional
+    Quantiles to predict for probabilistic forecasting. For example,
+    ``[0.1, 0.5, 0.9]`` indicates lower, median, and upper bounds.
+    If set to ``'auto'``, defaults to ``[0.1, 0.5, 0.9]``. If
+    `None`, the model makes deterministic predictions. Providing
+    quantiles helps the model estimate prediction intervals and
+    uncertainty, offering more informative and robust forecasts.
+
+max_window_size : int, optional
+    Maximum dynamic time window size. Default is ``10``. Defines
+    the length of the dynamic windowing mechanism that selects
+    relevant recent time steps for modeling. A larger `max_window_size`
+    enables the model to consider more historical data at once,
+    potentially capturing longer-term patterns, but may also
+    increase computational cost.
+
+memory_size : int, optional
+    Size of the memory for memory-augmented attention. Default is
+    ``100``. Introduces a fixed-size memory that the model can
+    attend to, providing a global context or reference to distant
+    past information. Larger `memory_size` can help the model
+    recall patterns from further back in time, improving long-term
+    forecasting stability.
+
+num_heads : int, optional
+    Number of attention heads. Default is ``4``. Multi-head
+    attention allows the model to attend to different representation
+    subspaces of the input sequence. Increasing `num_heads` can
+    improve model performance by capturing various aspects of the
+    data, but also raises the computational complexity and the
+    number of parameters.
+
+dropout_rate : float, optional
+    Dropout rate for regularization. Default is ``0.1``. Controls
+    the fraction of units dropped out randomly during training.
+    Higher values can prevent overfitting but may slow convergence.
+    A small to moderate `dropout_rate` (e.g. 0.1 to 0.3) is often
+    a good starting point.
+
+output_dim : int, optional
+    Dimensionality of the output. Default is ``1``. Determines how
+    many target variables are predicted at each forecast horizon.
+    For univariate forecasting, `output_dim=1` is typical. For
+    multi-variate forecasting, set a larger value to predict
+    multiple targets simultaneously.
+
+anomaly_config : dict, optional
+        Configuration dictionary for anomaly detection. It may contain 
+        the following keys:
+
+        - ``'anomaly_scores'`` : array-like, optional
+            Precomputed anomaly scores tensor of shape `(batch_size, forecast_horizon)`. 
+            If not provided, anomaly loss will not be applied.
+
+        - ``'anomaly_loss_weight'`` : float, optional
+            Weight for the anomaly loss in the total loss computation. 
+            Balances the contribution of anomaly detection against the 
+            primary forecasting task. A higher value emphasizes identifying 
+            and penalizing anomalies, potentially improving robustness to
+            irregularities in the data, while a lower value prioritizes
+            general forecasting performance.
+            If not provided, anomaly loss will not be applied.
+
+        **Behavior:**
+        If `anomaly_config` is `None`, both `'anomaly_scores'` and 
+        `'anomaly_loss_weight'` default to `None`, and anomaly loss is 
+        disabled. This means the model will perform forecasting without 
+        considering  any anomaly detection mechanisms.
+
+        **Examples:**
+        
+        - **Without Anomaly Detection:**
+            ```python
+            model = XTFT(
+                static_input_dim=10,
+                dynamic_input_dim=45,
+                future_input_dim=5,
+                anomaly_config=None,
+                ...
+            )
+            ```
+        
+        - **With Anomaly Detection:**
+            ```python
+            import tensorflow as tf
+
+            # Define precomputed anomaly scores
+            precomputed_anomaly_scores = tf.random.normal((batch_size, forecast_horizon))
+
+            # Create anomaly_config dictionary
+            anomaly_config = {{
+                'anomaly_scores': precomputed_anomaly_scores,
+                'anomaly_loss_weight': 1.0
+            }}
+
+            # Initialize the model with anomaly_config
+            model = XTFT(
+                static_input_dim=10,
+                dynamic_input_dim=45,
+                future_input_dim=5,
+                anomaly_config=anomaly_config,
+                ...
+            )
+            ```
+
+anomaly_loss_weight : float, optional
+    Weight of the anomaly loss term. Default is ``1.0``. 
+
+attention_units : int, optional
+    Number of units in attention layers. Default is ``32``.
+    Controls the dimensionality of internal representations in
+    attention mechanisms. More `attention_units` can allow the
+    model to represent more complex dependencies, but may also
+    increase risk of overfitting and computation.
+
+hidden_units : int, optional
+    Number of units in hidden layers. Default is ``64``. Influences
+    the capacity of various dense layers within the model, such as
+    those processing static features or for residual connections.
+    More units allow modeling more intricate functions, but can
+    lead to overfitting if not regularized.
+
+lstm_units : int or None, optional
+    Number of units in LSTM layers. Default is ``64``. If `None`,
+    LSTM layers may be disabled or replaced with another mechanism.
+    Increasing `lstm_units` improves the model’s ability to capture
+    temporal dependencies, but also raises computational cost and
+    potential overfitting.
+
+scales : list of int, str or None, optional
+    Scales for multi-scale LSTM. If ``'auto'``, defaults are chosen
+    internally. This parameter configures multiple LSTMs to operate
+    at different temporal resolutions. For example, `[1, 7, 30]`
+    might represent daily, weekly, and monthly scales. Multi-scale
+    modeling can enhance the model’s understanding of hierarchical
+    time structures and seasonalities.
+
+multi_scale_agg : str or None, optional
+    Aggregation method for multi-scale outputs. Options:
+    ``'last'``, ``'average'``, ``'flatten'``, ``'auto'``. If `None`,
+    no special aggregation is applied. This parameter determines
+    how the multiple scales’ outputs are combined. For instance,
+    `average` can produce a more stable representation by averaging
+    across scales, while `flatten` preserves all scale information
+    in a concatenated form.
+
+activation : str or callable, optional
+    Activation function. Default is ``'relu'``. Common choices
+    include ``'tanh'``, ``'elu'``, or a custom callable. The choice
+    of activation affects the model’s nonlinearity and can influence
+    convergence speed and final accuracy. For complex datasets,
+    experimenting with different activations may yield better
+    results.
+
+use_residuals : bool, optional
+    Whether to use residual connections. Default is ``True``.
+    Residuals help in stabilizing and speeding up training by
+    allowing gradients to flow more easily through the model and
+    mitigating vanishing gradients. They also enable deeper model
+    architectures without significant performance degradation.
+
+use_batch_norm : bool, optional
+    Whether to use batch normalization. Default is ``False``.
+    Batch normalization can accelerate training by normalizing
+    layer inputs, reducing internal covariate shift. It often makes
+    model training more stable and can improve convergence,
+    especially in deeper architectures. However, it adds complexity
+    and may not always be beneficial.
+
+final_agg : str, optional
+    Final aggregation of the time window. Options:
+    ``'last'``, ``'average'``, ``'flatten'``. Default is ``'last'``.
+    Determines how the time-windowed representations are reduced
+    into a final vector before decoding into forecasts. For example,
+    `last` takes the most recent time step's feature vector, while
+    `average` merges information across the entire window. Choosing
+    a suitable aggregation can influence forecast stability and
+    sensitivity to recent or aggregate patterns.
+
+**kwargs : dict
+    Additional keyword arguments passed to the model. These may
+    include configuration options for layers, optimizers, or
+    training routines not covered by the parameters above.
+
+{methods}
+
+{key_functions} 
+
+Examples
+--------
+>>> import os 
+>>> import tensorflow as tf 
+>>> import pandas as pd
+>>> import numpy as np
+>>> from gofast.nn.transformers import XTFT
+>>> from gofast.nn.losses import combined_quantile_loss
+>>> from gofast.nn.utils import generate_forecast
+>>> 
+>>> # Create a dummy training DataFrame with a date column,
+>>> # dynamic features "feat1", "feat2", static feature "stat1",
+>>> # and target "price".
+>>> date_rng = pd.date_range(start="2020-01-01", periods=50, freq="D")
+>>> train_df = pd.DataFrame({
+...     "date": date_rng,
+...     "feat1": np.random.rand(50),
+...     "feat2": np.random.rand(50),
+...     "stat1": np.random.rand(50),
+...     "price": np.random.rand(50)
+... })
+>>> # Prepare a dummy XTFT model with example parameters.
+>>> # Note: The model expects the following input shapes:
+>>> # - X_static: (n_samples, static_input_dim)
+>>> # - X_dynamic: (n_samples, time_steps, dynamic_input_dim)
+>>> # - X_future:  (n_samples, time_steps, future_input_dim)
+>>> # We just want to test the saved model
+>>> data_path =r'J:\test_saved_models'
+>>> early_stopping = tf.keras.callbacks.EarlyStopping(
+...    monitor              = 'val_loss',
+...    patience             = 5,
+...    restore_best_weights = True
+... )
+>>> model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
+...    os.path.join( data_path, 'dummy_model'),
+...    monitor           = 'val_loss',
+...    save_best_only    = True,
+...    save_weights_only = False,  # Save entire model
+...    verbose           = 1
+... )
+>>> # Create a dummy DataFrame with a date column,
+>>> # two dynamic features ("feat1", "feat2"), one static feature ("stat1"),
+>>> # and target "price".
+>>> date_rng = pd.date_range(start="2020-01-01", periods=60, freq="D")
+>>> data = {
+...     "date": date_rng,
+...     "feat1": np.random.rand(60),
+...     "feat2": np.random.rand(60),
+...     "stat1": np.random.rand(60),
+...     "price": np.random.rand(60)
+... }
+>>> df = pd.DataFrame(data)
+>>> df.head(5) 
+>>>
+>>> 
+>>> # Split the DataFrame into training and test sets.
+>>> # Training data: dates before 2020-02-01
+>>> # Test data: dates from 2020-02-01 onward.
+>>> train_df = df[df["date"] < "2020-02-01"].copy()
+>>> test_df  = df[df["date"] >= "2020-02-01"].copy()
+>>> 
+>>> # Create dummy input arrays for model fitting.
+>>> # Assume time_steps = 3.
+>>> X_static = train_df[["stat1"]].values      # Shape: (n_train, 1)
+>>> X_dynamic = np.random.rand(len(train_df), 3, 2)
+>>> X_future  = np.random.rand(len(train_df), 3, 1)
+>>> # Create dummy target output from "price".
+>>> y_array   = train_df["price"].values.reshape(len(train_df), 1, 1)
+>>> 
+>>> # Instantiate a dummy XTFT model.
+>>> my_model = XTFT(
+...     static_input_dim=1,           # "stat1"
+...     dynamic_input_dim=2,          # "feat1" and "feat2"
+...     future_input_dim=1,           # For the provided future feature
+...     forecast_horizon=5,           # Forecasting 5 periods ahead
+...     quantiles=[0.1, 0.5, 0.9],
+...     embed_dim=16,
+...     max_window_size=3,
+...     memory_size=50,
+...     num_heads=2,
+...     dropout_rate=0.1,
+...     lstm_units=32,
+...     attention_units=32,
+...     hidden_units=16
+... )
+>>> # build the model 
+>>> my_model.build(
+...    input_shape=[
+...        (None, X_static.shape[1]),
+...        (None, X_dynamic.shape[1], X_dynamic.shape[2]),
+...        (None, X_future.shape[1], X_future.shape[2])
+...    ]
+... )
+>>> loss_fn = combined_quantile_loss(my_model.quantiles) 
+>>> my_model.compile(optimizer="adam", loss=loss_fn)
+>>> 
+>>> # Fit the model on the training data.
+>>> my_model.fit(
+...     x=[X_static, X_dynamic, X_future],
+...     y=y_array,
+...     epochs=10,
+...     batch_size=8, 
+...     callbacks = [early_stopping, model_checkpoint]
+... )
+>>> my_model.save(os.path.join(data_path, 'dummy_model.keras'))
+Epoch 9/10
+4/4 [==============================] - 0s 4ms/step - loss: 0.0958
+Epoch 10/10
+4/4 [==============================] - 0s 5ms/step - loss: 0.1009
+Out[10]: <keras.src.callbacks.History at 0x1c7a9114c10>
+
+>>> y_predictions=my_model.predict([X_static, X_dynamic, X_future])
+1/1 [==============================] - 1s 640ms/step
+>>> print(y_predictions.shape)
+(31, 5, 3, 1)
+>>> # now let reload the model 'dummy_model' and check whether
+>>> # it's successfully releaded. 
+>>> test_model = tf.keras.models.load_model (os.path.join( data_path, 'dummy_model.keras')) 
+>>> test_model 
+    
+See Also
+--------
+gofast.nn.tft.TemporalFusionTransformer : 
+    The original TFT model for comparison.
+MultiHeadAttention : Keras layer for multi-head attention.
+LSTM : Keras LSTM layer for sequence modeling.
+
+References
+----------
+.. [1] Wang, X., et al. (2021). "Enhanced Temporal Fusion Transformer
+       for Time Series Forecasting." International Journal of
+       Forecasting, 37(3), 1234-1245.
+       
+"""

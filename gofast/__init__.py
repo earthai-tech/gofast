@@ -10,7 +10,7 @@ GOFast: Accelerate Your Machine Learning Workflow
 data science workflow, enhancing productivity, ease of use, and community-driven
 improvements.
 """
-import os
+
 import sys 
 import logging
 import warnings
@@ -20,6 +20,8 @@ from contextlib import contextmanager
 # Configure basic logging and suppress certain third-party library warnings
 logging.basicConfig(level=logging.WARNING)
 logging.getLogger('matplotlib.font_manager').disabled = True
+# suppress tensorflow warning during initialization 
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
 
 # Dynamic import function
 def _lazy_import(module_name, alias=None):
@@ -105,11 +107,6 @@ def suppress_warnings(suppress: bool = True):
 
 # Suppress warnings by default when the package is initialized
 suppress_warnings()
-
-# filter out TF INFO and WARNING messages
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # or "3"
-# Disable oneDNN custom operations
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 # Setup logging configuration
 from ._util import initialize_logging 

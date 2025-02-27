@@ -42,6 +42,15 @@ else:
         # For older TF 1.x style (still works in tf.compat.v1):
         tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
         
+try:
+    # First, try the new location (2.15+):
+    from tensorflow.keras.saving import register_keras_serializable
+    saving_module = "saving"
+except ImportError:
+    # Fallback: In older TF/Keras, `register_keras_serializable` is in `utils`.
+    from tensorflow.keras.utils import register_keras_serializable # noqa: F401
+    saving_module = "utils"
+    
 
 __all__ = [
     'KerasDependencies',
@@ -175,7 +184,7 @@ class KerasDependencies:
             'Embedding': ('layers', 'Embedding'), 
             'clone_model': ('models', 'clone_model'),
             'load_model': ('models', 'load_model'),
-            'register_keras_serializable': ('saving', 'register_keras_serializable'), 
+            "register_keras_serializable": (saving_module, "register_keras_serializable"),
         }
 
         if name in mapping:
@@ -318,12 +327,6 @@ class TFConfig:
 # Instantiate the global configuration object
 Config = TFConfig()
 # ------------------------------------------------
-
-
-# XXX TODO 
-# WARNING:tensorflow:From C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages
-# \keras\src\losses.py:2976: The name tf.losses.sparse_softmax_cross_entropy is
-#  deprecated. Please use tf.compat.v1.losses.sparse_softmax_cross_entropy instead.
 
 def import_keras_function(
     module_name,

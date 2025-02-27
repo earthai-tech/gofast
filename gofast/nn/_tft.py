@@ -237,7 +237,7 @@ class TemporalFusionTransformer(Model, NNLearner):
                 "Initializing Single Output Layer for Point Predictions...")
             self.output_layer = TimeDistributed(Dense(1), name='output_layer')
 
-    def call(self, inputs, training=False):
+    def call(self, inputs, training=False, **kw):
         self.logger.debug("Starting call method with inputs.")
      
         static_inputs, dynamic_inputs = validate_tft_inputs(
@@ -643,7 +643,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
                 "Initializing Single Output Layer for Point Predictions...")
             self.output_layer = TimeDistributed(Dense(1), name='output_layer')
 
-    def call(self, inputs, training=False):
+    def call(self, inputs, training=False, **kw):
         """
         The main forward pass for NTemporalFusionTransformer.
 
