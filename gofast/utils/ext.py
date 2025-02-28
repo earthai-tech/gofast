@@ -42,7 +42,7 @@ __all__ = [
 
 @check_params ({ 
     "expr": Union[str, List[str]], 
-    "op_cols": Optional[List[str]]
+    "op_cols": Optional[Union [str, List[str]]]
  })
 @isdf 
 def evaluate_df(
@@ -165,7 +165,7 @@ def evaluate_df(
 
     3. Use ``local_dict`` to define a variable ``factor`` and
        multiply ``colA`` by this factor:
-
+           
     >>> df_result_3 = evaluate_df(
     ...     df=df,
     ...     expr="colA * factor",
@@ -229,7 +229,7 @@ def evaluate_df(
     )
 
     op_cols = columns_manager(
-        op_cols,
+        op_cols, 
         pattern=None
     )
     # Decide which DataFrame to work on
@@ -283,7 +283,7 @@ def evaluate_df(
 
         # Evaluate expressions and store results
         for operation, col_name in zip(expr, op_cols):
-            used_cols = _parse_used_columns(
+            used_cols = parse_used_columns(
                 new_df,
                 operation
             )
@@ -319,7 +319,7 @@ def evaluate_df(
     # Single expression
     else:
         expression = expr[0]
-        used_cols = _parse_used_columns(
+        used_cols = parse_used_columns(
             new_df,
             expression
         )
@@ -2077,27 +2077,26 @@ def spread_coverage(
     
     return pred_q10, pred_q50, pred_q90
 
-def _parse_used_columns(df, expression):
-    """
-    Parse and return the list of columns in ``df`` used within
-    a single expression string.
-    """
-    used_cols = []
-    for col in df.columns:
-        pattern = r"\b" + re.escape(col) + r"\b"
-        if re.search(pattern, expression):
-            used_cols.append(col)
-    return used_cols
-
+# def _parse_used_columns(df, expression):
+#     """
+#     Parse and return the list of columns in ``df`` used within
+#     a single expression string.
+#     """
+#     used_cols = []
+#     for col in df.columns:
+#         pattern = r"\b" + re.escape(col) + r"\b"
+#         if re.search(pattern, expression):
+#             used_cols.append(col)
+#     return used_cols
 
 @isdf
 def parse_used_columns(
     df,
-    expression
+    expr
 ):
     """
     Extracts a list of DataFrame columns that appear 
-    in the given ``expression``.
+    in the given expression (``expr``).
 
     For each column name, it constructs a pattern that accounts
     for bracket notation and standalone references. Under the
@@ -2107,21 +2106,11 @@ def parse_used_columns(
     removed. If the ``expression`` is invalid or not a string, an 
     empty list is returned.
 
-    The approach can be summarized as a pattern-matching problem:
-
-    .. math::
-       \\text{pattern} = \\text{Regex}(\\text{col}) 
-       \\times \\text{boundaries}
-
-    where :math:`boundaries` are word delimiters or bracket 
-    notations. This helps prevent partial matches of column 
-    substrings.
-
     Parameters
     ----------
     df : pandas.DataFrame
         The DataFrame whose columns are examined.
-    expression : str
+    expr : str
         The string expression potentially referencing 
         DataFrame columns.
 
@@ -2148,6 +2137,16 @@ def parse_used_columns(
     empty or None, an empty list is returned. This function uses 
     regex lookups which might not account for all possible edge 
     cases [1]_.
+    
+    The approach can be summarized as a pattern-matching problem:
+
+    .. math::
+       \\text{pattern} = \\text{Regex}(\\text{col}) 
+       \\times \\text{boundaries}
+
+    where :math:`boundaries` are word delimiters or bracket 
+    notations. This helps prevent partial matches of column 
+    substrings.
 
     See Also
     --------
@@ -2160,7 +2159,7 @@ def parse_used_columns(
        O'Reilly Media, 2017.
     """
     # Return empty list if expression is not a valid string
-    if not expression or not isinstance(expression, str):
+    if not expr or not isinstance(expr, str):
         return []
 
     used_cols = set()
@@ -2173,7 +2172,7 @@ def parse_used_columns(
             rf"\['{re.escape(col)}'\]|"
             rf"(?<![\w\"']){re.escape(col)}(?![\w\"']))"
         )
-        if re.search(pattern, expression):
+        if re.search(pattern, expr):
             used_cols.add(col)
 
     return list(used_cols)

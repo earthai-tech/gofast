@@ -4755,7 +4755,8 @@ def check_spatial_columns(
             "Spatial columns check requires a dataframe `df`"
             f" to be set. Got {type(df).__name__!r}")
         
-    if not isinstance(spatial_cols, (tuple, list)) or len(spatial_cols) != 2:
+    if spatial_cols is None or not isinstance(
+            spatial_cols, (tuple, list)) or len(spatial_cols) != 2:
         raise ValueError(
             "spatial_cols must be a tuple of exactly two elements "
             "(longitude and latitude)."
@@ -5656,7 +5657,7 @@ def validate_nested_param(
             else:
                 raise TypeError(
                     f"Parameter '{param_name}': Expected type list for"
-                    f" value '{value}', got {type(value)}."
+                    f" value '{value}', got {type(value).__name__!r}."
                 )
         if not args:
             return value  # No inner type to validate
@@ -5679,7 +5680,7 @@ def validate_nested_param(
             else:
                 raise TypeError(
                     f"Parameter '{param_name}': Expected type dict for"
-                    f" value '{value}', got {type(value)}."
+                    f" value '{value}', got {type(value).__name__!r}."
                 )
         if not args:
             return value  # No inner types to validate
@@ -5704,7 +5705,7 @@ def validate_nested_param(
             else:
                 raise TypeError(
                     f"Parameter '{param_name}': Expected type tuple for"
-                    f" value '{value}', got {type(value)}."
+                    f" value '{value}', got {type(value).__name__!r}."
                 )
         if not args:
             return value  # No inner types to validate
@@ -5723,7 +5724,7 @@ def validate_nested_param(
         if not callable(value):
             raise TypeError(
                 f"Parameter '{param_name}': Expected a callable"
-                f" for value '{value}', got {type(value)}."
+                f" for value '{value}', got {type(value).__name__!r}."
             )
         return value
     
@@ -5745,7 +5746,7 @@ def validate_nested_param(
             else:
                 raise TypeError(
                     f"Parameter '{param_name}': Expected type {expected_type}"
-                    f" for value '{value}', got {type(value)}."
+                    f" for value '{value}', got {type(value).__name__!r}."
                 )
         return value
     

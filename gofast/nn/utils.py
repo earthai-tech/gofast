@@ -68,7 +68,7 @@ __all__ = [
     "split_static_dynamic", 
     "create_sequences",
     "compute_forecast_horizon", 
-    "prepare_future_data", 
+    "prepare_spatial_future_data", 
     "compute_anomaly_scores",
     "reshape_xtft_data", 
     "generate_forecast", 
@@ -76,7 +76,6 @@ __all__ = [
     "forecast_multi_step", 
     "forecast_single_step", 
     "generate_xtft_forecast", 
-    
     
    ]
 
@@ -91,7 +90,7 @@ __all__ = [
         'y_true': ['array-like:np:transf'], 
         'y_pred': ['array-like:np:transf', None], 
         'method': [StrOptions(
-            {'statistical', 'domain', 'isolation_forest','residual'})
+            {'statistical', 'domain', 'isolation_forest','residual', 'stats'})
             ], 
         'threshold': [Interval(Real, 1, None, closed ='left')], 
         'contamination': [Interval(Real, 0, None, closed='left')], 
@@ -280,9 +279,9 @@ def compute_anomaly_scores(
     
     See Also
     --------
-    :func:`compute_quantile_loss` : 
+    gofast.nn.losses.compute_quantile_loss` : 
         For computing quantile losses.
-    :func:`compute_multi_objective_loss` :
+    gofast.nn.losses.objective_loss :
         For integrating anomaly scores into a multi-objective loss.
     
     References
@@ -551,85 +550,77 @@ def split_static_dynamic(
     }
 )
 def create_sequences(
-    df: pd.DataFrame, 
-    sequence_length: int, 
+    df: pd.DataFrame,
+    sequence_length: int,
     target_col: str,
     step: int = 1,
     include_overlap: bool = True,
     drop_last: bool = True,
-    forecast_horizon: Optional[int] = None
+    forecast_horizon: Optional[int] = None,
+    verbose: int = 3,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Create input sequences and corresponding targets for time series forecasting.
-    
-    The `create_sequences` function generates sequences of features and their 
-    corresponding targets from a time series dataset. This is essential for training 
-    sequence models like Temporal Fusion Transformers, LSTMs, and others that 
-    rely on temporal dependencies.
-    
-    .. math::
-        \text{For each sequence } i, \\
-        \mathbf{X}^{(i)} = \left[ \mathbf{x}_{i}, \mathbf{x}_{i+1},\\
-                                 \dots, \mathbf{x}_{i+T-1} \right] \\
-        y^{(i)} = 
-        \begin{cases}
-            \mathbf{x}_{i+T} & \text{if } \text{forecast\_horizon} = \text{None} \\
-            \left[ \mathbf{x}_{i+T}, \mathbf{x}_{i+T+1}, \dots,\\
-                  \mathbf{x}_{i+T+H-1} \right] & \text{if } \text{forecast\_horizon} = H
-        \end{cases}
-    
-    Where:
-    - :math:`\mathbf{X}^{(i)}` is the input sequence of length :math:`T`.
-    - :math:`y^{(i)}` is the target value(s) following the sequence.
-    
+    Create input sequences and corresponding targets for time series
+    forecasting.
+
+    The `create_sequences` function generates sequences of features
+    and their corresponding targets from a time series dataset. This
+    is essential for training sequence models like Temporal Fusion
+    Transformers, LSTMs, and others that rely on temporal dependencies.
+
+    See more in :ref:`User Guide <user_guide>`. 
+
     Parameters
     ----------
     df : `pandas.DataFrame`
-        The processed DataFrame containing features and the target variable.
-    
+        The processed DataFrame containing features and the target
+        variable.
     sequence_length : `int`
-        The number of past time steps to include in each input sequence.
-    
+        The number of past time steps to include in each input
+        sequence.
     target_col : `str`
         The name of the target column.
-    
     step : `int`, default=`1`
         The step size between the starts of consecutive sequences.
-    
     include_overlap : `bool`, default=`True`
-        Whether to include overlapping sequences based on the step size.
-    
+        Whether to include overlapping sequences based on the step
+        size.
     drop_last : `bool`, default=`True`
-        Whether to drop the last sequence if it does not have enough data points.
-    
+        Whether to drop the last sequence if it does not have enough
+        data points.
     forecast_horizon : `int`, optional, default=`None`
-        The number of future time steps to predict. If set to `None`, the function
-        will create targets for a single future time step. If provided, targets will
-        consist of the next `forecast_horizon` time steps.
-    
+        The number of future time steps to predict. If set to `None`,
+        the function will create targets for a single future time step.
+        If provided, targets will consist of the next
+        `forecast_horizon` time steps.
+    verbose : `int`, default=`3`
+        Controls the verbosity of logging. Ranges from `0` (no logs)
+        to `7` (maximal logs).
+
     Returns
     -------
     Tuple[`numpy.ndarray`, `numpy.ndarray`]
         A tuple containing:
-        - `sequences` : Array of input sequences with shape 
-          (num_sequences, sequence_length, num_features).
-        - `targets` : 
-            - If `forecast_horizon` is `None`: Array of target values with shape 
-              (num_sequences,).
-            - If `forecast_horizon` is an integer: Array of target sequences with shape 
-              (num_sequences, forecast_horizon).
-    
+          - `sequences`: Array of input sequences with shape
+            (num_sequences, sequence_length, num_features).
+          - `targets`:
+              - If `forecast_horizon` is `None`: Array of target
+                values with shape (num_sequences,).
+              - If `forecast_horizon` is an integer: Array of target
+                sequences with shape (num_sequences,
+                forecast_horizon).
+
     Raises
     ------
     ValueError
         If the DataFrame `df` does not contain the `target_col`.
-    
+
     Examples
     --------
     >>> import pandas as pd
     >>> import numpy as np
     >>> from gofast.nn.utils import create_sequences
-    >>> 
+
     >>> # Create a dummy DataFrame
     >>> data = pd.DataFrame({
     ...     'feature1': np.random.rand(100),
@@ -637,134 +628,206 @@ def create_sequences(
     ...     'feature3': np.random.rand(100),
     ...     'target': np.random.rand(100)
     ... })
-    >>> 
+
     >>> # Create sequences for single-step forecasting
     >>> sequence_length = 4
     >>> sequences, targets = create_sequences(
-    ...     df=data, 
-    ...     sequence_length=sequence_length, 
+    ...     df=data,
+    ...     sequence_length=sequence_length,
     ...     target_col='target',
     ...     step=1,
     ...     include_overlap=True,
     ...     drop_last=True,
     ...     forecast_horizon=None
     ... )
-    >>> 
     >>> print(sequences.shape)
     (95, 4, 4)
     >>> print(targets.shape)
     (95,)
-    >>> 
-    >>> # Create sequences for multi-step forecasting (e.g., 3 steps ahead)
+
+    >>> # Create sequences for multi-step forecasting (e.g., 3 steps)
     >>> forecast_horizon = 3
     >>> sequences, targets = create_sequences(
-    ...     df=data, 
-    ...     sequence_length=4, 
+    ...     df=data,
+    ...     sequence_length=4,
     ...     target_col='target',
     ...     step=1,
     ...     include_overlap=True,
     ...     drop_last=True,
     ...     forecast_horizon=3
     ... )
-    >>> 
     >>> print(sequences.shape)
     (92, 4, 4)
     >>> print(targets.shape)
     (92, 3)
-    
+
     Notes
     -----
-    - **Sequence Creation:** The function slides a window of size `sequence_length` 
-      across the DataFrame to create input sequences. Each sequence is associated 
-      with a target value or sequence of values that immediately follow the input sequence.
-    
+    - **Sequence Creation:** The function slides a window of size
+      `sequence_length` across the DataFrame to create input sequences.
+      Each sequence is associated with a target value or sequence of
+      values that immediately follow the input sequence.
+
     - **Forecast Horizon:** 
-        - If `forecast_horizon` is `None`, the function creates targets for a single 
-          future time step.
-        - If `forecast_horizon` is an integer `H`, the function creates targets consisting 
-          of the next `H` time steps.
-    
-    - **Step Size:** The `step` parameter controls the stride of the sliding 
-      window. A `step` of `1` results in overlapping sequences, while a larger 
-      `step` reduces overlap.
-    
-    - **Handling Incomplete Sequences:** If `drop_last` is set to `False`, the 
-      function includes the last sequence even if it doesn't have enough data 
-      points to form a complete sequence or target.
-    
-    - **Data Validation:** The function utilizes `are_all_frames_valid` from 
-      `gofast.core.checks` to ensure the integrity of input DataFrame before 
-      processing and `exist_features` to verify the presence of the target column.
-    
+        - If `forecast_horizon` is `None`, the function creates
+          targets for a single future time step.
+        - If `forecast_horizon` is an integer `H`, the function
+          creates targets consisting of the next `H` time steps.
+
+    - **Step Size:** The `step` parameter controls the stride of the
+      sliding window. A `step` of `1` results in overlapping sequences,
+      while a larger `step` reduces overlap.
+
+    - **Handling Incomplete Sequences:** If `drop_last` is set to
+      `False`, the function includes the last sequence even if it
+      doesn't have enough data points to form a complete sequence or
+      target.
+
+    - **Data Validation:** The function utilizes
+      `are_all_frames_valid` from `gofast.core.checks` to ensure the
+      integrity of input DataFrame before processing and
+      `exist_features` to verify the presence of the target column.
+     
+    The sequences generation can be expressed as: 
+        
+    .. math::
+        \\text{For each sequence } i, \\\\
+        \\mathbf{X}^{(i)} = \\left[ \\mathbf{x}_{i}, \\mathbf{x}_{i+1}, \\\\
+        \\dots, \\mathbf{x}_{i+T-1} \\right] \\\\
+        y^{(i)} =
+        \\begin{cases}
+            \\mathbf{x}_{i+T} & \\text{if } \\text{forecast\\_horizon} =
+            \\text{None} \\\\
+            \\left[ \\mathbf{x}_{i+T}, \\mathbf{x}_{i+T+1}, \\dots, \\\\
+            \\mathbf{x}_{i+T+H-1} \\right] & \\text{if }
+            \\text{forecast\\_horizon} = H
+        \\end{cases}
+
+    Where:
+      - :math:`\\mathbf{X}^{(i)}` is the input sequence of length
+        :math:`T`.
+      - :math:`y^{(i)}` is the target value(s) following the sequence.
+      
+
     See Also
     --------
-    gofast.nn.utils.split_static_dynamic : 
+    gofast.nn.utils.split_static_dynamic :
         Function to split sequences into static and dynamic inputs.
-    
+
     References
     ----------
-    .. [1] Brownlee, J. (2018). Time Series Forecasting with Python: Create 
-           accurate models in Python to forecast the future and gain insight
-            from your time series data. Machine Learning Mastery.
-    .. [2] Qin, Y., Song, D., Chen, H., Cheng, W., Jiang, G., & Cottrell, G. (2017). 
-           Temporal fusion transformers for interpretable multi-horizon time
-           series forecasting. *arXiv preprint arXiv:1912.09363*.
-    
+    .. [1] Brownlee, J. (2018). Time Series Forecasting with Python:
+           Create accurate models in Python to forecast the future and
+           gain insight from your time series data. Machine Learning
+           Mastery.
+    .. [2] Qin, Y., Song, D., Chen, H., Cheng, W., Jiang, G., &
+           Cottrell, G. (2017). Temporal fusion transformers for
+           interpretable multi-horizon time series forecasting.
+           *arXiv preprint arXiv:1912.09363*.
     """
+    if verbose >= 1:
+        print("Starting sequence generation ...")
+
     # Validate all frames
     are_all_frames_valid(df, df_only=True, error_msg=(
         "DataFrame contains invalid or missing data."
     ))
-    
+
     # Validate that target_col exists in the DataFrame
     exist_features(
-        df, features=target_col, 
+        df, features=target_col,
         name=f"Target column '{target_col}'"
     )
-    
+
+    if verbose >= 2:
+        print(
+            f"[DEBUG] sequence_length={sequence_length}, step={step},\n "
+            f"drop_last={drop_last}, forecast_horizon={forecast_horizon}"
+        )
+        print(f"[DEBUG] DataFrame length={len(df)}")
+
     sequences = []
     targets = []
     total_length = len(df)
-    
+
     # Determine the maximum required steps based on forecast_horizon
     max_horizon = forecast_horizon if forecast_horizon is not None else 1
-    
+
+    if verbose >= 2:
+        print(f"[DEBUG] max_horizon set to {max_horizon}")
+
+    # Main loop to generate sequences
     for i in range(0, total_length - sequence_length - max_horizon + 1, step):
-        seq = df.iloc[i:i+sequence_length]
-        
+        seq = df.iloc[i : i + sequence_length]
         if forecast_horizon is None:
-            target = df.iloc[i+sequence_length][target_col]
+            target = df.iloc[i + sequence_length][target_col]
         else:
-            target = df.iloc[i+sequence_length:i+sequence_length + forecast_horizon][target_col]
-        
+            target = df.iloc[
+                i + sequence_length : i + sequence_length + forecast_horizon
+            ][target_col]
+
         sequences.append(seq.values)
-        targets.append(target.values if forecast_horizon is not None else target)
-    
-    if not drop_last and forecast_horizon is not None:
-        remaining = (total_length - sequence_length) % step
-        if remaining != 0 and (total_length - sequence_length) >= forecast_horizon:
-            seq = df.iloc[-sequence_length:]
-            target = df.iloc[-forecast_horizon:][target_col]
-            sequences.append(seq.values)
+        # If multi-step, store array; else store scalar
+        if forecast_horizon is not None:
             targets.append(target.values)
-    elif not drop_last and forecast_horizon is None:
-        if (total_length - sequence_length) % step != 0:
-            seq = df.iloc[-sequence_length:]
-            target = df.iloc[-1][target_col]
-            sequences.append(seq.values)
+        else:
             targets.append(target)
-    
+
+        if verbose >= 3:
+            print(
+                f"[TRACE] Created sequence index {len(sequences) - 1} "
+                f"from row {i} to {i + sequence_length - 1}, "
+                f"target index from {i + sequence_length} to "
+                f"{i + sequence_length + max_horizon - 1}"
+            )
+
+    # Handle any remaining data if drop_last is False
+    if not drop_last:
+        if forecast_horizon is not None:
+            remaining = (total_length - sequence_length) % step
+            # We must also ensure we have enough data for the forecast
+            # horizon if we are taking the last chunk
+            if remaining != 0 and (total_length - sequence_length
+                                   ) >= forecast_horizon:
+                seq = df.iloc[-sequence_length:]
+                target = df.iloc[-forecast_horizon:][target_col]
+                sequences.append(seq.values)
+                targets.append(target.values)
+                if verbose >= 2:
+                    print(
+                        "[DEBUG] Appended the last incomplete sequence "
+                        "and targets with forecast horizon."
+                    )
+        else:
+            if (total_length - sequence_length) % step != 0:
+                seq = df.iloc[-sequence_length:]
+                target = df.iloc[-1][target_col]
+                sequences.append(seq.values)
+                targets.append(target)
+                if verbose >= 2:
+                    print(
+                        "[DEBUG] Appended the last incomplete sequence "
+                        "and single-step target."
+                    )
+
     sequences = np.array(sequences)
     targets = np.array(targets)
-    
+
+    if verbose >= 1:
+        print(
+            "[INFO] Sequence generation completed. "
+            f"Created {sequences.shape[0]} sequences of length "
+            f"{sequence_length} with target dimension {targets.shape}."
+        )
+
     return sequences, targets
 
 @is_data_readable(data_to_read ='data')
 def compute_forecast_horizon(
     data=None,
     date_col=None,
-    start_prediction=None,
-    end_prediction=None,
+    start_pred=None,
+    end_pred=None,
     error='raise',
     verbose=1
 ):
@@ -791,17 +854,17 @@ def compute_forecast_horizon(
         Example:
         ``date_col='timestamp'``
 
-    start_prediction : str, int, or datetime-like
+    start_pred : str, int, or datetime-like
         The starting point for forecasting. This can be a date string
         (e.g., `'2023-04-10'`), a `datetime` object, or an integer representing
         a year (e.g., `2024`). If an integer is provided, it is interpreted as a
         year, and a warning is issued to inform the user of this interpretation.
 
-    end_prediction : str, int, or datetime-like
-        The ending point for forecasting. Similar to `start_prediction`, this can
+    end_pred : str, int, or datetime-like
+        The ending point for forecasting. Similar to `start_pred`, this can
         be a date string, a `datetime` object, or an integer representing a year.
         The function calculates the forecast horizon based on the difference
-        between `start_prediction` and `end_prediction`.
+        between `start_pred` and `end_pred.
 
     error : {'raise', 'warn', 'ignore'}, default='raise'
         Defines the error handling behavior when encountering issues such as
@@ -845,8 +908,8 @@ def compute_forecast_horizon(
     >>> horizon = compute_forecast_horizon(
     ...     data=df,
     ...     date_col='date',
-    ...     start_prediction='2023-04-10',
-    ...     end_prediction='2023-04-20',
+    ...     start_pred='2023-04-10',
+    ...     end_pred='2023-04-20',
     ...     error='raise',
     ...     verbose=3
     ... )
@@ -857,8 +920,8 @@ def compute_forecast_horizon(
     >>> dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(100)]
     >>> horizon = compute_forecast_horizon(
     ...     data=dates,
-    ...     start_prediction='2023-04-10',
-    ...     end_prediction='2023-04-20',
+    ...     start_pred='2023-04-10',
+    ...     end_pred='2023-04-20',
     ...     error='warn',
     ...     verbose=2
     ... )
@@ -867,8 +930,8 @@ def compute_forecast_horizon(
 
     >>> # Example 3: Handling Integer Years
     >>> horizon = compute_forecast_horizon(
-    ...     start_prediction=2024,
-    ...     end_prediction=2030,
+    ...     start_pred=2024,
+    ...     end_pred=2030,
     ...     error='raise',
     ...     verbose=1
     ... )
@@ -876,8 +939,8 @@ def compute_forecast_horizon(
 
     >>> # Example 4: Without Providing Data (Assuming Frequency Based on Prediction Dates)
     >>> horizon = compute_forecast_horizon(
-    ...     start_prediction='2023-04-10',
-    ...     end_prediction='2023-04-20',
+    ...     start_pred='2023-04-10',
+    ...     end_pred='2023-04-20',
     ...     error='raise',
     ...     verbose=1
     ... )
@@ -886,12 +949,12 @@ def compute_forecast_horizon(
     Notes
     -----
     - When `data` is not provided, the function relies solely on the difference
-      between `start_prediction` and `end_prediction` to compute the forecast
+      between `start_pred` and `end_pred` to compute the forecast
       horizon. In such cases, if the frequency cannot be inferred, the horizon
       is calculated based on the largest possible time unit (years, months,
       weeks, days).
     
-    - If `start_prediction` is after `end_prediction`, the function returns `0`
+    - If `start_pred` is after `end_pred`, the function returns `0`
       and issues a warning or raises an error based on the `error` parameter.
 
     - The function attempts to infer the frequency of the data using `pandas`
@@ -1004,8 +1067,8 @@ def compute_forecast_horizon(
                 return None, None
             return converted, 'datetime'
     
-    start_pred, start_type = convert_prediction(start_prediction)
-    end_pred, end_type = convert_prediction(end_prediction)
+    start_pred, start_type = convert_prediction(start_pred)
+    end_pred, end_type = convert_prediction(end_pred)
     
     if start_pred is None or end_pred is None:
         message = ( 
@@ -1234,26 +1297,29 @@ def extract_callbacks_from(fit_params, return_fit_params=False):
     "scaling_params": [dict, None]
     }
 )
-def prepare_future_data(
-        final_processed_data: pd.DataFrame,
-        feature_columns: List[str],
-        dynamic_feature_indices: List[int],
-        sequence_length: int = 1,
-        time_col: str = 'date',
-        static_feature_names: Optional[List[str]] = None,
-        forecast_horizon: Optional[int] = None,
-        future_years: Optional[List[int]] = None,
-        encoded_cat_columns: Optional[List[str]] = None,
-        scaling_params: Optional[Dict[str, Dict[str, float]]] = None,
-        verbosity: int = 0,
-    ) -> Tuple[
-        np.ndarray,
-        np.ndarray,
-        List[int],
-        List[int],
-        List[float],
-        List[float]
-    ]:
+def prepare_spatial_future_data(
+    final_processed_data: pd.DataFrame,
+    feature_columns: List[str],
+    dynamic_feature_indices: List[int],
+    sequence_length: int = 1,
+    time_col: str = 'date',
+    static_feature_names: Optional[List[str]] = None,
+    forecast_horizon: Optional[int] = None,
+    future_years: Optional[List[int]] = None,
+    encoded_cat_columns: Optional[List[str]] = None,
+    scaling_params: Optional[Dict[str, Dict[str, float]]] = None,
+    spatial_cols: Tuple [str, str]=None, 
+    squeeze_last: bool=False, 
+    verbosity: int = 0,
+    
+) -> Tuple[
+    np.ndarray,
+    np.ndarray,
+    List[int],
+    List[int],
+    List[float],
+    List[float]
+]:
     """
     Prepare future static and dynamic inputs for making predictions.
 
@@ -1303,6 +1369,10 @@ def prepare_future_data(
         for features. Example: ``{'year': {'mean': 2000, 'std': 10}}``.
         If not provided, the function computes the mean and std for the
         ``time_col``.
+    squeeze_last: bool, default=True, 
+       Squeeze the last axis which correspond to the output dimension ``y`` 
+       if equal to ``1``. 
+       
     verbosity : int, optional
         Verbosity level from ``0`` to ``7`` for debugging and understanding
         the process. Higher values produce more detailed logs.
@@ -1327,7 +1397,7 @@ def prepare_future_data(
 
     Examples
     --------
-    >>> from gofast.nn.utils import prepare_future_data
+    >>> from gofast.nn.utils import prepare_spatial_future_data
     >>> import pandas as pd
     >>> data = pd.DataFrame({
     ...     'location_id': [1, 1, 1, 2, 2, 2],
@@ -1340,7 +1410,8 @@ def prepare_future_data(
     ... })
     >>> feature_cols = ['year', 'temperature', 'rainfall', 'encoded_cat']
     >>> dynamic_indices = [0, 1, 2]
-    >>> future_static, future_dynamic, future_years, loc_ids, longs, lats = prepare_future_data(
+    >>> future_static, future_dynamic, future_years, loc_ids, longs,\
+        lats = prepare_spatial_future_data(
     ...     final_processed_data=data,
     ...     feature_columns=feature_cols,
     ...     dynamic_feature_indices=dynamic_indices,
@@ -1392,8 +1463,11 @@ def prepare_future_data(
         "Starting prepare_future_data with verbosity level "
         f"{verbosity}", 
         1
-    )
-
+    ) 
+    if spatial_cols is None: 
+        spatial_cols=['longitude', 'latitude']
+    check_spatial_columns(final_processed_data, spatial_cols=spatial_cols)
+    spatial_cols = columns_manager(spatial_cols)
     # Lists to store future inputs and related data
     future_static_inputs_list = []
     future_dynamic_inputs_list = []
@@ -1426,7 +1500,8 @@ def prepare_future_data(
 
     # Determine static feature names
     static_features = _determine_static_features(
-        static_feature_names, encoded_cat_columns, log
+        static_feature_names, encoded_cat_columns, log, 
+        spatial_cols = spatial_cols
     )
 
     # Group data by 'location_id'
@@ -1529,7 +1604,9 @@ def prepare_future_data(
         future_dynamic_inputs_list,
         log
     )
-
+    if squeeze_last: 
+        future_dynamic_inputs= future_dynamic_inputs.squeeze(-1)
+        future_static_inputs= future_static_inputs.squeeze(-1)
     log(
         f"Final shapes - static: {future_static_inputs.shape}, "
         f"dynamic: {future_dynamic_inputs.shape}", 
@@ -1616,7 +1693,8 @@ def _handle_time_scaling(
 def _determine_static_features(
         static_feature_names: Optional[List[str]],
         encoded_cat_columns: List[str],
-        log_func
+        log_func, 
+        spatial_cols, 
     ) -> List[str]:
     """Determine the static feature names."""
     
@@ -1627,7 +1705,7 @@ def _determine_static_features(
         )
         return static_feature_names + encoded_cat_columns
     else:
-        static_features = ['longitude', 'latitude'] + encoded_cat_columns
+        static_features = list(spatial_cols) + encoded_cat_columns
         log_func(
             f"Using default static feature names: {static_features}", 
             5
@@ -2013,7 +2091,6 @@ def set_default_params(
 
     return quantiles, scales, return_sequences
 
-
 @isdf
 def reshape_xtft_data(
     df,
@@ -2022,7 +2099,7 @@ def reshape_xtft_data(
     dynamic_cols,
     static_cols= None,
     future_cols= None,
-    spatial_cols= None,  # e.g., ("longitude", "latitude")
+    spatial_cols= None, 
     time_steps = 4,
     forecast_horizons= 1,
     to_datetime = None,
