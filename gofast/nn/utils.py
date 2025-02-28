@@ -71,10 +71,11 @@ __all__ = [
     "compute_anomaly_scores",
     "reshape_xtft_data", 
     "generate_forecast", 
+    "generate_forecast_with", 
     "visualize_forecasts", 
     "forecast_multi_step", 
     "forecast_single_step", 
-    "generate_xtft_forecast", 
+    
     
    ]
 
@@ -4327,7 +4328,7 @@ def forecast_multi_step(
     
     return pred_df
 
-def generate_xtft_forecast(
+def generate_forecast_with(
         xtft_model,
         inputs,
         forecast_horizon,
@@ -4385,7 +4386,7 @@ def generate_xtft_forecast(
             verbose=verbose
         )
 
-generate_xtft_forecast.__doc__="""\
+generate_forecast_with.__doc__="""\
 Generate forecasts using a pre-trained XTFT model based on the forecast
 horizon.
 
@@ -4484,7 +4485,7 @@ Examples
 --------
 
 >>> from gofast.nn.transformers import XTFT
->>> from gofast.nn.utils import generate_xtft_forecast
+>>> from gofast.nn.utils import generate_forecast_with
 >>> import numpy as np
 >>> 
 >>> # Prepare a dummy XTFT model with example parameters.
@@ -4522,7 +4523,7 @@ Examples
 ... )
 >>> 
 >>> # Example for a single-step forecast:
->>> forecast_df = generate_xtft_forecast(
+>>> forecast_df = generate_forecast_with(
 ...     xtft_model=my_model,
 ...     inputs=inputs,
 ...     forecast_horizon=1,
@@ -4537,7 +4538,7 @@ Examples
 >>> 
 >>> # Example for a multi-step forecast:
 >>> forecast_dates = ["2023", "2024", "2025", "2026"]
->>> forecast_df = generate_xtft_forecast(
+>>> forecast_df = generate_forecast_with(
 ...     xtft_model=my_model,
 ...     inputs=inputs,
 ...     forecast_horizon=4,
