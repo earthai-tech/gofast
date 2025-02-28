@@ -42,6 +42,7 @@ from ..compat.sklearn import (
     validate_params
 )
 from ..decorators import DynamicMethod, isdf 
+from ..metrics_special import coverage_score
 from ..utils.data_utils import mask_by_reference 
 from ..utils.deps_utils import ensure_pkg 
 from ..utils.ts_utils import ts_validator, filter_by_period 
@@ -54,8 +55,6 @@ from ..utils.validator import (
     validate_positive_integer, 
     check_forecast_mode, 
 )
-from ..metrics_special import coverage_score
-
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 from .validator import validate_keras_model, check_keras_model_status 
 
@@ -79,12 +78,7 @@ __all__ = [
     
    ]
 
-@check_params(
-    {
-     'domain_func': Optional[Callable]
-     }, 
-    coerce=False
- )
+@check_params({'domain_func': Optional[Callable]}, coerce=False)
 @ParamsValidator( 
     { 
         'y_true': ['array-like:np:transf'], 

@@ -3,8 +3,8 @@
 # Author: L. Kouadio <etanoyau@gmail.com>
 
 """
-GOFast: Accelerate Your Machine Learning Workflow
-=================================================
+GOFast: AIO Machine Learning Package
+======================================
 
 :code:`gofast` is designed to streamline and accelerate every step of your 
 data science workflow, enhancing productivity, ease of use, and community-driven
