@@ -282,11 +282,8 @@ class XTFT(Model, NNLearner):
         self.residual_dense = Dense(2 * embed_dim) if use_residuals else None
         # self.final_dense = Dense(output_dim)
         
-    def call(self, inputs, training=False, **kwargs):
-        return self._call_impl(inputs, training=training, **kwargs)
-
     @tf_autograph.experimental.do_not_convert
-    def _call_impl(self, inputs, training=False, **kwargs):
+    def call(self, inputs, training=False, **kwargs):
         static_input , dynamic_input, future_input = validate_xtft_inputs (
             inputs =inputs,
             static_input_dim=self.static_input_dim, 
@@ -598,7 +595,7 @@ class XTFT(Model, NNLearner):
                 loss=quantile_loss_fn,
                 **kws
             )
-
+            
     def get_config(self):
         config = super().get_config().copy()
         config.update({
@@ -772,12 +769,8 @@ class SuperXTFT(XTFT):
             use_batch_norm=use_batch_norm
         )
         
-        
-    def call(self, inputs, training=False, **kwargs):
-        return self._call_impl(inputs, training=training, **kwargs)
-    
     @tf_autograph.experimental.do_not_convert
-    def _call_impl(self, inputs, training=False, **kwargs):
+    def call(self, inputs, training=False, **kwargs):
         static_input, dynamic_input, future_input = validate_xtft_inputs(
             inputs=inputs,
             static_input_dim=self.static_input_dim, 

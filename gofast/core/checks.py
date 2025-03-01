@@ -6032,10 +6032,13 @@ def check_array_like(
 
 def check_datetime(
     df : pd.DataFrame,
+    dt_cols=None, # if dt_cols is not None, then check this columns in the dataframe 
     ops : str = 'check_only',
     error : str = 'raise',
     consider_dt_as : Optional[str] = None,
-    accept_dt : bool = True
+    accept_dt : bool = True, 
+    allow_int: bool=False, # if allow_int, consider integer as dateime column  , for instance  [2024, 2025], 
+    int2dt : bool=False, # if True, then convert the integer to datetime,  
 ) -> Union[bool, pd.DataFrame]:
     """
     Check or validate datetime columns in a DataFrame and optionally
@@ -6095,6 +6098,14 @@ def check_datetime(
             columns.
           * With `error='ignore'`, silently drop datetime columns.
 
+    allow_int : bool, default=False
+        If True, treat integer columns as datetime columns 
+        (e.g., years such as [2024, 2025]) when `dt_cols` is provided.
+
+    int2dt : bool, default=False
+        If True, convert integer columns to datetime columns 
+        (e.g., 2024 to '2024-01-01') when `dt_cols` is provided.
+
     Returns
     -------
     bool or pd.DataFrame
@@ -6142,8 +6153,23 @@ def check_datetime(
     """
     are_all_frames_valid(df, df_only=True)
     # 1. Identify all datetime columns in df.
-    dt_cols = df.select_dtypes(
-        include=['datetime', 'datetime64[ns]','datetimetz']).columns.tolist()
+    if dt_cols is not None: 
+        if isinstance(dt_cols, str):
+            dt_cols = [dt_cols]
+
+        if allow_int:
+            # If allow_int, treat integer columns as datetime columns
+            int_columns = df[dt_cols].select_dtypes(
+                include=['int', 'int32', 'int64']).columns
+            dt_cols.extend(int_columns)
+            if int2dt:
+                for col in int_columns:
+                    df[col] = pd.to_datetime(
+                        df[col], format='%Y', errors='coerce')
+            
+    else: 
+        dt_cols = df.select_dtypes(
+            include=['datetime', 'datetime64[ns]','datetimetz']).columns.tolist()
 
     # quick check for presence
     has_dt = (len(dt_cols) > 0)
