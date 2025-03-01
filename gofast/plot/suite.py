@@ -49,7 +49,7 @@ from ..utils.mathext import compute_importances
 from ..utils.validator import  ( 
     build_data_if, validate_positive_integer, 
     validate_quantiles, is_frame, check_consistent_length, 
-    validate_yy, filter_valid_kwargs
+    validate_yy, filter_valid_kwargs, validate_q_dict
 )
 from ._config import PlotConfig
 from .utils import flex_figsize 
@@ -5459,18 +5459,21 @@ def plot_quantile_distributions(
             raise ValueError(
                 "No matching columns found with given prefix, date, quantiles.")
     else:
+        
         # q_cols provided. Let's assume q_cols is a dict:
         # {quantile: {date_str: column_name}}
         # or {quantile: [cols_in_same_order_as_date_values_str]}
         # We must extract quantiles from q_cols keys
+        quantiles_from_qcols = validate_q_dict(q_cols)  
         quantiles_from_qcols = sorted(q_cols.keys())
         if quantiles is None:
             quantiles = quantiles_from_qcols
         else:
-            quantiles = validate_quantiles (quantiles )
+            quantiles = validate_quantiles (quantiles, dtype=np.float64 )
             # Ensure that quantiles match q_cols keys
             if set(quantiles) != set(quantiles_from_qcols):
-                raise ValueError("Quantiles specified do not match q_cols keys.")
+                raise ValueError(
+                    "Quantiles specified do not match q_cols keys.")
         
         # Validate all columns exist
         all_cols = []
@@ -5683,6 +5686,16 @@ def _build_column_names(df, value_prefix, quantiles, date_values_str):
                 all_cols.append(col_name)
     return all_cols
 
+# XXX TOD: Move this function to core.handlers 
+# to be able to dectect_qcolumns in dataframe based on value_prefix or 
+# and can return_values (default) or quantiles columns in dataframe 
+# for instance can return : 
+    # 'predicted_subsidence_2024_q0.1', 'predicted_subsidence_2024_q0.5',  
+    # if value_prefix is 'predicted_subsidence' and date_values_str=2024 
+    # or  with these columns, it can return : 
+        # 'predicted_subsidence_2024_q10', 'predicted_subsidence_2024_q50',
+        # if value_prefix is 'predicted_subsidence' and the _q[digit] exist 
+        # if the dataframe columns and date_value_str is not provided (i,e None). 
 def _detect_quantiles_from_columns(df, value_prefix, date_values_str):
     """
     Attempt to detect quantiles by scanning the DataFrame columns that match

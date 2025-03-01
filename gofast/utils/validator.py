@@ -95,6 +95,7 @@ __all__=[
      'validate_numeric', 
      'validate_performance_data',
      'validate_positive_integer',
+     'validate_q_dict', 
      'validate_sample_weights',
      'validate_sets', 
      'validate_strategy',
@@ -1090,11 +1091,42 @@ def check_is_runned(estimator, attributes=None, *, msg=None, all_or_any=all):
     if not is_runned:
         raise NotRunnedError(msg % {"name": type(estimator).__name__})
 
+# XXX TODO
+# in 'soft' mode, values provided is: 
+    # 1 - going to be convert to float if str. 
+    # 2. if str and contain % , then divided by 100. automatically 
+    # if not possible to convert to float then raise error 
 
-def validate_quantiles(quantiles, asarray=False):
+# Secondly if  all quantiles values in the list are: 
+    
+#     # if 1< quantiles < 10 , #then divided by 10: 
+    # for instance quantiles=[2, 7, 9 ]==> will yield  [0.2, 0.7, 0.9 ]
+    # 
+    #  if  10 < quantiles < 100  , then divided by 1000 
+    # for instance quantiles=[20, 70, 90 ]=> [0.2, 0.7, 0.9 ]
+    
+    # if 100 < quantiles < 1000 then divide by 1000 
+    # for instance quantiles=[200, 700, 900 ] => [0.2, 0.7, 0.9 ]
+    
+    # if  1000 < quantiles < 10000 # then divide by 10000: 
+        # for instance quantiles=[2000, 7000, 9000 ] = >[0.2, 0.7, 0.9 ]
+        # and so on ,
+        
+    # if this rule not respected then raise error... 
+# # skip the documentation doctring for brievity for implementing the code  
+def validate_quantiles(
+    quantiles, 
+    asarray=False, 
+    round_digits=1, 
+    dtype=None, 
+    mode="strict", 
+
+    ):
     """
     Validates the input quantiles and optionally returns the output as a 
-    numpy array or list.
+    numpy array or list, with an option to round the quantiles to a 
+    specified number of decimal places to avoid floating-point precision 
+    issues.
 
     Quantiles are numerical values used in statistical analysis to 
     divide a distribution into intervals. They must lie within the 
@@ -1110,6 +1142,18 @@ def validate_quantiles(quantiles, asarray=False):
         Determines the output format. If `True`, the validated 
         quantiles are returned as a numpy array. If `False`, they 
         are returned as a list. Default is `False`.
+
+    round_digits : int, optional, default=1
+        The number of decimal places to which the quantiles should be 
+        rounded. This helps avoid floating-point precision errors such as 
+        `0.10000000149011612` being displayed as `0.1`. By default, 
+        quantiles are rounded to 1 decimal place.
+        
+    dtype : numpy.dtype, optional, default=np.float32
+        The data type for the quantiles array. Use `np.float32`
+        for compatibility with TensorFlow or `np.float64` for higher 
+        precision. The dtype determines the precision used for quantiles
+        during validation and rounding.
 
     Returns
     -------
@@ -1144,6 +1188,8 @@ def validate_quantiles(quantiles, asarray=False):
     1. The type of `quantiles`.
     2. The numerical nature of its elements.
     3. The range of its values.
+    4. The optional rounding of the quantiles to a specified number 
+       of decimal places.
 
     Examples
     --------
@@ -1153,6 +1199,9 @@ def validate_quantiles(quantiles, asarray=False):
 
     >>> validate_quantiles(np.array([0.3, 0.7, 0.9]), asarray=True)
     array([0.3, 0.7, 0.9])
+
+    >>> validate_quantiles([0.10000000149011612, 0.5, 0.8999999761581421], round_digits=1)
+    [0.1, 0.5, 0.9]
 
     >>> validate_quantiles([0.5, 1.2])
     ValueError: All quantile values must be in the range [0, 1].
@@ -1169,7 +1218,8 @@ def validate_quantiles(quantiles, asarray=False):
     .. [2] Weiss, N. A. (2015). Introductory Statistics. Pearson.
 
     """
-    quantiles = to_iterable(quantiles, transform=True, flatten=True )
+    # Convert quantiles to a list if necessary
+    quantiles = to_iterable(quantiles, transform=True, flatten=True)
   
     # Validate input type: must be list or numpy array
     if not isinstance(quantiles, (list, np.ndarray)):
@@ -1178,8 +1228,25 @@ def validate_quantiles(quantiles, asarray=False):
             f"{type(quantiles).__name__}."
         )
     
-    # Convert input to numpy array for consistent processing
-    quantiles = np.array(quantiles, dtype=np.float32)
+    # Define a dictionary for mapping string dtype names to numpy float types
+    dtypes = {"float32": np.float32, "float64": np.float64}
+
+    # Check if dtype is a string, and convert
+    # it to the corresponding numpy dtype
+    if dtype is None: 
+        dtype = 'float32'
+    if isinstance(dtype, str):
+        if dtype not in dtypes:
+            raise ValueError(
+                f"Unsupported dtype string: {dtype}."
+                " Supported values are 'float32' or 'float64'."
+        )
+        # Convert string to corresponding numpy dtype
+        dtype = dtypes[dtype]  
+
+    # Convert input to numpy array for consistent 
+    # processing using the specified dtype
+    quantiles = np.array(quantiles, dtype=dtype)
     
     # Validate that all elements are numeric
     if not np.issubdtype(quantiles.dtype, np.number):
@@ -1189,8 +1256,119 @@ def validate_quantiles(quantiles, asarray=False):
     if not np.all((quantiles >= 0) & (quantiles <= 1)):
         raise ValueError("All quantile values must be in the range [0, 1].")
     
+    # Round quantiles to the specified number of decimal places
+    quantiles = np.round(quantiles, decimals=round_digits)
+    
     # Return quantiles in the desired format
     return quantiles if asarray else quantiles.tolist()
+
+def validate_q_dict(q_dict, recheck=False):
+    """
+    Converts the keys of a dictionary of quantile columns (`q_dict`) from 
+    string representations to numeric values (float) if possible. If the key 
+    cannot be converted to a number, it returns the dictionary as is. 
+
+    Optionally validates the quantiles after conversion to ensure that all 
+    keys are within the valid range of quantiles [0, 1].
+
+    Parameters
+    ----------
+    q_dict : dict
+        A dictionary where the keys represent quantiles (either as 
+        strings like '0.1' or '10%') and the values are lists of 
+        column names associated with those quantiles.
+        
+    recheck : bool, optional, default=False
+        If `True`, the keys of the dictionary will be validated as 
+        quantiles after the conversion. This validation checks that 
+        all keys lie within the range [0, 1].
+
+    Returns
+    -------
+    dict
+        A dictionary with numeric keys if conversion is successful, 
+        otherwise the original dictionary. The keys are either floats 
+        representing quantiles or the original keys if they cannot 
+        be converted.
+
+    Notes
+    -----
+    The function performs the following steps:
+    
+    1. Iterates over the dictionary to check whether each key can be 
+       converted to a numeric value.
+    2. If a key is a string containing a percentage (e.g., '10%'), 
+       it removes the '%' sign and divides the value by 100 to 
+       convert it to a float.
+    3. If a key can be successfully converted, it is stored as a 
+       floating-point number in the resulting dictionary.
+    4. If the conversion fails (due to a `ValueError`, `TypeError`, or 
+       `AttributeError`), the original key is retained in the dictionary.
+    5. If `recheck` is `True`, it validates the converted quantiles by 
+       ensuring they are in the range [0, 1].
+
+    The function is designed to handle both direct float conversions (e.g., 
+    '0.1') and percentage-based representations (e.g., '10%' becomes 0.1).
+
+    Example
+    -------
+    >>> q_dict = {'0.1': ['subsidence_q10'], '50%': ['subsidence_q50'], 
+                  '90%': ['subsidence_q90']}
+    >>> validate_q_dict(q_dict)
+    {0.1: ['subsidence_q10'], 0.5: ['subsidence_q50'], 0.9: ['subsidence_q90']}
+
+    >>> q_dict = {'0.1': ['subsidence_q10'], '0.5': ['subsidence_q50'], 
+                  '0.9': ['subsidence_q90']}
+    >>> validate_q_dict(q_dict)
+    {'0.1': ['subsidence_q10'], 0.5: ['subsidence_q50'], 'high': ['subsidence_q90']}
+
+    >>> q_dict = {'0.1': ['subsidence_q10'], '200%': ['subsidence_q200']}
+    >>> validate_q_dict(q_dict, recheck=True)
+    {0.1: ['subsidence_q10'], 2.0: ['subsidence_q200']}
+
+    See Also
+    --------
+   validate_quantiles`: 
+       Validates if the values are valid quantiles in the range [0, 1].
+
+    References
+    ----------
+    .. [1] Hyndman, R. J., & Fan, Y. (1996). Sample quantiles in 
+           statistical packages. The American Statistician, 50(4), 361-365.
+    .. [2] Weiss, N. A. (2015). Introductory Statistics. Pearson.
+    """
+    # Initialize an empty dictionary to store the converted quantiles
+    new_q_cols = {}
+    
+    if not isinstance(q_dict, dict):
+        raise TypeError(
+            f"Expected a dictionary for `q_dict`, but "
+            f"got {type(q_dict).__name__}. Ensure that `q_dict`"
+            " is a dictionary where the keys represent quantiles "
+            "(either as strings like '0.1' or '10%') and the values"
+            " are lists of column names."
+        )
+    for key, value in q_dict.items():
+        try:
+            # Check if the key contains a percentage sign and convert it
+            if "%" in str(key):
+                key_float = float(key.replace('%', '')) / 100.0
+            else:
+                # Directly convert the key to float
+                key_float = float(key)
+
+            new_q_cols[key_float] = value
+
+        except (AttributeError, ValueError, TypeError):
+            # If conversion fails, retain the original key
+            new_q_cols[key] = value
+
+    if recheck:
+        # Validate the quantiles after conversion 
+        # (i.e., ensure keys are between 0 and 1)
+        validate_quantiles(list(new_q_cols.keys()), dtype='float64')
+
+    return new_q_cols
 
 def check_has_run_method(estimator, msg=None, method_name="run"):
     """

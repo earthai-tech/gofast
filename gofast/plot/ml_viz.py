@@ -21,7 +21,7 @@ from matplotlib.patches import Ellipse
 import matplotlib.transforms as transforms 
 from matplotlib.collections import EllipseCollection
 
-from sklearn.base import BaseEstimator 
+from sklearn.base import BaseEstimator, is_classifier
 from sklearn.metrics import (
     roc_auc_score, 
     r2_score, 
@@ -32,12 +32,9 @@ from sklearn.metrics import (
     auc as auc_score, 
     mean_absolute_error 
 )
-from sklearn.model_selection import learning_curve, KFold 
+from sklearn.model_selection import learning_curve, cross_val_score
 from sklearn.utils import resample 
-try: 
-    from keras.models import Model
-except : 
-    pass 
+
 from ..api.types import Optional, Tuple, Any, List, Union, Callable, NDArray 
 from ..api.types import Dict, ArrayLike, DataFrame, Series, SparseMatrix
 from ..compat.scipy import probplot
@@ -51,7 +48,7 @@ from ..core.plot_manager import default_params_plot
 from ..metrics import get_scorer 
 from ..utils.deps_utils import ensure_pkg 
 from ..utils.mathext import get_preds, minmax_scaler 
-from ..utils.validator import _is_cross_validated, validate_yy, validate_keras_model
+from ..utils.validator import _is_cross_validated, validate_yy#, validate_keras_model
 from ..utils.validator import assert_xy_in, get_estimator_name, check_is_fitted
 from ..utils.validator import check_consistent_length, contains_nested_objects 
 from ..utils.validator import validate_length_range, build_data_if 
@@ -1269,6 +1266,246 @@ def plot_taylor_diagram(
     # plt.subplots_adjust(top=0.8)
 
     plt.tight_layout()
+    plt.show()
+
+@validate_params({
+    "X": ['array-like'], 
+    'y': ['array-like'], 
+})
+def plot_cv(
+    model, X, y, 
+    cv=5, 
+    scoring=None, 
+    n_jobs=None, 
+    verbose=0, 
+    pkg=None, 
+    fig_size=(8, 6),
+    show_grid=True, 
+    grid_props=None, 
+    savefig=None, 
+    ax=None, 
+    **kw
+):
+    """
+    Function to plot cross-validation scores for both 
+    scikit-learn and Keras models.
+
+    This function provides a visualization of cross-validation 
+    scores for a given machine learning model. It performs cross-validation 
+    using the given model and datasets, then plots the performance scores 
+    across multiple folds. It supports both `scikit-learn` models and Keras 
+    models (through compatibility handling with `scikeras` and `keras`).
+
+    Parameters
+    ----------
+    model : estimator object
+        The machine learning model (either scikit-learn or Keras model) 
+        to be used for cross-validation. It should have a `.fit()` method 
+        and should be compatible with cross-validation in scikit-learn.
+    
+    X : array-like, shape (n_samples, n_features)
+        The feature matrix for training. It should be a 2D array or 
+        pandas DataFrame containing the input data.
+
+    y : array-like, shape (n_samples,)
+        The target vector. It should be a 1D array or pandas Series containing 
+        the labels corresponding to the input data `X`.
+
+    cv : int, cross-validation generator or an iterable, default=5
+        The cross-validation splitting strategy. If an integer is passed, 
+        it specifies the number of folds in K-fold cross-validation.
+        Alternatively, a cross-validation generator (e.g., `KFold`, 
+        `StratifiedKFold`) can be provided for custom splitting strategies.
+
+    scoring : string, callable, or None, default=None
+        A string or callable to evaluate the predictions. Possible 
+        values for string input are:
+        - `accuracy`, `precision`, `recall`, `f1`, `roc_auc`, etc.
+        The callable should take the predicted values and ground truth 
+        and return a score.
+
+    n_jobs : int, default=None
+        The number of jobs to run in parallel. If `None`, it uses the 
+        default value. If set to `-1`, it uses all available processors.
+
+    verbose : int, default=0
+        Verbosity level of the function. If greater than 0, prints 
+        detailed information about the execution of cross-validation 
+        and the progress during the process.
+
+    pkg : str, optional, default=None
+        Specifies the package for the model. It can be one of the following:
+        - `'sklearn'`: For scikit-learn models.
+        - `'keras'`: For Keras models. 
+        If the model is Keras-based, the function handles the appropriate 
+        wrapper imports and checks.
+
+    fig_size : tuple, optional, default=(8, 6)
+        The size of the figure for the plot. It is passed as the 
+        `figsize` argument when creating the plot with `matplotlib`.
+
+    show_grid : bool, optional, default=True
+        If True, it enables grid lines on the plot. The appearance of 
+        grid lines can be customized with the `grid_props` argument.
+
+    grid_props : dict, optional, default=None
+        A dictionary of properties used to customize the grid lines. 
+        Common properties include `linestyle`, `alpha`, etc. If None, 
+        a default grid style is used.
+
+    savefig : str, optional, default=None
+        If provided, saves the plot as an image file at the given path.
+
+    ax : matplotlib.axes.Axes, optional, default=None
+        If provided, this `matplotlib.axes.Axes` object is used for 
+        plotting the cross-validation scores. Otherwise, a new figure 
+        and axes are created.
+
+    **kw : additional keyword arguments
+        Additional arguments passed to the model's fitting function.
+
+    Returns
+    -------
+    None
+        The function does not return anything. It generates a plot 
+        visualizing the cross-validation scores across the folds.
+
+    Formulation
+    -------------
+    Given a dataset `X` with `n_samples` and `n_features`, and 
+    corresponding target vector `y` with `n_samples`, cross-validation 
+    is performed over `cv` folds. For each fold, the model is trained 
+    using a subset of the data and then evaluated on the held-out data. 
+    The score for each fold is calculated using the specified `scoring` 
+    metric.
+
+    For classification tasks, the scores are computed as:
+    
+    .. math::
+        \text{Score}_i = \frac{\sum_{j=1}^{n} \mathbf{1}[ \hat{y}_j = y_j ]}{n}
+
+    where:
+    - `n` is the number of samples in the fold,
+    - `\hat{y}_j` is the predicted label for sample `j`,
+    - `y_j` is the true label for sample `j`.
+
+    For regression tasks, the score could be, for instance, the R^2 score:
+    
+    .. math::
+        R^2 = 1 - \frac{\sum_{i=1}^{n} (y_i - \hat{y}_i)^2}{\sum_{i=1}^{n} (y_i - \bar{y})^2}
+
+    where:
+    - `y_i` is the true value for sample `i`,
+    - `\hat{y}_i` is the predicted value for sample `i`,
+    - `\bar{y}` is the mean of the true values.
+
+    Example
+    -------
+    >>> from gofast.plot.ml_viz import plot_cv
+    >>> from sklearn.datasets import load_iris
+    >>> from sklearn.svm import SVC
+    >>> data = load_iris()
+    >>> X = data.data
+    >>> y = data.target
+    >>> model = SVC()
+    >>> plot_cv(
+    >>>     model=model, 
+    >>>     X=X, 
+    >>>     y=y, 
+    >>>     cv=5, 
+    >>>     scoring='accuracy', 
+    >>>     verbose=1, 
+    >>>     show_grid=True, 
+    >>>     savefig='cv_scores.png'
+    >>> )
+
+    Notes
+    -----
+    - This function supports both scikit-learn and Keras models.
+    - For Keras models, the function will automatically check 
+      compatibility and handle wrapper imports appropriately.
+    - The `verbose` parameter can be used to print detailed information 
+      about the cross-validation process.
+    - The `show_grid` and `grid_props` parameters allow for customizable 
+      grid line appearances on the plot.
+
+
+    References
+    ----------
+    [1] Pedregosa, F., et al. (2011). "Scikit-learn: Machine Learning in Python."
+        Journal of Machine Learning Research, 12, 2825-2830.
+    [2] Chollet, F. (2015). "Keras: The Python Deep Learning Library."
+        https://github.com/fchollet/keras
+    """
+
+    # If pkg is 'keras', ensure proper compatibility
+    pkg = pkg or 'sklearn'
+    if pkg == 'keras':
+        from ..compat.tf import has_wrappers
+        model = has_wrappers(
+            error="raise", 
+            model=model, 
+            ops="build", 
+            **kw
+        )
+
+    # Verbose logging
+    if verbose > 0:
+        print("Starting cross-validation...")
+
+    # Perform cross-validation
+    if is_classifier(model):
+        if verbose > 0:
+            print("Performing classification...")
+        scores = cross_val_score(
+            model, X, y, cv=cv, scoring=scoring, n_jobs=n_jobs
+        )
+    else:
+        if verbose > 0:
+            print("Performing regression...")
+        scores = cross_val_score(
+            model, X, y, cv=cv, scoring=scoring, n_jobs=n_jobs
+        )
+
+    # Create plot, use provided axes object or create new one
+    if ax is None:
+        fig, ax = plt.subplots(figsize=fig_size)
+    
+    ax.plot(
+        range(1, len(scores) + 1), 
+        scores, 
+        marker='o', 
+        linestyle='--', 
+        color='b'
+    )
+    ax.set_title('Cross-validation Scores')
+    ax.set_xlabel('Fold')
+    ax.set_ylabel('Score')
+    
+    # Configure grid display
+    if show_grid: 
+        if grid_props is None: 
+            grid_props = {"linestyle": ':', 'alpha': 0.7}
+        ax.grid(True, **grid_props)
+    else:
+        ax.grid(False)
+    
+    # Adjust x-axis ticks
+    ax.set_xticks(np.arange(1, len(scores) + 1))
+    
+    # Tight layout for better appearance
+    plt.tight_layout()
+
+    # Verbose logging for mean and std of scores
+    if verbose > 0:
+        print(f"Mean Score: {np.mean(scores):.3f}")
+        print(f"Standard Deviation: {np.std(scores):.3f}")
+
+    # Optionally save the figure
+    if savefig:
+        plt.savefig(savefig)
+
+    # Show the plot
     plt.show()
 
 
@@ -3776,120 +4013,6 @@ def plot_confusion_matrix(
     plt.show()
 
     return mat
-
-def plot_cv(
-    model_fn: Callable[[], 'Model'],
-    X: np.ndarray,
-    y: np.ndarray,
-    n_splits: int = 5,
-    epochs: int = 10,
-    metric: str = 'accuracy'
-) -> None:
-    """
-    Performs cross-validation and plots the performance metric across
-    epochs for each fold. This function is particularly useful for 
-    evaluating the consistency and stability of neural network models
-    across different subsets of data.
-
-    Parameters
-    ----------
-    model_fn : `Callable[[], keras.Model]`
-        A function that returns a compiled neural network model. The
-        function should not take any arguments and must return a compiled
-        Keras model.
-
-    X : `np.ndarray`
-        Training features, typically an array of shape (n_samples, n_features).
-
-    y : `np.ndarray`
-        Training labels or target values, typically an array of shape
-        (n_samples,) or (n_samples, n_outputs).
-
-    n_splits : `int`, optional
-        Number of splits for the K-Fold cross-validation. Default is 5.
-
-    epochs : `int`, optional
-        Number of epochs for training each model during the cross-validation.
-        Default is 10.
-
-    metric : `str`, optional
-        The performance metric to plot. Common choices are 'accuracy', 'loss',
-        or any other metric included in the compiled model. Default is 'accuracy'.
-
-    Examples
-    --------
-    >>> from keras.models import Sequential
-    >>> from keras.layers import Dense
-    >>> from gofast.plot.mlviz import plot_cv 
-    >>> def create_model():
-    ...     model = Sequential([
-    ...         Dense(10, activation='relu', input_shape=(10,)),
-    ...         Dense(1, activation='sigmoid')
-    ...     ])
-    ...     model.compile(optimizer='adam', loss='binary_crossentropy',
-    ...                   metrics=['accuracy'])
-    ...     return model
-    ...
-    >>> X = np.random.rand(100, 10)
-    >>> y = np.random.randint(2, size=(100,))
-    >>> plot_cv(create_model, X, y, n_splits=3, epochs=5)
-
-    Notes
-    -----
-    This function utilizes `KFold` from `sklearn.model_selection` to create training and 
-    validation splits. It is essential that the model function provided 
-    compiles the model with the necessary metrics as they are used to 
-    monitor training performance.
-
-    The cross-validation process involves splitting the data into `n_splits`
-    folds, training the model on `n_splits - 1` folds, and validating it on
-    the remaining fold. This process is repeated for each fold, and the
-    performance metric is recorded for each epoch.
-
-    The performance metric for each fold is then plotted to visualize the
-    consistency and stability of the model across different subsets of the
-    data.
-
-    See Also
-    --------
-    `sklearn.model_selection.KFold` : Provides cross-validation iterator.
-    
-    References
-    ----------
-    .. [1] Chollet, F. (2015). Keras. https://github.com/fchollet/keras
-    .. [2] Pedregosa et al., "Scikit-learn: Machine Learning in Python", JMLR 12, 
-           pp. 2825-2830, 2011.
-    """
-
-    kf = KFold(n_splits=n_splits)
-    fold_performance = []
-    validate_keras_model(model_fn, raise_exception= True )
-    for fold, (train_index, val_index) in enumerate(kf.split(X), 1):
-        # Split data
-        X_train, X_val = X[train_index], X[val_index]
-        y_train, y_val = y[train_index], y[val_index]
-
-        # Create a new instance of the model
-        model = model_fn()
-
-        # Train the model
-        history = model.fit(
-            X_train, y_train, validation_data=(X_val, y_val),
-            epochs=epochs, verbose=0)
-
-        # Store the metrics for this fold
-        fold_performance.append(history.history[metric])
-
-    # Plot the results
-    plt.figure(figsize=(12, 6))
-    for i, performance in enumerate(fold_performance, 1):
-        plt.plot(performance, label=f'Fold {i}')
-
-    plt.title(f'Cross-Validation {metric.capitalize()}')
-    plt.xlabel('Epochs')
-    plt.ylabel(metric.capitalize())
-    plt.legend()
-    plt.show()
 
 def plot_actual_vs_predicted(
     y_true: ArrayLike, 

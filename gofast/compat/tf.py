@@ -50,7 +50,6 @@ except ImportError:
     # Fallback: In older TF/Keras, `register_keras_serializable` is in `utils`.
     from tensorflow.keras.utils import register_keras_serializable # noqa: F401
     saving_module = "utils"
-    
 
 __all__ = [
     'KerasDependencies',
@@ -59,8 +58,10 @@ __all__ = [
     'import_keras_function',
     'standalone_keras', 
     'optional_tf_function', 
-    'suppress_tf_warnings'
+    'suppress_tf_warnings', 
+    'has_wrappers'
 ]
+
 
 class KerasDependencies:
     def __init__(
@@ -515,7 +516,6 @@ def suppress_tf_warnings():
             tf_logger.setLevel(original_level)  # Restore original logging level
          
 
-
 def get_ndim(tensor):
     """
     Compatibility function to retrieve the number of dimensions
@@ -599,8 +599,111 @@ def get_ndim(tensor):
         "Input object must be a TensorFlow tensor,"
         " a NumPy array, or an object with a 'shape' attribute."
     )
- 
 
+
+def has_wrappers(
+        error="warn", model=None, ops="check_only", 
+        estimator_type="classifier", **kw):
+    """
+    Function to check if Keras wrappers are available 
+    (either from scikeras or keras).
+
+    Parameters:
+    -----------
+    error : str, default='warn'
+        Specifies the behavior if the wrappers are not found:
+        - 'raise': Raises an ImportError if neither scikeras nor
+          keras.wrappers.scikit_learn is available.
+        - 'warn' (default): Warns the user and returns True or False.
+        - 'ignore': Returns True or False without any warning or error.
+
+    model : estimator object, optional, default=None
+        The model to be used if the operation is to 'build'.
+
+    ops : str, default='check_only'
+        Specifies the operation to perform:
+        - 'check_only': Only checks if wrappers are available.
+        - 'build': Checks the wrappers and builds the model 
+          based on the provided estimator type.
+
+    estimator_type : str, default='classifier'
+        Type of estimator to build, either 'classifier' or 'regressor'.
+
+    **kw : additional keyword arguments
+        Additional arguments passed to the model's build function.
+
+    Returns:
+    --------
+    bool or estimator object
+        - If ops='check_only', returns True if wrappers are available, 
+          otherwise False.
+        - If ops='build', returns the built model (KerasClassifier or 
+          KerasRegressor).
+    """
+    # Validate 'error' parameter
+    if error not in {"raise", "warn", "ignore"}:
+        raise ValueError(
+            "Invalid error parameter. Choose 'raise', 'warn', or 'ignore'."
+        )
+
+    # Attempt to import from scikeras (the newer package)
+    try:
+        from scikeras.wrappers import KerasClassifier, KerasRegressor
+
+        if error == "warn":
+            warnings.warn(
+                "Using scikeras.wrappers for KerasClassifier and "
+                "KerasRegressor. Ensure you have 'scikeras' installed.",
+                UserWarning
+            )
+        # If only checking, return True since wrappers exist
+        if ops == "check_only":
+            return True
+
+    except ImportError:
+        # Fallback to older Keras wrapper if scikeras is not available
+        try:
+            from keras.wrappers.scikit_learn import KerasClassifier, KerasRegressor  # noqa
+            if ops == "check_only":
+                return True
+
+        except ImportError:
+            # If both wrappers are not found, handle based on 'error' parameter
+            if error == "raise":
+                raise ImportError(
+                    "Neither scikeras nor keras.wrappers.scikit_learn is "
+                    "available. Please install scikeras or ensure Keras is "
+                    "properly installed."
+                )
+            elif error == "warn":
+                warnings.warn(
+                    "Neither scikeras nor keras.wrappers.scikit_learn is "
+                    "available. Please install scikeras or ensure Keras is "
+                    "properly installed.",
+                    UserWarning
+                )
+                return False
+            elif error == "ignore":
+                return False
+
+    if estimator_type not in {'classifier', 'regressor'}: 
+        raise ValueError(
+            "Invalid estimator_type. Choose 'classifier' or 'regressor'."
+            )
+    # If ops == 'build', proceed to create and return the model based on estimator type
+    if ops == "build":
+        if model is None:
+            raise ValueError("A model must be provided when ops='build'.")
+
+        # Build model for classifier
+        if estimator_type == "classifier":
+            return KerasClassifier(build_fn=model, **kw)
+        
+        # Build model for regressor
+        elif estimator_type == "regressor":
+            return KerasRegressor(build_fn=model, **kw)
+        
+     
 # ---------------------- class and func documentations ----------------------
 
 KerasDependencies.__doc__="""\ 
