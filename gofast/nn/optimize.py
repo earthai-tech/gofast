@@ -41,12 +41,12 @@ if KERAS_BACKEND:
     ReduceLROnPlateau =KERAS_DEPS.ReduceLROnPlateau 
     Layer = KERAS_DEPS.Layer 
     register_keras_serializable=KERAS_DEPS.register_keras_serializable
-    concatenate=KERAS_DEPS.concatenate
+    Concatenate=KERAS_DEPS.Concatenate
     tf_set_seed=KERAS_DEPS.set_seed
     
     from .utils import extract_callbacks_from 
     
-DEP_MSG = dependency_message('optimize') 
+DEP_MSG = dependency_message('nn.optimize') 
 
 __all__=['QPSOOptimizer']
 
