@@ -21,7 +21,7 @@ from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 from .validator import validate_keras_model
 
 if KERAS_BACKEND: 
-    callbacks=KERAS_DEPS.callbacks 
+    Callback=KERAS_DEPS.Callback 
     LSTM = KERAS_DEPS.LSTM
     Conv1D=KERAS_DEPS.Conv1D 
     Adam=KERAS_DEPS.Adam
