@@ -60,7 +60,7 @@ class QPSOOptimizer(NNLearner):
         "max_bound" : ['array-like', None], 
         "min_bound" : ['array-like', None],
         "random_seed": ['random-state'], 
-        "stopping_tol": [Hidden(Real, 0, 1, closed="neither")],
+        "stopping_tol": [Hidden(Interval(Real, 0, 1, closed="neither"))],
         "head_size": [Interval(Integral, 1, None, closed='left')],
         "num_heads": [Interval(Integral, 1, None, closed='left')], 
         "ff_dim": [Interval(Integral, 1, None, closed='left')],
@@ -72,7 +72,6 @@ class QPSOOptimizer(NNLearner):
         "epochs": [Interval(Integral, 1, None, closed='left')], 
         "factor": [Interval(Real, 0, 1, closed='neither')], 
         "use_time_distributed": [bool],
-        "verbose": [bool, Real],
     })
     @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
