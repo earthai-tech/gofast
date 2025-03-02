@@ -13,11 +13,12 @@ import matplotlib.pyplot as plt
 from ..api.property import NNLearner
 from ..compat.sklearn import validate_params, Interval, Hidden 
 from ..utils.deps_utils import ensure_pkg 
-from ..utils.validator import validate_keras_model, check_consistent_length 
+from ..utils.validator import check_consistent_length 
 from ..utils.validator import check_is_fitted
 from ..metrics import get_scorer 
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
+from .validator import validate_keras_model
 
 if KERAS_BACKEND: 
     callbacks=KERAS_DEPS.callbacks 
