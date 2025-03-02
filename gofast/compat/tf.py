@@ -150,7 +150,7 @@ class KerasDependencies:
             'LSTMCell':('layers', 'LSTMCell'), 
             'Input': ('layers', 'Input'),
             'Conv2D': ('layers', 'Conv2D'),
-            'Conv21': ('layers', 'Conv21'),
+            'Conv1D': ('layers', 'Conv1D'),
             'Optimizer':('optimizers', 'Optimizer'), 
             'Metric': ('metrics', 'Metric'), 
             'MaxPooling2D': ('layers', 'MaxPooling2D'),
