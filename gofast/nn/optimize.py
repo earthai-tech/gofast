@@ -13,14 +13,15 @@ import matplotlib.pyplot as plt
 from ..api.property import NNLearner
 from ..compat.sklearn import validate_params, Interval, Hidden 
 from ..utils.deps_utils import ensure_pkg 
-from ..utils.validator import validate_keras_model, check_consistent_length 
+from ..utils.validator import check_consistent_length 
 from ..utils.validator import check_is_fitted
 from ..metrics import get_scorer 
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
+from .validator import validate_keras_model
 
 if KERAS_BACKEND: 
-    callbacks=KERAS_DEPS.callbacks 
+    Callback=KERAS_DEPS.Callback 
     LSTM = KERAS_DEPS.LSTM
     Conv1D=KERAS_DEPS.Conv1D 
     Adam=KERAS_DEPS.Adam
@@ -40,12 +41,12 @@ if KERAS_BACKEND:
     ReduceLROnPlateau =KERAS_DEPS.ReduceLROnPlateau 
     Layer = KERAS_DEPS.Layer 
     register_keras_serializable=KERAS_DEPS.register_keras_serializable
-    concatenate=KERAS_DEPS.concatenate
+    Concatenate=KERAS_DEPS.Concatenate
     tf_set_seed=KERAS_DEPS.set_seed
     
     from .utils import extract_callbacks_from 
     
-DEP_MSG = dependency_message('optimize') 
+DEP_MSG = dependency_message('nn.optimize') 
 
 __all__=['QPSOOptimizer']
 
@@ -59,7 +60,7 @@ class QPSOOptimizer(NNLearner):
         "max_bound" : ['array-like', None], 
         "min_bound" : ['array-like', None],
         "random_seed": ['random-state'], 
-        "stopping_tol": [Hidden(Real, 0, 1, closed="neither")],
+        "stopping_tol": [Hidden(Interval(Real, 0, 1, closed="neither"))],
         "head_size": [Interval(Integral, 1, None, closed='left')],
         "num_heads": [Interval(Integral, 1, None, closed='left')], 
         "ff_dim": [Interval(Integral, 1, None, closed='left')],
@@ -71,7 +72,6 @@ class QPSOOptimizer(NNLearner):
         "epochs": [Interval(Integral, 1, None, closed='left')], 
         "factor": [Interval(Real, 0, 1, closed='neither')], 
         "use_time_distributed": [bool],
-        "verbose": [bool, Real],
     })
     @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(

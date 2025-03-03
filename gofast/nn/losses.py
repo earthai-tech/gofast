@@ -58,9 +58,6 @@ __all__ = [
     'objective_loss', 
  ]
 
-@register_keras_serializable(
-    package="gofast.nn.losses", name="objective_loss"
- )
 def objective_loss(
     multi_obj_layer: Loss,
     anomaly_scores: Optional[Tensor] = None,
@@ -134,6 +131,9 @@ def objective_loss(
                 multi_obj_layer)
     )
 
+    @register_keras_serializable(
+        package="gofast.nn.losses", name="objective_loss"
+     )
     @ParamsValidator(
         {
             "y_true": ["array-like:tf:transf"],
@@ -154,10 +154,8 @@ def objective_loss(
 
     return _loss_fn
 
-
 @ParamsValidator({'quantiles': [Real, 'array-like']})
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-@register_keras_serializable("gofast.nn.losses", name="combined_quantile_loss")
 def combined_quantile_loss(quantiles: List[float]):
     """
     Create a quantile loss function for multiple quantiles.
@@ -184,7 +182,8 @@ def combined_quantile_loss(quantiles: List[float]):
     """
     # Validate & store quantiles
     quantiles = validate_quantiles(quantiles)
-
+    
+    @register_keras_serializable("gofast.nn.losses", name="combined_quantile_loss")
     def _cqloss(y_true, y_pred):
         # Expand y_true so it matches y_pred's quantile dimension
         y_true_expanded = expand_dims(y_true, axis=2)  # => (B, H, 1, O)
@@ -202,7 +201,7 @@ def combined_quantile_loss(quantiles: List[float]):
         # Accumulate pinball losses for each quantile
         for i, q in enumerate(quantiles):
             q_loss = maximum(q * error[:, :, i, :],
-                             (q - 1) * error[:, :, i, :])
+                              (q - 1) * error[:, :, i, :])
             # Aggregate loss (mean over batch, horizons, and output_dim)
             loss_val += reduce_mean(q_loss)
 
@@ -211,7 +210,6 @@ def combined_quantile_loss(quantiles: List[float]):
 
     return _cqloss
 
-@register_keras_serializable(package="gofast.nn.losses", name="combined_total_loss")
 def combined_total_loss(
     quantiles: List[float],
     anomaly_layer: Loss,   #  an instance of your AnomalyLoss
@@ -250,6 +248,7 @@ def combined_total_loss(
                 anomaly_layer)
     )
     
+    @register_keras_serializable(package="gofast.nn.losses", name="combined_total_loss")
     def _total_loss(y_true, y_pred):
         q_loss = quantile_loss_fn(y_true, y_pred)
         a_loss = anomaly_layer(anomaly_scores)
@@ -259,7 +258,6 @@ def combined_total_loss(
 
 @check_params({"q": Real})
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-@register_keras_serializable("gofast.nn.losses", name='quantile_loss')
 def quantile_loss(q):
     """
     Quantile (Pinball) Loss Function for Quantile Regression.
@@ -366,6 +364,7 @@ def quantile_loss(q):
     .. [3] Koenker, R. (2005). Quantile Regression. *Cambridge University
            Press*.
     """
+    @register_keras_serializable("gofast.nn.losses", name='quantile_loss')
     def _q_loss(y_true, y_pred):
         """
         Compute the Quantile Loss (Pinball Loss) for a Given Batch.
@@ -405,7 +404,6 @@ def quantile_loss(q):
      'quantiles': List[float]}
   )
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-@register_keras_serializable("gofast.nn.losses", name="quantile_loss_multi")
 def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     """
     Multi-Quantile (Pinball) Loss Function for Quantile Regression.
@@ -527,6 +525,9 @@ def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     .. [3] Koenker, R. (2005). Quantile Regression. *Cambridge University
            Press*.
     """
+    quantiles =validate_quantiles(quantiles)
+    
+    @register_keras_serializable("gofast.nn.losses", name="quantile_loss_multi")
     def _q_loss_multi(y_true, y_pred):
         """
         Compute the Multi-Quantile Loss (Averaged Pinball Loss) for a Given 
@@ -560,8 +561,6 @@ def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
         
         return loss_mean
     
-    quantiles =validate_quantiles(quantiles)
-    
     return _q_loss_multi
 
 @ParamsValidator(
@@ -571,9 +570,6 @@ def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     }
 )
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
-@register_keras_serializable(
-    "gofast.nn.losses", name="anomaly_loss"
-)
 def anomaly_loss(anomaly_scores, anomaly_loss_weight=1.0):
     """
     Compute the anomaly loss based on given anomaly scores and a 
@@ -669,7 +665,9 @@ def anomaly_loss(anomaly_scores, anomaly_loss_weight=1.0):
     anomaly_loss_weight =convert_to_tensor(
         anomaly_loss_weight, dtype=anomaly_scores.dtype
     )
-    @register_keras_serializable('gofast', name="a_loss")
+    @register_keras_serializable(
+        "gofast.nn.losses", name="anomaly_loss"
+    )
     def _a_loss(y_true, y_pred):
         return anomaly_loss_weight * reduce_mean(square(anomaly_scores))
 

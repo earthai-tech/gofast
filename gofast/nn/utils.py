@@ -2830,9 +2830,11 @@ def generate_forecast(
     # Check dt_col data type
     check_datetime(
         train_data,
+        dt_cols= dt_col, 
         ops="check_only",
         consider_dt_as="numeric",
-        accept_dt=True
+        accept_dt=True, 
+        allow_int=True, 
     )
 
     # Determine forecast dates; if None, set to "auto"
@@ -3024,7 +3026,7 @@ def generate_forecast(
             )
             continue
         else:
-            loc_str = (tuple(loc.values())
+            loc_str = (tuple(loc.values)
                        if spatial_cols else "global")
             if verbose >= 3:
                 print(
