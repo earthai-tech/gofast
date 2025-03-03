@@ -34,6 +34,12 @@ from ..core.checks import (
     exist_features, check_features_types, check_spatial_columns,
     validate_depth, check_params, check_numeric_dtype 
 )
+from ..core.diagnose_q import ( 
+    validate_q_dict, 
+    validate_quantiles, 
+    build_q_column_names, 
+    detect_quantiles_in
+)
 from ..core.handlers import columns_manager, param_deprecated_message 
 from ..core.io import is_data_readable 
 from ..core.plot_manager import default_params_plot 
@@ -48,8 +54,8 @@ from ..metrics import get_scorer
 from ..utils.mathext import compute_importances  
 from ..utils.validator import  ( 
     build_data_if, validate_positive_integer, 
-    validate_quantiles, is_frame, check_consistent_length, 
-    validate_yy, filter_valid_kwargs, validate_q_dict
+    is_frame, check_consistent_length, 
+    validate_yy, filter_valid_kwargs
 )
 from ._config import PlotConfig
 from .utils import flex_figsize 
@@ -5351,21 +5357,19 @@ def plot_quantile_distributions(
     >>> longitudes = np.random.uniform(100.0, 101.0, num_points)
     >>> latitudes  = np.random.uniform(20.0, 21.0,  num_points)
 
-    >>> data = []
+    >>> # Initialize the DataFrame columns
+    >>> data = {
+    ...    'longitude': longitudes,
+    ...    'latitude': latitudes
+    ... }
+    >>> # Add the 'year' column, repeating for each point
+    >>> data['year'] = np.repeat(years, num_points)  # Repeat years for each point
     >>> for year in years:
-    ...     for i in range(num_points):
-    ...         # Base subsidence value
-    ...         base_val = np.random.uniform(0, 50)
-    ...         row = {
-    ...             'longitude': longitudes[i],
-    ...             'latitude' : latitudes[i],
-    ...             'year'     : year
-    ...         }
-    ...         # Add columns for each quantile
-    ...         for q in quantiles:
-    ...             q_col = f'predicted_subsidence_{year}_q{q}'
-    ...             row[q_col] = base_val * (1 + np.random.uniform(-0.1,0.1))
-    ...         data.append(row)
+    ...     for q in quantiles:
+    ...         q_col = f'predicted_subsidence_{year}_q{q}'
+    ...         # Generate predicted subsidence value for each quantile
+    ...         data[q_col] = np.random.uniform(0, 50, num_points) *\
+    ...    (1 + np.random.uniform(-0.1, 0.1))
 
     >>> df = pd.DataFrame(data)
     >>> df.head()
@@ -5377,7 +5381,7 @@ def plot_quantile_distributions(
     'predicted_subsidence_2025_q0.5', 'predicted_subsidence_2025_q0.9'`.
 
 
-    >>> from gofast.plot.utils import plot_quantile_distributions
+    >>> from gofast.plot.suite import plot_quantile_distributions
     >>> # Automatically detect quantiles and dates:
     >>> plot_quantile_distributions(
     ...     df,
@@ -5444,8 +5448,16 @@ def plot_quantile_distributions(
         # If quantiles is None, try to detect from columns
         if quantiles is None:
             # Attempt detection
-            detected_quantiles = _detect_quantiles_from_columns(
-                df, value_prefix, date_values_str)
+            detected_quantiles = detect_quantiles_in( 
+                df, col_prefix= value_prefix, 
+                dt_value = date_values_str , 
+                return_types='q_val'
+                )
+            if not detected_quantiles: 
+                # retry 
+                detected_quantiles = _detect_quantiles_from_columns(
+                    df, value_prefix, date_values_str)
+
             if detected_quantiles is None:
                 raise ValueError(
                     "No quantiles detected from columns."
@@ -5454,7 +5466,16 @@ def plot_quantile_distributions(
             quantiles = detected_quantiles
 
         # Now we have quantiles, build column names
-        all_cols = _build_column_names(df, value_prefix, quantiles, date_values_str)
+   
+        all_cols = _build_column_names(
+            df, value_prefix, quantiles, date_values_str
+            )
+        if not all_cols: 
+            #retry:
+            all_cols = build_q_column_names(
+                df, quantiles=quantiles, 
+                dt_value=date_values_str
+                )
         if not all_cols:
             raise ValueError(
                 "No matching columns found with given prefix, date, quantiles.")
@@ -5524,7 +5545,8 @@ def plot_quantile_distributions(
         figsize = (5 * n_cols, 4 * n_rows)
 
     fig, axes = plt.subplots(
-        n_rows, n_cols, figsize=figsize, constrained_layout=True
+        n_rows, n_cols, figsize=figsize,
+        constrained_layout=True
         )
 
     # Ensure axes is 2D array
@@ -5647,6 +5669,7 @@ def _extract_date_values_if_datetime(df, date_col, date_values):
         # Otherwise just convert to string
         return [str(d) for d in date_values]
 
+
 def _build_column_names(df, value_prefix, quantiles, date_values_str):
     """
     Build a list of column names based on a prefix, quantiles, 
@@ -5686,16 +5709,6 @@ def _build_column_names(df, value_prefix, quantiles, date_values_str):
                 all_cols.append(col_name)
     return all_cols
 
-# XXX TOD: Move this function to core.handlers 
-# to be able to dectect_qcolumns in dataframe based on value_prefix or 
-# and can return_values (default) or quantiles columns in dataframe 
-# for instance can return : 
-    # 'predicted_subsidence_2024_q0.1', 'predicted_subsidence_2024_q0.5',  
-    # if value_prefix is 'predicted_subsidence' and date_values_str=2024 
-    # or  with these columns, it can return : 
-        # 'predicted_subsidence_2024_q10', 'predicted_subsidence_2024_q50',
-        # if value_prefix is 'predicted_subsidence' and the _q[digit] exist 
-        # if the dataframe columns and date_value_str is not provided (i,e None). 
 def _detect_quantiles_from_columns(df, value_prefix, date_values_str):
     """
     Attempt to detect quantiles by scanning the DataFrame columns that match
@@ -5742,7 +5755,6 @@ def _detect_quantiles_from_columns(df, value_prefix, date_values_str):
     if not found_quantiles:
         return None
     return sorted(found_quantiles)
-
 
 def _plot_reversed(
     df, x_col, y_col, date_col,

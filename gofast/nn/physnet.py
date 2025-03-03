@@ -2,7 +2,7 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
-""" Neural Networks external optimize modules."""
+""" Physics-based Neural Networks and external optimize modules."""
 
 import math
 import random
@@ -18,7 +18,7 @@ from ..utils.validator import check_is_fitted
 from ..metrics import get_scorer 
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
-from .validator import validate_keras_model
+from .keras_validator import validate_keras_model
 
 if KERAS_BACKEND: 
     Callback=KERAS_DEPS.Callback 
@@ -481,7 +481,7 @@ class QPSOOptimizer(NNLearner):
         self.best_params_ = gbest
         return self
 
-QPSOOptimizer.__doc__="""\
+QPSOOptimizer.__doc__=r"""\
 Quantum-behaved Particle Swarm Optimization (QPSO) Optimizer 
 for Neural Networks.
 
@@ -788,7 +788,8 @@ def default_transformer(
 
     # A simple 1D Convolution
     x_cnn = Conv1D(
-        filters=ff_dim1, kernel_size=3, activation='relu'
+        filters=ff_dim1, kernel_size=3, 
+        activation='relu'
     )(x)
     x_cnn = BatchNormalization()(x_cnn)
     x_cnn = MaxPooling1D(pool_size=2)(x_cnn)
@@ -804,7 +805,7 @@ def default_transformer(
             inputs, head_size, num_heads, ff_dim, mlp_dropout)
         x_transform = GlobalAveragePooling1D()(x_transform)
 
-    merged = concatenate([x_cnn, x_transform])
+    merged = Concatenate([x_cnn, x_transform])
     for dim in mlp_units:
         merged = Dense(dim, activation="relu")(merged)
         merged = Dropout(mlp_dropout)(merged)

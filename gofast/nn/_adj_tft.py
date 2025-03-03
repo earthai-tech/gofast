@@ -62,7 +62,7 @@ DEP_MSG = dependency_message('transformers.tft')
     TemporalFusionTransformer.__doc__.replace ('TemporalFusionTransformer', 'TFT')
     ), join='\n'
  )
-@register_keras_serializable('Gofast')
+@register_keras_serializable('gofast.nn.transformers', name="TFT")
 class TFT(Model, NNLearner):
     @validate_params({
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 

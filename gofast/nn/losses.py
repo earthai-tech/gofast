@@ -27,10 +27,11 @@ from typing import List, Optional
 
 from ..compat.sklearn import Interval
 from ..core.checks import ParamsValidator, check_params
+from ..core.diagnose_q import validate_quantiles_in 
 from ..utils.deps_utils import ensure_pkg
-from ..utils.validator import  validate_quantiles, check_consistent_length 
+from ..utils.validator import check_consistent_length 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
-from .validator import validate_keras_loss 
+from .keras_validator import validate_keras_loss 
 
 if KERAS_BACKEND:
     K = KERAS_DEPS.backend
@@ -181,7 +182,7 @@ def combined_quantile_loss(quantiles: List[float]):
       double registration conflicts.
     """
     # Validate & store quantiles
-    quantiles = validate_quantiles(quantiles)
+    quantiles = validate_quantiles_in(quantiles)
     
     @register_keras_serializable("gofast.nn.losses", name="combined_quantile_loss")
     def _cqloss(y_true, y_pred):
@@ -525,7 +526,7 @@ def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
     .. [3] Koenker, R. (2005). Quantile Regression. *Cambridge University
            Press*.
     """
-    quantiles =validate_quantiles(quantiles)
+    quantiles =validate_quantiles_in(quantiles)
     
     @register_keras_serializable("gofast.nn.losses", name="quantile_loss_multi")
     def _q_loss_multi(y_true, y_pred):

@@ -33,7 +33,7 @@ from ..utils.deps_utils import ensure_pkg, import_optional_dependency
 from ..utils.validator import check_consistent_length, is_frame 
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
-from .validator import validate_keras_model
+from .keras_validator import validate_keras_model
 
 if KERAS_BACKEND:
     Adam = KERAS_DEPS.Adam

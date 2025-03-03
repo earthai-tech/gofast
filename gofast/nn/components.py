@@ -247,19 +247,24 @@ class PositionalEncoding(Layer, NNLearner):
            (pp. 5998-6008).
     """
     @tf_autograph.experimental.do_not_convert
-    def call(self, inputs):
+    def call(self, inputs, training=False):
         r"""
         Forward pass that adds positional encoding to 
         ``inputs``.
 
         Parameters
         ----------
-        ``inputs`` : tf.Tensor
+        inputs : tf.Tensor
             A 3D tensor of shape 
             :math:`(B, T, D)`, where ``B`` is 
             batch size, ``T`` is time steps, and 
             ``D`` is feature dimension.
-
+        training : bool, optional
+            Boolean flag indicating whether the layer is 
+            in training mode.
+            Not used in this layer but included for 
+            Keras API compatibility.
+        
         Returns
         -------
         tf.Tensor

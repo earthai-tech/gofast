@@ -28,6 +28,7 @@ from .api.docs import filter_docs
 from .api.formatter import MetricFormatter
 from .decorators import Substitution 
 from .core.utils import normalize_string, fetch_value_in 
+from .core.diagnose_q import validate_quantiles 
 from .utils.base_utils import (
     convert_array_dimensions, filter_nan_from, standardize_input
 )
@@ -42,7 +43,7 @@ from .utils.validator import (
     check_epsilon, ensure_non_negative, handle_zero_division,
     parameter_validator, validate_multioutput, validate_nan_policy,
     validate_positive_integer, validate_sample_weights, 
-    check_array, check_consistent_length, validate_quantiles
+    check_array, check_consistent_length
 )
 
 _logger = gofastlog().get_gofast_logger(__name__)
@@ -472,7 +473,7 @@ def multi_quantile_loss(y_true, y_pred, *,  quantiles, backend='numpy'):
         import tensorflow as tf
         # Using TensorFlow operations
         losses = []
-        quantiles = validate_quantiles(quantiles)
+        quantiles = validate_quantiles(quantiles, round_digits=2)
         for i, q in enumerate(quantiles):
             y_p = y_pred[:, i]
             # Compute quantile loss for each quantile level

@@ -32,6 +32,7 @@ from ..core.checks import (
     assert_ratio,
     check_datetime,
     )
+from ..core.diagnose_q import check_forecast_mode 
 from ..core.handlers import TypeEnforcer, columns_manager 
 from ..core.io import is_data_readable 
 from ..compat.sklearn import ( 
@@ -53,10 +54,9 @@ from ..utils.validator import (
     parameter_validator,
     is_frame, 
     validate_positive_integer, 
-    check_forecast_mode, 
 )
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
-from .validator import validate_keras_model, check_keras_model_status 
+from .keras_validator import validate_keras_model, check_keras_model_status 
 
 if KERAS_BACKEND:
     Callback=KERAS_DEPS.Callback

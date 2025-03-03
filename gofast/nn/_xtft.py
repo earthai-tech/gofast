@@ -74,6 +74,7 @@ if KERAS_BACKEND:
             MultiScaleLSTM,
             QuantileDistributionModeling,
             VariableSelectionNetwork,
+            PositionalEncoding 
         )
     
 DEP_MSG = dependency_message('transformers') 
@@ -209,6 +210,9 @@ class XTFT(Model, NNLearner):
         self.learned_normalization = LearnedNormalization()
         self.multi_modal_embedding = MultiModalEmbedding(embed_dim)
         
+        # Add PositionalEncoding layer
+        self.positional_encoding = PositionalEncoding()
+        
         self.multi_scale_lstm = MultiScaleLSTM(
             lstm_units=self.lstm_units,
             scales=self.scales,
@@ -264,7 +268,7 @@ class XTFT(Model, NNLearner):
             anomaly_loss_fn=self.anomaly_loss_layer
         )
         # ---------------------------------------------------------------------
-        
+ 
         self.static_dense = Dense(hidden_units, activation=self.activation)
         self.static_dropout = Dropout(dropout_rate)
         if self.use_batch_norm:
@@ -290,7 +294,7 @@ class XTFT(Model, NNLearner):
             dynamic_input_dim= self.dynamic_input_dim, 
             future_covariate_dim= self.future_input_dim, 
         )
-    
+  
         # Normalize and process static features
         normalized_static = self.learned_normalization(
             static_input, 
@@ -331,6 +335,16 @@ class XTFT(Model, NNLearner):
         )
         self.logger.debug(
             f"Embeddings Shape: {embeddings.shape}"
+        )
+    
+        # Add positional encoding to embeddings
+        embeddings = self.positional_encoding(
+            embeddings, 
+            training=training 
+        )  
+        
+        self.logger.debug(
+            f"Embeddings with Positional Encoding Shape: {embeddings.shape}"
         )
     
         if self.use_residuals:
@@ -734,6 +748,8 @@ class SuperXTFT(XTFT):
             activation=activation,
             use_batch_norm=use_batch_norm
         )
+        # Add positional encoding 
+        self.positional_encoding = PositionalEncoding()
         
         # Initialize Gated Residual Networks (GRNs) for attention outputs
         self.grn_attention_hierarchical = GatedResidualNetwork(
@@ -832,6 +848,16 @@ class SuperXTFT(XTFT):
         )
         self.logger.debug(
             f"Embeddings Shape: {embeddings.shape}"
+        )
+        
+        # Positional info
+        embeddings = self.positional_encoding(
+            embeddings, 
+            training=training
+        )  
+        
+        self.logger.debug(
+            f"Embeddings Shape after Positional Encoding: {embeddings.shape}"
         )
         
         if self.use_residuals:
@@ -1402,13 +1428,13 @@ Examples
 ...     hidden_units=16
 ... )
 >>> # build the model 
->>> my_model.build(
-...    input_shape=[
-...        (None, X_static.shape[1]),
-...        (None, X_dynamic.shape[1], X_dynamic.shape[2]),
-...        (None, X_future.shape[1], X_future.shape[2])
-...    ]
-... )
+>>> _=my_model([X_static, X_dynamic, X_future])
+# ...    input_shape=[
+# ...        (None, X_static.shape[1]),
+# ...        (None, X_dynamic.shape[1], X_dynamic.shape[2]),
+# ...        (None, X_future.shape[1], X_future.shape[2])
+# ...    ]
+# ... )
 >>> loss_fn = combined_quantile_loss(my_model.quantiles) 
 >>> my_model.compile(optimizer="adam", loss=loss_fn)
 >>> 

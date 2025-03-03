@@ -43,8 +43,9 @@ from ..core.array_manager import to_numeric_dtypes
 from ..core.checks import ( 
     exist_features, check_files, is_in_if, str2columns 
     )
+from ..core.utils import is_iterable 
 from ..decorators import RunReturn 
-from .validator import to_iterable, check_is_runned, is_frame
+from .validator import check_is_runned, is_frame
 from ._dependency import import_optional_dependency
  
 logger = gofastlog().get_gofast_logger(__name__) 
@@ -681,7 +682,7 @@ def store_or_write_hdf5 (
             raise ValueError("Need to specify the data column to apply"
                              f"{func.__name__!r} to.")
         
-        applyto = to_iterable( 
+        applyto = is_iterable( 
             applyto, exclude_string=True, transform =True 
             ) if applyto !="*" else d.columns 
         # check whether the applyto columns are in data columns 
@@ -763,9 +764,8 @@ def key_checker (
     Out[57]: ['h502', 'h2601']
     
     """
-
     _keys = copy.deepcopy(keys)
-    valid_keys = to_iterable(valid_keys , exclude_string =True, transform =True )
+    valid_keys = is_iterable(valid_keys , exclude_string =True, transform =True )
     if isinstance ( keys, str): 
         pattern = pattern or '[_#&@!_+,;\s-]\s*'
         keys = str2columns (keys, regex = regex , pattern=pattern )
@@ -883,21 +883,21 @@ def key_search (
     
     kinit = copy.deepcopy(keys)
     if parse_keys: 
-        if to_iterable(keys , exclude_string= True ): 
+        if is_iterable(keys , exclude_string= True ): 
             keys = ' '.join ( [str(k) for k in keys ]) 
              # for consisteny checker 
         pattern = pattern or '[#&@!_+,;\s-]\s*'
         keys = str2columns ( keys , regex = regex , pattern = pattern ) 
             
-        if to_iterable ( default_keys , exclude_string=True ): 
+        if is_iterable ( default_keys , exclude_string=True ): 
             default_keys = ' '. join ( [ str(k) for k in default_keys ])
             # make a copy
         default_keys =  str2columns(
             default_keys, regex =regex , pattern = pattern )
     else : 
-        keys = to_iterable(
+        keys = is_iterable(
         keys, exclude_string = True, transform =True )
-        default_keys = to_iterable ( 
+        default_keys = is_iterable ( 
             default_keys, exclude_string=True, transform =True )
         
     dk_init = copy.deepcopy(default_keys )

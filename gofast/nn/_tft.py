@@ -11,11 +11,12 @@ from .._gofastlog import gofastlog
 from ..api.docstring import DocstringComponents
 from ..api.property import  NNLearner 
 from ..core.checks import is_iterable
+from ..core.diagnose_q import validate_quantiles
 from ..core.handlers import param_deprecated_message 
 from ..compat.sklearn import validate_params, Interval, StrOptions 
 from ..decorators import Appender 
 from ..utils.deps_utils import ensure_pkg
-from ..utils.validator import validate_quantiles
+
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
 from ._nn_docs import _shared_nn_params, _shared_docs  
  
@@ -72,7 +73,10 @@ _param_docs = DocstringComponents.from_nested_components(
         }
     ]
 )
-@register_keras_serializable('Gofast')
+@register_keras_serializable(
+    'gofast.nn.transformers', 
+    name="TemporalFusionTransformer"
+)
 class TemporalFusionTransformer(Model, NNLearner):
     @validate_params({
         "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
@@ -262,7 +266,10 @@ class TemporalFusionTransformer(Model, NNLearner):
         
         # Positional Encoding
         self.logger.debug("Applying Positional Encoding to Dynamic Embedding...")
-        dynamic_embedding = self.positional_encoding(dynamic_embedding)
+        dynamic_embedding = self.positional_encoding(
+            dynamic_embedding, 
+            training=training 
+        )
 
         # Static Context Vectors
         self.logger.debug("Generating Static Context Vector...")
@@ -348,7 +355,10 @@ class TemporalFusionTransformer(Model, NNLearner):
         cls.logger.debug("Creating TemporalFusionTransformer instance from config.")
         return cls(**config)
     
-@register_keras_serializable('Gofast')
+@register_keras_serializable( 
+   'gofast.nn.transformers', 
+    name="NTemporalFusionTransformer"
+)
 class NTemporalFusionTransformer(Model, NNLearner):
     """
     TemporalFusionTransformer model implementation for multi-horizon 
@@ -708,7 +718,10 @@ class NTemporalFusionTransformer(Model, NNLearner):
         # 4. Positional encoding for combined sequence embedding
         #    (dynamic + future).
         self.logger.debug("Applying Positional Encoding to dynamic/future Embedding...")
-        dynamic_embedding = self.positional_encoding(dynamic_embedding)
+        dynamic_embedding = self.positional_encoding(
+            dynamic_embedding, 
+            training=training 
+            )
 
         # 5. Compute static context if static_embedding is available.
         if static_embedding is not None:
