@@ -108,7 +108,7 @@ _param_docs = DocstringComponents.from_nested_components(
     base=DocstringComponents(_shared_nn_params), 
 )
 
-@register_keras_serializable('Gofast', name="Activation")
+@register_keras_serializable('gofast.nn.components', name="Activation")
 class Activation(Layer):
     """
     Custom Activation layer that wraps a Keras activation function
@@ -177,7 +177,7 @@ class Activation(Layer):
 
 # -------------------- TFT components ----------------------------------------
 
-@register_keras_serializable('Gofast', name='PositionalEncoding')
+@register_keras_serializable('gofast.nn.components', name='PositionalEncoding')
 class PositionalEncoding(Layer, NNLearner):
     r"""
     Positional Encoding layer that incorporates temporal 
@@ -317,7 +317,9 @@ class PositionalEncoding(Layer, NNLearner):
         return config
 
 
-@register_keras_serializable('Gofast', name="GatedResidualNetwork")
+@register_keras_serializable(
+    'gofast.nn.components', name="GatedResidualNetwork"
+)
 class GatedResidualNetwork(Layer, NNLearner):
     r"""
     Gated Residual Network (GRN) for deep feature 
@@ -617,7 +619,10 @@ class GatedResidualNetwork(Layer, NNLearner):
         return cls(**config)
 
 
-@register_keras_serializable('Gofast', name="StaticEnrichmentLayer")
+@register_keras_serializable(
+    'gofast.nn.components', 
+    name="StaticEnrichmentLayer"
+ )
 class StaticEnrichmentLayer(Layer, NNLearner):
     r"""
     Static Enrichment Layer for combining static
@@ -868,7 +873,10 @@ class StaticEnrichmentLayer(Layer, NNLearner):
         return cls(**config)
 
 
-@register_keras_serializable('Gofast', name="TemporalAttentionLayer")
+@register_keras_serializable(
+    'gofast.nn.components', 
+    name="TemporalAttentionLayer"
+)
 class TemporalAttentionLayer(Layer, NNLearner):
     r"""
     Temporal Attention Layer for focusing on
@@ -1201,7 +1209,9 @@ class TemporalAttentionLayer(Layer, NNLearner):
     
 # -------------------- XTFT components ----------------------------------------
 
-@register_keras_serializable('Gofast', name="LearnedNormalization")
+@register_keras_serializable(
+    'gofast.nn.components', name="LearnedNormalization"
+)
 class LearnedNormalization(Layer, NNLearner):
     r"""
     Learned Normalization layer that learns mean and
@@ -1348,7 +1358,9 @@ class LearnedNormalization(Layer, NNLearner):
         return cls(**config)
 
 
-@register_keras_serializable('Gofast', name="MultiModalEmbedding")
+@register_keras_serializable(
+    'gofast.nn.components', name="MultiModalEmbedding"
+)
 class MultiModalEmbedding(Layer, NNLearner):
     r"""
     MultiModalEmbedding layer for embedding multiple
@@ -1525,7 +1537,9 @@ class MultiModalEmbedding(Layer, NNLearner):
         return cls(**config)
 
 
-@register_keras_serializable('Gofast', name="HierarchicalAttention")
+@register_keras_serializable(
+    'gofast.nn.components', name="HierarchicalAttention"
+)
 class HierarchicalAttention(Layer, NNLearner):
     r"""
     Hierarchical Attention layer that processes
@@ -1720,7 +1734,9 @@ class HierarchicalAttention(Layer, NNLearner):
         """
         return cls(**config)
 
-@register_keras_serializable('Gofast', name="CrossAttention")
+@register_keras_serializable(
+    'gofast.nn.components', name="CrossAttention"
+)
 class CrossAttention(Layer, NNLearner):
     r"""
     CrossAttention layer that attends one source
@@ -1895,7 +1911,10 @@ class CrossAttention(Layer, NNLearner):
         return cls(**config)
 
 
-@register_keras_serializable('Gofast', name="MemoryAugmentedAttention")
+@register_keras_serializable(
+    'gofast.nn.components', 
+    name="MemoryAugmentedAttention"
+)
 class MemoryAugmentedAttention(Layer, NNLearner):
     r"""
     Memory-Augmented Attention layer that uses a
@@ -2086,7 +2105,10 @@ class MemoryAugmentedAttention(Layer, NNLearner):
         return cls(**config)
 
 
-@register_keras_serializable('Gofast', name="AdaptiveQuantileLoss")
+@register_keras_serializable(
+    'gofast.nn.components', 
+    name="AdaptiveQuantileLoss"
+)
 class AdaptiveQuantileLoss(Loss, NNLearner):
     r"""
     Adaptive Quantile Loss layer that computes
@@ -2246,7 +2268,10 @@ class AdaptiveQuantileLoss(Loss, NNLearner):
         return cls(**config)
 
 
-@register_keras_serializable('Gofast', name="AnomalyLoss")
+@register_keras_serializable(
+    'gofast.nn.components',
+    name="AnomalyLoss"
+)
 class AnomalyLoss(Loss, NNLearner):
     r"""
     Anomaly Loss layer computing mean squared
@@ -2374,7 +2399,10 @@ class AnomalyLoss(Loss, NNLearner):
         return cls(**config)
 
 
-@register_keras_serializable('Gofast', name="MultiObjectiveLoss")
+@register_keras_serializable(
+    'gofast.nn.components', 
+    name="MultiObjectiveLoss"
+)
 class MultiObjectiveLoss(Loss, NNLearner):
     r"""
     Multi-Objective Loss layer combining quantile
@@ -2557,7 +2585,10 @@ class MultiObjectiveLoss(Loss, NNLearner):
             anomaly_loss_fn=anomaly_loss_fn
         )
 
-@register_keras_serializable('Gofast')
+@register_keras_serializable(
+    'gofast.nn.components', 
+    name="VariableSelectionNetwork"
+)
 class VariableSelectionNetwork(Layer, NNLearner):
     r"""
     VariableSelectionNetwork is designed to handle multiple
@@ -2861,7 +2892,10 @@ class VariableSelectionNetwork(Layer, NNLearner):
         """
         return cls(**config)
 
-@register_keras_serializable('Gofast')
+@register_keras_serializable(
+    'gofast.nn.components', 
+    name="ExplainableAttention"
+)
 class ExplainableAttention(Layer, NNLearner):
     r"""
     ExplainableAttention layer that returns attention
@@ -3018,7 +3052,10 @@ class ExplainableAttention(Layer, NNLearner):
         return cls(**config)
 
 
-@register_keras_serializable('Gofast')
+@register_keras_serializable(
+    'gofast.nn.components', 
+    name="MultiDecoder"
+ )
 class MultiDecoder(Layer, NNLearner):
     r"""
     MultiDecoder for multi-horizon forecasting [1]_.
@@ -3168,7 +3205,10 @@ class MultiDecoder(Layer, NNLearner):
         return cls(**config)
 
 
-@register_keras_serializable('Gofast')
+@register_keras_serializable(
+    'gofast.nn.components', 
+    name="MultiResolutionAttentionFusion"
+)
 class MultiResolutionAttentionFusion(Layer, NNLearner):
     r"""
     MultiResolutionAttentionFusion layer applying
@@ -3321,7 +3361,10 @@ class MultiResolutionAttentionFusion(Layer, NNLearner):
         return cls(**config)
 
 
-@register_keras_serializable('Gofast')
+@register_keras_serializable(
+    'gofast.nn.components',
+    name="DynamicTimeWindow"
+)
 class DynamicTimeWindow(Layer, NNLearner):
     r"""
     DynamicTimeWindow layer that slices the last
@@ -3453,7 +3496,10 @@ class DynamicTimeWindow(Layer, NNLearner):
         return cls(**config)
 
 
-@register_keras_serializable('Gofast')
+@register_keras_serializable(
+    'gofast.nn.components', 
+    name="QuantileDistributionModeling"
+)
 class QuantileDistributionModeling(Layer, NNLearner):
     r"""
     QuantileDistributionModeling layer projects
@@ -3626,7 +3672,10 @@ class QuantileDistributionModeling(Layer, NNLearner):
         return cls(**config)
 
 
-@register_keras_serializable('Gofast')
+@register_keras_serializable(
+    'gofast.nn.components', 
+    name='MultiScaleLSTM'
+)
 class MultiScaleLSTM(Layer, NNLearner):
     r"""
     MultiScaleLSTM layer applying multiple LSTMs
