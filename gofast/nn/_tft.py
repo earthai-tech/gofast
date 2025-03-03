@@ -900,20 +900,3 @@ from_config(config)
     Instantiates the model from a configuration dictionary.
 
 """.format( params=_param_docs) 
-# num_static_vars : int
-#     The number of static variables. Static variables are features that do
-#     not change over time, such as location identifiers, categories, or
-#     other constants. This parameter indicates how many static variables are
-#     being used in the model.
-
-# num_dynamic_vars : int
-#     The number of dynamic variables. Dynamic variables are features that
-#     change over time, such as historical measurements, external
-#     influences, or other time-varying data. This parameter indicates how
-#     many dynamic variables are being used at each time step.
-
-
-
-# We assume these classes/functions come from your gofast package imports
-# (VariableSelectionNetwork, GatedResidualNetwork, etc.) and thus
-# do not redefine them here.
