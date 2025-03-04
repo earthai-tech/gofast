@@ -78,6 +78,7 @@ __all__= [
     'validate_depth',
     "check_empty", 
     "check_numeric_dtype",
+    "check_non_emptiness"
     ]
 
 class ParamsValidator:
@@ -7133,3 +7134,257 @@ def validate_depth(
     # 12) Return the validated and potentially modified
     # DataFrames along with `depth_vals`.
     return df, pred_df, reference, depth_vals
+
+def check_non_emptiness(
+    params=None,
+    *,
+    error: str = "raise",
+    none_as_empty: bool = True,
+    ellipsis_as_empty: bool = True,
+    include: tuple = ("set", "dict")
+):
+    """
+    Decorator to check for non-emptiness of specified
+    parameters in a function. By default, it checks
+    array-like structures (lists, tuples, Series,
+    DataFrame, NumPy arrays) but can also consider
+    sets, dicts, or other types via <include inline>.
+
+    If the function is used without parentheses
+    (e.g. ``@check_emptiness``), the first positional
+    argument is checked by default. Otherwise, specify
+    a list of parameter names in ``params``.
+
+    Parameters
+    ----------
+    params : list of str, optional
+        Names of arguments whose emptiness will be
+        checked. If None and the decorator is used
+        without parentheses, the first positional
+        argument is checked.
+    error : str, optional
+        How to handle an empty argument:
+          - "raise": raise ValueError
+          - "warn": issue a warning
+          - "ignore": do nothing
+        Default "raise".
+    none_as_empty : bool, optional
+        If True, consider None as empty. Default True.
+    ellipsis_as_empty : bool, optional
+        If True, consider the Ellipsis object
+        (``...``) as empty. Default True.
+    include : tuple, optional
+        Additional types to treat as potentially
+        empty, e.g., ("set", "dict"). Default
+        ("set", "dict").
+
+    Returns
+    -------
+    callable
+        The decorated function that checks emptiness
+        for the specified arguments.
+
+    Examples
+    --------
+    
+    1) Decorator used without parentheses:
+       >>> from gofast.core.checks import check_non_emptiness
+       >>> @check_non_emptiness
+       ... def func_first_arg(x):
+       ...     return x
+       ...
+       >>> # Here, if x is empty, handle it according
+       ... # to <error inline>.
+
+    2) Specify which parameters to check:
+       >>> @check_non_emptiness(params=['df'],
+       ...                  error='warn',
+       ...                  none_as_empty=True)
+       ... def process_data(a, df=None):
+       ...     return df
+
+    3) Check multiple parameters:
+       >>> @check_non_emptiness(params=['arr', 'df'],
+       ...                  error='raise')
+       ... def model_fit(arr, df=None, *args):
+       ...     return (arr, df)
+
+    Notes
+    -----
+    1. If <none_as_empty inline> is True and an
+       argument is None, it is considered empty.
+    2. If <ellipsis_as_empty inline> is True and
+       an argument is Ellipsis (``...``), it is
+       considered empty.
+    3. For additional types, such as <set inline>
+       or <dict inline>, set them in <include
+       inline>. By default, sets and dicts are
+       also checked for emptiness.
+    4. By default, standard array-like structures
+       (lists, tuples, Series, DataFrames, numpy
+       arrays) are checked.
+
+    """
+    # Case A: If decorator is used without parentheses,
+    # then `params` is actually the function object itself.
+    if callable(params):
+        func = params
+
+        @wraps(func)
+        def _wrapper(*args, **kwargs):
+            if args:
+                converted_args = list(args)
+                converted_args[0] = _check_and_handle_emptiness(
+                    converted_args[0],
+                    error=error,
+                    none_as_empty=none_as_empty,
+                    ellipsis_as_empty=ellipsis_as_empty,
+                    include=include,
+                    param_name="first positional argument"
+                )
+                args = tuple(converted_args)
+            return func(*args, **kwargs)
+
+        return _wrapper
+
+    # Case B: If decorator is used with parentheses
+    # then `params` is the list of names or None.
+    def _decorator(func):
+        @wraps(func)
+        def _wrapper(*args, **kwargs):
+            valid_params = params or []
+
+            # If no params were specified, check the
+            # first positional argument (if present).
+            if not valid_params:
+                if args:
+                    converted_args = list(args)
+                    converted_args[0] = _check_and_handle_emptiness(
+                        converted_args[0],
+                        error=error,
+                        none_as_empty=none_as_empty,
+                        ellipsis_as_empty=ellipsis_as_empty,
+                        include=include,
+                        param_name="first positional argument"
+                    )
+                    args = tuple(converted_args)
+            else:
+                # For each name in valid_params,
+                # check emptiness.
+                sig = inspect.signature(func)
+                parameters = list(sig.parameters.keys())
+
+                for name in valid_params:
+                    if name in kwargs:
+                        kwargs[name] = _check_and_handle_emptiness(
+                            kwargs[name],
+                            error=error,
+                            none_as_empty=none_as_empty,
+                            ellipsis_as_empty=ellipsis_as_empty,
+                            include=include,
+                            param_name=name
+                        )
+                    else:
+                        # Possibly positional
+                        try:
+                            idx = parameters.index(name)
+                            if idx < len(args):
+                                converted_args = list(args)
+                                converted_args[idx] = _check_and_handle_emptiness(
+                                    converted_args[idx],
+                                    error=error,
+                                    none_as_empty=none_as_empty,
+                                    ellipsis_as_empty=ellipsis_as_empty,
+                                    include=include,
+                                    param_name=name
+                                )
+                                args = tuple(converted_args)
+                        except ValueError:
+                            # param not found in function signature
+                            pass
+
+            return func(*args, **kwargs)
+
+        return _wrapper
+
+    return _decorator
+
+def _check_and_handle_emptiness(
+    value,
+    *,
+    error: str,
+    none_as_empty: bool,
+    ellipsis_as_empty: bool,
+    include: tuple,
+    param_name: str
+):
+    """
+    Internal helper to detect emptiness of `value`
+    and handle it according to <error inline>
+    policy.
+    """
+    if value is None and none_as_empty:
+        # Consider None as empty
+        return _handle_empty(error, param_name)
+    if value is Ellipsis and ellipsis_as_empty:
+        # Consider Ellipsis (...) as empty
+        return _handle_empty(error, param_name)
+
+    # Check standard array-likes:
+    if _is_arraylike_empty(value):
+        return _handle_empty(error, param_name)
+
+    # Check optional sets, dicts, etc.
+    # We only check if 'set' or 'dict' is in include
+    # (by default, we do check them).
+    include = include or []
+    if include: 
+        if "set" in include and isinstance(value, set):
+            if len(value) == 0:
+                return _handle_empty(error, param_name)
+        if "dict" in include and isinstance(value, dict):
+            if len(value) == 0:
+                return _handle_empty(error, param_name)
+
+    # If it's not considered empty, return as is.
+    return value
+
+def _is_arraylike_empty(value):
+    """
+    Heuristic check if `value` is an empty
+    array-like structure (list, tuple, Series,
+    DataFrame, numpy array).
+    """
+    # check list or tuple
+    if isinstance(value, (list, tuple)):
+        if len(value) == 0:
+            return True
+
+    # check pandas Series/DataFrame
+    if isinstance(value, pd.Series) or isinstance(value, pd.DataFrame):
+        if value.empty:
+            return True
+
+    # check numpy array
+    if isinstance(value, np.ndarray):
+        if value.size == 0:
+            return True
+
+    return False
+
+
+def _handle_empty(error_policy, param_name):
+    """
+    Handle an empty argument based on the
+    <error_policy inline>.
+    """
+    msg = f"Argument '{param_name}' is empty."
+    if error_policy == "raise":
+        raise ValueError(msg)
+    elif error_policy == "warn":
+        warnings.warn(msg, UserWarning)
+    elif error_policy == "ignore":
+        pass
+    # Return None so that we effectively "clear"
+    # the argument if emptiness was found
+    return None

@@ -103,6 +103,7 @@ import json
 import csv
 import inspect 
 import pickle
+import warnings
 from functools import wraps
 from abc import ABCMeta
 from collections import defaultdict
@@ -1341,7 +1342,8 @@ class NNLearner(metaclass=LearnerMeta):
         """
         params = self.get_params()
         param_str = ", ".join(f"{key}={value!r}" for key, value in params.items())
-        # Truncate if exceeds max character length
+        # Truncate if exceeds max character length.
+        
         if len(param_str) > N_CHAR_MAX:
             param_str = param_str[:N_CHAR_MAX] + "..."
         return f"{self.__class__.__name__}({param_str})"
@@ -1350,8 +1352,10 @@ class NNLearner(metaclass=LearnerMeta):
         """
         Prepare the object for pickling by saving the current state.
         """
+        # XXX TODO: Better import gofast and use gf.__version__ instead. 
+        
         state = {}
-        version = getattr(self, "_version", "1.0.0")  # Default version
+        version = getattr(self, "_version", "0.1.0")  # Default version
 
         for key, value in self.__dict__.items():
             # Exclude non-serializable attributes
@@ -1362,7 +1366,7 @@ class NNLearner(metaclass=LearnerMeta):
                 _ = pickle.dumps(value)
                 state[key] = value
             except (pickle.PicklingError, TypeError):
-                print(f"Warning: Unable to pickle attribute '{key}'. Excluded.")
+                warnings.warn(f"Unable to pickle attribute '{key}'. Excluded.")
 
         # Add version information
         state["_version"] = version

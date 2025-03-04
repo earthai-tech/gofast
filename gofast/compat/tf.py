@@ -103,6 +103,7 @@ class KerasDependencies:
         standalone_mapping = {
             'reduce_mean': ('tensorflow', 'reduce_mean'),
             'reduce_sum': ('tensorflow', 'reduce_sum'),
+            'reduce_all': ('tensorflow', 'reduce_all'),
             'rank': ('tensorflow', 'rank'), 
             'stack': ('tensorflow', 'stack'), 
             'reshape': ('tensorflow', 'reshape'), 
@@ -128,6 +129,9 @@ class KerasDependencies:
             # 'zeros': ('tensorflow', 'zeros'),
             'multiply': ('tensorflow', 'multiply'), 
             'get_static_value':('tensorflow', 'get_static_value'),
+            'equal': ('tensorflow', 'equal'), 
+            'debugging': ('tensorflow', 'debugging'), 
+            'assert_equal': ('tensorflow', 'assert_equal')
             # 'constant': ('tensorflow', 'constant')
         }
 

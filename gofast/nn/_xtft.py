@@ -13,6 +13,7 @@ from .._gofastlog import gofastlog
 from ..api.docs import doc 
 from ..api.property import NNLearner 
 from ..compat.sklearn import validate_params, Interval, StrOptions 
+from ..core.handlers import param_deprecated_message 
 from ..utils.deps_utils import ensure_pkg
 from ..decorators import Appender , Deprecated
 
@@ -74,10 +75,12 @@ if KERAS_BACKEND:
             MultiScaleLSTM,
             QuantileDistributionModeling,
             VariableSelectionNetwork,
-            PositionalEncoding 
+            PositionalEncoding, 
+            aggregate_multiscale 
         )
     
 DEP_MSG = dependency_message('transformers') 
+
 
 @register_keras_serializable('gofast.nn.transformers', name="XTFT")
 @doc (
@@ -86,6 +89,27 @@ DEP_MSG = dependency_message('transformers')
     methods= dedent( _shared_docs['xtft_methods']
     )
  )
+@param_deprecated_message(
+    conditions_params_mappings=[
+        {
+            'param': 'multi_scale_agg',
+            'condition': lambda v: v == "concat",
+            'message': (
+                "The 'concat' mode for multi-scale aggregation requires identical "
+                "time dimensions across scales, which is rarely practical. "
+                "This mode will fall back to the robust last-timestep approach "
+                "in real applications. For true multi-scale handling, use 'last' "
+                "mode instead (automatically set).\n"
+                "Why change?\n"
+                "- 'concat' mixes features across scales at the same timestep\n"
+                "- Requires manual time alignment between scales\n" 
+                "- 'last' preserves scale independence & handles variable lengths"
+            ),
+            'default': "last"
+        }
+    ],
+    warning_category=UserWarning
+)
 class XTFT(Model, NNLearner):
     @validate_params({
         "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
@@ -117,7 +141,7 @@ class XTFT(Model, NNLearner):
             callable 
             ],
         "multi_scale_agg": [
-            StrOptions({"last", "average",  "flatten", "auto"}),
+            StrOptions({"last", "average",  "flatten", "auto", "sum", "concat"}),
             None
         ],
         "scales": ['array-like', StrOptions({"auto"}),  None],
@@ -338,6 +362,7 @@ class XTFT(Model, NNLearner):
         )
     
         # Add positional encoding to embeddings
+        # before attention mechanisms. 
         embeddings = self.positional_encoding(
             embeddings, 
             training=training 
@@ -362,50 +387,9 @@ class XTFT(Model, NNLearner):
         # If multi_scale_agg is None, lstm_output is (B, units * len(scales))
         # If multi_scale_agg is not None, lstm_output is a list of full 
         # sequences: [ (B, T', units), ... ]
-    
-        if self.multi_scale_agg is None:
-            # No additional aggregation needed
-            lstm_features = lstm_output  # (B, units * len(scales))
-        else:
-            # Apply chosen aggregation to full sequences
-            if self.multi_scale_agg == "average":
-                # Average over time dimension for each scale and then concatenate
-                averaged_outputs = [
-                    tf_reduce_mean(o, axis=1) 
-                    for o in lstm_output
-                ]  # Each is (B, units)
-                lstm_features = tf_concat(
-                    averaged_outputs,
-                    axis=-1
-                )  # (B, units * len(scales))
-    
-            elif self.multi_scale_agg == "flatten":
-                # Flatten time and feature dimensions for all scales
-                # Assume equal time lengths for all scales
-                concatenated = tf_concat(
-                    lstm_output, 
-                    axis=-1
-                )  # (B, T', units*len(scales))
-                shape = tf_shape(concatenated)
-                (batch_size,
-                 time_dim,
-                 feat_dim) = shape[0], shape[1], shape[2]
-                lstm_features = tf_reshape(
-                    concatenated,
-                    [batch_size, time_dim * feat_dim]
-                )
-            else:
-                # Default fallback: take the last time step from each scale
-                # and concatenate
-                last_outputs = [
-                    o[:, -1, :] 
-                    for o in lstm_output
-                ]  # (B, units)
-                lstm_features = tf_concat(
-                    last_outputs,
-                    axis=-1
-                )  # (B, units * len(scales))
-        
+        lstm_features = aggregate_multiscale(
+            lstm_output, mode= self.multi_scale_agg 
+        )
         # Since we are concatenating along the time dimension, we need 
         # all tensors to have the same shape along that dimension.
         time_steps = tf_shape(dynamic_input)[1]
@@ -638,7 +622,8 @@ class XTFT(Model, NNLearner):
             'activation': self.activation,
             'use_residuals': self.use_residuals,
             'use_batch_norm': self.use_batch_norm,
-            'final_agg': self.final_agg
+            'final_agg': self.final_agg, 
+            'multi_scale_agg': self.multi_scale_agg, 
         })
         
         self.logger.debug(
@@ -650,7 +635,6 @@ class XTFT(Model, NNLearner):
         logger = gofastlog().get_gofast_logger(__name__)
         logger.debug("Creating XTFT instance from config.")
         return cls(**config)
-
 
 @Deprecated(
     "SuperXTFT is currently under maintenance and will be released soon. " 
@@ -687,7 +671,7 @@ class SuperXTFT(XTFT):
         hidden_units: int = 64,
         lstm_units: int = 64,
         scales: Union[str, List[int], None] = None,
-        multi_scale_agg: Optional[str] = None, 
+        multi_scale_agg: Optional[str] = 'auto', 
         activation: str = 'relu',
         use_residuals: bool = True,
         use_batch_norm: bool = False,
@@ -873,38 +857,9 @@ class SuperXTFT(XTFT):
             training=training
         )
         # Handle multi_scale_agg as in XTFT
-        if self.multi_scale_agg is None:
-            lstm_features = lstm_output  # (B, units * len(scales))
-        else:
-            if self.multi_scale_agg == "average":
-                averaged_outputs = [
-                    tf_reduce_mean(o, axis=1) 
-                    for o in lstm_output
-                ]  # Each is (B, units)
-                lstm_features = tf_concat(
-                    averaged_outputs,
-                    axis=-1
-                )  # (B, units * len(scales))
-            elif self.multi_scale_agg == "flatten":
-                concatenated = tf_concat(
-                    lstm_output, 
-                    axis=-1
-                )  # (B, T', units*len(scales))
-                shape = tf_shape(concatenated)
-                batch_size, time_dim, feat_dim = shape[0], shape[1], shape[2]
-                lstm_features = tf_reshape(
-                    concatenated,
-                    [batch_size, time_dim * feat_dim]
-                )
-            else:
-                last_outputs = [
-                    o[:, -1, :] 
-                    for o in lstm_output
-                ]  # (B, units)
-                lstm_features = tf_concat(
-                    last_outputs,
-                    axis=-1
-                )  # (B, units * len(scales))
+        lstm_features = aggregate_multiscale(
+            lstm_output, mode= self.multi_scale_agg 
+        )
         
         # Expand and tile lstm_features to match time steps
         time_steps = tf_shape(dynamic_input)[1]

@@ -21,6 +21,7 @@ from sklearn.base import BaseEstimator, RegressorMixin
 import numpy as np 
 
 from ..api.docs import doc
+from ..core.diagnose_q import validate_quantiles_in 
 from ..compat.sklearn import validate_params, Interval, StrOptions
 from ..utils.deps_utils import ensure_pkg 
 from ..utils.validator import check_is_fitted 
@@ -1819,9 +1820,13 @@ def create_xtft_model(
         raise ValueError("`forecast_horizon` must be a positive integer.")
 
     if quantiles is not None:
-        if (not isinstance(quantiles, list) or 
-            not all(isinstance(q, float) and 0 < q < 1 for q in quantiles)):
-            raise TypeError("`quantiles` must be a list of floats between 0 and 1.")
+        quantiles= validate_quantiles_in( 
+            quantiles, round_digits=2, 
+            dtype=np.float32 
+        )
+        # if (not isinstance(quantiles, list) or 
+        #     not all(isinstance(q, float) and 0 < q < 1 for q in quantiles)):
+        #     raise TypeError("`quantiles` must be a list of floats between 0 and 1.")
 
     # Instantiate the XTFT model
     model = XTFT(

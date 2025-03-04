@@ -39,7 +39,8 @@ __all__=[
     "to_frame_if", 
     "SaveFile", 
     "fmt_text",
-    "export_data"
+    "export_data", 
+    "to_text"
     ]
 
 class EnsureFileExists:
@@ -2236,4 +2237,303 @@ def show_usage(
     print("\nTo see standard argparse help, use:")
     print(f"  {script_name} --help\n")
 
+
+def to_text(
+    params=None,
+    allow_none=False,
+    none_as_empty=False,
+    error="raise",
+    to_bytes=False, 
+    encoding='uft-8', 
+):
+    """
+    Decorator that converts specified arguments to
+    either text (i.e., str) or bytes.
+
+    This robust decorator-based function ensures
+    that the arguments named in ``params`` are
+    converted accordingly. By default, it converts
+    them to string (text). However, if
+    ``to_bytes=True``, it converts them to bytes.
+    If <params> is not specified (i.e. the decorator
+    is used without parentheses), the first
+    positional argument is converted.
+
+    If <allow_none> is False, the decorated
+    arguments must not be None. If <allow_none>
+    is True and <none_as_empty> is True, None
+    values are replaced with an empty string (or
+    empty bytes if ``to_bytes`` is True). If
+    <allow_none> is True and <none_as_empty>
+    is False, None values remain as None.
+
+    When conversion fails, the behavior depends
+    on <error>:
+
+      - "raise": raise an exception
+      - "warn": log a warning
+      - "ignore": ignore the error
+
+    Parameters
+    ----------
+    params : list of str, optional
+        Names of arguments to convert. If None,
+        the decorator (used without parentheses)
+        converts the first positional argument.
+    allow_none : bool, optional
+        Whether None is allowed. Default False.
+    none_as_empty : bool, optional
+        Whether None should become ``""`` (when
+        converting to text) or ``b""`` (when
+        converting to bytes). Default False.
+    error : str, optional
+        How to handle conversion errors:
+        "raise", "warn", or "ignore". Default
+        "raise".
+    to_bytes : bool, optional
+        If True, convert the specified arguments
+        to bytes instead of string. Default False.
+    encoding : str
+        The character encoding to use when encoding
+        text to bytes. Defaults to ``"utf-8"``.
+        
+    Returns
+    -------
+    function
+        The decorated function with its specified
+        arguments converted to text or bytes.
+
+    Examples
+    --------
+    >>> from gofast.core.io import to_text 
+    1) If used without parameters:
+       >>> @to_text
+       ... def example_func(data):
+       ...     return data
+       ...
+       >>> # 'data' (the first positional arg) is converted to str by default.
+
+    2) If parameters are specified:
+       >>> @to_text(params=['text'],
+       ...          allow_none=True,
+       ...          none_as_empty=False,
+       ...          error="raise",
+       ...          to_bytes=False)
+       ... def another_func(a, text=None):
+       ...     return a, text
+
+    3) Converting to bytes:
+       >>> @to_text(params=['payload'],
+       ...          to_bytes=True,
+       ...          none_as_empty=True)
+       ... def handle_binary(payload=None):
+       ...     # 'payload' is now guaranteed to be bytes
+       ...     return payload
+
+    Notes
+    -----
+    - If ``to_bytes`` is True, all designated
+      parameters are converted to bytes using
+      UTF-8 encoding. For non-string inputs,
+      the value is first converted to string,
+      then encoded to bytes.
+    - If ``none_as_empty`` is True and
+      ``to_bytes`` is also True, None will be
+      replaced with ``b""``.
+    - If conversion fails and ``error="raise"``,
+      a ValueError is raised.
+
+    """
+    # If decorator is used without parentheses (e.g. @to_text),
+    # then params is actually the function itself. We must
+    # handle that scenario:
+    if callable(params):
+        func = params
+
+        @wraps(func)
+        def _wrapper(*args, **kwargs):
+            """
+            Wrapper that converts the first positional
+            argument to str or bytes if the decorator is
+            used without parameters.
+            """
+            if args:
+                converted_args = list(args)
+                converted_args[0] = _convert_value(
+                    converted_args[0],
+                    allow_none=allow_none,
+                    none_as_empty=none_as_empty,
+                    error=error,
+                    to_bytes=to_bytes, 
+                    encoding=encoding, 
+                )
+                args = tuple(converted_args)
+            return func(*args, **kwargs)
+
+        return _wrapper
+
+    # Otherwise, assume `params` is a list or None,
+    # and create a real decorator:
+    def _decorator(func):
+        @wraps(func)
+        def _wrapper(*args, **kwargs):
+            """
+            Wrapper that processes arguments named
+            in `params` (or the first positional
+            argument if none specified) and
+            converts them to str or bytes.
+            """
+            valid_params = params or []
+
+            if not valid_params:
+                # No params specified; convert first
+                # positional argument.
+                if args:
+                    converted_args = list(args)
+                    converted_args[0] = _convert_value(
+                        converted_args[0],
+                        allow_none=allow_none,
+                        none_as_empty=none_as_empty,
+                        error=error,
+                        to_bytes=to_bytes, 
+                        encoding=encoding
+                    )
+                    args = tuple(converted_args)
+            else:
+                # Convert each named argument
+                # in valid_params:
+                for name in valid_params:
+                    arg_index = _get_arg_index(func, name)
+                    if arg_index is not None and arg_index < len(args):
+                        converted_args = list(args)
+                        converted_args[arg_index] = _convert_value(
+                            converted_args[arg_index],
+                            allow_none=allow_none,
+                            none_as_empty=none_as_empty,
+                            error=error,
+                            to_bytes=to_bytes, 
+                            encoding=encoding
+                        )
+                        args = tuple(converted_args)
+                    elif name in kwargs:
+                        kwargs[name] = _convert_value(
+                            kwargs[name],
+                            allow_none=allow_none,
+                            none_as_empty=none_as_empty,
+                            error=error,
+                            to_bytes=to_bytes, 
+                            encoding=encoding
+                        )
+            return func(*args, **kwargs)
+        return _wrapper
+
+    return _decorator
+
+def _convert_value(
+    value,
+    *,
+    allow_none: bool,
+    none_as_empty: bool,
+    error: str,
+    to_bytes: bool,
+    encoding: str = "utf-8"
+):
+    """
+    Convert ``value`` to ``str`` or ``bytes``, subject
+    to ``allow_none``, ``none_as_empty``, and ``error``.
+    If ``to_bytes`` is True, the final result is bytes;
+    otherwise, it's a string.
+
+    Parameters
+    ----------
+    value : Any
+        The value to convert.
+    allow_none : bool
+        Whether None is allowed.
+    none_as_empty : bool
+        Whether None should become an empty string
+        or empty bytes (if ``to_bytes`` is True).
+    error : str
+        Error policy: "raise", "warn", or "ignore".
+    to_bytes : bool
+        Whether to convert the value to bytes.
+    encoding : str
+        The character encoding to use when encoding
+        text to bytes. Defaults to ``"utf-8"``.
+
+    Returns
+    -------
+    str or bytes or None
+        The converted value, or None if allowed.
+
+    Notes
+    -----
+    1. If ``value`` is already bytes and
+       ``to_bytes`` is True, no re-encoding is
+       performed; the same bytes object is
+       returned.
+    2. If an error occurs during conversion,
+       the behavior depends on ``error``:
+       - "raise": raise a ValueError
+       - "warn": print a warning
+       - "ignore": silently ignore and
+         return the original value
+
+    """
+    # Case 1: None handling
+    if value is None:
+        if not allow_none and not none_as_empty:
+            _handle_error("None value not allowed.", error)
+            return None
+        if none_as_empty:
+            # Return empty string or empty bytes
+            return b"" if to_bytes else ""
+        # else None is allowed
+        return None
+
+    # Case 2: Non-None value -> attempt conversion
+    try:
+        if to_bytes:
+            # If already bytes, return as-is
+            if isinstance(value, bytes):
+                return value
+            # Otherwise, convert to str, then encode
+            text_value = str(value)
+            return text_value.encode(encoding)
+        else:
+            # Convert to str
+            return str(value)
+    except Exception as exc:
+        _handle_error(f"Conversion failed: {exc}", error)
+        # If ignoring or warning, we can return
+        # the value as-is or None
+        return value
+
+
+def _handle_error(message, error_policy):
+    """
+    Handle the error based on <error_policy>.
+    """
+    if error_policy == "raise":
+        raise ValueError(message)
+    elif error_policy == "warn":
+        print(f"Warning: {message}")
+    elif error_policy == "ignore":
+        pass
+    else:
+        # Default to raise if invalid policy given
+        raise ValueError(f"Unknown error policy: {error_policy}")
+
+
+def _get_arg_index(func, arg_name):
+    """
+    Returns the index of the argument <arg_name> in
+    the function signature, or None if not found.
+    """
+    code = func.__code__
+    arg_names = code.co_varnames[:code.co_argcount]
+    try:
+        return arg_names.index(arg_name)
+    except ValueError:
+        return None
 

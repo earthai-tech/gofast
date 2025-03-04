@@ -117,7 +117,8 @@ def validate_keras_loss(
 
     # 2. Optional deep check for required attributes
     if deep_check:
-        required = ["call", "from_config"]  # or any others you consider essential
+        required = ["call", "from_config"]  
+        # or any others that can be considered essential
         if not has_required_attributes(loss_obj, required):
             msg = (f"Loss object lacks some required attributes: {required}.")
             if ops == "validate":
@@ -155,6 +156,7 @@ def validate_keras_loss(
         return loss_obj
     return True
 
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 def is_keras_loss(loss_obj: Any) -> bool:
     """
     Check if the given object is a Keras Loss instance.

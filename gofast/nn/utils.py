@@ -11,7 +11,8 @@ inputs and creating input sequences with corresponding targets for time series
 forecasting.
 
 """
-
+import time
+import datetime 
 from numbers import Integral, Real 
 import warnings
 from typing import List, Tuple, Optional, Union, Dict, Callable, Any
@@ -1970,9 +1971,10 @@ def set_default_params(
     multi_scale_agg : str or None, optional
         Determines the aggregation method for multi-scale features.
         
-        - If set to `'auto'` or `None`, `return_sequences` is set to `False`.
+        - If set to `None`, `return_sequences` is set to `False`.
         - Otherwise, `return_sequences` is set to `True`.
-        - Expected aggregation methods could include `'sum'`, `'concat'`, etc., 
+        - Expected aggregation methods could include `'average'`, `'concat'`,
+          ``'sum'``, ``'last'``, ``'auto'`` (fallack to 'last'),etc., 
         depending on model requirements.
 
     Returns
@@ -2002,7 +2004,7 @@ def set_default_params(
     >>> print(scales)
     [1]
     >>> print(return_sequences)
-    False
+    True
 
     >>> # Example 2: Providing custom quantiles and scales
     >>> quantiles, scales, return_sequences = set_default_parameters(
@@ -2066,11 +2068,13 @@ def set_default_params(
             f" 'auto', or None, but got type {type(scales).__name__}.")
 
     # Set return_sequences based on multi_scale_agg
-    if multi_scale_agg is None or multi_scale_agg == 'auto':
+    if multi_scale_agg is None:
         return_sequences = False
     else:
         # Optionally, you can validate multi_scale_agg against allowed methods
-        allowed_aggregations = {'sum', 'concat', 'average'}  # Example allowed methods
+        allowed_aggregations = {
+            'sum', 'concat', 'average', 'flatten', 'last', 'auto', 
+            }  # Example allowed methods
         if not isinstance(multi_scale_agg, str):
             raise ValueError(
                 f"'multi_scale_agg' must be a string indicating"
@@ -2809,7 +2813,7 @@ def generate_forecast(
 
     if spatial_cols:
         spatial_cols = columns_manager(spatial_cols)
-        check_spatial_columns(spatial_cols)
+        check_spatial_columns(train_data, spatial_cols)
 
     # Set default quantiles if not provided
     q=check_forecast_mode(mode, q, error="warn", ops="validate")
@@ -2934,8 +2938,34 @@ def generate_forecast(
 
     forecast_results = []
 
+    start_time = time.time()
     # Iterate over each location or global forecast
     for idx, loc in unique_locations.iterrows():
+        # Print a status message if verbosity is at least 1
+        if verbose >= 1:
+            # Number of locations processed so far
+            completed = idx + 1
+            total = len(unique_locations)
+            remaining = total - completed
+    
+            # Calculate elapsed time
+            elapsed = time.time() - start_time
+    
+            # If we have processed at least one location,
+            # estimate average time per location
+            if completed > 0:
+                avg_time_per_loc = elapsed / completed
+                eta_seconds = avg_time_per_loc * remaining
+                eta_str = str(datetime.timedelta(seconds=int(eta_seconds)))
+            else:
+                # Before any iteration is complete, no ETA
+                eta_str = "N/A"
+    
+            print(
+                f"[INFO] Processing location {completed}/{total} - "
+                f"({remaining} remaining). ETA: {eta_str}"
+            )
+            
         if spatial_cols:
             condition = np.ones(len(train_data), dtype=bool)
             for col in spatial_cols:
@@ -3036,28 +3066,71 @@ def generate_forecast(
 
         # Build forecast entries for each forecast period
         for i, period in enumerate(forecast_dt):
+            if verbose >= 2:
+                print( "[DEBUG] Building forecast entry"
+                      f" for period {period} (index {i})."
+                     )
             forecast_entry = {}
             if spatial_cols:
                 for col in spatial_cols:
                     forecast_entry[col] = loc[col]
+                    if verbose >= 5:
+                        print(f"  [TRACE] Setting '{col}' to {loc[col]}.")
+                        
             forecast_entry[dt_col] = period
-
+            
+            if verbose >= 3:
+                print(f"  [TRACE] Setting '{dt_col}' to {period}.")
+                
             if mode == "quantile":
                 for qi, quantile in enumerate(q):
                     col_name = "{}_q{}".format(
                         tname, int(round(quantile * 100))
                     )
                     forecast_entry[col_name] = y_pred_forecast[0, i, qi].item()
+                    
+                    if verbose >= 5:
+                        print(f"  [TRACE] Setting '{col_name}'"
+                              f" to {forecast_entry[col_name]}.")
             else:
                 col_name = "{}_pred".format(tname)
                 forecast_entry[col_name] = y_pred_forecast[0, i, 0].item()
+                
+                if verbose >= 5:
+                    print(f"  [TRACE] Setting '{col_name}'"
+                          f" to {forecast_entry[col_name]}.")
 
             forecast_results.append(forecast_entry)
-
+            
+        if verbose >= 3:
+            print("[DEBUG] Completed entry for index"
+                  f" {i}: {forecast_entry}")
+            
+    if verbose >= 3 and len(forecast_results) >= 100_000:
+        print(
+            "Constructing a large DataFrame"
+            f" (~{len(forecast_results):,} rows). "
+             "This may take a while..."
+        )
+    
+    start_time = time.time()  # Start timing the DataFrame construction
     forecast_df = pd.DataFrame(forecast_results)
+    build_time = time.time() - start_time  # Calculate how long it took
+    
     if verbose >= 3:
+        print("\nDataFrame construction completed"
+              f" in {build_time:.2f} seconds.")
+    
         print("\nForecasting completed. Sample results:")
         print(forecast_df.head())
+    
+        if len(forecast_results) >= 100_000:
+            print(
+                "Successfully created a large DataFrame with"
+                f" {len(forecast_df):,} rows in {build_time:.2f}"
+                " seconds. If you need further processing, plan"
+                " for the additional time accordingly."
+            )
 
     if savefile is None:
         savefile = "{}_forecast_{}_results.csv"\
@@ -4129,6 +4202,13 @@ def forecast_multi_step(
     assert_ratio         : Function to verify quantile ratios.
 
     """
+    def vprint(msg, level=1):
+        """
+        Prints `msg` if the current verbosity setting is >= `level`.
+        """
+        if verbose >= level:
+            print(msg)
+            
     # Validate inputs: expect a list/tuple of three elements.
     if not isinstance(inputs, (list, tuple)) or len(inputs) != 3:
         raise ValueError(
@@ -4190,14 +4270,32 @@ def forecast_multi_step(
             # For non-3D y, use its length along axis 0.
             available_steps = forecast_horizon
     
+    vprint(
+        f"[INFO] Forecast horizon: {forecast_horizon}, "
+        f"Available forecast steps: {available_steps}.",
+        level=1
+    )
     # Loop over each sample and each forecast step.
     for j in range(n_samples):
+        vprint(f"[INFO] Processing sample index {j}.", level=2)
         for i in range(available_steps):
+            
+            vprint(f"  [DEBUG] Forecast step {i + 1}/{available_steps}.", 
+                   level=3)
+            
             row = {}
             # Add spatial columns if provided.
             if spatial_cols is not None and len(spatial_cols) >= 2:
                 row[spatial_cols[0]] = X_static[j, 0]
                 row[spatial_cols[1]] = X_static[j, 1]
+                
+                vprint(
+                    f"    [DEBUG] Spatial columns set: "
+                    f"{spatial_cols[0]}={row[spatial_cols[0]]}, "
+                    f"{spatial_cols[1]}={row[spatial_cols[1]]}",
+                    level=3
+                )
+
             # Add dt_col if provided.
             if dt_col is not None:
                 if (forecast_dt is not None and
@@ -4205,12 +4303,20 @@ def forecast_multi_step(
                     row[dt_col] = forecast_dt[i]
                 else:
                     row[dt_col] = None
+                
+                vprint(f"    [DEBUG] {dt_col}={row[dt_col]}", level=3)
+                
             # Add actual target value if y is provided.
             if y is not None:
                 if len(y.shape) == 3:
                     row[f"{tname}_actual"] = y[j, i, 0]
                 else:
                     row[f"{tname}_actual"] = y[j, i]
+                    
+                vprint(
+                    f"    [DEBUG] Actual: {tname}_actual={row[f'{tname}_actual']}",
+                    level=3
+                )
             # Assign prediction columns based on mode.
             if mode == "quantile":
                 for iq, quantile in enumerate(q):
@@ -4218,15 +4324,28 @@ def forecast_multi_step(
                         f"{tname}_q{int(quantile * 100)}_step{i+1}"
                     )
                     row[col_name] = y_pred[j, i, iq]
+                    
+                    vprint(
+                        f"    [DEBUG] Assigned {col_name}={row[col_name]}",
+                        level=3
+                    )
             elif mode == "point":
                 col_name = f"{tname}_pred_step{i+1}"
                 row[col_name] = y_pred[j, i]
+                
+                vprint(
+                    f"    [DEBUG] Assigned {col_name}={row[col_name]}",
+                    level=3
+                )
             else:
                 raise ValueError(
                     "Mode must be either 'quantile' or 'point'."
                 )
             rows.append(row)
-    
+    vprint(
+        f"[INFO] Finished generating predictions for {len(rows)} rows.", 
+        level=1
+    )
     pred_df = pd.DataFrame(rows)
     # Optionally apply masking.
     if apply_mask:
@@ -4345,7 +4464,8 @@ def generate_forecast_with(
         mask_values=None,
         mask_fill_value=None,
         savefile=None,
-        verbose=3
+        verbose=3, 
+        **kw
     ):
     
     forecast_horizon = validate_positive_integer(
@@ -4472,7 +4592,8 @@ savefile : str, optional
     a default filename is generated.
 verbose : int, optional
     Verbosity level controlling printed output.
-
+**kw: dict, optional 
+   Does nothing; here for future extension. 
 Returns
 -------
 pandas.DataFrame

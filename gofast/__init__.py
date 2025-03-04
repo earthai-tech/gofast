@@ -6,11 +6,12 @@
 GOFast: AIO Machine Learning Package
 ======================================
 
-:code:`gofast` is designed to streamline and accelerate every step of your 
-data science workflow, enhancing productivity, ease of use, and community-driven
+:code:`gofast` is designed to streamline and accelerate
+every step of your data science workflow, enhancing 
+productivity, ease of use, and community-driven
 improvements.
 """
-
+import os
 import sys 
 import logging
 import warnings
@@ -20,8 +21,6 @@ from contextlib import contextmanager
 # Configure basic logging and suppress certain third-party library warnings
 logging.basicConfig(level=logging.WARNING)
 logging.getLogger('matplotlib.font_manager').disabled = True
-# suppress tensorflow warning during initialization 
-logging.getLogger('tensorflow').setLevel(logging.ERROR)
 
 # Dynamic import function
 def _lazy_import(module_name, alias=None):
@@ -108,11 +107,16 @@ def suppress_warnings(suppress: bool = True):
 # Suppress warnings by default when the package is initialized
 suppress_warnings()
 
+# Disable OneDNN logs or usage:
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+# suppress tensorflow warning during initialization 
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
+
 # Setup logging configuration
 from ._util import initialize_logging 
 initialize_logging()
 
-__all__ = ["setup_logging", "__version__", "config"]
+__all__ = [ "__version__"]
 
 class GoFastConfig:
     def __init__(self):
@@ -286,7 +290,7 @@ def __getattr__(name):
     public_attributes = [
         'assist_me', 'explore', 'read_data',
         'export_data', 'fetch_data',
-        # other public functions as needed
+        #  other public functions as needed
     ]
 
     # Handle access to public API attributes
@@ -350,6 +354,8 @@ def __getattr__(name):
     warnings.warn(hint.format(attr=name))
     # Raise an AttributeError indicating the attribute does not exist
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+__all__.extend (["config"])
 
 # Append the version information to the module's docstring
 __doc__ += f"\nVersion: {__version__}\n"

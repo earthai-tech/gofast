@@ -43,8 +43,9 @@ from ..core.array_manager import to_numeric_dtypes
 from ..core.checks import ( 
     exist_features, check_files, is_in_if, str2columns 
     )
+from ..core.io import EnsureFileExists 
 from ..core.utils import is_iterable 
-from ..decorators import RunReturn 
+from ..decorators import RunReturn
 from .validator import check_is_runned, is_frame
 from ._dependency import import_optional_dependency
  
@@ -79,7 +80,8 @@ __all__ = [
     'spath',
     'store_or_write_hdf5',
     'to_hdf5',
-    'zip_extractor'
+    'zip_extractor', 
+    'fetch_joblib_data'
  ]
 
 class FileManager(BaseClass):
@@ -1294,6 +1296,100 @@ def rename_files(
             if keep_copy : shutil.copy (f, nf , **kws )
             else : os.rename (f, nf , **kws )
             
+
+@EnsureFileExists
+def fetch_joblib_data(
+    job_file: str, 
+    *keys: str, 
+    error_mode: str = 'raise', 
+    verbose: int = 0
+) -> Union[Dict[str, Any], Tuple[Any, ...]]:
+    """Dynamically load data from a joblib-saved dictionary with
+    flexible key access.
+
+    Parameters
+    ----------
+    job_file : str
+        Path to the joblib file containing a dictionary
+    *keys : str
+        Variable-length list of dictionary keys to retrieve
+    error_mode : {'raise', 'warn', 'ignore'}, default='raise'
+        Handling of missing keys:
+        - 'raise': Immediately raise KeyError
+        - 'warn': Issue warning and skip missing keys
+        - 'ignore': Silently skip missing keys
+    verbose : int, default=0
+        Verbosity level:
+        - 0: No output
+        - 1: Basic loading information
+        - 2: Detailed debugging output
+
+    Returns
+    -------
+    Union[Dict, Tuple]
+        - Full dictionary if no keys specified
+        - Tuple of values for requested keys (maintaining order)
+
+    Raises
+    ------
+    FileNotFoundError
+        If specified job_file doesn't exist
+    TypeError
+        If loaded data isn't a dictionary
+    KeyError
+        If requested key not found and error_mode='raise'
+
+    Examples
+    --------
+    >>> from gofast.utils.io_utils import fetch_joblib_data
+    >>> data = fetch_joblib_data('data.joblib', 'X_train', 'y_train')
+    >>> X, y = fetch_joblib_data('data.joblib', 'X_val', 'y_val', verbose=1)
+    >>> full_dict = fetch_joblib_data('data.joblib')
+
+    Notes
+    -----
+    - Maintains original insertion order for Python 3.7+ dictionaries
+    - Missing keys in 'warn'/'ignore' modes result in shorter return tuple
+    - Joblib files must contain dictionary objects
+    """
+    try:
+        if verbose >= 1:
+            print(f"Loading data from {job_file}")
+        data = joblib.load(job_file)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Joblib file {job_file} not found") from None
+    except Exception as e:
+        raise ValueError(f"Error loading {job_file}: {str(e)}") from e
+
+    if not isinstance(data, dict):
+        raise TypeError(f"Loaded data from {job_file} is not a dictionary")
+
+    if not keys:
+        if verbose >= 1:
+            print("No keys requested - returning full dictionary")
+        return data
+
+    results = []
+    for key in keys:
+        if key in data:
+            results.append(data[key])
+            if verbose >= 2:
+                print(f"Successfully retrieved key: {key}")
+        else:
+            msg = f"Key '{key}' not found in {job_file}"
+            if error_mode == 'raise':
+                raise KeyError(msg)
+            elif error_mode == 'warn':
+                warnings.warn(msg, UserWarning)
+                if verbose >= 1:
+                    print(f"Warning: {msg}")
+            # No action needed for 'ignore' mode
+
+    if verbose >= 1:
+        print(f"Retrieved {len(results)}/{len(keys)} requested items")
+
+    return tuple(results) if len(results) > 1 else results[0] if results else ()
+
 def cpath(savepath: str = None, dpath: str = '_default_path_') -> str:
     """
     Ensures a directory exists for saving files, creating it if necessary.

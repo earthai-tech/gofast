@@ -12,10 +12,10 @@ import pandas as pd
 from ..api.types import List, DataFrame, Optional, Dict
 from ..api.types import Union,TypeGuard, Tuple, Any
 from ..core.array_manager import to_numeric_dtypes
+from ..core.io import is_data_readable 
 from ..decorators import isdf
 from ..utils.validator import  build_data_if,  parameter_validator  
 from ..utils.validator import validate_dtype_selector
-
 
 __all__= [
     "format_long_column_names", 
@@ -24,8 +24,10 @@ __all__= [
     "split_data", 
     "smart_group", 
     "group_and_filter", 
-    ]
+]
 
+@is_data_readable 
+@isdf
 def summarize_text_columns(
     data: DataFrame, /, 
     text_columns: List[str], 
@@ -199,6 +201,8 @@ def summarize_text_columns(
 
     return data
 
+@is_data_readable 
+@isdf
 def split_data(
     data: DataFrame, /, 
     dtype_selector: str = "biselect", 
@@ -361,8 +365,9 @@ def split_data(
         return ( 
             combined_df.loc[:, numeric_df.columns], 
             combined_df.loc[:, categoric_df.columns.difference(numeric_df.columns)]
-            )
-
+        )
+    
+@is_data_readable 
 @isdf 
 def sanitize(
     data:DataFrame, /, 
@@ -476,7 +481,8 @@ def sanitize(
 
     return df_cleaned
 
-@isdf 
+@is_data_readable 
+@isdf
 def format_long_column_names(
     data:DataFrame, /,  
     max_length:int=10, 
@@ -537,6 +543,8 @@ def format_long_column_names(
 
     return data
 
+@is_data_readable 
+@isdf
 def group_and_filter(
     data: DataFrame, /, 
     group_column: str, 
@@ -550,8 +558,9 @@ def group_and_filter(
     ):
 
     """
-    Filter a DataFrame based on specified group values in a column and apply
-    additional conditional filters. Optionally sort the resulting DataFrame.
+    Filter a DataFrame based on specified group values in a
+     column and apply additional conditional filters. 
+     Optionally sort the resulting DataFrame.
 
     Parameters
     ----------
@@ -649,6 +658,8 @@ def validate_dict(value, param_name):
     if not isinstance(value, dict):
         raise ValueError(f"'{param_name}' should be a dictionary")
 
+@is_data_readable 
+@isdf
 def smart_group(
     data: DataFrame, 
     group_by: Union[str, List[str]], 

@@ -2,22 +2,39 @@
 #   License: BSD-3-Clause
 #   Author: LKouadio <etanoyau@gmail.com>
 
+import warnings
 from typing import List, Tuple, Optional, Union, Dict, Any
 from ..utils.deps_utils import ensure_pkg 
 from ..compat.tf import optional_tf_function, suppress_tf_warnings
-from ..compat.tf import TFConfig  
+from ..compat.tf import TFConfig, HAS_TF  
+from . import KERAS_DEPS, KERAS_BACKEND
 
-try:
-    import tensorflow as tf
-except ImportError:
-    # Warn the user that TensorFlow is required for this module
-    import warnings
+if KERAS_BACKEND:
+    Tensor=KERAS_DEPS.Tensor
+
+    tf_shape = KERAS_DEPS.shape
+    tf_float32=KERAS_DEPS.float32
+    tf_convert_to_tensor =KERAS_DEPS.convert_to_tensor 
+    tf_cast=KERAS_DEPS.cast 
+    tf_reduce_all=KERAS_DEPS.reduce_all
+    tf_equal=KERAS_DEPS.equal 
+    tf_debugging= KERAS_DEPS.debugging 
+    tf_assert_equal=KERAS_DEPS.assert_equal
+    tf_autograph=KERAS_DEPS.autograph
+    
+    tf_autograph.set_verbosity(0)
+    register_keras_serializable=KERAS_DEPS.register_keras_serializable
+    
+else: 
+   # Warn the user that TensorFlow
+   # is required for this module
     warnings.warn(
-        "TensorFlow is not installed. Please install TensorFlow to use "
-        "this module.",
+        "TensorFlow is not installed. Please install"
+        " TensorFlow to use this module.",
         ImportWarning
     )
-else:
+    
+if HAS_TF:
     config = TFConfig()
     # Enable compatibility mode for ndim
     config.compat_ndim_enabled = True 
@@ -29,7 +46,7 @@ else:
 def validate_anomaly_scores(
     anomaly_config: Optional[Dict[str, Any]],
     forecast_horizon: int,
-) -> Optional[tf.Tensor]:
+) -> Optional[Tensor]:
     """
     Validates and processes the ``anomaly_scores`` in the provided 
     `anomaly_config` dictionary.
@@ -44,7 +61,7 @@ def validate_anomaly_scores(
         of `anomaly_scores`).
 
     Returns:
-    - Optional[`tf.Tensor`]: 
+    - Optional[`Tensor`]: 
         Validated `anomaly_scores` tensor of shape 
         (batch_size, forecast_horizons), cast to float32.
         Returns None if `anomaly_scores` is not provided.
@@ -73,11 +90,11 @@ def validate_anomaly_scores(
 
     if anomaly_scores is not None:
         # Convert to tensor if not already a TensorFlow tensor
-        if not isinstance(anomaly_scores, tf.Tensor):
+        if not isinstance(anomaly_scores, Tensor):
             try:
-                anomaly_scores = tf.convert_to_tensor(
+                anomaly_scores = tf_convert_to_tensor(
                     anomaly_scores,
-                    dtype=tf.float32
+                    dtype=tf_float32
                 )
             except (ValueError, TypeError) as e:
                 raise ValueError(
@@ -85,7 +102,7 @@ def validate_anomaly_scores(
                 )
         else:
             # Cast to float32 if it's already a tensor
-            anomaly_scores = tf.cast(anomaly_scores, tf.float32)
+            anomaly_scores = tf_cast(anomaly_scores, tf_float32)
 
         # Validate that `anomaly_scores` is a 2D tensor
         if len(anomaly_scores.shape) != 2:
@@ -120,7 +137,7 @@ def validate_tft_inputs(
     static_input_dim : Optional[int] = None,
     future_covariate_dim : Optional[int] = None,
     error: str = 'raise'
-) -> Tuple[tf.Tensor, Optional[tf.Tensor], Optional[tf.Tensor]]:
+) -> Tuple[Tensor, Optional[Tensor], Optional[Tensor]]:
     """
     Validate and process the input tensors for TFT (Temporal Fusion
     Transformer) models in a consistent manner.
@@ -130,7 +147,7 @@ def validate_tft_inputs(
     ``future_covariate_dim`` can be `None`. Depending on how many 
     items are in `inputs`, this function decides which item 
     corresponds to which tensor (past, static, or future). It also 
-    converts each valid item to a :math:`\\text{tf.float32}` tensor, 
+    converts each valid item to a :math:`\\text{tf_float32}` tensor, 
     verifying shapes and optionally raising or warning if invalid 
     conditions occur.
 
@@ -164,7 +181,7 @@ def validate_tft_inputs(
 
     Returns
     -------
-    tuple of tf.Tensor
+    tuple of Tensor
         Returns a three-element tuple 
         (past_inputs, future_inputs, static_inputs). 
         - `past_inputs` is always present.
@@ -238,18 +255,18 @@ def validate_tft_inputs(
 
     num_inputs = len(inputs)
 
-    # 2) Convert each item to tf.float32 and gather shapes
-    def to_float32_tensor(x: Any) -> tf.Tensor:
-        """Convert x to tf.float32 tensor."""
-        tensor = tf.convert_to_tensor(x)
-        if tensor.dtype != tf.float32:
-            tensor = tf.cast(tensor, tf.float32)
+    # 2) Convert each item to tf_float32 and gather shapes
+    def to_float32_tensor(x: Any) -> Tensor:
+        """Convert x to tf_float32 tensor."""
+        tensor = tf_convert_to_tensor(x)
+        if tensor.dtype != tf_float32:
+            tensor = tf_cast(tensor, tf_float32)
         return tensor
 
     # Initialize placeholders
-    past_inputs: Optional[tf.Tensor] = None
-    future_inputs : Optional[tf.Tensor] = None
-    static_inputs : Optional[tf.Tensor] = None
+    past_inputs: Optional[Tensor] = None
+    future_inputs : Optional[Tensor] = None
+    static_inputs : Optional[Tensor] = None
 
     # 3) Assign based on how many items are in `inputs`
     if num_inputs == 1:
@@ -315,15 +332,15 @@ def validate_tft_inputs(
 
     # If we have at least one non-None tensor, let's define a reference
     # batch size from the first. We'll do a static shape check if 
-    # possible. If shape[0] is None, we do a dynamic check with tf.shape().
+    # possible. If shape[0] is None, we do a dynamic check with tf_shape().
     if non_null_tensors:
         # For simplicity, let's define a function to get batch size.
-        # If static shape is None, we fallback to tf.shape(x)[0].
-        def get_batch_size(t: tf.Tensor) -> Union[int, tf.Tensor]:
+        # If static shape is None, we fallback to tf_shape(x)[0].
+        def get_batch_size(t: Tensor) -> Union[int, Tensor]:
             """Return the first-dim batch size, static if available."""
             if t.shape.rank and t.shape[0] is not None:
                 return t.shape[0]  # static shape
-            return tf.shape(t)[0]  # fallback to dynamic
+            return tf_shape(t)[0]  # fallback to dynamic
 
         # Reference batch size
         ref_batch_size = get_batch_size(non_null_tensors[0])
@@ -332,7 +349,7 @@ def validate_tft_inputs(
         for t in non_null_tensors[1:]:
             batch_size = get_batch_size(t)
             # We compare them in a consistent manner. If either
-            # is a Tensor, we rely on tf.equal or a python check 
+            # is a Tensor, we rely on tf_equal or a python check 
             # if both are python ints. We'll do a python approach 
             # if they're both int, else a tf.cond approach if needed.
             if (isinstance(ref_batch_size, int) and 
@@ -350,8 +367,8 @@ def validate_tft_inputs(
                 # At least one is dynamic. We'll do a tf-level check.
                 # In eager mode, we can still evaluate it directly. 
                 # Let's do so carefully.
-                are_equal = tf.reduce_all(
-                    tf.equal(ref_batch_size, batch_size)
+                are_equal = tf_reduce_all(
+                    tf_equal(ref_batch_size, batch_size)
                 )
                 if not bool(are_equal.numpy()):
                     msg = ("Inconsistent batch sizes among inputs. "
@@ -371,7 +388,7 @@ def validate_xtft_inputs(
     dynamic_input_dim: int,
     static_input_dim: int,
     future_covariate_dim: Optional[int] = None, 
-) -> Tuple[tf.Tensor, tf.Tensor, Optional[tf.Tensor]]:
+) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
     """
     Validates and processes the ``inputs`` for the XTFT model.
     
@@ -400,13 +417,13 @@ def validate_xtft_inputs(
         `None`.
     
     Returns:
-    - ``static_input`` (`tf.Tensor`): 
+    - ``static_input`` (`Tensor`): 
         Validated static input tensor of shape 
         `(batch_size, static_input_dim)` and dtype `float32`.
-    - ``dynamic_input`` (`tf.Tensor`): 
+    - ``dynamic_input`` (`Tensor`): 
         Validated dynamic input tensor of shape 
         `(batch_size, time_steps, dynamic_input_dim)` and dtype `float32`.
-    - ``future_covariate_input`` (`tf.Tensor` or `None`): 
+    - ``future_covariate_input`` (`Tensor` or `None`): 
         Validated future covariate input tensor of shape 
         `(batch_size, time_steps, future_covariate_dim)` and dtype `float32`.
         Returns `None` if `future_covariate_dim` is `None` or if the input 
@@ -473,11 +490,11 @@ def validate_xtft_inputs(
         raise ValueError("``static_input`` cannot be None.")
     
     # Convert to tensor if not already
-    if not isinstance(static_input, tf.Tensor):
+    if not isinstance(static_input, Tensor):
         try:
-            static_input = tf.convert_to_tensor(
+            static_input = tf_convert_to_tensor(
                 static_input,
-                dtype=tf.float32
+                dtype=tf_float32
             )
         except (ValueError, TypeError) as e:
             raise ValueError(
@@ -485,7 +502,7 @@ def validate_xtft_inputs(
             )
     else:
         # Ensure dtype is float32
-        static_input = tf.cast(static_input, tf.float32)
+        static_input = tf_cast(static_input, tf_float32)
     
     # Check static_input dimensions
     if len(static_input.shape) != 2:
@@ -509,11 +526,11 @@ def validate_xtft_inputs(
         raise ValueError("``dynamic_input`` cannot be None.")
     
     # Convert to tensor if not already
-    if not isinstance(dynamic_input, tf.Tensor):
+    if not isinstance(dynamic_input, Tensor):
         try:
-            dynamic_input = tf.convert_to_tensor(
+            dynamic_input = tf_convert_to_tensor(
                 dynamic_input,
-                dtype=tf.float32
+                dtype=tf_float32
             )
         except (ValueError, TypeError) as e:
             raise ValueError(
@@ -521,7 +538,7 @@ def validate_xtft_inputs(
             )
     else:
         # Ensure dtype is float32
-        dynamic_input = tf.cast(dynamic_input, tf.float32)
+        dynamic_input = tf_cast(dynamic_input, tf_float32)
     
     # Check dynamic_input dimensions
     if len(dynamic_input.shape) != 3:
@@ -550,11 +567,11 @@ def validate_xtft_inputs(
             )
         
         # Convert to tensor if not already
-        if not isinstance(future_covariate_input, tf.Tensor):
+        if not isinstance(future_covariate_input, Tensor):
             try:
-                future_covariate_input = tf.convert_to_tensor(
+                future_covariate_input = tf_convert_to_tensor(
                     future_covariate_input,
-                    dtype=tf.float32
+                    dtype=tf_float32
                 )
             except (ValueError, TypeError) as e:
                 raise ValueError(
@@ -562,7 +579,7 @@ def validate_xtft_inputs(
                 )
         else:
             # Ensure dtype is float32
-            future_covariate_input = tf.cast(future_covariate_input, tf.float32)
+            future_covariate_input = tf_cast(future_covariate_input, tf_float32)
         
         # Check future_covariate_input dimensions
         if len(future_covariate_input.shape) != 3:
@@ -591,23 +608,23 @@ def validate_xtft_inputs(
             )
     
     # Step 5: Validate batch sizes across inputs
-    static_batch_size = tf.shape(static_input)[0]
-    dynamic_batch_size = tf.shape(dynamic_input)[0]
+    static_batch_size = tf_shape(static_input)[0]
+    dynamic_batch_size = tf_shape(dynamic_input)[0]
     
     with suppress_tf_warnings():
         if future_covariate_dim is not None:
-            future_batch_size = tf.shape(future_covariate_input)[0]
+            future_batch_size = tf_shape(future_covariate_input)[0]
             # Check if all batch sizes are equal
-            batch_size_cond = tf.reduce_all([
-                tf.equal(static_batch_size, dynamic_batch_size),
-                tf.equal(static_batch_size, future_batch_size)
+            batch_size_cond = tf_reduce_all([
+                tf_equal(static_batch_size, dynamic_batch_size),
+                tf_equal(static_batch_size, future_batch_size)
             ])
         else:
             # Check only static and dynamic batch sizes
-            batch_size_cond = tf.equal(static_batch_size, dynamic_batch_size)
+            batch_size_cond = tf_equal(static_batch_size, dynamic_batch_size)
         
         # Ensure batch sizes match
-        tf.debugging.assert_equal(
+        tf_debugging.assert_equal(
             batch_size_cond, True,
             message=(
                 "Batch sizes do not match across inputs: "
@@ -622,20 +639,20 @@ def validate_xtft_inputs(
 
 @optional_tf_function
 def validate_batch_sizes(
-    static_batch_size: tf.Tensor,
-    dynamic_batch_size: tf.Tensor,
-    future_batch_size: Optional[tf.Tensor] = None
+    static_batch_size: Tensor,
+    dynamic_batch_size: Tensor,
+    future_batch_size: Optional[Tensor] = None
 ) -> None:
     """
     Validates that the batch sizes of static, dynamic, and future 
     covariate inputs match.
     
     Parameters:
-    - ``static_batch_size`` (`tf.Tensor`): 
+    - ``static_batch_size`` (`Tensor`): 
         Batch size of the static input.
-    - ``dynamic_batch_size`` (`tf.Tensor`): 
+    - ``dynamic_batch_size`` (`Tensor`): 
         Batch size of the dynamic input.
-    - ``future_batch_size`` (`Optional[tf.Tensor]`, optional): 
+    - ``future_batch_size`` (`Optional[Tensor]`, optional): 
         Batch size of the future covariate input.
         Defaults to `None`.
     
@@ -643,7 +660,7 @@ def validate_batch_sizes(
     - tf.errors.InvalidArgumentError: 
         If the batch sizes do not match.
     """
-    tf.debugging.assert_equal(
+    tf_debugging.assert_equal(
         static_batch_size, dynamic_batch_size,
         message=(
             "Batch sizes do not match across inputs: "
@@ -654,7 +671,7 @@ def validate_batch_sizes(
         )
     )
     if future_batch_size is not None:
-        tf.debugging.assert_equal(
+        tf_debugging.assert_equal(
             static_batch_size, future_batch_size,
             message=(
                 "Batch sizes do not match between static and future covariate inputs: "
@@ -665,20 +682,20 @@ def validate_batch_sizes(
 
 @optional_tf_function
 def check_batch_sizes(
-    static_batch_size: tf.Tensor,
-    dynamic_batch_size: tf.Tensor,
-    future_batch_size: Optional[tf.Tensor] = None
+    static_batch_size: Tensor,
+    dynamic_batch_size: Tensor,
+    future_batch_size: Optional[Tensor] = None
 ) -> None:
     """
     Checks that the batch sizes of static, dynamic, and future covariate 
     inputs are equal.
     
     Parameters:
-    - ``static_batch_size`` (`tf.Tensor`): 
+    - ``static_batch_size`` (`Tensor`): 
         Batch size of the static input.
-    - ``dynamic_batch_size`` (`tf.Tensor`): 
+    - ``dynamic_batch_size`` (`Tensor`): 
         Batch size of the dynamic input.
-    - ``future_batch_size`` (`Optional[tf.Tensor]`, optional): 
+    - ``future_batch_size`` (`Optional[Tensor]`, optional): 
         Batch size of the future covariate input.
         Defaults to `None`.
     
@@ -686,7 +703,7 @@ def check_batch_sizes(
     - tf.errors.InvalidArgumentError: 
         If the batch sizes do not match.
     """
-    tf.assert_equal(
+    tf_assert_equal(
         static_batch_size, dynamic_batch_size,
         message=(
             "Batch sizes do not match across inputs: "
@@ -697,7 +714,7 @@ def check_batch_sizes(
         )
     )
     if future_batch_size is not None:
-        tf.assert_equal(
+        tf_assert_equal(
             static_batch_size, future_batch_size,
             message=(
                 "Batch sizes do not match between static and future covariate inputs: "

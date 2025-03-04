@@ -38,7 +38,7 @@ from ..core.checks import check_files
 from ..utils.validator import validate_length_range
 
 __all__=[
-    'ImageProcessor', 
+     'ImageProcessor', 
      'add_watermark',
      'adjust_image',
      'apply_filter',
@@ -474,7 +474,6 @@ class ImageProcessor(BaseClass):
         """
         return self._metadata
 
-
 def check_image(
     img: Union[str, Image.Image],
     ops: str = 'check_only',
@@ -736,7 +735,7 @@ def resize_image(
     size: Tuple[int, int],
     save_path: Optional[str] = None,
     maintain_aspect_ratio: bool = True,
-    resample: int = Image.ANTIALIAS if Image else 1,
+    resample: Optional[int] = None,
     verbose: int = 0
 ) -> "Image.Image":
     r"""
@@ -831,7 +830,8 @@ def resize_image(
         raise ImportError(
             "PIL (Pillow) is not installed. Cannot resize images."
         )
-
+    resample = resample or (Image.ANTIALIAS if Image else 1)
+    
     # Step 1: Validate the image path or object
     # If this fails, it raises an exception or returns None
     # based on 'ops' logic in check_image. We always want
