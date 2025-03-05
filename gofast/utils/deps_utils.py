@@ -6,7 +6,8 @@
 Dependency utilities module providing functions to handle
 package installation, checking, and ensuring dependencies are available.
 """
-
+import importlib
+import warnings
 import sys
 import functools
 import subprocess
@@ -17,9 +18,159 @@ from ._dependency import import_optional_dependency
 # Configure logging
 _logger = gofastlog.get_gofast_logger(__name__)
 
-__all__ = ["ensure_pkg", "ensure_pkgs", "install_package","is_installing",
-           "get_installation_name", "is_module_installed", 
-           "import_optional_dependency", "ensure_module_installed"]
+__all__ = [
+    "ensure_pkg", 
+    "ensure_pkgs", 
+    "install_package",
+    "is_installing",
+    "get_installation_name", 
+    "is_module_installed", 
+    "import_optional_dependency",
+    "ensure_module_installed", 
+    "get_versions"
+]
+
+
+def get_versions(
+    extras=None,
+    distribution_mapping=None
+):
+    """
+    Retrieve a dictionary containing version information for
+    common libraries, as well as any user-specified packages
+    and distribution name mappings.
+
+    Parameters
+    ----------
+    extras : list of str, optional
+        Additional packages for which to attempt version
+        retrieval. By default, None, which means no extra
+        packages beyond the defaults.
+
+    distribution_mapping : dict, optional
+        Mapping from import-like names to actual distribution
+        names. For example, the import name ``'sklearn'``
+        corresponds to the distribution name
+        ``'scikit-learn'``. Default is None, which uses
+        a built-in mapping for scikit-learn and any
+        user-provided dictionary overrides or additions.
+
+    Returns
+    -------
+    dict
+        Dictionary of the form:
+
+        .. code-block:: python
+
+           {
+               "__version__": {
+                   "numpy": "1.24.2",
+                   "pandas": "1.5.0",
+                   "sklearn": "1.3.2",
+                   ...
+               }
+           }
+
+    Notes
+    -----
+    - By default, this function attempts to retrieve versions
+      for the following packages:
+      ``['numpy', 'pandas', 'sklearn', 'joblib', 'tensorflow',
+      'keras', 'torch']``.
+    - If a package is not installed, it is skipped (no error
+      is raised).
+    - If `<distribution_mapping>` is provided, it merges with
+      the built-in mapping (for ``"sklearn"`` → ``"scikit-learn"``),
+      allowing users to specify additional name differences.
+    - Python 3.8+ is recommended to ensure
+      ``importlib.metadata`` is available.
+
+    Examples
+    --------
+    >>> get_versions()
+    {
+      "__version__": {
+        "numpy": "1.24.2",
+        "pandas": "1.5.0",
+        ...
+      }
+    }
+
+    >>> # Add custom package and distribution mapping:
+    >>> get_versions(
+    ...   extras=["spacy"],
+    ...   distribution_mapping={"spacy": "spacy-legacy"}
+    ... )
+    {
+      "__version__": {
+        "numpy": "1.24.2",
+        "pandas": "1.5.0",
+        "spacy": "3.5.1"
+      }
+    }
+    """
+    if extras is None:
+        extras = []
+
+    # Default packages to check
+    default_pkgs = [
+        "numpy",
+        "pandas",
+        "sklearn",  # we expect distribution 'scikit-learn'
+        "joblib",
+        "tensorflow",
+        "keras",
+        "torch"
+    ]
+
+    # Base distribution mapping for known discrepancies
+    base_mapping = {
+        "sklearn": "scikit-learn"
+    }
+    # Merge user-provided distribution mapping, if any
+    if distribution_mapping is not None:
+        base_mapping.update(distribution_mapping)
+
+    all_pkgs = default_pkgs + list(extras)
+    version_dict = {}
+
+    for pkg in all_pkgs:
+        # Determine the actual distribution name for version lookup
+        dist_name = base_mapping.get(pkg, pkg)
+
+        try:
+            # Check if the package is findable
+            spec = importlib.util.find_spec(pkg)
+            if spec is None:
+                # Not installed or can't be found
+                continue
+
+            # Attempt to retrieve version from distribution name
+            metadata = importlib.metadata
+            version = metadata.version(dist_name)
+
+            # Store the version under the original pkg key
+            version_dict[pkg] = version
+
+        except (importlib.metadata.PackageNotFoundError,
+                ModuleNotFoundError):
+            # Not installed or cannot detect version
+            continue
+        except Exception as e:
+            # Catch other unexpected issues, warn and skip
+            warnings.warn(
+                f"Could not retrieve version for '{pkg}': {e}"
+            )
+            continue
+        
+    # After collecting versions in version_dict, 
+    # fix distribution names if needed.
+    for import_name, dist_name in base_mapping.items():
+        if import_name in version_dict:
+            # Move the version from import_name => dist_name
+            version_dict[dist_name] = version_dict.pop(import_name)
+    
+    return {"__version__": version_dict}
 
 def ensure_module_installed(
     module_name: str,

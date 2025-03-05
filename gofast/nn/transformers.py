@@ -3,8 +3,8 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-Implements the Temporal Fusion Transformer (TFT) and the extended
-XTFT architectures for multi-horizon time-series forecasting.
+Implements the Temporal Fusion Transformer (TFT) and the extreme
+TFT (XTFT) architectures for multi-horizon time-series forecasting.
 These models integrate static and dynamic covariates and can
 optionally use future covariates for predictions several steps
 ahead. They employ attention mechanisms and can produce

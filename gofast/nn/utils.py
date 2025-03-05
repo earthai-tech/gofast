@@ -46,7 +46,8 @@ from ..compat.sklearn import (
 from ..decorators import DynamicMethod, isdf 
 from ..metrics_special import coverage_score
 from ..utils.data_utils import mask_by_reference 
-from ..utils.deps_utils import ensure_pkg 
+from ..utils.deps_utils import ensure_pkg, get_versions 
+from ..utils.io_utils import save_job
 from ..utils.sys_utils import BatchDataFrameBuilder, build_large_df 
 from ..utils.ts_utils import ts_validator, filter_by_period 
 from ..utils.validator import ( 
@@ -77,7 +78,6 @@ __all__ = [
     "visualize_forecasts", 
     "forecast_multi_step", 
     "forecast_single_step", 
-    
     
    ]
 
@@ -2105,6 +2105,7 @@ def reshape_xtft_data(
     to_datetime = None,
     model="xtft", 
     error="raise", 
+    savefile=None, 
     verbose= 3
 ):
     """
@@ -2162,6 +2163,12 @@ def reshape_xtft_data(
     error         : `str`, optional
         Determines the behavior when required features are missing. Options 
         are ``"raise"``, ``"warn"``, or ``"ignore"``.
+    savefile: str, or path-like object, optional 
+         name of file to store the model.
+         The *file* argument must have a write() method that accepts a
+         single bytes argument. It can thus be a file object opened for
+         binary writing, an io.BytesIO instance, or any other custom
+         object that meets this interface.
     verbose       : `int`, optional
         The verbosity level for logging. Levels are:
           - ``1``: Basic information.
@@ -2424,6 +2431,48 @@ def reshape_xtft_data(
               else "  Future Data : None")
         print(f"  Target Data : {target_data.shape}" if target_data is not None 
               else "  Target Data : None")
+    
+    if savefile:
+        # Prepare the dictionary for saving
+        job_dict = {
+            'static_data'      : static_data,
+            'dynamic_data'     : dynamic_data,
+            'future_data'      : future_data,
+            'target_data'      : target_data,
+            'dynamic_features' : dynamic_cols,
+            'static_features'  : static_cols,
+            'future_features'  : future_cols,
+        }
+    
+        # Include spatial columns if provided
+        if spatial_cols:
+            job_dict['spatial_features'] = spatial_cols
+    
+        # Verbose message before saving
+        if verbose >= 1:
+            print(
+                f"[INFO] Preparing to save job dictionary "
+                f"to '{savefile}' ..."
+            )
+        # Append version to jobdict 
+        job_dict.update(get_versions())
+
+        try: 
+            # Save job dictionary to the specified file
+            save_job(job_dict, savefile, append_versions=False)
+        except Exception as e : 
+            if verbose >= 1:
+                print(
+                    f"[ERROR] Failed to save job dictionary "
+                    f"to '{savefile}': {str(e)}"
+                )
+        else: 
+            # Verbose message after saving
+            if verbose >= 1:
+                print(
+                    f"[INFO] Job dictionary successfully saved "
+                    f"to '{savefile}'."
+                )
 
     return static_data, dynamic_data, future_data, target_data
 

@@ -1566,7 +1566,7 @@ def save_job(
         Anything to save, preferabaly a models in dict 
         
     savefile: str, or path-like object 
-         name of file to store the model
+         name of file to store the model.
          The *file* argument must have a write() method that accepts a
          single bytes argument. It can thus be a file object opened for
          binary writing, an io.BytesIO instance, or any other custom
