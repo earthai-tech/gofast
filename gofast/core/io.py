@@ -373,7 +373,8 @@ class SaveFile:
         # func=None, 
         # *, 
         data_index=0, 
-        dout='.csv'
+        dout='.csv', 
+        verbose=1, 
     ):
         # Store the function if passed directly (no parentheses),
         # otherwise store None until __call__ is invoked again.
@@ -381,6 +382,7 @@ class SaveFile:
         self.data_index = data_index
         self.dout = dout
         self.data_handler = PandasDataHandlers()
+        self.verbose=verbose 
 
     def __call__(self, func):
         # If self.func is None, it means the decorator is used with parentheses.
@@ -462,6 +464,12 @@ class SaveFile:
                     warnings.warn(
                         f"Failed to save the DataFrame: {e}"
                     )
+                else: 
+                    if self.verbose:
+                        print(
+                            "[INFO] DataFrame saved to "
+                            f"'{savefile}'."
+                        )
 
             return result
 
@@ -474,10 +482,11 @@ class SaveFile:
         func=None, 
         *, 
         data_index=0, 
-        dout='.csv'
+        dout='.csv', 
+        verbose=1, 
     ): 
         if func is not None:
-            return cls(data_index, dout)(func)
+            return cls(data_index, dout, verbose)(func)
         return cls(data_index, dout)
     
     
@@ -1100,7 +1109,7 @@ def export_data(
     overwrite=False,
     writer_options=None,
     default_extension='.csv',
-    verbose=0,
+    verbose=1,
     **kwargs
 ):
     """
@@ -1256,7 +1265,7 @@ def export_data(
            https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.to_json.html
     .. [4] Pandas Documentation. (2023). 
            https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.to_excel.html
-    .. [5] Gofast Package Documentation. (2023). 
+    .. [5] Gofast Package Documentation. (2025). 
            https://github.com/gofast/gofast
     """
 
@@ -1357,10 +1366,10 @@ def export_data(
         try:
             writer_func(file_path, **writer_kwargs)
             if verbose >= 1:
-                print(f"Successfully exported to '{file_path}'.")
+                print(f"Data successfully exported to '{file_path}'.")
         except Exception as e:
             error_msg = (
-                f"Failed to export DataFrame to '{file_path}': {e}."
+                f"Failed to export Data to '{file_path}': {e}."
             )
             if overwrite:
                 warnings.warn(error_msg)
@@ -1369,10 +1378,10 @@ def export_data(
     
     # Final verbosity logging after all exports
     if verbose >= 4:
-        print("Completed exporting DataFrame to all specified file paths.")
+        print("Completed exporting Data to all specified file paths.")
     
     if verbose >= 5:
-        print("Exported DataFrame preview:")
+        print("Exported Data preview:")
         print(export_df.head())
     
     # Return None as the export operation does not modify the DataFrame

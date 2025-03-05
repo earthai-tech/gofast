@@ -1492,7 +1492,7 @@ def has_duplicates(
        https://docs.scipy.org/doc/scipy/reference/spatial.html
     """
 
-    is_frame(data, df_only=True, raise_exception=True, objname='df')
+    is_frame(data, df_only=True, raise_exception=True, objname='data')
     # Validate the 'ops' parameter
     if ops is None:
         ops= 'check_only'
@@ -1856,7 +1856,8 @@ def truncate_data(
                 )
                 print(
                     f"DataFrame {idx}: Original size={original_len}, "
-                    f"Truncated size={truncated_len} ({percent:.2f}%) based on index alignment."
+                    f"Truncated size={truncated_len} ({percent:.2f}%)"
+                    " based on index alignment."
                 )
 
         # Provide additional verbose information if verbosity level is higher

@@ -13,7 +13,11 @@ from typing import List, Optional, Union, Tuple
 import numpy as np # noqa
 import pandas as pd 
 
-from ..core.checks import check_empty, check_spatial_columns  
+from ..core.checks import ( 
+    check_empty, 
+    check_spatial_columns, 
+    exist_features
+)
 from ..core.diagnose_q import validate_quantiles 
 from ..core.handlers import columns_manager 
 from ..core.io import to_frame_if 
@@ -220,16 +224,18 @@ def reshape_quantile_data(
     ).reset_index(drop=True)
 
 
-@SaveFile 
+@SaveFile
 @check_empty(params=["df"], allow_none=False, none_as_empty= True) 
 def melt_q_data(
     df: pd.DataFrame,
-    value_prefix: str,
+    value_prefix: Optional[str]=None,
     dt_name: str = 'dt_col',
     q: Optional[List[Union[float, str]]] = None,
     error: str = 'raise',
-    savefile: Optional[str]=None, 
-    verbose: int = 0, 
+    sort_values: Optional[str]=None, 
+    spatial_cols: Optional[Tuple[str, str]] = None,
+    savefile: Optional[str] = None,
+    verbose: int = 0
 ) -> pd.DataFrame:
     r"""
     Reshape wide-format DataFrame with quantile columns to long format 
@@ -268,6 +274,14 @@ def melt_q_data(
         - ``'raise'``: Raises a ValueError with a message if columns are missing.
         - ``'warn'``: Issues a warning with a message if columns are missing.
         - ``'ignore'``: Silently returns an empty DataFrame when issues are found.
+    sort_values : str, optional
+        If provided, the final pivoted DataFrame is sorted by this column.
+        If the column does not exist and `verbose` >= 1, the function
+        warns and does not sort.
+    spatial_cols : tuple of str, optional
+        Columns corresponding to spatial coordinates (e.g.,
+        ``('lon', 'lat')``). These are retained as part of the
+        index when the DataFrame is pivoted.
     savefile : str, optional
         Path to save the reshaped DataFrame. If provided, the DataFrame
         will be saved to this location.
@@ -292,19 +306,35 @@ def melt_q_data(
 
     Examples
     --------
-    >>> from gofast.utils.validator import melt_q_data
+    >>> from gofast.utils.q_utils import melt_q_data
     >>> import pandas as pd
     >>> wide_df = pd.DataFrame({
     ...     'lon': [-118.25, -118.30],
     ...     'lat': [34.05, 34.10],
     ...     'subs_2022_q0.1': [1.2, 1.3],
     ...     'subs_2022_q0.5': [1.5, 1.6],
-    ...     'subs_2023_q0.1': [1.7, 1.8]
+    ...     'subs_2023_q0.9': [1.7, 1.8]
     ... })
     >>> long_df = melt_q_data(wide_df, 'subs', dt_name='year')
+    >>> long_df
+    Out[113]: 
+       year  subs_q0.1  subs_q0.5  subs_q0.9
+    0  2022        1.2        1.5        NaN
+    1  2023        NaN        NaN        1.7
+    
     >>> long_df.columns
     Index(['lon', 'lat', 'year', 'subs_q0.1', 'subs_q0.5'], dtype='object')
 
+    >>> long_df = melt_q_data(wide_df, 'subs', dt_name='year',
+    ...                      spatial_cols=('lon', 'lat')) 
+    >>> long_df
+    Out[115]: 
+          lon    lat  year  subs_q0.1  subs_q0.5  subs_q0.9
+    0 -118.30  34.10  2022        1.3        1.6        NaN
+    1 -118.30  34.10  2023        NaN        NaN        1.8
+    2 -118.25  34.05  2022        1.2        1.5        NaN
+    3 -118.25  34.05  2023        NaN        NaN        1.7
+    
     Notes
     -----
     - The column names must follow the pattern 
@@ -338,84 +368,156 @@ def melt_q_data(
     .. [2] Wickham, H. (2014). "Tidy Data". Journal of Statistical Software,
            59(10), 1-23.
     """
-
-    # Validate error handling parameter
-    error = error_policy ( error, base="warn", 
-        msg="error must be one of 'raise', 'warn', or 'ignore'" 
+    # Validate error handling
+    error = error_policy(
+        error,
+        base="warn",
+        msg="error must be one of 'raise','warn', or 'ignore'"
     )
-    # Create working copy and prepare columns
-    df = to_frame_if(df).copy ()
-    cols = df.columns.tolist()
-    pattern = re.compile(rf"^{re.escape(value_prefix)}_(\d+)_q([0-9.]+)$")
 
-    # Find relevant columns and parse metadata
+    # Convert df to DataFrame
+    df = to_frame_if(df).copy()
+
+    # Compile regex to match columns like: {value_prefix}_{dt_val}_q{quantile}
+    pattern = re.compile(
+        rf"^{re.escape(value_prefix)}_(\d+)_q([0-9.]+)$"
+    )
+
+    # Collect matching columns & metadata
     meta = []
     quant_cols = []
-    for col in cols:
+    for col in df.columns:
         match = pattern.match(col)
         if match:
             dt_val, q_val = match.groups()
             meta.append((col, dt_val, float(q_val)))
             quant_cols.append(col)
-    
-    # Handle no columns found
+
+    if verbose >= 2:
+        print(
+            f"[INFO] Found {len(quant_cols)} quantile columns "
+            f"for prefix '{value_prefix}'."
+        )
+
+    # Handle case: no matched columns
     if not quant_cols:
-        msg = f"No columns found with prefix '{value_prefix}'"
+        msg = (
+            f"No columns found with prefix '{value_prefix}' "
+            "following the pattern {prefix}_{dt_val}_q{quant}"
+        )
         handle_error(msg, error)
         return pd.DataFrame()
-    
-    # Filter by requested quantiles
+
+    # Filter by requested quantiles if needed
     if q is not None:
-        q_valid = [float(qq) for qq in validate_quantiles(
-            q, mode='soft',dtype='float64')]
-        meta = [m for m in meta if m[2] in q_valid]
-        quant_cols = [m[0] for m in meta]
-        
-        if not quant_cols:
+        # skip doc; assume validate_quantiles is imported
+        valid_q = validate_quantiles(
+            q, mode='soft', dtype='float64'
+        )
+        # Convert all to float for comparison
+        q_floats = [float(x) for x in valid_q]
+        new_meta = [
+            (c, d, v) for (c, d, v) in meta if v in q_floats
+        ]
+        if not new_meta:
             msg = f"No columns match requested quantiles {q}"
             handle_error(msg, error)
             return pd.DataFrame()
+        meta = new_meta
+        quant_cols = [m[0] for m in meta]
 
-    # Extract spatial columns
-    spatial_cols = []
+    # Detect or validate spatial columns
+    # skip doc; assume columns_manager & check_spatial_columns are imported
     spatial_cols = columns_manager(spatial_cols, empty_as_none=False)
-    if spatial_cols: 
-        check_spatial_columns(df, spatial_cols )
-    # for col in ['longitude', 'latitude']:  # Common default spatial columns
-    #     if col in df.columns and col not in quant_cols:
-    #         spatial_cols.append(col)
-    
-    # Melt dataframe
-    id_vars = spatial_cols
+    if spatial_cols:
+        check_spatial_columns(df, spatial_cols)
+        if verbose >= 2:
+            print(
+                "[INFO] Spatial columns detected: "
+                f"{spatial_cols}"
+            )
+
+    # Prepare for melting
+    id_vars = list(spatial_cols) if spatial_cols else []
+    # Melt only the quantile columns
     melt_df = df.melt(
         id_vars=id_vars,
         value_vars=quant_cols,
         var_name='column',
         value_name=value_prefix
     )
+    if verbose >= 4:
+        print(
+            "[DEBUG] After melt, shape: "
+            f"{melt_df.shape}"
+        )
 
-    # Add metadata columns
-    meta_df = pd.DataFrame(meta, columns=['column', dt_name, 'quantile'])
-    merged_df = melt_df.merge(meta_df, on='column')
+    # Merge with metadata (columns -> dt & quantile)
+    meta_df = pd.DataFrame(
+        meta, columns=['column', dt_name, 'quantile']
+    )
+    merged_df = melt_df.merge(meta_df, on='column', how='left')
 
-    # Pivot quantiles to columns
+    # Pivot with (spatial + dt_name) as index, 'quantile' as columns
+    pivot_index = id_vars + [dt_name] if id_vars else [dt_name]
     pivot_df = merged_df.pivot_table(
-        index=id_vars + [dt_name],
+        index=pivot_index,
         columns='quantile',
         values=value_prefix,
         aggfunc='first'
     ).reset_index()
 
-    # Clean column names
-    pivot_df.columns = [
-        f"{value_prefix}_q{col:.2f}".rstrip('0').rstrip('.') 
-        if isinstance(col, float) else col 
-        for col in pivot_df.columns
-    ]
+    # Rename pivoted columns -> e.g. subs_q0.1, subs_q0.9
+    new_cols = []
+    for col in pivot_df.columns:
+        if isinstance(col, float):
+            new_cols.append(
+                f"{value_prefix}_q{col:.2f}"
+                .rstrip('0').rstrip('.')
+            )
+        else:
+            new_cols.append(str(col))
+    pivot_df.columns = new_cols
 
-    # Sort and finalize
-    sort_cols = spatial_cols + [dt_name]
-    return pivot_df.sort_values(sort_cols).reset_index(drop=True)
+    # Sort final columns for consistency
+    sort_cols = list(spatial_cols) + [dt_name] if spatial_cols else [dt_name]
+    pivot_df = pivot_df.sort_values(sort_cols).reset_index(drop=True)
+
+    if verbose >= 4:
+        print(
+            "[DEBUG] After pivot, shape: "
+            f"{pivot_df.shape}"
+        )
+
+    if verbose >= 1:
+        print(
+            f"[INFO] melt_q_data complete. Final shape: "
+            f"{pivot_df.shape}"
+        )
+    
+    # Sort if requested
+    if sort_values is not None:
+        try:
+            # Verify that `sort_values` columns exist
+            exist_features(pivot_df, features=sort_values)
+        except Exception as e:
+            if verbose >= 2:
+                print(
+                    f"[WARN] Unable to sort by '{sort_values}'. "
+                    f"{str(e)} Fallback to no sorting."
+                )
+            sort_values = None
+    
+        if sort_values is not None:
+            try:
+                pivot_df = pivot_df.sort_values(by=sort_values)
+            except Exception as e:
+                if verbose >= 2:
+                    print(
+                        f"[WARN] Sorting failed: {str(e)}. "
+                        "No sort applied."
+                    )
+    return pivot_df
 
 def handle_error(msg: str, error: str) -> None:
     """Centralized error handling."""
@@ -423,7 +525,7 @@ def handle_error(msg: str, error: str) -> None:
         raise ValueError(msg)
     elif error == 'warn':
         warnings.warn(msg)
-    # No action for 'ignore'
+        
 
 @SaveFile 
 @check_empty(params=["df"], allow_none=False, none_as_empty= True) 

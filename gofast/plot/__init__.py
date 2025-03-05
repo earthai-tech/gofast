@@ -106,7 +106,8 @@ from .suite import (
     plot_fit, 
     plot_factory_ops, 
     plot_ranking, 
-    plot_coverage
+    plot_coverage, 
+    plot_qdist
     )
 
 __all__= [
@@ -208,7 +209,8 @@ __all__= [
     'plot_fit', 
     'plot_factory_ops', 
     'plot_ranking', 
-    'plot_coverage'
+    'plot_coverage', 
+    'plot_qdist'
                
     ]
 
