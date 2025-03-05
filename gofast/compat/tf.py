@@ -123,7 +123,7 @@ class KerasDependencies:
             'range':('tensorflow', 'range'), 
             'convert_to_tensor': ('tensorflow', 'convert_to_tensor'), 
             'Tensor': ('tensorflow', 'Tensor'), 
-            'cast': ('tensforflow', 'cast'), 
+            'cast': ('tensorflow', 'cast'), 
             'float32': ('tensorflow', 'float32'), 
             'autograph': ('tensorflow', 'autograph'), 
             # 'zeros': ('tensorflow', 'zeros'),

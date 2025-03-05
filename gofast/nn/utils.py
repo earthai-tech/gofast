@@ -47,6 +47,7 @@ from ..decorators import DynamicMethod, isdf
 from ..metrics_special import coverage_score
 from ..utils.data_utils import mask_by_reference 
 from ..utils.deps_utils import ensure_pkg 
+from ..utils.sys_utils import BatchDataFrameBuilder, build_large_df 
 from ..utils.ts_utils import ts_validator, filter_by_period 
 from ..utils.validator import ( 
     assert_xy_in  , 
@@ -2937,7 +2938,7 @@ def generate_forecast(
         unique_locations = pd.DataFrame({"global": [0]})
 
     forecast_results = []
-
+    chunk_size = 100_000  # Adjust based on available memory
     start_time = time.time()
     # Iterate over each location or global forecast
     for idx, loc in unique_locations.iterrows():
@@ -3028,8 +3029,9 @@ def generate_forecast(
             dummy.append("future")
             
         model_inputs['future'] = X_future_forecast
-
-        if len(dummy) != 0:
+        
+        # warn at once: idx==0 is for consistency. 
+        if len(dummy) != 0 and idx==0:
             warnings.warn(
                 "Expected three inputs for the transformer model."
                 " Proceeding with the following dummy input(s) '{}'"
@@ -3051,7 +3053,7 @@ def generate_forecast(
             loc_str = (tuple(loc.values())
                        if spatial_cols else "global")
             print(
-                "Error predicting for {}: {}"
+                "XXX Error predicting for {}: {}"
                 .format(loc_str, str(e))
             )
             continue
@@ -3106,31 +3108,71 @@ def generate_forecast(
             print("[DEBUG] Completed entry for index"
                   f" {i}: {forecast_entry}")
             
-    if verbose >= 3 and len(forecast_results) >= 100_000:
-        print(
-            "Constructing a large DataFrame"
-            f" (~{len(forecast_results):,} rows). "
-             "This may take a while..."
-        )
-    
-    start_time = time.time()  # Start timing the DataFrame construction
-    forecast_df = pd.DataFrame(forecast_results)
-    build_time = time.time() - start_time  # Calculate how long it took
-    
-    if verbose >= 3:
-        print("\nDataFrame construction completed"
-              f" in {build_time:.2f} seconds.")
-    
-        print("\nForecasting completed. Sample results:")
-        print(forecast_df.head())
-    
-        if len(forecast_results) >= 100_000:
+ 
+    # Optionally, provide a status message before building
+    if verbose >= 1:
+        if len(forecast_results) >= chunk_size:
             print(
-                "Successfully created a large DataFrame with"
+                "[INFO] Constructing a large DataFrame"
+                f" (~{len(forecast_results):,} rows). "
+                 "This may take a while..."
+            )
+        else: 
+            print(
+                f"[INFO] Constructing DataFrame from "
+                f"{len(forecast_results):,} rows..."
+            )
+    
+    start_time = time.time()  # Begin timing the DataFrame construction
+    
+    if len(forecast_results) < chunk_size:
+        if verbose >= 3:
+            print(
+                "  [DEBUG] Row count is below the specified chunk_size."
+                " Using standard DataFrame construction."
+            )
+        forecast_df = pd.DataFrame(forecast_results)
+    else:
+        if verbose >= 3:
+            print(
+                "  [DEBUG] Attempting chunk-based DataFrame"
+                " construction via 'build_large_df'..."
+            )
+        try:
+            forecast_df = build_large_df(
+                forecast_results=forecast_results,
+                dt_col=dt_col,
+                tname=tname,
+                chunk_size=chunk_size,
+                spatial_cols=spatial_cols,
+                verbose=verbose
+            )
+        except Exception as e:
+            warnings.warn(
+                "Chunk-based DataFrame construction failed. "
+                "Falling back to direct construction:\n"
+                f"{type(e).__name__}: {str(e)}",
+                category=RuntimeWarning
+            )
+            forecast_df = pd.DataFrame(forecast_results)
+    
+    build_time = time.time() - start_time  # Calculate elapsed time
+    
+    #######################
+    if verbose >= 1:
+        if len(forecast_results) >= chunk_size:
+            print(
+                "\n[INFO] Successfully created a large DataFrame with"
                 f" {len(forecast_df):,} rows in {build_time:.2f}"
                 " seconds. If you need further processing, plan"
                 " for the additional time accordingly."
             )
+        else:
+            print("\n[INFO] DataFrame construction completed"
+                  f" in {build_time:.2f} seconds.")
+            
+        print("\nForecasting completed. Sample results:")
+        print(forecast_df.head())
 
     if savefile is None:
         savefile = "{}_forecast_{}_results.csv"\
@@ -3145,7 +3187,6 @@ def generate_forecast(
 
     # Evaluation if test_data is provided
     if test_data is not None:
-        
         # Obtain unique evaluation dates from test_data 
         # and forecast_df,then sort them.
         eval_dates_test = np.sort(test_data[dt_col].unique())
@@ -3159,7 +3200,7 @@ def generate_forecast(
             eval_dates_test, eval_dates_forecast
         )
         if verbose >=3:
-            print("Common evaluation dates:\n", eval_dates)
+            print("  [DEBUG] Common evaluation dates:\n", eval_dates)
         
         # If the number of common dates exceeds forecast_horizon,
         # warn the user and select only the first forecast_horizon
@@ -3225,22 +3266,22 @@ def generate_forecast(
         try:
             r2 = r2_score(actual, predicted)
             print(
-                "XTFT Model R² Score: {:.4f}"
+                "[INFO] XTFT Model R² Score: {:.4f}"
                 .format(r2)
             )
         except Exception as e:
             print(
-                "xxx Error computing R² Score: {}"
+                "XXX Error computing R² Score: {}"
                 .format(str(e))
             )
 
         if mode == "quantile":
             try:
                 lower_col = "{}_q{}".format(
-                    tname, int(q[0] * 100)
+                    tname, int(round(q[0] * 100))
                 )
                 upper_col = "{}_q{}".format(
-                    tname, int(q[-1] * 100)
+                    tname, int(round(q[-1] * 100))
                 )
                 cov = coverage_score(
                     y_true=actual,
@@ -3248,12 +3289,12 @@ def generate_forecast(
                     y_upper=forecast_eval_sorted[upper_col]
                 )
                 print(
-                    "Coverage Score: {:.4f}"
+                    "[INFO] Coverage Score: {:.4f}"
                     .format(cov)
                 )
             except Exception as e:
                 print(
-                    "xxx Error computing Coverage Score: {}"
+                    "XXX Error computing Coverage Score: {}"
                     .format(str(e))
                 )
 
@@ -4275,78 +4316,85 @@ def forecast_multi_step(
         f"Available forecast steps: {available_steps}.",
         level=1
     )
-    # Loop over each sample and each forecast step.
-    for j in range(n_samples):
-        vprint(f"[INFO] Processing sample index {j}.", level=2)
-        for i in range(available_steps):
-            
-            vprint(f"  [DEBUG] Forecast step {i + 1}/{available_steps}.", 
-                   level=3)
-            
-            row = {}
-            # Add spatial columns if provided.
-            if spatial_cols is not None and len(spatial_cols) >= 2:
-                row[spatial_cols[0]] = X_static[j, 0]
-                row[spatial_cols[1]] = X_static[j, 1]
+    # Use the BatchDataFrameBuilder context manager
+    # for memory efficient management for large dataframe.
+    with BatchDataFrameBuilder(
+            chunk_size=100_000,  processor='auto', verbose=verbose
+            ) as builder:
+        # Loop over each sample and each forecast step.
+        for j in range(n_samples):
+            vprint(f"[INFO] Processing sample index {j}.", level=2)
+            for i in range(available_steps):
                 
-                vprint(
-                    f"    [DEBUG] Spatial columns set: "
-                    f"{spatial_cols[0]}={row[spatial_cols[0]]}, "
-                    f"{spatial_cols[1]}={row[spatial_cols[1]]}",
-                    level=3
-                )
-
-            # Add dt_col if provided.
-            if dt_col is not None:
-                if (forecast_dt is not None and
-                    len(forecast_dt) == forecast_horizon):
-                    row[dt_col] = forecast_dt[i]
-                else:
-                    row[dt_col] = None
+                vprint(f"  [DEBUG] Forecast step {i + 1}/{available_steps}.", 
+                       level=3)
                 
-                vprint(f"    [DEBUG] {dt_col}={row[dt_col]}", level=3)
-                
-            # Add actual target value if y is provided.
-            if y is not None:
-                if len(y.shape) == 3:
-                    row[f"{tname}_actual"] = y[j, i, 0]
-                else:
-                    row[f"{tname}_actual"] = y[j, i]
+                row = {}
+                # Add spatial columns if provided.
+                if spatial_cols is not None and len(spatial_cols) >= 2:
+                    row[spatial_cols[0]] = X_static[j, 0]
+                    row[spatial_cols[1]] = X_static[j, 1]
                     
-                vprint(
-                    f"    [DEBUG] Actual: {tname}_actual={row[f'{tname}_actual']}",
-                    level=3
-                )
-            # Assign prediction columns based on mode.
-            if mode == "quantile":
-                for iq, quantile in enumerate(q):
-                    col_name = (
-                        f"{tname}_q{int(quantile * 100)}_step{i+1}"
+                    vprint(
+                        f"    [DEBUG] Spatial columns set: "
+                        f"{spatial_cols[0]}={row[spatial_cols[0]]}, "
+                        f"{spatial_cols[1]}={row[spatial_cols[1]]}",
+                        level=3
                     )
-                    row[col_name] = y_pred[j, i, iq]
+    
+                # Add dt_col if provided.
+                if dt_col is not None:
+                    if (forecast_dt is not None and
+                        len(forecast_dt) == forecast_horizon):
+                        row[dt_col] = forecast_dt[i]
+                    else:
+                        row[dt_col] = None
+                    
+                    vprint(f"    [DEBUG] {dt_col}={row[dt_col]}", level=3)
+                    
+                # Add actual target value if y is provided.
+                if y is not None:
+                    if len(y.shape) == 3:
+                        row[f"{tname}_actual"] = y[j, i, 0]
+                    else:
+                        row[f"{tname}_actual"] = y[j, i]
+                        
+                    vprint(
+                        f"    [DEBUG] Actual: {tname}_actual={row[f'{tname}_actual']}",
+                        level=3
+                    )
+                # Assign prediction columns based on mode.
+                if mode == "quantile":
+                    for iq, quantile in enumerate(q):
+                        col_name = (
+                            f"{tname}_q{int(quantile * 100)}_step{i+1}"
+                        )
+                        row[col_name] = y_pred[j, i, iq]
+                        
+                        vprint(
+                            f"    [DEBUG] Assigned {col_name}={row[col_name]}",
+                            level=3
+                        )
+                elif mode == "point":
+                    col_name = f"{tname}_pred_step{i+1}"
+                    row[col_name] = y_pred[j, i]
                     
                     vprint(
                         f"    [DEBUG] Assigned {col_name}={row[col_name]}",
                         level=3
                     )
-            elif mode == "point":
-                col_name = f"{tname}_pred_step{i+1}"
-                row[col_name] = y_pred[j, i]
-                
-                vprint(
-                    f"    [DEBUG] Assigned {col_name}={row[col_name]}",
-                    level=3
-                )
-            else:
-                raise ValueError(
-                    "Mode must be either 'quantile' or 'point'."
-                )
-            rows.append(row)
+                else:
+                    raise ValueError(
+                        "Mode must be either 'quantile' or 'point'."
+                    )
+                # Add this row to the builder
+                builder.add_row(row)
+                # rows.append(row)
     vprint(
         f"[INFO] Finished generating predictions for {len(rows)} rows.", 
         level=1
     )
-    pred_df = pd.DataFrame(rows)
+    pred_df = builder.final_df  # pd.DataFrame(rows)
     # Optionally apply masking.
     if apply_mask:
         if mask_values is None or mask_fill_value is None:

@@ -54,6 +54,9 @@ __all__
   management.
 
 """
+import subprocess
+import warnings
+from typing import Literal
 
 from .numpy import NumpyBackend
 from .scipy import ScipyBackend
@@ -65,7 +68,8 @@ from ..decorators import EnsureMethod
 from ..api.property import BaseClass 
 from ..utils.deps_utils import ensure_pkg 
 
-__all__= ["BackendSelector", "select_backend_n", "safe_cast"]
+__all__= ["BackendSelector", "select_backend_n", "safe_cast",
+          "check_processor"]
 
 @EnsureMethod("select_backend", error='warn', mode='soft'  )
 class BackendSelector(BaseClass):
@@ -875,3 +879,136 @@ def safe_cast(backend, value, dtype, backend_name=None):
         raise ValueError(
             f"Error casting value with backend '{backend_std_name}': {e}"
         )
+
+def check_processor(
+    authorized: Literal["gpu", "cpu", "auto"] = "auto",
+    error: Literal["raise", "warn"] = "raise",
+    verbose: int = 0,
+    backend: Literal["auto", "pytorch", "tensorflow", "nvidia_smi"] = "auto"
+) -> bool:
+    """
+    Check availability of specified processor and handle errors accordingly.
+
+    Parameters
+    ----------
+    authorized : {'gpu', 'cpu', 'auto'}, default='auto'
+        Target processor type to check:
+        - 'gpu': Only allow GPU computation (raise error if unavailable)
+        - 'cpu': Use CPU computation (always available)
+        - 'auto': Automatically detect and prefer GPU if available
+
+    error : {'raise', 'warn'}, default='raise'
+        Error handling strategy when GPU is unavailable but required
+
+    verbose : int, default=0
+        Verbosity level (0: silent, 1: informational)
+
+    backend : {'auto', 'pytorch', 'tensorflow', 'nvidia_smi'}, default='auto'
+        Backend to use for GPU detection:
+        - 'auto': Try all backends in order
+        - 'pytorch': Use PyTorch's CUDA check
+        - 'tensorflow': Use TensorFlow's GPU device check
+        - 'nvidia_smi': Use nvidia-smi command line tool
+
+    Returns
+    -------
+    bool
+        True if authorized processor is available, False otherwise
+
+    Examples
+    --------
+    >>> from gofast.backends.selector check_processor
+    >>> check_processor(authorized='gpu', verbose=1)
+    Checking GPU via PyTorch...
+    GPU is available.
+    True
+
+    >>> check_processor(authorized='cpu')
+    True
+    """
+    authorized = authorized.lower()
+    error = error.lower()
+    
+    if authorized not in ("gpu", "cpu", "auto"):
+        raise ValueError(f"Invalid authorized value: {authorized}. "
+                         "Choose from ['gpu', 'cpu', 'auto']")
+    
+    if authorized == "cpu":
+        if verbose:
+            print("CPU is always available")
+        return True
+
+    # GPU check implementations
+    def _check_pytorch() -> bool:
+        try:
+            import torch
+            if verbose:
+                print("Checking GPU via PyTorch...")
+            return torch.cuda.is_available()
+        except ImportError:
+            if verbose:
+                print("PyTorch not installed")
+            return False
+
+    def _check_tensorflow() -> bool:
+        try:
+            from tensorflow.config import list_physical_devices
+            if verbose:
+                print("Checking GPU via TensorFlow...")
+            return len(list_physical_devices("GPU")) > 0
+        except ImportError:
+            if verbose:
+                print("TensorFlow not installed")
+            return False
+
+    def _check_nvidia_smi() -> bool:
+        try:
+            if verbose:
+                print("Checking GPU via nvidia-smi...")
+            result = subprocess.run(
+                ["nvidia-smi"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True
+            )
+            return result.returncode == 0
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            if verbose:
+                print("nvidia-smi check failed")
+            return False
+
+    backends = {
+        "pytorch": _check_pytorch,
+        "tensorflow": _check_tensorflow,
+        "nvidia_smi": _check_nvidia_smi
+    }
+
+    gpu_available = False
+    
+    if backend == "auto":
+        for name, checker in backends.items():
+            if checker():
+                gpu_available = True
+                if verbose:
+                    print(f"GPU detected via {name}")
+                break
+    else:
+        if backend not in backends:
+            raise ValueError(f"Invalid backend: {backend}. "
+                             "Choose from ['auto', 'pytorch', 'tensorflow', 'nvidia_smi']")
+        gpu_available = backends[backend]()
+
+    if authorized == "gpu" and not gpu_available:
+        msg = "GPU computation required but no GPU detected"
+        if error == "raise":
+            raise RuntimeError(msg)
+        elif error == "warn":
+            warnings.warn(msg)
+            return False
+        return False
+
+    if verbose:
+        status = "available" if gpu_available else "unavailable"
+        print(f"GPU {status}" + ("" if authorized == "auto" else " and required"))
+    
+    return gpu_available if authorized in ("gpu", "auto") else True
