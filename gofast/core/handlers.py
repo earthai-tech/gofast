@@ -41,7 +41,7 @@ __all__ = [
     'resolve_label', 
     'columns_manager', 
     'columns_getter'
-    ]
+   ]
 
 class TypeEnforcer:
     """
@@ -2205,9 +2205,8 @@ def columns_manager(
                 iter(columns)
             except:
                 columns = [columns]
-
+        
     return columns
-
 
 def resolve_label(
     obj,

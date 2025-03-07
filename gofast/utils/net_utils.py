@@ -111,7 +111,7 @@ class RemoteDataLoader(BaseClass):
 
     Examples
     --------
-    >>> from gofast.utils.netutils import RemoteDataLoader
+    >>> from gofast.utils.net_utils import RemoteDataLoader
     >>> loader = RemoteDataLoader(
     ...     source_url='https://example.com/data.zip',
     ...     destination_path='data/data.zip',
@@ -356,7 +356,7 @@ class ArchiveExtractor(BaseClass):
 
     Examples
     --------
-    >>> from gofast.utils.netutils import ArchiveExtractor
+    >>> from gofast.utils.net_utils import ArchiveExtractor
     >>> extractor = ArchiveExtractor('sample.zip', extract_to='output_dir',
     ...                              overwrite=True)
     >>> extractor.extract()
@@ -722,7 +722,7 @@ def url_checker (url: str , install:bool = False,
         
     Example
     ----------
-    >>> from gofast.utils.netutils import url_checker 
+    >>> from gofast.utils.net_utils import url_checker 
     >>> url_checker ("http://www.example.com")
     ...  0 # not reacheable 
     >>> url_checker ("https://gofast.readthedocs.io/en/latest/api/gofast.html")

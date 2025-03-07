@@ -171,14 +171,24 @@ def filter_by_period(
         verbose=1, 
         return_dt_col=True, 
     )
-    
+ 
     # Ensure dt_col is of datetime type
-    df[dt_col] = pd.to_datetime(df[dt_col])
-    
+    if pd.api.types.is_numeric_dtype(df[dt_col]):
+        # Check if all values end in ".0" (are whole numbers)
+        if (df[dt_col] % 1 == 0).all():
+            # if dt_col.lower() != "year":  # Avoid modifying "year" column
+            df[dt_col] = df[dt_col].astype(int)
+            # 
+    if pd.api.types.is_integer_dtype(df[dt_col]):
+       # Convert the integer values to strings, then to datetime using the '%Y' format.
+       df[dt_col] = pd.to_datetime(df[dt_col].astype(str), format='%Y')
+    else:
+        df[dt_col] = pd.to_datetime(df[dt_col])
+
     # If eval_periods is a single 
     # string, convert it to a list
-    eval_periods= columns_manager(eval_periods, to_string=True)
-
+    eval_periods= columns_manager(
+        eval_periods, to_string=True)
     # Prepare the filtered DataFrame
     filtered_df = df.copy()
     

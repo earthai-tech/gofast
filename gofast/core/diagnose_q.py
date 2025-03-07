@@ -15,19 +15,24 @@ import numpy as np
 import pandas as pd 
 
 from .io import to_frame_if
-    
+from .checks import is_in_if 
+from .generic import verify_identical_items
+
+
 __all__= [ 
     'to_iterable',  'validate_quantiles', 
     'validate_quantiles_in', 'validate_q_dict',
     'check_forecast_mode', 'detect_quantiles_in',
-    'build_q_column_names',
+    'build_q_column_names','detect_digits', 
+    'validate_consistency_q'
 ]
 
 def check_forecast_mode(
     mode, 
     q=None, 
     error="raise", 
-    ops="validate",  
+    ops="validate", 
+    **kw
     ):
     r"""
     Check consistency between forecast mode and quantile values.
@@ -63,7 +68,8 @@ def check_forecast_mode(
         performs the checks without returning any value. If set to 
         ``"validate"``, the function returns the validated 
        (or updated) quantile values. Default is ``"validate"``.
-        
+    *kw: dict, 
+        Additional keywords argument of :func:`gofast.core.diagnose_q`.
  
     Returns
     -------
@@ -102,10 +108,11 @@ def check_forecast_mode(
             )
             if error == "warn":
                 warnings.warn(msg)
-                q = None
+                
             elif error == "raise":
                 raise ValueError(msg)
-    
+                
+            q = None
     # Handle the case for "quantile" mode.
     elif mode == "quantile":
         if q is None:
@@ -115,12 +122,13 @@ def check_forecast_mode(
             )
             if error == "warn":
                 warnings.warn(msg)
-                q = [0.1, 0.5, 0.9]
+                
             elif error == "raise":
                 raise ValueError(msg)
-                
+            
+            q = [0.1, 0.5, 0.9]
         # then validate quantiles 
-        q= validate_quantiles (q )
+        q= validate_quantiles (q, **kw)
     # If ops is "check_only", simply return None.
     if ops == "check_only":
         return None
@@ -1133,65 +1141,363 @@ def _process_dt_values(
         if dt_values 
         else []
     )
+def detect_digits(
+    value, 
+    pattern: str = None,
+    as_q: bool = False,
+    return_unique: bool = False,
+    sort: bool = False,
+    error: str = "ignore",
+    verbose: int = 0
+) -> list:
+    r"""
+    Detect numeric values in a string or list of strings.
 
+    This function extracts numeric values from the input by applying a
+    robust regular expression. When used in quantile mode (i.e., when
+    ``as_q`` is True), it captures numbers that appear immediately after
+    the substring ``_q`` and before either ``_step`` or the end-of-string.
+    In general mode (when ``as_q`` is False), it uses a conventional digit
+    detector. The extracted numeric values are converted to floats.
 
+    .. math::
+       \text{Extracted Value} = \text{value after } `\_q` \text{ and before }
+       (\texttt{\_step} \text{ or end-of-string})
+
+    Parameters
+    ----------
+    value         : Union[str, List[str]]
+        A string or a list of strings from which to extract numeric values.
+    pattern       : str, optional
+        A custom regular expression pattern. If ``None``, the default is:
+        
+        - If ``as_q`` is True:
+        
+          ``"(?<=_q)(\\d+(?:\\.\\d+)?)(?=(_step|$))"``.
+        
+        - Otherwise:
+        
+          ``(?<!\d)(\d+(?:\.\d+)?)(?!\d)""``.
+    as_q          : bool, optional
+        If True, converts each detected numeric value to a quantile value
+        using soft mode via ``validate_quantiles``. Default is False.
+    return_unique : bool, optional
+        If True, returns only unique detected values. Default is False.
+    sort          : bool, optional
+        If True, returns the detected numbers in ascending order.
+        Default is False.
+    error         : str, optional
+        Specifies how to handle conversion errors. Options are:
+        ``"raise"`` to throw a ValueError,
+        ``"warn"`` to print a warning message, or
+        ``"ignore"`` to skip invalid matches.
+        Default is ``"ignore"``.
+    verbose       : int, optional
+        Verbosity level for debugging output. Higher values (e.g., 5 or
+        above) produce more detailed logs. Default is 0.
+
+    Returns
+    -------
+    list
+        A list of numeric values (floats) extracted from the input. If
+        ``as_q`` is True, these values are converted to quantile values in
+        soft mode.
+
+    Examples
+    --------
+    >>> from gofast.core.diagnose_q import detect_digits
+    >>> # Single string example:
+    >>> detect_digits("subsidence_q10_step1")
+    [10.0]
+    >>> # List of strings:
+    >>> detect_digits(["subsidence_q10_step1", 
+    ...                "subsidence_q50_step1", 
+    ...                "subsidence_q89_step1"])
+    [10.0, 50.0, 89.0]
+    >>> # With conversion to quantile (soft mode):
+    >>> detect_digits("subsidence_q10.5_step1", as_q=True)
+    [0.105]  # Example: converts 10.5 to 0.105 in soft mode.
+
+    Notes
+    -----
+    - The default regex pattern for quantile mode employs lookbehind and
+      lookahead assertions to ensure that the numeric value is immediately
+      preceded by ``_q`` and followed by ``_step`` or the end-of-string.
+    - When ``as_q`` is False, a more general digit detection regex is used.
+    - Input that is not a list is automatically converted to a list of strings.
+    - The ``error`` parameter controls whether conversion issues raise an
+      exception, warn the user, or are silently ignored.
+
+    See Also
+    --------
+    validate_quantiles : Converts numeric values to quantile values in soft mode.
+
+    References
+    ----------
+    .. [1] Cormen, T. H., Leiserson, C. E., Rivest, R. L., & Stein, C.
+           (2009). *Introduction to Algorithms* (3rd ed.). MIT Press.
+    .. [2] Aho, A. V., Lam, M. S., Sethi, R., & Ullman, J. D.
+           (2006). *Compilers: Principles, Techniques, and Tools* (2nd ed.).
+           Pearson.
+    """
+
+    # If no custom regex pattern is provided, select a default pattern.
+    if pattern is None:
+        if as_q:
+            # Use a pattern to capture numbers after '_q' 
+            # and before '_step' or end-of-string.
+            pattern = (
+                r"(?<=_q)(\d+(?:\.\d+)?)(?=(_step|$))"
+            )
+        else:
+            # General robust digit detection using word boundaries.
+            pattern =r"(?<!\d)(\d+(?:\.\d+)?)(?!\d)"
+            # #r"(?<!\d)(\d+)(?!\d)" #r"\b\d+(?:\.\d+)?\b"
+
+    # Compile the regex pattern.
+    regex = re.compile(pattern)
+
+    # Ensure the input is treated as a list of strings.
+    if not isinstance(value, list):
+        input_data = [str(value)]
+    else:
+        input_data = [str(item) for item in value]
+
+    digits = []  # List to store detected numbers.
+
+    # Iterate over each string in the input_data.
+    for text in input_data:
+        matches = regex.findall(text)
+        if verbose >= 5:
+            print(f"[DEBUG] Processing '{text}' => Matches: {matches}")
+        for match in matches:
+            try:
+                # match can be a tuple (if using lookahead groups),
+                # so extract the first element if needed.
+                num_str = match[0] if isinstance(match, tuple) else match
+                num = float(num_str)
+                digits.append(num)
+            except ValueError as exc:
+                if error == "raise":
+                    raise ValueError(
+                        f"Could not convert '{match}' to float."
+                    ) from exc
+                elif error == "warn":
+                    if verbose >= 1:
+                        print(
+                            f"[WARN] Skipping value '{match}': conversion failed."
+                        )
+                # If error is "ignore", continue without appending.
+                continue
+
+    # If conversion to quantile is requested, 
+    # convert numbers using soft mode.
+    if as_q:
+        digits = validate_quantiles(
+            digits,
+            mode="soft",
+            round_digits=2,
+            dtype=np.float64
+        )
+
+    # Remove duplicates if requested.
+    if return_unique:
+        digits = list(set(digits))
+    
+    # Optionally sort the detected numbers.
+    if sort:
+        digits = sorted(digits)
+
+    if verbose >= 3:
+        print(f"[INFO] Detected digits: {digits}")
+
+    return digits
+
+def validate_consistency_q(
+    user_q: List[float], 
+    q_items: Union [str, List[Any]], 
+    error: str = "raise", 
+    mode: str = "soft", 
+    msg: Optional[str] = None,
+    default_to: str= "valid_q", 
+    verbose: int = 0
+):
+    r"""
+    Validate the consistency of user-specified quantile values with those 
+    auto-detected from the input.
+
+    This function compares the quantile values provided in ``user_q``
+    with the numeric values extracted from ``q_items`` (using 
+    :func:`detect_digits` with ``as_q=True``). Let :math:`Q_{user}` be the 
+    set of quantile values provided by the user and :math:`Q_{det}` be the 
+    set of quantile values detected from ``q_items``. In soft mode, the 
+    function returns the intersection, i.e.,
+
+    .. math::
+       Q_{valid} = Q_{user} \cap Q_{det},
+
+    whereas in strict mode, it expects an exact match and returns 
+    :math:`Q_{user}` directly.
+
+    Parameters
+    ----------
+    user_q         : list of float
+        A list of quantile values provided by the user. These represent 
+        the expected quantiles for evaluation or forecasting.
+    q_items        : Union[str, List[str], pandas.DataFrame]
+        The source from which quantile values are auto-detected. This can be 
+        a string, a list of strings, or a DataFrame whose columns contain 
+        quantile information.
+    error          : str, optional
+        Determines the error handling behavior if the user-specified 
+        quantiles do not match the detected values. Options are:
+          - ``"raise"`` : Raise a ValueError.
+          - ``"warn"``  : Emit a warning and continue.
+          - ``"ignore"``: Silently ignore mismatches.
+        Default is ``"raise"``.
+    mode           : str, optional
+        The matching mode. In ``"soft"`` mode (default), the function returns 
+        the intersection of user and detected quantiles. In ``"strict"`` mode, 
+        the user-specified quantiles must exactly match those detected, and 
+        the function returns ``user_q``.
+    msg            : str, optional
+        A custom error message to use if inconsistencies are found. If not 
+        provided, a default message is generated.
+    default_to: str, default='valid_q' 
+       Return kind when inconsistent numbers found in quantiles. 
+       In ``'soft'`` mode, it controls whether to return the 'valid_q' 
+       valids quantiles or ``'auto_q'``for automatic_detected quanties. 
+       Defaut is the ``'valid_q'``. 
+       
+    verbose       : int, optional
+        Verbosity level for debugging output. Higher values (e.g., 5 or above) 
+        yield more detailed logs. Default is 0.
+
+    Returns
+    -------
+    list
+        A sorted list of validated quantile values (as floats) that are 
+        consistent between the user-specified values and those detected 
+        from ``q_items``.
+
+    Examples
+    --------
+    >>> from gofast.core.diagnose_q import validate_consistency_q
+    >>> user_quantiles = [0.1, 0.5, 0.9]
+    >>> columns = ["subsidence_q10_step1", "subsidence_q50_step1", 
+    ...            "subsidence_q90_step1", "other_column"]
+    >>> validate_consistency_q(user_quantiles, columns)
+    [0.1, 0.5, 0.9]
+
+    Notes
+    -----
+    This function leverages :func:`detect_digits` to extract numeric quantile 
+    values from the input and :func:`is_in_if` to compute the intersection 
+    between the user-specified and detected quantiles. In soft mode, minor 
+    discrepancies are tolerated; strict mode requires an exact match.
+
+    See Also
+    --------
+    detect_digits       : Extracts numeric values from strings, including decimals.
+    is_in_if            : Checks membership and returns the intersection of lists.
+    validate_quantiles  : Converts numeric values to quantile values in soft mode.
+
+    References
+    ----------
+    .. [1] Cormen, T. H., Leiserson, C. E., Rivest, R. L., & Stein, C.
+           (2009). *Introduction to Algorithms* (3rd ed.). MIT Press.
+    .. [2] Aho, A. V., Lam, M. S., Sethi, R., & Ullman, J. D.
+           (2006). *Compilers: Principles, Techniques, and Tools*. Pearson.
+    """
+
+    # If q_items is a DataFrame, extract its columns.
+    if isinstance(q_items, pd.DataFrame):
+        q_items = q_items.columns
+
+    # Detect quantile values from q_items using detect_digits in quantile mode.
+    detected_q_values = detect_digits(
+        q_items, 
+        as_q=True, 
+        sort=True, 
+        return_unique=True
+    )
+    if verbose >= 5:
+        print(f"[DEBUG] Detected quantile values: {detected_q_values}")
+
+    # Use is_in_if to get the intersection between user_q and detected_q_values.
+    valid_quantiles = is_in_if(
+        sorted(user_q), 
+        detected_q_values, 
+        error=error, 
+        return_intersect=True
+    )
+    if verbose >= 5:
+        print(f"[DEBUG] Valid quantiles after intersection: {valid_quantiles}")
+
+    # If valid_quantiles is not empty, sort it; otherwise, handle error.
+    
+    if valid_quantiles:
+        valid_quantiles = sorted(valid_quantiles)
+    else:
+        default_err = (
+            "User provided quantiles do not match any detected "
+            "quantile values in the DataFrame columns:"
+            f" {user_q} != {detected_q_values}"
+        )
+        err_msg = msg if msg is not None else default_err
+        suff = ". Returning " + ( 
+            "an empty list." if default_to =='valid_q' else ( 
+            "the detected values instead."
+            )
+        )
+        if error == "raise":
+            raise ValueError(err_msg)
+        elif error == "warn":
+            warnings.warn(
+                err_msg + f"{suff}", 
+                UserWarning)
+        
+        return [] if mode=="valid_q" else detected_q_values 
     
 
-# # let assume we have a dataframe df with columns below: 
-    
-#     lon  # spatial columns longitude 
-#     lat   # spatial column latitude  
-#     <value_prefix>_<dt_value1>_q<qval1> 
-#     <value_prefix>_<dt_value1>_q<qval2> 
-#     <value_prefix>_<dt_value1>_q<qval3> 
-#     <value_prefix>_<dt_value2>_q<qval1> 
-#     <value_prefix>_<dt_value2>_q<qval2> 
-#     <value_prefix>_<dt_value2>_q<qval3> 
-#     <value_prefix>_<dt_value3>_q<qval1> 
-#     <value_prefix>_<dt_value3>_q<qval2> 
-#     <value_prefix>_<dt_value3>_q<qval3> 
-#     .... 
-    
-# # we want to generate the expected result as long dataframe with the 
-# # columns 
-# lon  # spatial column longitude, reapeated at each dt_col 
-# lat   # spatial_col latitude repeated at each dt_col 
-# dt_col # here the value should be <dt_value1> , <dt_value2> , <dt_value3 > and ... 
-# <value_prefix>_q<qval1> 
-# <value_prefix>_q<qval2>
-# <value_prefix>_q<qval3>
+    # In strict mode, expect the user_q to exactly match the detected quantiles.
+    if mode == "strict":
+        # valid_quantiles = user_q
+        valid_quantiles = verify_identical_items( 
+            user_q, detected_q_values, 
+            ops="validate", 
+            objname="quantiles list", 
+        )
 
-
-# # where value_prefix is the string name  
-# # qval is the quantile value for instance qval1 can be =0.1 , qval2=0.5 and qval3 =0.9 
-
-# # if the q parameter is explicitely passed for instance 
-# q = [qval1, qval2] 
-# # the dataframe returned will have the columns that contain only the qval1 and qval2 
-# i.e 
-# lon  # spatial column longitude, reapeated at each dt_col 
-# lat   # spatial_col latitude repeated at each dt_col 
-# dt_col # here the value should be <dt_value1> , <dt_value2> , <dt_value3 > and ... 
-# <value_prefix>_q<qval1> 
-# <value_prefix>_q<qval2>
-
-# # here the <value_prefix>_q<qval3> is excluded. 
-
-# # if the spatial_cols is not explictly passed the ignore this columns in the dataframe 
-# # and contruct the long dataframe instead. 
-
-# # the function should be called : to_long_data_q 
-# # to_long_data_q(df, value_prefix , dt_name='dt_col', q=None, error="raise",  verbose=0)
-# # if datetime column found in the dataframe columns and then 
-# # the output column name with date.time column should be name as 'dt_col', using the dt_name. 
-# # if error is raise and dt_value not found in the dataframe , then raise error 
-# # warn if error='warn' and return empty dataframe or  ... 
-# # verbose should go from 0 to 5 to track bug and issue in the code, to 
-# # help debugging. 
+    # Check consistency in count between valid and detected quantiles.
+    if len(valid_quantiles) != len(detected_q_values):
+        default_err = (
+            "Inconsistent number of quantiles: user provided "
+            f"valid {len(valid_quantiles)} ({valid_quantiles}) vs detected "
+            f"{len(detected_q_values)} ({detected_q_values})."
+        )
+        err_msg = msg if msg is not None else default_err
+        
+        suff = " Returning " + (
+            "valid_quantiles instead." if default_to=='valid_q'
+            else  ( "detected values instead.")
+        )
+        if default_to =='valid_q': 
+            if error == "raise":
+                raise ValueError(err_msg)
+            elif error == "warn":
+                warnings.warn(err_msg +f"{suff}", UserWarning)
+        else: # 'auto_q'
+            if error =="warn": 
+                warnings.warn(
+                    err_msg + f"{suff}", UserWarning
+            )
+            valid_quantiles =detected_q_values
+        
+    # Optionally sort the result if not already
+    # sorted (redundant here, but for safety).
+    return sorted(valid_quantiles) 
 
 
 
-    
-    
-    
-    
+

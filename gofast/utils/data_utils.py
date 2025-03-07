@@ -1955,7 +1955,7 @@ def pop_labels_in(
     Examples:
     ---------
     >>> import pandas as pd 
-    >>> from gofast.utils.datautils import pop_labels_in
+    >>> from gofast.utils.data_utils import pop_labels_in
     >>> df = pd.DataFrame({'category': ['A', 'B', 'C', 'A', 'D']})
     >>> df_result = pop_labels_in(df, 'category', 'A')
     >>> print(df_result)
@@ -2082,7 +2082,7 @@ def nan_to_na(
 
     Examples
     --------
-    >>> from gofast.utils.datautils import nan_to_na
+    >>> from gofast.utils.data_utils import nan_to_na
     >>> import pandas as pd
     >>> import numpy as np
     >>> df = pd.DataFrame({'A': [1.0, 2.0, np.nan], 'B': ['x', np.nan, 'z']})
@@ -2210,7 +2210,7 @@ def resample_data(
 
     Examples
     --------
-    >>> from gofast.utils.datautils import resample_data
+    >>> from gofast.utils.data_utils import resample_data
     >>> import numpy as np
     >>> data = np.arange(100).reshape(20, 5)
 
@@ -2387,7 +2387,7 @@ def pair_data(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.utils.datautils import pair_data
+    >>> from gofast.utils.data_utils import pair_data
     >>> data1 = pd.DataFrame({
     ...     'longitude': [110.486111],
     ...     'latitude': [26.05174],
@@ -2686,7 +2686,7 @@ def read_excel_sheets(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.utils.datautils import read_excel_sheets
+    >>> from gofast.utils.data_utils import read_excel_sheets
     
     >>> # Read all sheets from an Excel file
     >>> sheets = read_excel_sheets("data/sample.xlsx")
@@ -2874,7 +2874,7 @@ def read_worksheets(
 
     Examples
     --------
-    >>> from gofast.utils.datautils import read_worksheets
+    >>> from gofast.utils.data_utils import read_worksheets
     >>> # Example 1: Reading a single Excel file
     >>> file_path = r'F:/repositories/gofast/data/erp/sheets/gbalo.xlsx'
     >>> data, sheet_names = read_worksheets(file_path)
@@ -3004,7 +3004,7 @@ def process_and_extract_data(
     --------
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.utils.datautils import process_and_extract_data
+    >>> from gofast.utils.data_utils import process_and_extract_data
     >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
     >>> process_and_extract_data(data, columns=['A'], to_array=True)
     [array([1, 2, 3])]
@@ -3146,7 +3146,7 @@ def random_selector(
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.utils.datautils import random_selector
+    >>> from gofast.utils.data_utils import random_selector
     >>> data = np.arange(42)
     
     # Select 7 elements deterministically using a seed
@@ -3339,7 +3339,7 @@ def cleaner(
 
     Examples
     --------
-    >>> from gofast.utils.datautils import cleaner
+    >>> from gofast.utils.data_utils import cleaner
     >>> import pandas as pd
     >>> data = pd.DataFrame({
     ...     'A': [1, 2, 3],
@@ -3494,7 +3494,7 @@ def data_extractor(
     Examples
     --------
     >>> import gofast as gf
-    >>> from gofast.utils.datautils import data_extractor
+    >>> from gofast.utils.data_utils import data_extractor
     >>> testdata = gf.datasets.make_erp(n_stations=7, seed=42).frame
 
     # Extract longitude/latitude midpoint
@@ -3648,7 +3648,7 @@ def replace_data(
     --------
     
     >>> import numpy as np 
-    >>> from gofast.utils.datautils import replace_data
+    >>> from gofast.utils.data_utils import replace_data
     >>> X, y = np.random.randn ( 7, 2 ), np.arange(7)
     >>> X.shape, y.shape 
     ((7, 2), (7,))
@@ -3828,7 +3828,7 @@ def long_to_wide(
 
     Examples
     --------
-    >>> from gofast.utils.datautils import pivot_long_to_wide
+    >>> from gofast.utils.data_utils import pivot_long_to_wide
     >>> import pandas as pd
     >>> data = pd.DataFrame({
     ...     'longitude': [1, 1, 2, 2],
@@ -3991,7 +3991,7 @@ def wide_to_long(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.utils.datautils import wide_to_long 
+    >>> from gofast.utils.data_utils import wide_to_long 
     >>> wide_df = pd.DataFrame({
     ...     'id': [1, 2],
     ...     'longitude': [10, 20],
@@ -4222,7 +4222,7 @@ def repeat_feature_accross(
     --------
     >>> import pandas as pd
     >>> from datetime import datetime
-    >>> from gofast.utils.datautils import repeat_feature_accross
+    >>> from gofast.utils.data_utils import repeat_feature_accross
     >>> data = {
     ...     'longitude': [113.291328, 113.291847, 113.291847],
     ...     'latitude': [22.862476, 22.865587, 22.865068],
@@ -4434,7 +4434,7 @@ def merge_datasets(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.utils.datautils import merge_datasets
+    >>> from gofast.utils.data_utils import merge_datasets
     >>> df1 = pd.DataFrame({'longitude': [1, 2], 'latitude': [3, 4],
     ...                     'year': [2020, 2021], 'value1': [10, 20]})
     >>> df2 = pd.DataFrame({'longitude': [1, 2], 'latitude': [3, 4],
@@ -4571,7 +4571,7 @@ def swap_ic(
     --------
     Example of using the function without sorting:
 
-    >>> from gofast.utils.datautils import swap_ic 
+    >>> from gofast.utils.data_utils import swap_ic 
     >>> df = pd.DataFrame({
     >>>     'A': [1, 2, 3],
     >>>     'B': [4, 5, 6],
@@ -4738,7 +4738,7 @@ def batch_sampling(
 
     Examples
     --------
-    >>> from gofast.utils.datautils import batch_sampling
+    >>> from gofast.utils.data_utils import batch_sampling
     >>> import pandas as pd
     >>> # Create a sample DataFrame
     >>> data = pd.DataFrame({
@@ -4995,7 +4995,7 @@ def to_categories(
     --------
     >>> import pandas as pd
     >>> import numpy as np
-    >>> from gofast.utils.datautils import to_categories
+    >>> from gofast.utils.data_utils import to_categories
     
     >>> # Sample DataFrame
     >>> data = {

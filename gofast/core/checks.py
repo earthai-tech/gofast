@@ -1700,13 +1700,16 @@ def is_in_if(
         error = 'ignore'
     
     if missing_items:
+        formatted_items = ', '.join(f"'{item}'" for item in missing_items)
+        verb = 'is' if len(missing_items) == 1 else 'are'
+        msg= (
+            f"Item{'' if len(missing_items) == 1 else 's'} {formatted_items} "
+            f"{verb} missing in the {type(o).__name__.lower()} {list(o)}."
+        )
         if error == 'raise':
-            formatted_items = ', '.join(f"'{item}'" for item in missing_items)
-            verb = 'is' if len(missing_items) == 1 else 'are'
-            raise ValueError(
-                f"Item{'' if len(missing_items) == 1 else 's'} {formatted_items} "
-                f"{verb} missing in the {type(o).__name__.lower()} {list(o)}."
-            )
+            raise ValueError(msg)
+        elif error=="warn": 
+            warnings.warn(msg)
     
     if return_diff:
         return missing_items if missing_items else []

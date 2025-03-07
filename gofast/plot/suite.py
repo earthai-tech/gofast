@@ -262,7 +262,7 @@ def plot_coverage(
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.plot.utils import plot_coverage
+    >>> from gofast.plot.suite import plot_coverage
     >>> # True values
     >>> y_true = np.random.rand(100)
     >>> y_pred = np.random.rand(100, 3)
@@ -669,7 +669,7 @@ def plot_ranking(
     --------
     >>> import pandas as pd
     >>> import numpy as np
-    >>> from gofast.plot.utils import plot_ranking
+    >>> from gofast.plot.suite import plot_ranking
     >>> X = pd.DataFrame({
     ...     'f1': np.random.randn(100),
     ...     'f2': np.random.randn(100)
@@ -945,7 +945,7 @@ def plot_factory_ops(
     
     Examples
     --------
-    >>> from gofast.plot.utils import plot_factory_ops
+    >>> from gofast.plot.suite import plot_factory_ops
     >>> import numpy as np
     >>> # Assume y_true and y_preds are NumPy arrays of shape (100,)
     >>> y_true = np.random.rand(100)
@@ -1290,7 +1290,7 @@ def plot_well(
 
     Examples
     --------
-    >>> from gofast.plot.utils import plot_well
+    >>> from gofast.plot.suite import plot_well
     >>> import pandas as pd
     >>> # Suppose df is a DataFrame with columns: GR, RHOB, NPHI
     >>> df = pd.DataFrame({
@@ -1913,7 +1913,7 @@ def plot_perturbations(
 
     Examples
     --------
-    >>> from gofast.plot.utils import plot_perturbations
+    >>> from gofast.plot.suite import plot_perturbations
     >>> import pandas as pd
     >>> import numpy as np
     >>> from sklearn.datasets import load_iris
@@ -2355,7 +2355,7 @@ def plot_sensitivity(
 
     Examples
     --------
-    >>> from gofast.plot.utils import plot_sensitivity
+    >>> from gofast.plot.suite import plot_sensitivity
     1. Basic line plot:
        >>> plot_sensitivity(baseline=0.5, 
                             sensitivity_df=pd.DataFrame({
@@ -2652,7 +2652,7 @@ def plot_spatial_features(
 
     Examples
     --------
-    >>> from gofast.plot.utils import plot_spatial_features
+    >>> from gofast.plot.suite import plot_spatial_features
     >>> plot_spatial_features(
     ...     data=df,
     ...     features=['temperature', 'humidity'],
@@ -3029,7 +3029,7 @@ def plot_categorical_feature(
 
     Examples
     --------
-    >>> from gofast.plot.utils import plot_categorical_feature
+    >>> from gofast.plot.suite import plot_categorical_feature
     >>> import pandas as pd
     >>> import numpy as np
     >>> # Sample data
@@ -3365,7 +3365,7 @@ def plot_fit(
 
     Examples
     --------
-    >>> from gofast.plot.utils import plot_fit
+    >>> from gofast.plot.suite import plot_fit
     >>> import numpy as np
 
     Create sample data:
@@ -3894,7 +3894,7 @@ def plot_relationship(
 
     Examples
     --------
-    >>> from gofast.plot.utils import plot_relationship
+    >>> from gofast.plot.suite import plot_relationship
     >>> import numpy as np
 
     # Create sample data
@@ -4518,7 +4518,7 @@ def plot_spatial_distribution(
     --------
     >>> import pandas as pd
     >>> import numpy as np
-    >>> from gofast.plot.utils import plot_spatial_distribution
+    >>> from gofast.plot.suite import plot_spatial_distribution
 
     >>> # Sample DataFrame
     >>> data = {
@@ -4860,7 +4860,7 @@ def plot_dist(
 
     Examples
     --------
-    >>> from gofast.plot.utils import plot_dist
+    >>> from gofast.plot.suite import plot_dist
     >>> import pandas as pd
     >>> df = pd.DataFrame({
     ...     'longitude': [1,2,3,4],
@@ -4877,7 +4877,7 @@ def plot_dist(
     matplotlib.pyplot.scatter : For basic scatter plot creation.
     matplotlib.pyplot.hexbin : For hexagonal binning visualization.
     seaborn.kdeplot : For kernel density estimation plots.
-    gofast.plot.utils.plot_distributions: 
+    gofast.plot.suite.plot_distributions: 
         For the distribution of numeric columns in the DataFrame.
 
     References
@@ -5714,7 +5714,7 @@ def _plot_reversed(
     'df': ['array-like'], 
     'quantiles': ['array-like', None], 
     'dt_values':['array-like', None], 
-    'value_prefix': [str], 
+    'value_prefix': [str, None], 
     'q_cols': [dict, None], 
     })
 @isdf 
@@ -6639,7 +6639,7 @@ def plot_uncertainty(
 
     Examples
     --------
-    >>> from gofast.plot.utils import plot_uncertainty
+    >>> from gofast.plot.suite import plot_uncertainty
     >>> import pandas as pd
     >>> import numpy as np
     >>> df = pd.DataFrame({
@@ -6830,7 +6830,7 @@ def plot_prediction_intervals(
 
     Examples
     --------
-    >>> from gofast.plot.utils import plot_prediction_intervals
+    >>> from gofast.plot.suite import plot_prediction_intervals
     >>> import pandas as pd
     >>> df = pd.DataFrame({
     ...    'median_pred': [10, 12, 11, 13],
@@ -7050,7 +7050,7 @@ def plot_temporal_trends(
 
     Examples
     --------
-    >>> from gofast.plot.utils import plot_temporal_trends
+    >>> from gofast.plot.suite import plot_temporal_trends
     >>> import pandas as pd
     >>> df = pd.DataFrame({
     ...     'year': [2020,2021,2022,2023],

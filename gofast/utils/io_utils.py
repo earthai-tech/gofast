@@ -45,7 +45,7 @@ from ..core.checks import (
     )
 from ..core.io import EnsureFileExists 
 from ..core.utils import is_iterable 
-from ..decorators import RunReturn
+from ..decorators import RunReturn, smartFitRun
 from .validator import check_is_runned, is_frame
 from ._dependency import import_optional_dependency
  
@@ -77,6 +77,7 @@ __all__ = [
     'save_job',
     'save_path',
     'serialize_data',
+    'serialize_data_in', 
     'spath',
     'store_or_write_hdf5',
     'to_hdf5',
@@ -84,58 +85,73 @@ __all__ = [
     'fetch_joblib_data'
  ]
 
+@smartFitRun 
 class FileManager(BaseClass):
-    """
-    A class for managing and organizing files in directories.
+    r"""
+    A class for managing and organizing files within a directory
+    structure. This class provides methods to filter, organize,
+    and rename files in bulk based on file extensions and name
+    patterns. All operations are executed via the ``run`` method to
+    ensure proper initialization and state management.
 
-    This class provides methods to organize files based on file types,
-    name patterns, and to rename files in bulk. All operations are
-    executed via the `run` method to ensure proper initialization.
+    Mathematically, if :math:`\mathcal{F}` represents the set of files
+    in the root directory and :math:`\phi(f)` is a filtering function
+    that selects files based on file type and name pattern, then the
+    FileManager produces a subset
+
+    .. math::
+       \mathcal{F}' = \{ f \in \mathcal{F} \mid \phi(f) \}
+
+    and performs operations such as moving or copying to reorganize
+    these files into a target directory.
 
     Parameters
     ----------
-    root_dir : str
-        The root directory containing the files to manage.
-
-    target_dir : str
+    root_dir      : str
+        The root directory containing the files to be managed.
+        This directory must exist and contain the files subject to
+        filtering.
+    target_dir    : str
         The directory where the organized files will be placed.
-
-    file_types : list of str, optional
-        A list of file extensions to filter by (e.g., ``['.csv', '.json']``).
-        If ``None``, all file types are included. Default is ``None``.
-
+        If necessary, this directory can be created when
+        ``create_dirs`` is True.
+    file_types    : list of str, optional
+        A list of file extensions (e.g., ``['.csv', '.json']``) used to
+        filter the files. If ``None``, no file type filtering is applied.
     name_patterns : list of str, optional
-        A list of name patterns to filter by (e.g., ``['2023', 'report']``).
-        If ``None``, all file names are included. Default is ``None``.
-
-    move : bool, optional
-        If ``True``, files are moved instead of copied. Default is ``False``.
-
-    overwrite : bool, optional
-        If ``True``, existing files at the target location will be overwritten.
-        If ``False``, existing files are skipped. Default is ``False``.
-
-    create_dirs : bool, optional
-        If ``True``, missing directories in the target path are created.
-        Default is ``False``.
+        A list of substrings (e.g., ``['2023', 'report']``) to filter
+        file names. If ``None``, all file names are included.
+    move          : bool, optional
+        If True, files are moved from the source to the target directory;
+        otherwise, they are copied. Default is False.
+    overwrite     : bool, optional
+        If True, existing files in the target directory will be overwritten.
+        If False, existing files are skipped. Default is False.
+    create_dirs   : bool, optional
+        If True, missing directories in the target path are created.
+        Default is False.
 
     Attributes
     ----------
-    root_dir_ : str
-        The root directory containing the files to manage.
-
-    target_dir_ : str
-        The directory where the organized files will be placed.
+    root_dir_     : str
+        The validated root directory from which files are managed.
+    target_dir_   : str
+        The directory where the processed files are stored.
 
     Methods
     -------
-    run(pattern=None, replacement=None)
-        Executes the data management operations.
+    run(pattern, replacement)
+        Executes the file organization process. It filters files using
+        the criteria provided at initialization and, if a `pattern` and
+        corresponding `replacement` are given, performs bulk renaming.
+    get_processed_files()
+        Returns a list of file paths that have been processed and
+        organized into the target directory.
 
     Examples
     --------
-    >>> from gofast.utils.datautils import DataManager
-    >>> manager = DataManager(
+    >>> from gofast.utils.io_utils import FileManager
+    >>> manager = FileManager(
     ...     root_dir='data/raw',
     ...     target_dir='data/processed',
     ...     file_types=['.csv', '.json'],
@@ -145,26 +161,41 @@ class FileManager(BaseClass):
     ...     create_dirs=True
     ... )
     >>> manager.run(pattern='old', replacement='new')
+    >>> processed = manager.get_processed_files()
+    >>> print(processed)
 
     Notes
     -----
-    The `run` method organizes files and performs renaming based on the
-    initialization parameters and arguments provided to `run`.
+    The public method ``run`` orchestrates the file management
+    operations by first calling the internal method
+    :meth:`_organize_files` to filter and move or copy files from the
+    source directory to the target directory. If renaming is needed,
+    :meth:`_rename_files` is invoked with the specified `pattern` and
+    `replacement`. The method :meth:`get_processed_files` compiles a
+    list of all files that have been organized, based on a walk of the
+    target directory.
 
     See Also
     --------
-    shutil.move : Moves a file or directory to another location.
-    shutil.copy : Copies a file to another location.
+    shutil.move : To move files between directories.
+    shutil.copy2: To copy files while preserving file metadata.
+
+    References
+    ----------
+    .. [1] Python Software Foundation. "os.walk — Directory tree
+           generator". Python Documentation.
+    .. [2] Python Software Foundation. "shutil — High-level file 
+           operations". Python Documentation.
     """
 
     @validate_params({
-        'root_dir': [str],
-        'target_dir': [str],
-        'file_types': [list, None],
+        'root_dir'     : [str],
+        'target_dir'   : [str],
+        'file_types'   : [list, None],
         'name_patterns': [list, None],
-        'move': [bool],
-        'overwrite': [bool],
-        'create_dirs': [bool]
+        'move'         : [bool],
+        'overwrite'    : [bool],
+        'create_dirs'  : [bool]
     })
     def __init__(
         self,
@@ -176,258 +207,400 @@ class FileManager(BaseClass):
         overwrite: bool = False,
         create_dirs: bool = False
     ):
-        self.root_dir = root_dir
-        self.target_dir = target_dir
-        self.file_types = file_types
+        # Assign parameters to instance attributes.
+        self.root_dir      = root_dir
+        self.target_dir    = target_dir
+        self.file_types    = file_types
         self.name_patterns = name_patterns
-        self.move = move
-        self.overwrite = overwrite
-        self.create_dirs = create_dirs
-    
-        # Ensure root_dir exists
-        if not os.path.isdir(self.root_dir):
-            raise ValueError(f"Root directory '{self.root_dir}' does not exist.")
+        self.move          = move
+        self.overwrite     = overwrite
+        self.create_dirs   = create_dirs
 
-        # Create target_dir if create_dirs is True
+        # Validate that the root directory exists.
+        if not os.path.isdir(self.root_dir):
+            raise ValueError(
+                f"Root directory '{self.root_dir}' does not exist."
+            )
+
+        # If requested, create the target directory.
         if self.create_dirs and not os.path.exists(self.target_dir):
             os.makedirs(self.target_dir, exist_ok=True)
 
-        logger.debug(f"Initialized DataManager with root_dir: {self.root_dir}, "
-                     f"target_dir: {self.target_dir}")
+        logger.debug(
+            f"Initialized FileManager with root_dir: {self.root_dir}, "
+            f"target_dir: {self.target_dir}"
+        )
 
     @RunReturn
-    def run(self, pattern: Optional[str] = None, replacement: Optional[str] = None):
-        """
-        Executes the data management operations.
+    def run(
+        self,
+        pattern: Optional[str] = None,
+        replacement: Optional[str] = None
+    ):
+        r"""
+        Executes file organization operations.
 
-        This method organizes files based on the specified filters and
-        optionally renames files by replacing a pattern with a replacement
-        string.
+        This method filters files based on the specified file types
+        and name patterns, then organizes them by moving or copying
+        into the target directory. Additionally, if a `pattern` is
+        provided, file names containing that pattern are renamed by
+        replacing the pattern with the specified `replacement`.
 
         Parameters
         ----------
-        pattern : str, optional
-            The pattern to search for in file names during renaming.
-            If ``None``, renaming is skipped. Default is ``None``.
-
+        pattern     : str, optional
+            The substring to search for in file names. If provided,
+            file names containing this pattern will be renamed.
         replacement : str, optional
-            The string to replace the pattern with during renaming.
-            Required if `pattern` is provided.
+            The string to replace `pattern` with in file names.
+            Required if `pattern` is specified.
 
         Returns
         -------
-        self : DataManager
-            Returns self.
+        self : FileManager
+            The instance itself after executing operations.
 
         Examples
         --------
-        >>> manager = DataManager(...)
+        >>> manager = FileManager(...)
         >>> manager.run(pattern='old', replacement='new')
-
-        Notes
-        -----
-        The `run` method must be called before invoking any other methods.
-        It sets up the necessary state for the object.
         """
+        # Organize (move/copy) filtered files from root to target.
         self._organize_files()
+
+        # If a renaming pattern is provided, execute renaming.
         if pattern is not None:
             if replacement is None:
                 raise ValueError(
-                    "Replacement string must be provided if pattern is specified.")
+                    "Replacement string must be provided if pattern is specified."
+                )
             self._rename_files(pattern, replacement)
-        self._is_runned = True  # Mark as runned
+
+        # Mark the manager as having run its operations.
+        self._is_runned = True
 
     def get_processed_files(self) -> List[str]:
-        """
-        Retrieves a list of files that have been processed.
+        r"""
+        Retrieves a list of processed files in the target directory.
 
         Returns
         -------
         files : list of str
-            A list of file paths that have been processed.
+            A list containing the full paths of the files that have been
+            organized into the target directory.
 
         Examples
         --------
-        >>> manager = DataManager(...)
+        >>> manager = FileManager(...)
         >>> manager.run()
         >>> files = manager.get_processed_files()
+        >>> print(files)
         """
+        # Ensure the run method has been executed.
         check_is_runned(self, attributes=['_is_runned'])
-        
+
         processed_files = []
+        # Walk the target directory and accumulate file paths.
         for dirpath, _, filenames in os.walk(self.target_dir):
             for filename in filenames:
-                processed_files.append(os.path.join(dirpath, filename))
+                processed_files.append(
+                    os.path.join(dirpath, filename)
+                )
         return processed_files
 
     def _organize_files(self):
-        """Private method to organize files based on specified filters."""
+        r"""Private method to filter and process files from root_dir."""
         try:
+            # Retrieve the list of files that match filtering criteria.
             files = self._get_filtered_files()
+            # Process each file individually.
             for file_path in files:
                 self._handle_file(file_path)
         except Exception as e:
             logger.error(f"Failed to organize files: {str(e)}")
-            raise RuntimeError(f"Organizing files failed: {str(e)}") from e
+            raise RuntimeError(
+                f"Organizing files failed: {str(e)}"
+            ) from e
 
     def _rename_files(self, pattern: str, replacement: str):
-        """Private method to rename files by replacing a pattern."""
+        r"""Private method to rename files in target_dir by pattern."""
         try:
+            # Traverse target_dir and rename files matching the pattern.
             for dirpath, _, filenames in os.walk(self.target_dir):
                 for filename in filenames:
                     if pattern in filename:
                         old_path = os.path.join(dirpath, filename)
                         new_filename = filename.replace(pattern, replacement)
                         new_path = os.path.join(dirpath, new_filename)
+                        # Skip renaming if file exists and overwrite is False.
                         if os.path.exists(new_path) and not self.overwrite:
-                            logger.info(f"File {new_path} already exists; skipping.")
+                            logger.info(
+                                f"File {new_path} already exists; skipping."
+                            )
                             continue
                         os.rename(old_path, new_path)
-                        logger.debug(f"Renamed {old_path} to {new_path}")
+                        logger.debug(
+                            f"Renamed {old_path} to {new_path}"
+                        )
         except Exception as e:
             logger.error(f"Failed to rename files: {str(e)}")
-            raise RuntimeError(f"Renaming files failed: {str(e)}") from e
+            raise RuntimeError(
+                f"Renaming files failed: {str(e)}"
+            ) from e
 
     def _get_filtered_files(self):
-        """Retrieves files from root_dir filtered by file_types and name_patterns."""
+        r"""Retrieve files from root_dir filtered by file_types
+        and name_patterns."""
         matched_files = []
+        # Walk through root_dir recursively.
         for dirpath, _, filenames in os.walk(self.root_dir):
             for filename in filenames:
+                # Filter by file extension if file_types specified.
                 if self.file_types and not any(
-                        filename.endswith(ext) for ext in self.file_types):
+                    filename.endswith(ext) for ext in self.file_types
+                ):
                     continue
+                # Filter by name patterns if provided.
                 if self.name_patterns and not any(
-                        pat in filename for pat in self.name_patterns):
+                    pat in filename for pat in self.name_patterns
+                ):
                     continue
-                matched_files.append(os.path.join(dirpath, filename))
+                matched_files.append(
+                    os.path.join(dirpath, filename)
+                )
         return matched_files
 
     def _handle_file(self, file_path):
-        """Handles moving or copying of a single file."""
+        r"""Handle moving or copying a single file from root_dir
+        to target_dir."""
+        # Compute the relative path from the root directory.
         relative_path = os.path.relpath(file_path, self.root_dir)
-        target_path = os.path.join(self.target_dir, relative_path)
+        target_path   = os.path.join(self.target_dir, relative_path)
 
-        # Create target directories if needed
+        # Ensure that the target directory exists.
         target_dir = os.path.dirname(target_path)
         if not os.path.exists(target_dir):
             os.makedirs(target_dir, exist_ok=True)
 
+        # If the file exists in the target and overwrite is disabled, skip it.
         if os.path.exists(target_path) and not self.overwrite:
-            logger.info(f"File {target_path} already exists; skipping.")
+            logger.info(
+                f"File {target_path} already exists; skipping."
+            )
             return
 
+        # Depending on the 'move' flag, either move or copy the file.
         if self.move:
             shutil.move(file_path, target_path)
-            logger.debug(f"Moved {file_path} to {target_path}")
+            logger.debug(
+                f"Moved {file_path} to {target_path}"
+            )
         else:
             shutil.copy2(file_path, target_path)
-            logger.debug(f"Copied {file_path} to {target_path}")
+            logger.debug(
+                f"Copied {file_path} to {target_path}"
+            )
 
 def zip_extractor(
-    zip_file,
-    samples ='*', 
-    ftype=None,  
-    savepath = None,
-    pwd=None,  
-): 
-    """ Extract  ZIP archive objects. 
-    
-    Can extract all or a sample objects when the number of object is passed 
-    to the parameter ``samples``. 
-    
+    zip_file, 
+    samples: Union[int, str] = '*', 
+    ftype: Optional[str] = None,  
+    savepath: Optional[str] = None,
+    pwd: Optional[Union[str, bytes]] = None
+) -> list:
+    r"""
+    Extracts files from a ZIP archive based on various filtering
+    criteria and saves them to a specified directory.
 
-    Parameters 
-    -----------
-    zip_file: str
-        Full Path to archive Zip file. 
-    samples: int, str, default ='*'
-       Number of data to retrieve from archive files. This is useful when 
-       the archive file contains many data. ``*`` means extract all. 
-    savepath: str, optional 
-       Path to store the decompressed archived files.
-    ftype: str, 
-       Is the extension of a specific file to decompress. Indeed, if the 
-       archived files contains many different data formats, specifying the 
-       data type would retrieve this specific files from the whole 
-       files archieved. 
-    pwd: int, optional
-      Password to pass if the zip file is encrypted.
-      
-    Return 
-    --------
-    objnames: list, 
-     List of decompressed objects. 
-     
-    Examples 
+    The extraction process can be controlled by the ``samples``
+    parameter to limit the number of files extracted, or by the
+    ``ftype`` parameter to filter by a specific file extension.
+    The resulting file names are returned as a list.
+
+    .. math::
+       \text{Extracted Files} = \{ f \in \mathcal{A} \mid \phi(f) \}
+
+    where :math:`\mathcal{A}` is the set of all files in the archive,
+    and :math:`\phi(f)` is a predicate that checks if a file matches
+    the desired extension and is within the specified sample count.
+
+    Parameters
     ----------
-    >>> from gofast.utils.ioutils import zip_extractor 
-    >>> zip_extractor ('gofast/datasets/data/edis/e.E.zip')
-    
+    zip_file  : str
+        Full path to the ZIP archive file.
+    samples   : int or str, optional
+        Number of files to extract. If set to ``'*'``, all files are
+        extracted. Default is ``'*'``.
+    ftype     : str, optional
+        File extension filter (e.g., ``'.csv'``). Only files with this
+        extension are extracted. If no matching files are found,
+        a ValueError is raised.
+    savepath  : str, optional
+        Directory where the extracted files will be stored. If not
+        provided, files are extracted to the current working directory.
+    pwd       : str or bytes, optional
+        Password for encrypted ZIP files. If provided as a string,
+        it will be used as is (or can be encoded to bytes as needed).
+
+    Returns
+    -------
+    list of str
+        A list of extracted file names (with paths).
+
+    Examples
+    --------
+    >>> from gofast.utils.io_utils import zip_extractor
+    >>> extracted_files = zip_extractor(
+    ...     'data/archive.zip',
+    ...     samples='*',
+    ...     ftype='.csv',
+    ...     savepath='data/extracted',
+    ...     pwd='secret'
+    ... )
+    >>> print(extracted_files)
+    ['folder1/file1.csv', 'folder2/file2.csv', ...]
+
+    Notes
+    -----
+    The function first validates the input ZIP file using
+    ``check_files`` (assumed to be defined in the package). It then
+    determines the sample count and filters files by extension if
+    ``ftype`` is provided. Extraction is done via the standard
+    ``ZipFile.extract`` or ``ZipFile.extractall`` methods.
+
+    See Also
+    --------
+    zipfile.ZipFile.extract : Extract a single file from a ZIP archive.
+    zipfile.ZipFile.extractall : Extract all files from a ZIP archive.
     """
-    def raise_msg_when ( objn, ft): 
-        """ Raise message when None file is detected when the type of 
-        of file is supplied. Otherwise return the object collected 
-        from this kind of data-types
+
+    def raise_msg_when(objn: list, ft: str) -> list:
         """
-        objn = [ o for o  in objn if o.endswith (ft)]
-        if len(objn)  ==0:
-            get_extension = [s.split('.')[-1] for s in objn if '.'  in s ]
-            if len(get_extension)==0 : get_extension=['']
-            msg = ( "The available file types are {smart_format(get_extension)}"
-                   if len(get_extension)!=0 else ''
-                   ) 
-            raise ValueError (f"None objects in the zip collection of matches"
-                              f"the {ft!r}. Available file types are {msg}")
-        return objn 
-    
-    zip_file = check_files (zip_file, formats='.zip', return_valid=True )
-    
-    samples = str(samples) 
-    if samples !='*': 
-        try :samples = int (samples )
-        except: 
-            raise ValueError ("samples must be an integer value"
-                              f" or '*' not {samples}")
+        Filters the list of file names to only include those that end
+        with the given file extension. Raises a ValueError if no such
+        file is found.
 
-    with ZipFile (zip_file, 'r', ) as zip_obj : 
-        objnames = zip_obj.namelist() 
-        if samples =='*':
-                samples = len(objnames )
+        Parameters
+        ----------
+        objn : list of str
+            List of file names from the ZIP archive.
+        ft   : str
+            The file extension filter (e.g., ``'.csv'``).
+
+        Returns
+        -------
+        list of str
+            Filtered list of file names that match the file extension.
+        """
+        # Filter file names based on the extension.
+        filtered = [o for o in objn if o.endswith(ft)]
+        if len(filtered) == 0:
+            # Determine available extensions.
+            available_ext = [s.split('.')[-1] for s in objn if '.' in s]
+            available_str = (
+                f"{available_ext}" if available_ext else "None"
+            )
+            raise ValueError(
+                f"No files in the archive match {ft!r}. "
+                f"Available file types: {available_str}"
+            )
+        return filtered
+
+    # Validate the ZIP file using check_files (assumed to be defined).
+    zip_file = check_files(zip_file, formats='.zip', return_valid=True)
+
+    # Convert samples parameter to an integer if not '*'.
+    if isinstance(samples, str):
+        if samples != '*':
+            try:
+                samples = int(samples)
+            except Exception:
+                raise ValueError(
+                    "Parameter `samples` must be an integer or '*'"
+                )
+    elif not isinstance(samples, int):
+        raise TypeError(
+            "Parameter `samples` must be int or str,"
+            f" not {type(samples).__name__!r}"
+        )
+
+    # Open the ZIP file for extraction.
+    with ZipFile(zip_file, 'r') as zip_obj:
+        # Get list of all file names in the archive.
+        objnames = zip_obj.namelist()
+
+        # Determine the sample count.
+        if samples == '*':
+            samples = len(objnames)
+
+        # If file type filter is specified, filter file names.
+        if ftype is not None:
+            objnames = raise_msg_when(objn=objnames, ft=ftype)
+
+        # Extract all files if samples exceed available files and
+        # no file type filter is provided.
+        if samples >= len(objnames) and ftype is None:
+            zip_obj.extractall(path=savepath, pwd=pwd)
+        else:
+            # Extract only the first `samples` files.
+            for zf in objnames[:samples]:
+                zip_obj.extract(zf, path=savepath, pwd=pwd)
+
+    return objnames
+
+def to_hdf5(
+    data,
+    fn: str,
+    objname: Optional[str] = None,
+    close: bool = True,
+    **hdf5_kws
+) -> Any:
+    r"""
+    Store a data object in Hierarchical Data Format 5 (HDF5).
+
+    This function serializes the input ``data`` into an HDF5 file. It
+    supports both pandas DataFrames and NumPy arrays. If ``data`` is a
+    DataFrame, it uses ``pd.HDFStore`` (which requires the ``pytables``
+    package) to store the data. If ``data`` is a NumPy array, it uses
+    ``h5py.File`` to create a dataset.
+
+    The file path is constructed by concatenating the specified
+    ``savepath`` (or the current working directory if ``savepath`` is
+    not provided) with the provided filename (``fn``). The function
+    automatically appends the appropriate file extension: ``.h5`` for
+    DataFrames and ``.hdf5`` for arrays.
+
+    .. math::
+       \text{filepath} = \text{savepath} \oplus \text{filename} \oplus
+       \text{extension}
+
+    where :math:`\oplus` denotes string concatenation.
+
+    Parameters
+    ----------
+    data       : Any
+        The data object to be stored. Must be either a NumPy array or a
+        pandas DataFrame.
+    fn         : str
+        The file path (without extension) where the HDF5 file will be
+        saved.
+    objname    : str, optional
+        The name under which to store the data within the HDF5 file.
+        Defaults to ``'data'`` if not provided.
+    close      : bool, default=True
+        If ``True``, the file is closed after writing. If ``False``,
+        the file remains open for additional modifications.
+    **hdf5_kws : dict, optional
+        Additional keyword arguments to pass to the HDFStore
+        constructor (for DataFrames) or to customize dataset creation
+        (for arrays). Examples include:
+          - ``mode``: File mode (e.g., ``'a'``, ``'w'``)
+          - ``complevel``: Compression level (0-9)
+          - ``complib``: Compression library (e.g., ``'zlib'``)
+          - ``fletcher32``: Enable Fletcher32 checksum (bool)
+          
+        In more details:
             
-        if ftype is not None: 
-            objnames = raise_msg_when(objn=objnames, ft= ftype) 
-
-        if ( samples >= len(objnames) 
-            and ftype is None
-            ) :
-            zip_obj.extractall( path = savepath , pwd=pwd) 
-        else: 
-            for zf in objnames [:samples ]: 
-                zip_obj.extract ( zf, path = savepath, pwd = pwd)        
-    
-    return objnames 
-
-def to_hdf5(data, fn, objname =None, close =True,  **hdf5_kws): 
-    """
-    Store a frame data in hierachical data format 5 (HDF5) 
-    
-    Note that is `d` is a dataframe, make sure that the dependency 'pytables'
-    is already installed, otherwise and error raises. 
-    
-    Parameters 
-    -----------
-    d: ndarray, 
-        data to store in HDF5 format 
-    fn: str, 
-        File path to HDF5 file.
-    objname: str, 
-        name of the data to store 
-    close: bool, default =True 
-        when data is given as an array, data can still be added if 
-        close is set to ``False``, otherwise, users need to open again in 
-        read mode 'r' before pursuing the process of adding. 
-    hdf5_kws: dict of :class:`pandas.pd.HDFStore`  
-        Additional keywords arguments passed to pd.HDFStore. they could be:
         *  mode : {'a', 'w', 'r', 'r+'}, default 'a'
     
              ``'r'``
@@ -454,57 +627,90 @@ def to_hdf5(data, fn, objname =None, close =True,  **hdf5_kws):
          * fletcher32 : bool, default False
              If applying compression use the fletcher32 checksum.
     Returns
-    ------- 
-    store : Dict-like IO interface for storing pandas objects.
-    
-    Examples 
-    ------------
-    >>> import os 
-    >>> from gofast.core.utils import sanitize_frame_cols
-    >>> from gofast.utils.ioutils import  to_hdf5 
-    >>> from gofast.core.io import read_data 
-    >>> data = read_data('data/boreholes/H502.xlsx') 
-    >>> sanitize_frame_cols (data, fill_pattern='_', inplace =True ) 
-    >>> store_path = os.path.join('gofast/datasets/data', 'h') # 'h' is the name of the data 
-    >>> store = to_hdf5 (data, fn =store_path , objname ='h502' ) 
-    >>> store 
-    ... 
-    >>> # fetch the data 
-    >>> h502 = store ['h502'] 
-    >>> h502.columns[:3] 
-    ... Index(['hole_number', 'depth_top', 'depth_bottom'], dtype='object')
+    -------
+    store : object
+        An IO interface for the stored data. For DataFrames, this is a
+        ``pd.HDFStore`` object; for arrays, an ``h5py.File`` object.
 
+    Examples
+    --------
+    >>> import os
+    >>> import pandas as pd
+    >>> from gofast.utils.io_utils import to_hdf5
+    >>> data = pd.DataFrame({
+    ...     'a': [1, 2, 3],
+    ...     'b': [4, 5, 6]
+    ... })
+    >>> save_path = os.path.join('output', 'datafile')
+    >>> store = to_hdf5(data, fn=save_path, objname='mydata', verbose=1)
+    >>> # Access stored data:
+    >>> retrieved = store['mydata']
+    >>> print(retrieved.head())
+
+    Notes
+    -----
+    - Ensure the dependency ``pytables`` is installed when serializing a
+      DataFrame. If not, an error will be raised.
+    - When serializing NumPy arrays, the dataset is created with the name
+      ``"dataset_01"``.
+    - If ``close`` is set to ``False``, the caller is responsible for
+      closing the store.
+
+    See Also
+    --------
+    joblib.dump : For serializing objects using Joblib.
+    pickle.dump : For serializing objects using Pickle.
+    h5py.File   : For working with HDF5 files in Python.
+
+    References
+    ----------
+    .. [1] McKinney, W. (2010). "Data Structures for Statistical Computing
+           in Python". Proceedings of the 9th Python in Science Conference.
+    .. [2] Van der Walt, S., Colbert, S. C., & Varoquaux, G. (2011).
+           "The NumPy Array: A Structure for Efficient Numerical
+           Computation". Computing in Science & Engineering, 13(2), 22-30.
     """
-    store =None 
-    if ( 
-        not isinstance (data, np.ndarray) 
-        or not hasattr (data, pd.DataFrame)
-        ) : 
-        raise TypeError ("Expect an array or dataframe,"
-                         f" not {type (data).__name__!r}")
-        
-    if isinstance(data, pd.DataFrame): 
-        # assert whether pytables is installed 
-        import_optional_dependency('tables') 
+
+    # Validate that data is either a NumPy array or a pandas DataFrame.
+    if not (isinstance(data, np.ndarray) or isinstance(data, pd.DataFrame)):
+        raise TypeError(
+            f"Expect a numpy array or pandas DataFrame, not "
+            f"{type(data).__name__!r}"
+        )
+
+    # Remove any existing HDF5 file extension from the provided filename.
+    fn = str(fn).replace('.h5', "").replace('.hdf5', "")
+
+    store = None
+    if isinstance(data, pd.DataFrame):
+        # Ensure the dependency 'pytables' is installed.
+        import_optional_dependency('tables')
+        # Create an HDFStore with a .h5 extension.
         # remove extension if exist.
         fn = str(fn).replace ('.h5', "").replace(".hdf5", "")
-        # then store. 
-        store = pd.HDFStore(fn +'.h5' ,  **hdf5_kws)
+        store = pd.HDFStore(fn + '.h5', **hdf5_kws)
+        # Use the provided objname or default to 'data'.
         objname = objname or 'data'
-        store[ str(objname) ] = data
+        store[str(objname)] = data
+    else:
+        # Convert data to a NumPy array (if not already).
+        data = np.asarray(data)
 
-    else: 
-        data = np.asarray(data) 
-        store= h5py.File(f"{fn}.hdf5", "w") 
-        store.create_dataset("dataset_01", store.shape, 
-                             dtype=store.dtype,
-                             data=store
-                             )
-    if close :
-        store.close () 
+        # Create an HDF5 file with a .hdf5 extension.
+        store = h5py.File(f"{fn}.hdf5", "w")
+        # Create a dataset named "dataset_01" with the array data.
+        store.create_dataset(
+            "dataset_01",
+            data.shape,
+            dtype=data.dtype,
+            data=data
+        )
+    # Optionally close the store.
+    if close:
+        store.close()
 
-    return store 
-    
+    return store
+
 def store_or_write_hdf5 (
     df,  
     key:str= None, 
@@ -602,7 +808,7 @@ def store_or_write_hdf5 (
   
     Examples
     --------
-    >>> from gofast.utils.ioutils import store_or_write_hdf5
+    >>> from gofast.utils.io_utils import store_or_write_hdf5
     >>> from gofast.datasets import load_bagoue 
     >>> data = load_bagoue().frame 
     >>> data.geol[:5]
@@ -749,7 +955,7 @@ def key_checker (
     Examples
     --------
     
-    >>> from gofast.utils.ioutils import key_checker
+    >>> from gofast.utils.io_utils import key_checker
     >>> key_checker('h502', valid_keys= ['h502', 'h253','h2601'])  
     Out[68]: 'h502'
     >>> key_checker('h502+h2601', valid_keys= ['h502', 'h253','h2601'])
@@ -860,7 +1066,7 @@ def key_search (
 
     Examples
     ---------
-    >>> from gofast.utils.ioutils import key_search 
+    >>> from gofast.utils.io_utils import key_search 
     >>> key_search('h502-hh2601', default_keys= ['h502', 'h253','HH2601'])
     Out[44]: ['h502']
     >>> key_search('h502-hh2601', default_keys= ['h502', 'h253','HH2601'], 
@@ -927,43 +1133,129 @@ def key_search (
     return None if len(valid_keys)==0 else valid_keys 
 
 
-def serialize_data2(
+def serialize_data_in(
     data,
     filename: str = None,
     force: bool = True,
     savepath: str = None,
     verbose: int = 0
 ) -> str:
-    """
-    Serializes data to a binary file using joblib or pickle.
+    r"""
+    Serializes a Python object to a binary file using either joblib 
+    or pickle.
+
+    This function attempts to serialize the input `data` using the 
+    ``joblib.dump`` method. If this attempt fails, it falls back 
+    to using ``pickle.dump``. The final file path is constructed 
+    by concatenating the directory specified by ``savepath`` (or the 
+    current working directory if ``savepath`` is None) with the 
+    given ``filename``. Mathematically, the file path is given by:
+
+    .. math::
+       \text{filepath} = \text{savepath} \oplus \text{filename}
+
+    where :math:`\oplus` denotes string concatenation.
 
     Parameters
     ----------
-    data : Any
-        The data object to serialize.
-    filename : str, optional
-        Filename for the serialized data. If None, a filename with timestamp 
-        is generated.
-    force : bool, default=True
-        If True, overwrites existing files. If False, creates a unique file 
-        by appending the timestamp.
-    savepath : str, optional
-        Directory in which to save the file. If not specified, saves to 
-        the current working directory.
-    verbose : int, default=0
-        Controls verbosity of output messages.
+    data: Any
+        The Python object to serialize. It must be compatible with 
+        either ``joblib`` or ``pickle`` serialization.
+    filename     : str, optional
+        The target filename for the serialized data. If ``None``, a 
+        filename is generated using the current timestamp formatted as 
+        ``"%Y%m%d%H%M%S"`` (e.g., ``"serialized_20230315123045.pkl"``).
+    force        : bool, default=True
+        Determines whether to overwrite an existing file with the same 
+        filename. If ``False``, a timestamp is appended to the filename 
+        to ensure uniqueness.
+    savepath     : str, optional
+        The directory in which to save the serialized file. If not 
+        specified, the file is saved to the current working directory 
+        (``os.getcwd()``).
+    verbose      : int, default=0
+        Controls the verbosity of output messages. Higher values 
+        produce more detailed logging during the serialization process.
 
     Returns
     -------
     str
-        The path to the serialized file.
+        The complete file path to which the data has been serialized.
 
     Examples
     --------
-    >>> data = [1, 2, 3]
-    >>> serialize_data(data, filename='data.pkl', force=True)
-    'path/to/data.pkl'
+    >>> from gofast.utils.io_utils import serialize_data_in
+    >>> data = {"a": 1, "b": 2}
+    >>> filepath = serialize_data_in(data, filename='data.pkl', 
+    ...                              force=True, verbose=1)
+    >>> print(filepath)
+    /path/to/current/directory/data.pkl
+
+    Notes
+    -----
+    The function first tries to serialize the input `data` using 
+    ``joblib.dump``. In case of any exception during this attempt, it 
+    falls back to using ``pickle.dump``. This dual approach improves 
+    robustness in diverse runtime environments where one serialization 
+    method might be unsupported or encounter issues with the given data 
+    type.
+
+    See Also
+    --------
+    joblib.dump : Serialize objects to disk using Joblib.
+    pickle.dump : Serialize objects to disk using Pickle.
+    os.getcwd    : Retrieve the current working directory.
+
+    References
+    ----------
+    .. [1] McKinney, W. (2010). "Data Structures for Statistical Computing
+           in Python". Proceedings of the 9th Python in Science Conference.
+    .. [2] Van der Walt, S., Colbert, S. C., & Varoquaux, G. (2011).
+           "The NumPy Array: A Structure for Efficient Numerical
+           Computation". Computing in Science & Engineering, 13(2), 22-30.
     """
+    # Determine the filename: if not provided, generate one using a timestamp.
+    if filename is None:
+        filename = (
+            f"serialized_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.pkl"
+        )
+
+    # Determine the save directory (default is current working directory)
+    directory = savepath if savepath is not None else os.getcwd()
+    filepath  = os.path.join(directory, filename)
+
+    # If the file exists and force is False, modify the filename to ensure uniqueness.
+    if os.path.exists(filepath) and not force:
+        timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+        if filename.endswith('.pkl'):
+            filename = filename.replace('.pkl', f"_{timestamp}.pkl")
+        else:
+            filename = f"{filename}_{timestamp}.pkl"
+        filepath = os.path.join(directory, filename)
+
+    # Attempt to serialize the data using joblib.dump.
+    try:
+        joblib.dump(data, filepath)
+        if verbose > 0:
+            print(f"[INFO] Data serialized to {filepath} using joblib.")
+    except Exception as e:
+        if verbose > 0:
+            print(
+                f"[WARN] joblib.dump failed with error: {e}. "
+                "Falling back to pickle.dump..."
+            )
+        try:
+            with open(filepath, 'wb') as f:
+                pickle.dump(data, f)
+            if verbose > 0:
+                print(f"[INFO] Data serialized to {filepath} using pickle.")
+        except Exception as e2:
+            raise RuntimeError(
+                f"Serialization failed using both joblib and pickle: {e2}"
+            ) from e2
+
+    return filepath
+
     if filename is None:
         filename = f"serialized_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.pkl"
     
@@ -1010,7 +1302,6 @@ def save_path(nameOfPath: str) -> str:
     os.makedirs(path, exist_ok=True)
     return path
 
-
 def sanitize_unicode_string(str_: str) -> str:
     """
     Removes spaces and replaces accented characters in a string.
@@ -1027,7 +1318,7 @@ def sanitize_unicode_string(str_: str) -> str:
 
     Examples
     --------
-    >>> from gofast.utils.ioutils import sanitize_unicode_string 
+    >>> from gofast.utils.io_utils import sanitize_unicode_string 
     >>> sentence ='Nos clients sont extrêmement satisfaits '
         'de la qualité du service fourni. En outre Nos clients '
             'rachètent frequemment nos "services".'
@@ -1094,7 +1385,6 @@ def parse_md(pf: str, delimiter: str = ':'):
         en = en[0].upper() + en[1:]
         
         yield fr, en
-
 
 def dummy_csv_translator(
         csv_fn: str, pf: str, delimiter: str = ':',
@@ -1411,7 +1701,7 @@ def cpath(savepath: str = None, dpath: str = '_default_path_') -> str:
 
     Examples
     --------
-    >>> from gofast.utils.ioutils import cpath
+    >>> from gofast.utils.io_utils import cpath
     >>> default_path = cpath()
     >>> print(f"Files will be saved to: {default_path}")
 
@@ -1459,7 +1749,7 @@ def spath(name_of_path: str) -> str:
 
     Examples
     --------
-    >>> from gofast.utils.ioutils import spath
+    >>> from gofast.utils.io_utils import spath
     >>> path = spath('data/saved_models')
     >>> print(f"Directory available at: {path}")
 
@@ -1508,7 +1798,7 @@ def load_serialized_data(
 
     Examples
     --------
-    >>> from gofast.utils.ioutils import load_serialized_data
+    >>> from gofast.utils.io_utils import load_serialized_data
     >>> data = load_serialized_data('data/my_data.pkl', verbose=3)
 
     Notes
@@ -1627,7 +1917,7 @@ def save_job(
 
     Examples
     --------
-    >>> from gofast.utils.ioutils import save_job
+    >>> from gofast.utils.io_utils import save_job
     >>> model = {"key": "value"}  # Replace with actual model object
     >>> savefile = save_job(model, "my_model", append_date=True, append_versions=True)
     >>> print(savefile)
@@ -1727,7 +2017,7 @@ def move_cfile(
 
     Examples
     --------
-    >>> from gofast.utils.ioutils import move_cfile
+    >>> from gofast.utils.io_utils import move_cfile
     >>> new_path, msg = move_cfile('myfile.txt', 'new_directory')
     >>> print(new_path, msg)
 
@@ -1768,7 +2058,7 @@ def print_cmsg(
 
     Examples
     --------
-    >>> from gofast.utils.ioutils import print_cmsg
+    >>> from gofast.utils.io_utils import print_cmsg
     >>> msg = print_cmsg('config.yml', 'dump')
     >>> print(msg)
     --> YAML 'config.yml' data was successfully saved.
@@ -1836,7 +2126,7 @@ def parse_csv(
 
     Examples
     --------
-    >>> from gofast.utils.ioutils import parse_csv
+    >>> from gofast.utils.io_utils import parse_csv
     >>> data = [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]
     >>> parse_csv(csv_fn='output.csv', data=data, todo='dictwriter', fieldnames=['name', 'age'])
     >>> loaded_data = parse_csv(csv_fn='output.csv', todo='dictreader', fieldnames=['name', 'age'])
@@ -2256,7 +2546,7 @@ def deserialize_data(filename: str, verbose: int = 0) -> Any:
 
     Examples
     --------
-    >>> from gofast.utils.ioutils import deserialize_data
+    >>> from gofast.utils.io_utils import deserialize_data
     >>> data = deserialize_data('path/to/serialized_data.pkl', verbose=1)
     Data loaded successfully from 'path/to/serialized_data.pkl' using joblib.
 
@@ -2312,77 +2602,174 @@ def serialize_data(
     filename: Optional[str] = None,
     savepath: Optional[str] = None,
     to: Optional[str] = None,
+    force: bool = True,
+    compress: Optional[Union[int, str]] = None,
+    pickle_protocol: int = pickle.HIGHEST_PROTOCOL,
     verbose: int = 0
 ) -> str:
-    """
-    Serialize and save data to a binary file using either `joblib` or `pickle`.
+    r"""
+    Serialize and save a Python object to a binary file using either
+    ``joblib`` or ``pickle``. This function is designed to be robust
+    and versatile, handling multiple cases including file naming,
+    overwriting behavior, and compression options.
+
+    The final file path is computed as:
+
+    .. math::
+       \text{filepath} = \text{savepath} \oplus \text{filename}
+
+    where :math:`\oplus` denotes string concatenation.
 
     Parameters
     ----------
-    data : Any
-        The object to be serialized and saved.
-    filename : str, optional
-        The filename for saving. If None, a timestamped name is generated.
-    savepath : str, optional
-        Directory for saving the file. Created if it does not exist.
-    to : str, optional
-        The serialization method: 'joblib' or 'pickle'. Default is 'joblib'.
-    verbose : int, optional
-        Verbosity level. Set higher for more detailed output.
+    data          : Any
+        The Python object to serialize. The object must be compatible
+        with either ``joblib.dump`` or ``pickle.dump``.
+    filename      : str, optional
+        The target filename for the serialized data. If ``None``, a
+        filename is generated using the current timestamp, e.g.,
+        ``"__mydumpedfile_20230315_123045.pkl"``.
+    savepath      : str, optional
+        The directory in which to save the file. If not specified, the
+        current working directory (``os.getcwd()``) is used. The directory
+        is created if it does not exist.
+    to           : str, optional
+        The serialization method to use. Acceptable values are
+        ``'joblib'`` and ``'pickle'``. If ``None``, the default is
+        ``'joblib'``.
+    force         : bool, default=True
+        If ``True``, any existing file with the same name is overwritten.
+        If ``False``, a timestamp is appended to the filename to ensure
+        uniqueness.
+    compress      : int or str, optional
+        Compression level or method for ``joblib.dump``. If ``None``,
+        no compression is applied.
+    pickle_protocol : int, default=pickle.HIGHEST_PROTOCOL
+        The pickle protocol to use when serializing with ``pickle.dump``.
+    verbose       : int, default=0
+        Controls the verbosity of output messages. Higher values produce
+        more detailed logging during the serialization process.
 
     Returns
     -------
     str
-        Full path to the saved serialized file.
-
-    Raises
-    ------
-    ValueError
-        If `to` is not 'joblib', 'pickle', or None.
-    TypeError
-        If `to` is not a string.
+        The full path to the saved serialized file.
 
     Examples
     --------
-    >>> from gofast.utils.ioutils import serialize_data
+    >>> from gofast.utils.io_utils import serialize_data
     >>> import numpy as np
-    >>> data = (np.array([0, 1, 3]), np.array([0.2, 4]))
-    >>> filename = serialize_data(data, filename='__XTyT.pkl', to='pickle',
-    ...                           savepath='gofast/datasets')
+    >>> data = {"a": np.arange(10), "b": np.random.rand(10)}
+    >>> filepath = serialize_data(
+    ...     data, filename="mydata.pkl", savepath="output", 
+    ...     to="pickle", force=False, verbose=1
+    ... )
+    >>> print(filepath)
+    /current/working/directory/output/mydata_<timestamp>.pkl
+
+    Notes
+    -----
+    The function first constructs the file path from ``savepath`` and
+    ``filename``. If a file already exists and ``force`` is False, a
+    timestamp is appended to ensure uniqueness. Then, depending on the
+    value of ``to``, the function attempts to serialize the data using
+    either ``joblib.dump`` (with optional compression via the ``compress``
+    parameter) or ``pickle.dump`` (using the specified ``pickle_protocol``).
+    If an error occurs during serialization, an ``IOError`` is raised.
+
+    See Also
+    --------
+    joblib.dump : Serialize objects to disk using Joblib.
+    pickle.dump : Serialize objects to disk using Pickle.
+    os.getcwd    : Retrieve the current working directory.
+
+    References
+    ----------
+    .. [1] McKinney, W. (2010). "Data Structures for Statistical Computing
+           in Python". Proceedings of the 9th Python in Science Conference.
+    .. [2] Van der Walt, S., Colbert, S. C., & Varoquaux, G. (2011).
+           "The NumPy Array: A Structure for Efficient Numerical
+           Computation". Computing in Science & Engineering, 13(2), 22-30.
     """
+
+    # Set default serialization method to joblib if not provided.
+    if to is None:
+        to = "joblib"
+    else:
+        if not isinstance(to, str):
+            raise TypeError(
+                f"Serialization method `to` must be a string, not "
+                f"{type(to)}."
+            )
+        to = to.lower()
+        if to not in ("joblib", "pickle"):
+            raise ValueError(
+                "Unknown serialization method `to`. Must be "
+                "'joblib' or 'pickle'."
+            )
+
+    # Generate filename using timestamp if not provided.
     if filename is None:
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"__mydumpedfile_{timestamp}.pkl"
 
-    if to:
-        if not isinstance(to, str):
-            raise TypeError(f"Serialization method 'to' must be a string, not {type(to)}.")
-        to = to.lower()
-        if to not in ('joblib', 'pickle'):
-            raise ValueError("Unknown serialization method 'to'. Must be 'joblib' or 'pickle'.")
+    # Ensure filename ends with .pkl
+    if not filename.endswith(".pkl"):
+        filename += ".pkl"
 
-    if not filename.endswith('.pkl'):
-        filename += '.pkl'
-    
-    full_path = os.path.join(savepath, filename) if savepath else filename
-    
-    if savepath and not os.path.exists(savepath):
-        os.makedirs(savepath)
-    
+    # Determine full save directory.
+    directory = savepath if savepath is not None else os.getcwd()
+    if not os.path.exists(directory):
+        try:
+            os.makedirs(directory)
+            if verbose:
+                print(f"[INFO] Created directory: {directory}")
+        except Exception as e:
+            raise IOError(
+                f"Failed to create directory '{directory}': {e}"
+            ) from e
+
+    full_path = os.path.join(directory, filename)
+
+    # If file exists and force is False, append a timestamp.
+    if os.path.exists(full_path) and not force:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        if filename.endswith(".pkl"):
+            filename = filename.replace(
+                ".pkl", f"_{timestamp}.pkl"
+            )
+        else:
+            filename = f"{filename}_{timestamp}.pkl"
+        full_path = os.path.join(directory, filename)
+        if verbose:
+            print(
+                f"[INFO] File exists. New filename generated: {filename}"
+            )
+
+    # Attempt serialization using the specified method.
     try:
-        if to == 'pickle' or to is None:
-            with open(full_path, 'wb') as file:
-                pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
+        if to == "joblib":
+            joblib.dump(data, full_path, compress=compress)
             if verbose:
-                print(f"Data serialized using pickle and saved to {full_path!r}.")
-        elif to == 'joblib':
-            joblib.dump(data, full_path)
+                print(
+                    f"[INFO] Data serialized using joblib and saved to "
+                    f"{full_path!r}."
+                )
+        elif to == "pickle":
+            with open(full_path, "wb") as file:
+                pickle.dump(data, file, protocol=pickle_protocol)
             if verbose:
-                print(f"Data serialized using joblib and saved to {full_path!r}.")
+                print(
+                    f"[INFO] Data serialized using pickle and saved to "
+                    f"{full_path!r}."
+                )
     except Exception as e:
-        raise IOError(f"An error occurred during data serialization: {e}")
-    
+        raise IOError(
+            f"An error occurred during data serialization: {e}"
+        ) from e
+
     return full_path
+
 
 def fetch_tgz_from_url(
     data_url: str,
@@ -2428,7 +2815,7 @@ def fetch_tgz_from_url(
 
     Examples
     --------
-    >>> from gofast.utils.ioutils import fetch_tgz_from_url
+    >>> from gofast.utils.io_utils import fetch_tgz_from_url
     >>> data_url = 'https://example.com/data.tar.gz'
     >>> extracted_file = fetch_tgz_from_url(
     ...     data_url, 'data.tar.gz', data_path='data_dir', file_to_retrieve='file.csv')
@@ -2497,7 +2884,7 @@ def fetch_tgz_locally(
 
     Examples
     --------
-    >>> from gofast.utils.ioutils import fetch_tgz_locally
+    >>> from gofast.utils.io_utils import fetch_tgz_locally
     >>> fetched_file = fetch_tgz_locally(
     ...     'path/to/archive.tgz', 'file.csv', savefile='extracted', rename_outfile='renamed.csv')
     >>> print(fetched_file)
@@ -2546,7 +2933,7 @@ def extract_tar_with_progress(
 
     Examples
     --------
-    >>> from gofast.utils.ioutils import extract_tar_with_progress
+    >>> from gofast.utils.io_utils import extract_tar_with_progress
     >>> with tarfile.open('data.tar.gz', 'r:gz') as tar:
     ...     member = tar.getmember('file.csv')
     ...     extract_tar_with_progress(tar, member, Path('output_dir'))
@@ -2640,7 +3027,7 @@ def load_csv(
 
     To load this file into a DataFrame:
 
-    >>> from gofast.utils.ioutils import load_csv
+    >>> from gofast.utils.io_utils import load_csv
     >>> df = load_csv('example.csv')
     >>> print(df)
          name  age         city
@@ -2716,7 +3103,7 @@ def get_valid_key(input_key, default_key, substitute_key_dict=None,
     
     Example
     -------
-    >>> from gofast.utils.ioutils import get_valid_key
+    >>> from gofast.utils.io_utils import get_valid_key
     >>> substitute_key_dict = {'valid_key1': ['vk1', 'key1'], 'valid_key2': ['vk2', 'key2']}
     >>> get_valid_key('vk1', 'default_key', substitute_key_dict)
     'valid_key1'
@@ -2741,7 +3128,7 @@ def get_valid_key(input_key, default_key, substitute_key_dict=None,
     
     regex = re.compile (fr'{regex_pattern}', flags=re.IGNORECASE)
     # use valid keys  only if substitute_key_dict not provided. 
-    valid_keys = substitute_key_dict.keys() if substitute_key_dict else to_iterable(
+    valid_keys = substitute_key_dict.keys() if substitute_key_dict else is_iterable(
             default_key, exclude_string=True, transform=True)
     valid_keys = set (list(valid_keys) + [default_key])
     # Further validate the (possibly substituted) input_key

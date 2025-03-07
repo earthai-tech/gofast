@@ -11,6 +11,7 @@ inputs and creating input sequences with corresponding targets for time series
 forecasting.
 
 """
+
 import time
 import datetime 
 from numbers import Integral, Real 
@@ -32,8 +33,15 @@ from ..core.checks import (
     check_empty,
     assert_ratio,
     check_datetime,
+    is_in_if , 
+    check_non_emptiness 
     )
-from ..core.diagnose_q import check_forecast_mode 
+from ..core.diagnose_q import ( 
+    check_forecast_mode, 
+    validate_quantiles, 
+    validate_consistency_q
+)
+from ..core.generic import get_actual_column_name
 from ..core.handlers import TypeEnforcer, columns_manager 
 from ..core.io import is_data_readable 
 from ..compat.sklearn import ( 
@@ -78,6 +86,7 @@ __all__ = [
     "visualize_forecasts", 
     "forecast_multi_step", 
     "forecast_single_step", 
+    "step_to_long", 
     
    ]
 
@@ -2532,7 +2541,8 @@ def generate_forecast(
         used.
     test_data : pandas.DataFrame, optional
         DataFrame containing actual values used for evaluation. If 
-        provided, it is used to compute the R² and coverage score.
+        provided, it is used to compute the R² and coverage score for 
+        ``mode='quantile'``.
     mode : str, optional
         Forecast mode. Must be either ``"quantile"`` or ``"point"``. In 
         ``quantile`` mode, predictions for multiple quantiles (default: 
@@ -3102,7 +3112,7 @@ def generate_forecast(
             loc_str = (tuple(loc.values())
                        if spatial_cols else "global")
             print(
-                "XXX Error predicting for {}: {}"
+                "[ERROR] Error predicting for {}: {}"
                 .format(loc_str, str(e))
             )
             continue
@@ -3207,7 +3217,6 @@ def generate_forecast(
     
     build_time = time.time() - start_time  # Calculate elapsed time
     
-    #######################
     if verbose >= 1:
         if len(forecast_results) >= chunk_size:
             print(
@@ -3320,7 +3329,7 @@ def generate_forecast(
             )
         except Exception as e:
             print(
-                "XXX Error computing R² Score: {}"
+                "[ERROR] Error computing R² Score: {}"
                 .format(str(e))
             )
 
@@ -3343,28 +3352,32 @@ def generate_forecast(
                 )
             except Exception as e:
                 print(
-                    "XXX Error computing Coverage Score: {}"
+                    "[ERROR] Error computing Coverage Score: {}"
                     .format(str(e))
                 )
 
     return forecast_df
 
+@check_non_emptiness
 def visualize_forecasts(
     forecast_df,
     dt_col,
     tname,
-    test_data=None, 
-    eval_period=None,      
+    test_data=None,
+    eval_periods=None,      
     mode="quantile",       
-    kind="spatial",        
+    kind="spatial", 
+    actual_name=None,        
     x=None,                
     y=None,                
     cmap="coolwarm",       
     max_cols=3, 
     axis="on",  
+    s=2, 
     show_grid=True,
     grid_props=None,           
     verbose=1,
+    **kw
 ):
     r"""
     Visualize forecast results and actual test data for one or more
@@ -3397,7 +3410,7 @@ def visualize_forecasts(
         ``"subsidence"``). This argument is required.
         
         
-    eval_period : scalar or list, optional
+    eval_periods : scalar or list, optional
         Evaluation period(s) used to select forecast results. If set to
         ``None``, the function selects up to three unique periods from
         ``test_data[dt_col]``.
@@ -3456,12 +3469,12 @@ def visualize_forecasts(
     >>>     'subsidence': [0.35, 0.41, 0.49],
     >>>     'date': ['2023-01-01', '2023-01-02', '2023-01-03']
     >>> })
-    >>> forecast_df_quantile = visualize_forecasts(
+    >>> visualize_forecasts(
     >>>     forecast_df=forecast_results,
     >>>     test_data=test_data,
     >>>     dt_col="date",
     >>>     tname="subsidence",
-    >>>     eval_period=[2023, 2024],
+    >>>     eval_periods=[2023, 2024],
     >>>     mode="quantile",
     >>>     kind="spatial",
     >>>     cmap="coolwarm",
@@ -3495,7 +3508,7 @@ def visualize_forecasts(
     >>>     test_data=test_data,
     >>>     dt_col="date",
     >>>     tname="subsidence",
-    >>>     eval_period=[2023],
+    >>>     eval_periods=[2023],
     >>>     mode="point",
     >>>     kind="non-spatial",
     >>>     x="longitude",
@@ -3538,7 +3551,14 @@ def visualize_forecasts(
         objname="Forecast data", 
         error="raise"
     )
-
+    if eval_periods is None:
+        unique_periods = sorted(forecast_df[dt_col].unique())
+        if verbose:
+            print("No eval_period provided; using up to three unique " +
+                  "periods from forecast data.")
+        eval_periods = unique_periods[:3]
+    
+    eval_periods = columns_manager(eval_periods, to_string=True )
     # Check if test_data is provided, else set it to None
     if test_data is not None: 
         is_frame (
@@ -3547,21 +3567,14 @@ def visualize_forecasts(
             objname="Test data", 
             error="raise"
         )
-        test_data =filter_by_period (test_data, eval_period, dt_col)
-   
-    # Determine evaluation periods
-    forecast_df =filter_by_period (forecast_df, eval_period, dt_col)
-    
-    if eval_period is None:
-        unique_periods = sorted(forecast_df[dt_col].unique())
-        if verbose:
-            print("No eval_period provided; using up to three unique " +
-                  "periods from forecast data.")
-        eval_periods = unique_periods[:3]
-    elif not isinstance(eval_period, (list, tuple)):
-        eval_periods = [eval_period]
-    else:
-        eval_periods = eval_period
+        # filterby periods ensure Ensure dt_col is in Pandas datetime format
+        test_data =filter_by_period (test_data, eval_periods, dt_col)
+
+    forecast_df =filter_by_period (forecast_df, eval_periods, dt_col)
+ 
+    # Convert eval_periods to Pandas datetime64[ns] format
+    # # Ensure dtype match before filtering
+    eval_periods= forecast_df[dt_col].astype(str).unique()
 
     # Determine x and y columns for spatial or non-spatial visualization
     if kind == "spatial":
@@ -3584,17 +3597,60 @@ def visualize_forecasts(
     else:
         raise ValueError("Mode must be either 'quantile' or 'point'.")
 
+    #XXX  # restore back to origin_dtype before 
+    # print(forecast_df[dt_col])
+    # print(eval_periods)
+    # Loop over evaluation periods and plot
+    df_actual = test_data if test_data is not None else forecast_df 
+    
+    actual_name = get_actual_column_name (
+        df_actual, tname, actual_name=actual_name , 
+        default_to='tname', 
+    )
+    
+    # Compute global min-max for color scale
+    # for all plot.
+    vmin = forecast_df[pred_col].min()
+    vmax = forecast_df[pred_col].max()
+    
+    if test_data is not None and actual_name in test_data.columns:
+        vmin = min(vmin, test_data[actual_name].min())
+        vmax = max(vmax, test_data[actual_name].max())
+
+    # Determine common periods in both forecast_df and test_data (if available)
+    if test_data is not None: 
+        available_periods = is_in_if (
+            forecast_df[dt_col].astype(str).unique(), 
+            test_data[dt_col].astype(str).unique(), 
+            return_intersect=True, 
+            )
+        # available_periods = sorted(set(forecast_df[dt_col]) & set(test_data[dt_col]))
+    else:
+        # sorted(forecast_df[dt_col].astype(str).unique())
+        available_periods = eval_periods 
+    
+    # Ensure the eval_periods only contain periods available in the data
+    eval_periods = [p for p in eval_periods if p in available_periods]
+    
+    if len(eval_periods) == 0:
+        raise ValueError(
+            "[ERROR] No valid evaluation periods found in forecast or test data.")
+    
+    # Compute subplot grid dimensions
     n_periods = len(eval_periods)
     n_cols = min(n_periods, max_cols)
     n_rows = int(np.ceil(n_periods / max_cols))
-    total_rows = n_rows * 2  # Two rows per evaluation period.
-
-    # Create grid of subplots
+    
+    # Two rows per evaluation period if 
+    # test_data is passed or is not empty 
+    total_rows = n_rows * 2  if test_data is not None else n_rows 
+    
+    # Create subplot grid
     fig, axes = plt.subplots(
         total_rows, n_cols, figsize=(5 * n_cols, 4 * total_rows)
     )
-
-    # Ensure axes is a 2D array
+    
+    # Ensure `axes` is a 2D array for consistent indexing
     if total_rows == 1 and n_cols == 1:
         axes = np.array([[axes]])
     elif total_rows == 1:
@@ -3602,57 +3658,70 @@ def visualize_forecasts(
     elif n_cols == 1:
         axes = axes.reshape(total_rows, 1)
 
-    # Loop over evaluation periods and plot
+
     for idx, period in enumerate(eval_periods):
+        # Try to reconvert 
         col_idx = idx % n_cols
-        row_idx = (idx // n_cols) * 2
+        row_idx = (idx // n_cols) * 2 if test_data is not None else (idx // n_cols)
 
         # Filter data for the current period using 'isin' for robustness
         forecast_subset = forecast_df[forecast_df[dt_col].isin([period])]
         
         if test_data is not None:
             test_subset = test_data[test_data[dt_col].isin([period])]
+            # test_subset =filter_by_period (test_data, period, dt_col)
         else:
             test_subset = forecast_subset  # If no test_data, use forecast_df itself
-
+        
         if forecast_subset.empty or test_subset.empty:
             if verbose:
-                print(f"Warning: No data for period {period}; skipping.")
+                print(f"[WARNING] No data for period {period}; skipping.")
             continue
-
+        
         # Plot actual values
-        ax_actual = axes[row_idx, col_idx]
-        sc_actual = ax_actual.scatter(
-            test_subset[x.name],
-            test_subset[y.name],
-            c=test_subset[tname],
-            cmap=cmap,
-            alpha=0.7,
-            edgecolors='k'
-        )
-        ax_actual.set_title(f"Actual {tname.capitalize()} ({period})")
-        ax_actual.set_xlabel(x.name.capitalize())
-        ax_actual.set_ylabel(y.name.capitalize())
-        if axis == "off": 
-            ax_actual.set_axis_off()
-        else: 
-            ax_actual.set_axis_on()
-
-        fig.colorbar(sc_actual, ax=ax_actual, label=tname.capitalize())
-        if show_grid: 
-            if grid_props is None: 
-                grid_props = {"linestyle": ":", 'alpha': 0.7}
-            ax_actual.grid(True, **grid_props)
+        if test_data is not None: 
+            ax_actual = axes[row_idx, col_idx]
+            sc_actual = ax_actual.scatter(
+                test_subset[x.name],
+                test_subset[y.name],
+                c=test_subset[actual_name],
+                cmap=cmap,
+                alpha=0.7,
+                edgecolors='k', 
+                s=s, 
+                vmin=vmin,  
+                vmax=vmax,  
+                **kw
+            )
+            ax_actual.set_title(f"Actual {tname.capitalize()} ({period})")
+            ax_actual.set_xlabel(x.name.capitalize())
+            ax_actual.set_ylabel(y.name.capitalize())
+            if axis == "off": 
+                ax_actual.set_axis_off()
+            else: 
+                ax_actual.set_axis_on()
+    
+            fig.colorbar(sc_actual, ax=ax_actual, label=tname.capitalize())
+            if show_grid: 
+                if grid_props is None: 
+                    grid_props = {"linestyle": ":", 'alpha': 0.7}
+                ax_actual.grid(True, **grid_props)
 
         # Plot predicted values
-        ax_pred = axes[row_idx + 1, col_idx]
+        ax_pred = axes[row_idx + 1, col_idx
+                       ] if test_data is not None else axes[row_idx, col_idx]
+        # ax_pred = axes[row_idx + 1, col_idx]
         sc_pred = ax_pred.scatter(
             forecast_subset[x.name],
             forecast_subset[y.name],
             c=forecast_subset[pred_col],
             cmap=cmap,
             alpha=0.7,
-            edgecolors='k'
+            edgecolors='k',
+            s=s, 
+            vmin=vmin,  # Apply global min
+            vmax=vmax,  # Apply global max
+            **kw
         )
         ax_pred.set_title(f"{pred_label} ({period})")
         ax_pred.set_xlabel(x.name.capitalize())
@@ -3671,7 +3740,6 @@ def visualize_forecasts(
 
     plt.tight_layout()
     plt.show()
-
 
 def forecast_single_step(
     xtft_model,
@@ -3925,7 +3993,7 @@ def forecast_single_step(
         ]
         # [X_static, X_dynamic, X_future
         #  ]
-        )
+    )
 
     pred_df = pd.DataFrame()
 
@@ -3947,7 +4015,7 @@ def forecast_single_step(
     # Assign prediction columns based on mode.
     if mode == "quantile":
         for i, quantile in enumerate(q):
-            col_name = f"{tname}_q{int(quantile * 100)}"
+            col_name = f"{tname}_q{int(round(quantile * 100))}"
             pred_df[col_name] = y_pred[:, 0, i]
         eval_pred = pred_df[f"{tname}_q50"].values
     elif mode == "point":
@@ -3969,7 +4037,7 @@ def forecast_single_step(
         if mode == "quantile":
             mask_cols=[] 
             for quantile in q:
-                mask_cols.append (f"{tname}_q{int(quantile * 100)}")
+                mask_cols.append (f"{tname}_q{int(round(quantile * 100))}")
   
         else:
             mask_cols = [f"{tname}_pred"]
@@ -4003,8 +4071,8 @@ def forecast_single_step(
         if verbose >= 1:
             print(f"XTFT Model R² Score: {r2:.4f}")
         if mode == "quantile":
-            lower_col = f"{tname}_q{int(q[0]*100)}"
-            upper_col = f"{tname}_q{int(q[-1]*100)}"
+            lower_col = f"{tname}_q{int(round(q[0]*100))}"
+            upper_col = f"{tname}_q{int(round(q[-1]*100))}"
             cov = coverage_score(
                 y_true=y.flatten(),
                 y_lower=pred_df[lower_col],
@@ -4313,10 +4381,15 @@ def forecast_multi_step(
         print("\nGenerating multi-step forecast in mode:", mode)
 
     # Set default quantiles for quantile mode.
-    q=check_forecast_mode(mode, q, error="warn", ops="validate")
+    if q is None:
+        q = [0.1, 0.5, 0.9]
+        
+    q=check_forecast_mode(
+        mode, q, error="warn", ops="validate", 
+        round_digits=2, 
+        dtype = np.float64 
+    )
     if mode == "quantile":
-        if q is None:
-            q = [0.1, 0.5, 0.9]
         q = [assert_ratio(r, bounds=(0, 1), exclude_values=[0, 1],
                           name=f"quantile '{r}'")
              for r in q]
@@ -4340,9 +4413,6 @@ def forecast_multi_step(
         ]
     ).squeeze(-1)
  
-    rows = []
-    n_samples = X_static.shape[0]
-    
     # Determine available forecast steps based on y.
     available_steps = forecast_horizon
     if y is not None:
@@ -4365,10 +4435,14 @@ def forecast_multi_step(
         f"Available forecast steps: {available_steps}.",
         level=1
     )
+
     # Use the BatchDataFrameBuilder context manager
-    # for memory efficient management for large dataframe.
+    # for memory efficient management to deal with large dataframe.
+    row_count = 0
+    n_samples = X_static.shape[0]
+    
     with BatchDataFrameBuilder(
-            chunk_size=100_000,  processor='auto', verbose=verbose
+            chunk_size=50_000,  processor='auto', verbose=verbose
             ) as builder:
         # Loop over each sample and each forecast step.
         for j in range(n_samples):
@@ -4438,12 +4512,21 @@ def forecast_multi_step(
                     )
                 # Add this row to the builder
                 builder.add_row(row)
-                # rows.append(row)
+                # count rows...
+                row_count += 1
+
     vprint(
-        f"[INFO] Finished generating predictions for {len(rows)} rows.", 
+        f"[INFO] Finished generating predictions for {row_count:,} rows.", 
         level=1
     )
-    pred_df = builder.final_df  # pd.DataFrame(rows)
+    pred_df = step_to_long( 
+        df= builder.final_df, # pd.DataFrame(rows)
+        tname =tname, 
+        dt_col=dt_col, 
+        spatial_cols=spatial_cols, 
+        mode=mode, 
+        verbose=verbose
+    )
     # Optionally apply masking.
     if apply_mask:
         if mask_values is None or mask_fill_value is None:
@@ -4456,9 +4539,8 @@ def forecast_multi_step(
         
         if mode == "quantile":
             mask_cols = [
-                f"{tname}_q{int(quant*100)}_step{i+1}"
-                for i in range(forecast_horizon)
-                for quant in [q[0], q[-1]]
+                f"{tname}_q{int(quant*100)}"
+                for quant in q # [q[0], q[-1]]
             ]
         else:
             mask_cols = [
@@ -4546,6 +4628,353 @@ def forecast_multi_step(
     
     return pred_df
 
+def _step_to_long_q(
+    df, 
+    tname: str = None,         # Can be None (auto-detect if possible)
+    spatial_cols: list = None,  # Defaults to ['longitude', 'latitude'] if present
+    dt_col: str = None,         # Time column, if any
+    sort: bool = False,         # Sort by dt_col if provided
+    verbose: int = 3            # Verbosity level (0 to 7)
+):
+    # Helper logging function based on verbosity.
+    def log(message, level=3):
+        if verbose >= level:
+            print(message)
+
+    init_size = len(df)
+    log(
+        "[INFO] Initiating consistency check for "
+        f"{init_size:,} samples...", 
+        level=7
+    )
+
+    # Auto-detect tname if not provided: use the unique prefix before 
+    # the first '_' in columns that contain "q" and "step".
+    if tname is None:
+        possible_tnames = {col.split("_")[0] 
+                           for col in df.columns 
+                           if "q" in col and "step" in col}
+        if len(possible_tnames) == 1:
+            tname = possible_tnames.pop()
+            log(f"[INFO] Auto-detected tname: {tname}", level=4)
+        else:
+            raise ValueError(
+                f"Could not infer `tname`. Candidates: {possible_tnames}. "
+                "Please provide `tname` explicitly."
+            )
+
+    # Identify quantile step columns dynamically.
+    quantile_columns = [
+        col 
+        for col in df.columns 
+        if f"{tname}_q" in col or ("q" in col and "step" in col)
+    ]
+    log(
+        f"[INFO] Identified {len(quantile_columns)} quantile step columns.", 
+        level=5
+    )
+
+    # Extract unique quantile levels (e.g., 'q10', 'q50', 'q89')
+    quantile_levels = sorted(
+        set(col.split("_")[1] for col in quantile_columns if "step" in col)
+    )
+    log(f"[INFO] Quantile levels extracted: {quantile_levels}", level=5)
+
+    # Set default spatial columns if not provided.
+    if spatial_cols is None:
+        spatial_cols = [col for col in ["longitude", "latitude"] 
+                        if col in df.columns]
+    if spatial_cols:
+        log(f"[INFO] Using spatial columns: {spatial_cols}", level=4)
+        spatial_cols = list(spatial_cols)
+    # Identify non-quantile columns (excluding spatial columns).
+    non_quantile_columns = [
+        col for col in df.columns 
+        if col not in quantile_columns and col not in spatial_cols 
+        and col !=dt_col
+    ] 
+    
+    # Convert `dt_col` if it is a Timestamp column
+    restore_dt_col = False
+    if dt_col and np.issubdtype(df[dt_col].dtype, np.datetime64):
+        safe_dt_values= df[dt_col].copy() 
+        df[dt_col] = df[dt_col].view(np.int64)  # Convert to int64 timestamps
+        restore_dt_col = True
+        
+        log(f"[INFO] Converted datetime column '{dt_col}' to int64 timestamps.",
+            level=6)
+        
+    # Define base and final column names.
+    base_columns = spatial_cols  + ([dt_col] if dt_col else []) + non_quantile_columns
+    
+    final_columns = base_columns + [f"{tname}_{q}" for q in quantile_levels]
+    log(f"[INFO] Final columns determined: {len(final_columns)}", level=6)
+
+    # Convert DataFrame to a NumPy array for fast operations.
+    data_array   = df.to_numpy()
+    column_index = {col: i for i, col in enumerate(df.columns)}
+    
+    # Initialize output array filled with NaNs.
+    output_array = np.empty((data_array.shape[0], len(final_columns)), dtype=np.float64)
+    output_array.fill(np.nan)
+    log("[INFO] Re-Initialized output array with NaNs.", level=6)
+
+    # Copy over carry-over columns (e.g., dt_col, spatial, actual).
+    for col in base_columns:
+        if col in column_index:
+            output_array[:, final_columns.index(col)] = data_array[:, column_index[col]]
+            log(f"  [DEBUG] Imputed column: {col}", level=7)
+
+    # Process quantile forecast columns:
+    for q in quantile_levels:
+        log(f"  [DEBUG] Processing quantile level: {q}", level=4)
+        # Get all columns that contain this quantile level and 'step'.
+        step_cols = [col for col in df.columns if f"{q}_step" in col]
+        step_indices = [column_index[col] for col in step_cols]
+        final_col_idx = final_columns.index(f"{tname}_{q}")
+
+        for step_idx in step_indices:
+            # Create a boolean mask for non-NaN entries.
+            mask = ~np.isnan(data_array[:, step_idx])
+            output_array[mask, final_col_idx] = data_array[mask, step_idx]
+            log(
+                f"   [TRACE] Assigned values for {tname}_{q} using "
+                f"{df.columns[step_idx]}", 
+                level=7
+            )
+
+    # Convert the output array back to a DataFrame.
+    final_df = pd.DataFrame(output_array, columns=final_columns)
+    # Restore original data types for carry-over columns.
+    for col in base_columns:
+        if col in df.columns:
+            final_df[col] = final_df[col].astype(df[col].dtype)
+            log(f"  [TRACE] Restored dtype for column: {col}", level=6)
+
+    # Restore `dt_col` if it was a Timestamp
+    if restore_dt_col:
+        try:
+            final_df[dt_col]= safe_dt_values 
+        except: # rather than reconvert. 
+           final_df[dt_col] = pd.to_datetime(
+               final_df[dt_col].astype(np.int64))
+        log(f"[INFO] Restored datetime column '{dt_col}' to Timestamp format.",
+            level=6)
+        
+    # Sort by dt_col if requested and present.
+    if sort and dt_col and dt_col in final_df.columns:
+        final_df = final_df.sort_values(by=dt_col, ignore_index=True)
+        log(f"[INFO] Sorted DataFrame by {dt_col}.", level=4)
+
+    log(f"[INFO] Processing completed. Total new rows: {len(final_df):,}", level=3)
+    return final_df
+
+def _step_to_long_pred(
+    df, 
+    tname: str = None,        # Auto-detect target name if None
+    spatial_cols: list = None,  # Defaults to ['longitude', 'latitude'] if present
+    dt_col: str = None,         # Time column, if any
+    sort: bool = False,         # Sorts by dt_col if provided
+    verbose: int = 3            # Verbosity level (0 to 7)
+):
+    # Helper logging function based on verbosity level.
+    def log(message, level=3):
+        """Logs messages with indentation based on depth."""
+        if verbose >= level:
+            print(message)
+
+    init_size = len(df)
+    log(
+        f"[INFO] Initiating processing for {init_size:,} samples...",
+        level=7
+    )
+
+    # Auto-detect 'tname' if not provided.
+    if tname is None:
+        possible_tnames = {
+            col.split("_")[0] for col in df.columns 
+            if "pred_step" in col
+        }
+        if len(possible_tnames) == 1:
+            tname = possible_tnames.pop()
+            log(f"[INFO] Auto-detected tname: {tname}", level=4)
+        else:
+            raise ValueError(
+                f"Could not infer `tname`. Candidates: {possible_tnames}. "
+                "Please provide `tname` explicitly."
+            )
+
+    # Identify step-based prediction columns dynamically.
+    pred_columns = [
+        col for col in df.columns 
+        if f"{tname}_pred_step" in col or "pred_step" in col
+    ]
+    log(
+        f"[INFO] Identified {len(pred_columns)} step-based prediction "
+        f"columns.", level=5
+    )
+
+    # Default spatial columns if not provided.
+    if spatial_cols is None:
+        spatial_cols = [
+            col for col in ["longitude", "latitude"] 
+            if col in df.columns
+        ]
+    if spatial_cols:
+        log(f"[INFO] Using spatial columns: {spatial_cols}", level=4)
+        spatial_cols = list(spatial_cols)
+    # Identify non-prediction columns (excluding spatial columns).
+    non_pred_columns = [
+        col for col in df.columns 
+        if col not in pred_columns and col not in spatial_cols
+        and col !=dt_col
+    ]
+    
+    # Convert `dt_col` if it is a Timestamp column
+    restore_dt_col = False
+    if dt_col and np.issubdtype(df[dt_col].dtype, np.datetime64):
+        safe_dt_values= df[dt_col].copy() 
+        df[dt_col] = df[dt_col].view(np.int64)  # Convert to int64 timestamps
+        restore_dt_col = True
+        
+        log(f"[INFO] Converted datetime column '{dt_col}' to int64 timestamps.",
+            level=6)
+        
+    # Define base and final column names.
+    base_columns  = spatial_cols + ([dt_col] if dt_col else []) + non_pred_columns
+    final_columns = base_columns + [f"{tname}_pred"]
+    log(
+        f"[INFO] Final columns determined: {final_columns}", 
+        level=6
+    )
+
+    # Convert the DataFrame to a NumPy array for fast processing.
+    data_array   = df.to_numpy()
+    column_index = {col: i for i, col in enumerate(df.columns)}
+
+    # Initialize an output array filled with NaNs.
+    output_array = np.empty(
+        (data_array.shape[0], len(final_columns)), 
+        dtype=np.float64
+    )
+    output_array.fill(np.nan)
+    log("[INFO] Re-initialized output array with NaNs.", level=6)
+
+    # Copy spatial, date, and all non-prediction columns.
+    for col in base_columns:
+        if col in column_index:
+            idx_final = final_columns.index(col)
+            idx_source = column_index[col]
+            output_array[:, idx_final] = data_array[:, idx_source]
+            log(f"  [DEBUG] Copied column: {col}", level=7)
+
+    # Process prediction step columns.
+    log("  [DEBUG] Processing step-based predictions...", level=4)
+    final_pred_idx = final_columns.index(f"{tname}_pred")
+    for step_col in pred_columns:
+        step_idx = column_index[step_col]
+        mask     = ~np.isnan(data_array[:, step_idx])  # Valid (non-NaN) values.
+        output_array[mask, final_pred_idx] = data_array[mask, step_idx]
+        log(
+            f"   [TRACE] Assigned values from {step_col} to "
+            f"{tname}_pred", level=7
+        )
+
+    # Convert the output array back to a DataFrame.
+    final_df = pd.DataFrame(output_array, columns=final_columns)
+    log(
+        "[INFO] Converted output array back to DataFrame.", 
+        level=5
+    )
+
+    # Restore original data types for carry-over columns.
+    for col in base_columns:
+        if col in df.columns:
+            final_df[col] = final_df[col].astype(df[col].dtype)
+            log(
+                f"  [TRACE] Restored dtype for column: {col}", 
+                level=6
+            )
+    # Restore `dt_col` if it was a Timestamp
+    if restore_dt_col:
+        try:
+            final_df[dt_col]= safe_dt_values 
+        except: # rather than reconvert. 
+           final_df[dt_col] = pd.to_datetime(
+               final_df[dt_col].astype(np.int64))
+        log(f"[INFO] Restored datetime column '{dt_col}' to Timestamp format.",
+            level=6)
+        
+    # Sort by dt_col if requested and available.
+    if sort and dt_col and dt_col in final_df.columns:
+        final_df = final_df.sort_values(
+            by=dt_col, 
+            ignore_index=True
+        )
+        log(f"[INFO] Sorted DataFrame by {dt_col}.", level=4)
+
+    log(
+        f"[INFO] Processing completed. Total new rows: {len(final_df):,}", 
+        level=3
+    )
+    return final_df
+
+def step_to_long(
+    df: pd.DataFrame,
+    tname: str = None,
+    dt_col: str = None,
+    spatial_cols: list = None,
+    mode: str = "quantile",
+    quantiles: list = None,
+    verbose: int= 3,
+    sort: bool=True, 
+) -> pd.DataFrame:
+     
+    is_frame(
+        df, df_only=True, 
+        objname="Step Data", 
+        error="raise"
+    )
+    quantiles = check_forecast_mode(
+        mode, q=quantiles, 
+        ops="validate", 
+        error="warn",
+        dtype=np.float64, 
+        round_digits=2
+        )
+    # detect_digit to check whether ther is quantile
+    if mode=="quantile": 
+        quantiles = validate_consistency_q(
+            quantiles, df.columns, 
+            error="raise", 
+            default_to="auto_q"
+        )
+    quantiles = validate_quantiles (
+        quantiles, round_digits=2, 
+        dtype=np.float64, 
+    )
+    
+    if mode=="quantile": 
+        final_df = _step_to_long_q( 
+            df = df, 
+            tname=tname, 
+            spatial_cols= spatial_cols, 
+            dt_col=dt_col, 
+            verbose=verbose, 
+            sort=sort, 
+      )
+    else : # point" 
+         final_df = _step_to_long_pred( 
+             df=df, 
+             tname=tname, 
+             spatial_cols= spatial_cols, 
+             dt_col=dt_col, 
+             sort=sort, 
+             verbose=verbose 
+       )
+    
+    return final_df
+
 def generate_forecast_with(
         xtft_model,
         inputs,
@@ -4604,6 +5033,113 @@ def generate_forecast_with(
             savefile=savefile,
             verbose=verbose
         )
+
+step_to_long.__doc__=r"""\
+Convert a multi-step forecast DataFrame from wide to long format.
+
+This function transforms a DataFrame containing multi-step forecast
+predictions into a long-format DataFrame. In quantile mode, forecast
+columns such as ``subsidence_q10_step1``, ``subsidence_q50_step1``, etc. 
+are consolidated into unified columns (e.g. ``subsidence_q10``, 
+``subsidence_q50``, etc.), while in point mode, a single prediction 
+column (``subsidence_pred``) is generated. The transformation also 
+carries over additional columns (e.g. spatial coordinates and time) 
+from the original DataFrame.
+
+Parameters
+----------
+df           : pandas.DataFrame
+    The multi-step forecast DataFrame. Expected to contain forecast 
+    prediction columns (e.g. columns with ``_q`` or ``_pred_step`` in their
+    names) along with other identifiers.
+tname        : str, optional
+    The base name of the target variable (e.g. ``"subsidence"``). If ``None``,
+    the function attempts to auto-detect the target name from the column names.
+dt_col       : str, optional
+    The name of the time column to include in the final DataFrame. If not
+    provided, time sorting is not performed.
+spatial_cols : list of str, optional
+    A list of spatial coordinate columns (e.g. ``["longitude", "latitude"]``)
+    to be retained in the final output.
+mode         : {"quantile", "point"}, default="quantile"
+    The forecast mode. In ``"quantile"`` mode, multiple quantile forecast 
+    columns are merged into unified columns. In ``"point"`` mode, a single
+    prediction column is produced.
+quantiles    : list of float, optional
+    The quantile values for quantile mode (e.g. ``[0.1, 0.5, 0.9]``). If 
+    not provided, defaults are used.
+sort         : bool, optional
+    If True, sorts the final DataFrame by the column specified in ``dt_col``
+    (if present). Default is True.
+
+verbose      : int, optional
+    Verbosity level for logging output. Higher values (e.g. 5 to 7) provide
+    more detailed debug information.
+
+Returns
+-------
+pandas.DataFrame
+    A long-format DataFrame with the following columns:
+      - Spatial columns (if provided)
+      - The time column (``dt_col``), if provided
+      - Forecast prediction columns:
+        - In quantile mode: unified columns (e.g. 
+          ``subsidence_q10``, ``subsidence_q50``, etc.)
+        - In point mode: a single column (``subsidence_pred``)
+
+Examples
+--------
+>>> from gofast.nn.utils import step_to_long
+>>> # Given a DataFrame `forecast_df` with columns like:
+>>> # ['longitude', 'latitude', 'year', 'subsidence_actual',
+>>> #  'subsidence_q10_step1', 'subsidence_q50_step1', 'subsidence_q89_step1',
+>>> #  'subsidence_q10_step2', ...]
+>>> long_df = step_to_long(
+...     df=forecast_df,
+...     tname="subsidence",
+...     dt_col="year",
+...     spatial_cols=["longitude", "latitude"],
+...     mode="quantile",
+...     quantiles=[0.1, 0.5, 0.9],
+...     verbose=3,
+...     sort=True
+... )
+>>> print(long_df.head())
+
+Notes
+-----
+Internally, this function calls:
+
+- :func:`check_forecast_mode` to validate the user-specified 
+  quantiles.
+- :func:`validate_consistency_q` and :func:`validate_quantiles` to ensure 
+  that the quantile values provided by the user match those auto-detected 
+  from the DataFrame.
+- Depending on the ``mode``, it then calls either 
+  :func:`_step_to_long_q` (for quantile mode) or 
+  :func:`_step_to_long_pred` (for point mode) to perform the conversion.
+  
+Mathematically, let :math:`X \in \mathbb{R}^{n \times m}` represent the 
+wide-format DataFrame, where each row corresponds to one sample and each 
+forecast step is stored in separate columns. The function reshapes :math:`X` 
+into a long-format DataFrame :math:`Y \in \mathbb{R}^{(n \cdot s) \times p}`, 
+where :math:`s` is the forecast horizon and :math:`p` is the number of output 
+columns after merging forecast step values.
+ 
+  
+See Also
+--------
+_step_to_long_q : Converts multi-step quantile forecasts to long format.
+_step_to_long_pred: Converts multi-step point forecasts to long format.
+detect_digits   : Extracts numeric values from strings for quantile detection.
+
+References
+----------
+.. [1] Wickham, H. (2014). "Tidy Data". Journal of Statistical Software,
+       59(10), 1-23.
+.. [2] McKinney, W. (2010). "Data Structures for Statistical Computing in 
+       Python". Proceedings of the 9th Python in Science Conference.
+"""
 
 generate_forecast_with.__doc__="""\
 Generate forecasts using a pre-trained XTFT model based on the forecast
