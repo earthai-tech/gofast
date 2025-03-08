@@ -44,7 +44,7 @@ from ..core.checks import (
     exist_features, check_files, is_in_if, str2columns 
     )
 from ..core.io import EnsureFileExists 
-from ..core.utils import is_iterable 
+from ..core.utils import is_iterable, smart_format 
 from ..decorators import RunReturn, smartFitRun
 from .validator import check_is_runned, is_frame
 from ._dependency import import_optional_dependency
@@ -1660,13 +1660,16 @@ def fetch_joblib_data(
         return data
 
     results = []
+    available_keys = list(data.keys ())
     for key in keys:
         if key in data:
             results.append(data[key])
             if verbose >= 2:
                 print(f"Successfully retrieved key: {key}")
         else:
-            msg = f"Key '{key}' not found in {job_file}"
+            msg = ( f"Key '{key}' not found in {job_file}."
+                   f" Available keys are: {smart_format(available_keys)}"
+                  )
             if error_mode == 'raise':
                 raise KeyError(msg)
             elif error_mode == 'warn':

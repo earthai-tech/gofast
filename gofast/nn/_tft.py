@@ -75,9 +75,9 @@ _param_docs = DocstringComponents.from_nested_components(
 )
 @register_keras_serializable(
     'gofast.nn.transformers', 
-    name="TemporalFusionTransformer"
+    name="NTemporalFusionTransformer"
 )
-class TemporalFusionTransformer(Model, NNLearner):
+class NTemporalFusionTransformer(Model, NNLearner):
     @validate_params({
         "static_input_dim": [Interval(Integral, 1, None, closed='left')], 
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
@@ -357,97 +357,9 @@ class TemporalFusionTransformer(Model, NNLearner):
     
 @register_keras_serializable( 
    'gofast.nn.transformers', 
-    name="NTemporalFusionTransformer"
+    name="TemporalFusionTransformer"
 )
-class NTemporalFusionTransformer(Model, NNLearner):
-    """
-    TemporalFusionTransformer model implementation for multi-horizon 
-    forecasting, with optional static, past, and future inputs.
-
-    This class extends Keras `Model` and integrates with the gofast 
-    NNLearner interface. It supports dynamic (past) inputs, optional 
-    static inputs, and newly added optional future inputs 
-    (``future_input_dim``). By including the future covariates, the 
-    TemporalFusionTransformer can account for known future features 
-    (e.g., events, planned discount rates, etc.) in its predictions.
-
-    Parameters
-    ----------
-    dynamic_input_dim: int
-        Dimensionality of the dynamic (past) inputs. This is mandatory 
-        for the TFT model.
-    static_input_dim : int, optional
-        Dimensionality of static inputs. If not `None`, the call method
-        will expect static inputs.
-    future_input_dim : int, optional
-        Dimensionality of future (known) inputs. If not `None`, the call
-        method will expect future inputs to handle exogenous covariates
-        known in the future (e.g., events, planned promotions, etc.).
-    hidden_units : int, default=32
-        Number of hidden units for the layers that do not have a distinct 
-        specification (e.g., GRNs, variable selection networks).
-    num_heads : int, default=4
-        Number of attention heads in the multi-head attention layer.
-    dropout_rate : float, default=0.1
-        Dropout rate for various layers (GRNs, attention, etc.).
-    forecast_horizon : int, default=1
-        Number of timesteps to forecast into the future.
-    quantiles : list of float, optional
-        List of quantiles for probabilistic forecasting. If `None`, a 
-        single deterministic output is produced.
-    activation : str, default='elu'
-        Activation function. Must be one of ``{'elu', 'relu', 'tanh', 
-        'sigmoid', 'linear', 'gelu'}``.
-    use_batch_norm : bool, default=False
-        Whether to apply batch normalization in various sub-layers.
-    num_lstm_layers : int, default=1
-        Number of LSTM layers in the encoder.
-    lstm_units : list of int or None, default=None
-        If provided, each index corresponds to the number of LSTM 
-        units for that layer. If `None`, uses ``hidden_units`` for 
-        each layer.
-
-    Examples
-    --------
-    >>> from gofast.nn._tensor_validation import validate_tft_inputs
-    >>> from gofast.nn.tft import TemporalFusionTransformer
-    >>> model = TemporalFusionTransformer(
-    ...     dynamic_input_dim=10,
-    ...     static_input_dim=5,
-    ...     future_input_dim=8,
-    ...     hidden_units=32,
-    ...     num_heads=4,
-    ...     dropout_rate=0.1,
-    ...     forecast_horizon=7,
-    ...     quantiles=[0.1, 0.5, 0.9],
-    ...     activation='elu',
-    ...     use_batch_norm=True,
-    ...     num_lstm_layers=2,
-    ...     lstm_units=[64, 32]
-    ... )
-
-    Notes
-    -----
-    The newly added ``future_input_dim`` allows the model to incorporate 
-    future covariates known at forecast time. In the ``call`` method, if 
-    ``future_input_dim`` is not `None`, the model expects three inputs:
-    ``(static_inputs, dynamic_inputs, future_inputs)``. Otherwise, it 
-    expects only ``(static_inputs, dynamic_inputs)``.
-
-    See Also
-    --------
-    VariableSelectionNetwork : For feature selection and embedding.
-    GatedResidualNetwork : A GRN used in various sub-layers.
-    LSTM : Keras LSTM layers for sequence processing.
-
-    References
-    ----------
-    .. [1] Lim, B., Arık, S. Ö., Loeff, N., & Pfister, T. (2019).
-           Temporal Fusion Transformers for Interpretable
-           Multi-horizon Time Series Forecasting.
-           https://arxiv.org/abs/1912.09363
-    """
-
+class TemporalFusionTransformer(Model, NNLearner):
     @validate_params({
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')],
         "static_input_dim" : [Interval(Integral, 1, None, closed='left'), None],
@@ -478,8 +390,9 @@ class NTemporalFusionTransformer(Model, NNLearner):
         use_batch_norm=False,
         num_lstm_layers=1,
         lstm_units=None,
+        **kw
     ):
-        super().__init__()
+        super().__init__(**kw)
 
         self.logger = gofastlog().get_gofast_logger(__name__)
         self.logger.debug(
@@ -823,7 +736,7 @@ class NTemporalFusionTransformer(Model, NNLearner):
         cls.logger.debug("Creating NTemporalFusionTransformer instance from config.")
         return cls(**config)
 
-TemporalFusionTransformer.__doc__="""\
+NTemporalFusionTransformer.__doc__="""\
 Temporal Fusion Transformer (TFT) model for time series forecasting.
 
 The Temporal Fusion Transformer combines high-performance multi-horizon
@@ -913,3 +826,91 @@ from_config(config)
     Instantiates the model from a configuration dictionary.
 
 """.format( params=_param_docs) 
+
+TemporalFusionTransformer.__doc__="""\
+TemporalFusionTransformer model implementation for multi-horizon 
+forecasting, with optional static, past, and future inputs.
+
+This class extends Keras `Model` and integrates with the gofast 
+NNLearner interface. It supports dynamic (past) inputs, optional 
+static inputs, and newly added optional future inputs 
+(``future_input_dim``). By including the future covariates, the 
+TemporalFusionTransformer can account for known future features 
+(e.g., events, planned discount rates, etc.) in its predictions.
+
+Parameters
+----------
+dynamic_input_dim: int
+    Dimensionality of the dynamic (past) inputs. This is mandatory 
+    for the TFT model.
+static_input_dim : int, optional
+    Dimensionality of static inputs. If not `None`, the call method
+    will expect static inputs.
+future_input_dim : int, optional
+    Dimensionality of future (known) inputs. If not `None`, the call
+    method will expect future inputs to handle exogenous covariates
+    known in the future (e.g., events, planned promotions, etc.).
+hidden_units : int, default=32
+    Number of hidden units for the layers that do not have a distinct 
+    specification (e.g., GRNs, variable selection networks).
+num_heads : int, default=4
+    Number of attention heads in the multi-head attention layer.
+dropout_rate : float, default=0.1
+    Dropout rate for various layers (GRNs, attention, etc.).
+forecast_horizon : int, default=1
+    Number of timesteps to forecast into the future.
+quantiles : list of float, optional
+    List of quantiles for probabilistic forecasting. If `None`, a 
+    single deterministic output is produced.
+activation : str, default='elu'
+    Activation function. Must be one of ``{'elu', 'relu', 'tanh', 
+    'sigmoid', 'linear', 'gelu'}``.
+use_batch_norm : bool, default=False
+    Whether to apply batch normalization in various sub-layers.
+num_lstm_layers : int, default=1
+    Number of LSTM layers in the encoder.
+lstm_units : list of int or None, default=None
+    If provided, each index corresponds to the number of LSTM 
+    units for that layer. If `None`, uses ``hidden_units`` for 
+    each layer.
+
+Examples
+--------
+>>> from gofast.nn._tensor_validation import validate_tft_inputs
+>>> from gofast.nn.tft import TemporalFusionTransformer
+>>> model = TemporalFusionTransformer(
+...     dynamic_input_dim=10,
+...     static_input_dim=5,
+...     future_input_dim=8,
+...     hidden_units=32,
+...     num_heads=4,
+...     dropout_rate=0.1,
+...     forecast_horizon=7,
+...     quantiles=[0.1, 0.5, 0.9],
+...     activation='elu',
+...     use_batch_norm=True,
+...     num_lstm_layers=2,
+...     lstm_units=[64, 32]
+... )
+
+Notes
+-----
+The newly added ``future_input_dim`` allows the model to incorporate 
+future covariates known at forecast time. In the ``call`` method, if 
+``future_input_dim`` is not `None`, the model expects three inputs:
+``(static_inputs, dynamic_inputs, future_inputs)``. Otherwise, it 
+expects only ``(static_inputs, dynamic_inputs)``.
+
+See Also
+--------
+VariableSelectionNetwork : For feature selection and embedding.
+GatedResidualNetwork : A GRN used in various sub-layers.
+LSTM : Keras LSTM layers for sequence processing.
+
+References
+----------
+.. [1] Lim, B., Arık, S. Ö., Loeff, N., & Pfister, T. (2019).
+       Temporal Fusion Transformers for Interpretable
+       Multi-horizon Time Series Forecasting.
+       https://arxiv.org/abs/1912.09363
+"""

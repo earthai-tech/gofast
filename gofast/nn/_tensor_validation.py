@@ -9,6 +9,8 @@ from ..compat.tf import optional_tf_function, suppress_tf_warnings
 from ..compat.tf import TFConfig, HAS_TF  
 from . import KERAS_DEPS, KERAS_BACKEND
 
+import numpy as np 
+
 if KERAS_BACKEND:
     Tensor=KERAS_DEPS.Tensor
 
@@ -21,9 +23,9 @@ if KERAS_BACKEND:
     tf_debugging= KERAS_DEPS.debugging 
     tf_assert_equal=KERAS_DEPS.assert_equal
     tf_autograph=KERAS_DEPS.autograph
+    register_keras_serializable=KERAS_DEPS.register_keras_serializable
     
     tf_autograph.set_verbosity(0)
-    register_keras_serializable=KERAS_DEPS.register_keras_serializable
     
 else: 
    # Warn the user that TensorFlow
@@ -41,7 +43,7 @@ if HAS_TF:
 
 @ensure_pkg(
     'tensorflow',
-    extra="Need 'tensorflow' for this function to proceed"
+    extra="Need 'tensorflow' for this function to proceed."
 )
 def validate_anomaly_scores(
     anomaly_config: Optional[Dict[str, Any]],
@@ -760,7 +762,279 @@ def validate_batch_sizes_eager(
             f"``future_covariate_input`` batch_size={future_batch_size}."
         )
 
+def validate_minimal_inputs(
+    X_static, X_dynamic, 
+    X_future, y=None, 
+    forecast_horizon=None, 
+    deep_check=True
+):
+    r"""
+    Validate minimal inputs for forecasting models.
+    
+    This function verifies that the provided input arrays 
+    (``X_static``, ``X_dynamic``, ``X_future`` and, optionally, ``y``)
+    have the expected dimensionality and consistent shapes for use in
+    forecasting models. It converts the inputs to ``float32`` for 
+    numerical stability and ensures that the shapes match the following 
+    requirements:
+    
+    .. math::
+       X_{\text{static}} \in \mathbb{R}^{B \times N_s}, \quad
+       X_{\text{dynamic}} \in \mathbb{R}^{B \times F \times N_d}, \quad
+       X_{\text{future}} \in \mathbb{R}^{B \times F \times N_f}
+    
+    and, if provided,
+    
+    .. math::
+       y \in \mathbb{R}^{B \times F \times O},
+    
+    where :math:`B` is the batch size, :math:`F` is the forecast horizon, 
+    :math:`N_s` is the number of static features, :math:`N_d` is the number 
+    of dynamic features, :math:`N_f` is the number of future features, and 
+    :math:`O` is the output dimension.
+    
+    The function uses an internal helper, :func:`check_shape`, to validate 
+    that each input has the expected number of dimensions. For example:
+    
+    - ``X_static`` should be 2D with shape (``B``, ``N_s``)
+    - ``X_dynamic`` and ``X_future`` should be 3D with shape 
+      (``B``, ``F``, ``N_d``) or (``B``, ``F``, ``N_f``) respectively.
+    - If provided, ``y`` should be 3D with shape (``B``, ``F``, ``O``).
+    
+    In addition, the function verifies that:
+    
+      - The batch sizes (``B``) are identical across all inputs.
+      - The forecast horizon (``F``) is consistent between dynamic and 
+        future inputs.
+      - If a specific ``forecast_horizon`` is provided and it differs 
+        from the input, a warning is issued and the forecast horizon from 
+        the data is used.
+    
+    Parameters
+    ----------
+    `X_static`       : np.ndarray or tf.Tensor
+        The static feature input, expected to have shape (``B``, ``N_s``).
+    `X_dynamic`      : np.ndarray or tf.Tensor
+        The dynamic feature input, expected to have shape (``B``, ``F``, 
+        ``N_d``).
+    `X_future`       : np.ndarray or tf.Tensor
+        The future feature input, expected to have shape (``B``, ``F``, 
+        ``N_f``).
+    `y`              : np.ndarray or tf.Tensor, optional
+        The target output, expected to have shape (``B``, ``F``, ``O``).
+    `forecast_horizon`: int, optional
+        The expected forecast horizon (``F``). If provided and it differs 
+        from the input data, a warning is issued and the input forecast 
+        horizon is used.
+    `deep_check`     : bool, optional
+        If True, perform full consistency checks on batch sizes and forecast 
+        horizons. Default is True.
+    
+    Returns
+    -------
+    tuple
+        If ``y`` is provided, returns a tuple:
+        
+        ``(X_static, X_dynamic, X_future, y)``
+        
+        Otherwise, returns:
+        
+        ``(X_static, X_dynamic, X_future)``
+    
+    Raises
+    ------
+    ValueError
+        If any input does not have the expected dimensions, or if the batch 
+        sizes or forecast horizons are inconsistent.
+    TypeError
+        If an input is not an instance of np.ndarray or tf.Tensor.
+    
+    Examples
+    --------
+    >>> from gofast.nn._tensor_validation import validate_minimal_inputs
+    >>> import numpy as np
+    >>> X_static0  = np.random.rand(100, 5)
+    >>> X_dynamic0 = np.random.rand(100, 10, 3)
+    >>> X_future0  = np.random.rand(100, 10, 2)
+    >>> y0         = np.random.rand(100, 10, 1)
+    >>> validated_1 = validate_minimal_inputs(X_static0, X_dynamic0, 
+    ...                                      X_future0, forecast_horizon=10)
+    >>> X_static_v , X_dynamic_v, X_future_v = validated_1
+    >>> X_static_v.shape , X_dynamic_v.shape, X_future_v.shape 
+    ((100, 5), (100, 10, 3), (100, 10, 2))
+    >>> 
+    >>> validated_2 = validate_minimal_inputs(X_static0, X_dynamic0, 
+    ...                                      X_future0, y0,  forecast_horizon=10)
+    >>> X_static_v2 , X_dynamic_v2, X_future_v2, y_v2 = validated_2
+    >>> X_static_v2.shape , X_dynamic_v2.shape, X_future_v2.shape, y_v2.shape 
+    ((100, 5), (100, 10, 3), (100, 10, 2), (100, 10, 1))
 
+    Notes
+    -----
+    This function is essential to ensure that the inputs for forecasting 
+    models are correctly shaped. The helper function :func:`check_shape` is 
+    used internally to provide detailed error messages based on the expected 
+    shapes for different types of data:
+    
+    - For static data: (``B``, ``N_s``)
+    - For dynamic data: (``B``, ``F``, ``N_d``)
+    - For future data: (``B``, ``F``, ``N_f``)
+    - For target data: (``B``, ``F``, ``O``)
+    
+    See Also
+    --------
+    np.ndarray.astype, tf.cast
+        For data type conversion methods.
+    
+    References
+    ----------
+    .. [1] McKinney, W. (2010). "Data Structures for Statistical Computing 
+           in Python". Proceedings of the 9th Python in Science Conference.
+    .. [2] Van der Walt, S., Colbert, S. C., & Varoquaux, G. (2011). "The 
+           NumPy Array: A Structure for Efficient Numerical Computation". 
+           Computing in Science & Engineering, 13(2), 22-30.
+    """
+
+    def check_shape(
+        arr, 
+        expect_dim: str = "2d", 
+        name: str = "Static data 'X_static'"
+    ):
+        # Get the number of dimensions of the input array.
+        origin_dim = arr.ndim
+    
+        # Define expected shape descriptions for different types.
+        expected_descriptions = {
+            "static":  ("Expected shape is (B, Ns):\n"
+                        "  - B: Batch size\n"
+                        "  - Ns: Number of static features."),
+            "dynamic": ("Expected shape is (B, F, Nd):\n"
+                        "  - B: Batch size\n"
+                        "  - F: Forecast horizon\n"
+                        "  - Nd: Number of dynamic features."),
+            "future":  ("Expected shape is (B, F, Nf):\n"
+                        "  - B: Batch size\n"
+                        "  - F: Forecast horizon\n"
+                        "  - Nf: Number of future features."),
+            "target":  ("Expected shape is (B, F, O):\n"
+                        "  - B: Batch size\n"
+                        "  - F: Forecast horizon\n"
+                        "  - O: Output dimension for target.")
+        }
+    
+        # Determine which expected description to use based on `name`.
+        keyword = None
+        for key in expected_descriptions.keys():
+            if key in name.lower():
+                keyword = key
+                break
+    
+        if keyword is not None:
+            expected_msg = expected_descriptions[keyword]
+        else:
+            expected_msg = f"Expected {expect_dim} dimensions."
+    
+        # Check if the input array has the expected dimensions.
+        if (expect_dim == "2d" and origin_dim != 2) or \
+           (expect_dim == "3d" and origin_dim != 3):
+            raise ValueError(
+                f"{name} must have {expect_dim}.\n"
+                f"{expected_msg}\n"
+                f"Got array with {origin_dim} dimensions."
+            )
+    
+        return arr
+
+    # Convert inputs to float32 for numerical stability.
+    def ensure_float32(data):
+        if isinstance(data, np.ndarray):
+            return data.astype(np.float32)
+        elif hasattr(data, "dtype") and data.dtype.kind in "fiu":
+            return tf_cast(data, tf_float32)
+        else:
+            raise TypeError(
+                f"Unsupported data type: {type(data)}. "
+                "Must be np.ndarray or tf.Tensor."
+            )
+
+    X_static  = ensure_float32(X_static)
+    X_dynamic = ensure_float32(X_dynamic)
+    X_future  = ensure_float32(X_future)
+    
+    X_static = check_shape(
+        X_static, '2d', 
+    )
+    X_dynamic = check_shape(
+        X_dynamic, '3d', 
+        name ="Dynamic data 'X_dynamic'"
+    )
+    X_future =check_shape(
+        X_future, '3d',
+        name="Future data 'X_future'"
+    )
+    
+    if y is not None:
+        y = ensure_float32(y)
+        X_future =check_shape(
+            X_future, '3d', 
+            name="Target data 'y'"
+        )
+        
+    if not deep_check: 
+        return (X_static, X_dynamic, X_future ) if y is None else ( 
+            X_static, X_dynamic, X_future, y 
+    )
+   # Now if deep check is True , going deeper as below 
+   # and control hroizon
+   
+    # Ensure correct dimensions:
+    #   X_static must be 2D, X_dynamic and X_future must be 3D.
+    B_sta, Ns    = X_static.shape
+    B_dyn, F_dyn, Nd = X_dynamic.shape
+    B_fut, F_fut, Nf = X_future.shape
+
+    # Validate that batch sizes match.
+    if not (B_sta == B_dyn == B_fut):
+        raise ValueError(
+            f"Batch sizes do not match: X_static ({B_sta}), "
+            f"X_dynamic ({B_dyn}), X_future ({B_fut}). "
+            "Ensure data is correctly shaped using "
+            "`gofast.nn.utils.reshape_xft_data`."
+        )
+
+    # Validate forecast horizon consistency.
+    if F_dyn != F_fut:
+        raise ValueError(
+            f"Forecast horizons do not match: X_dynamic ({F_dyn}), "
+            f"X_future ({F_fut}). Ensure data is correctly shaped."
+        )
+
+    # If a forecast_horizon is provided, warn if it differs from input.
+    if forecast_horizon is not None and forecast_horizon != F_dyn:
+        
+        warnings.warn(
+            f"Provided forecast_horizon={forecast_horizon} differs from "
+            f"input forecast horizon F_dyn={F_dyn}. Using F_dyn from input.",
+            UserWarning
+        )
+
+    # Validate y if provided: y must be 3D and match batch and horizon.
+    if y is not None:
+        B_y, F_y, O = y.shape
+        if B_y != B_sta:
+            raise ValueError(
+                f"Batch size of y ({B_y}) does not match X_static ({B_sta}). "
+                "Ensure data is correctly shaped."
+            )
+        if F_y != F_dyn:
+            raise ValueError(
+                f"Forecast horizon of y ({F_y}) does not match "
+                f"X_dynamic/X_future ({F_dyn}). Ensure data is correctly shaped."
+            )
+        return X_static, X_dynamic, X_future, y
+
+    return X_static, X_dynamic, X_future
+ 
 
 
 

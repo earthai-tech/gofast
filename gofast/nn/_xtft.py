@@ -8,6 +8,7 @@ architecture for multi-horizon time-series forecasting.
 from textwrap import dedent 
 from numbers import Real, Integral  
 from typing import List, Optional, Union, Dict, Any  
+import numpy as np 
 
 from .._gofastlog import gofastlog
 from ..api.docs import doc 
@@ -593,47 +594,67 @@ class XTFT(Model, NNLearner):
                 loss=quantile_loss_fn,
                 **kws
             )
-            
-    def get_config(self):
-        config = super().get_config().copy()
-        config.update({
-            'static_input_dim': self.static_input_dim,
-            'dynamic_input_dim': self.dynamic_input_dim,
-            'future_input_dim': self.future_input_dim,
-            'embed_dim': self.embed_dim,
-            'forecast_horizon': self.forecast_horizon,
-            'quantiles': self.quantiles,
-            'max_window_size': self.max_window_size,
-            'memory_size': self.memory_size,
-            'num_heads': self.num_heads,
-            'dropout_rate': self.dropout_rate,
-            'output_dim': self.output_dim,
-            'anomaly_config': {
-                'anomaly_scores': ( 
-                    self.anomaly_scores.numpy() 
-                    if self.anomaly_scores is not None else None
-                    ),
-                'anomaly_loss_weight': self.anomaly_loss_weight
-            },
-            'attention_units': self.attention_units,
-            'hidden_units': self.hidden_units,
-            'lstm_units': self.lstm_units,
-            'scales': self.scales,
-            'activation': self.activation,
-            'use_residuals': self.use_residuals,
-            'use_batch_norm': self.use_batch_norm,
-            'final_agg': self.final_agg, 
-            'multi_scale_agg': self.multi_scale_agg, 
-        })
-        
-        self.logger.debug(
-            "Configuration for XTFT has been updated in get_config.")
-        return config
 
+    def get_config(self):
+        # Retrieve the base configuration from the superclass.
+        config = super().get_config().copy()
+        # Update configuration with XTFT-specific parameters.
+        config.update({
+            'static_input_dim'  : int(self.static_input_dim),
+            'dynamic_input_dim' : int(self.dynamic_input_dim),
+            'future_input_dim'  : int(self.future_input_dim),
+            'embed_dim'         : int(self.embed_dim),
+            'forecast_horizon'  : int(self.forecast_horizon),
+            'quantiles'         : (list(self.quantiles)
+                                   if self.quantiles is not None 
+                                   else None),
+            'max_window_size'   : int(self.max_window_size),
+            'memory_size'       : int(self.memory_size),
+            'num_heads'         : int(self.num_heads),
+            'dropout_rate'      : float(self.dropout_rate),
+            'output_dim'        : int(self.output_dim),
+            'attention_units'   : int(self.attention_units),
+            'hidden_units'      : int(self.hidden_units),
+            'lstm_units'        : (int(self.lstm_units)
+                                   if self.lstm_units is not None 
+                                   else None),
+            'scales'            : (list(self.scales)
+                                   if self.scales is not None 
+                                   else None),
+            'activation'        : str(self.activation),
+            'use_residuals'     : bool(self.use_residuals),
+            'use_batch_norm'    : bool(self.use_batch_norm),
+            'final_agg'         : str(self.final_agg),
+            'multi_scale_agg'   : (str(self.multi_scale_agg)
+                                   if self.multi_scale_agg is not None 
+                                   else None),
+            'anomaly_config'    : {
+                'anomaly_scores'    : (self.anomaly_scores.numpy().tolist()
+                                        if self.anomaly_scores is not None 
+                                        else None),
+                'anomaly_loss_weight': float(self.anomaly_loss_weight)
+            }
+        })
+    
+        # Log that the configuration has been updated.
+        self.logger.debug(
+            "Configuration for XTFT has been updated in get_config."
+        )
+        return config
+    
     @classmethod
     def from_config(cls, config):
+        # Initialize logger for instance creation.
         logger = gofastlog().get_gofast_logger(__name__)
-        logger.debug("Creating XTFT instance from config.")
+        logger.debug("Creating XTFT instance from configuration.")
+    
+        # Convert anomaly_scores from list back to a NumPy array, if present.
+        if config["anomaly_config"]["anomaly_scores"] is not None:
+            config["anomaly_config"]["anomaly_scores"] = np.array(
+                config["anomaly_config"]["anomaly_scores"], dtype=np.float32
+            )
+    
+        # Return a new instance created using the updated configuration.
         return cls(**config)
 
 @Deprecated(

@@ -1598,7 +1598,7 @@ def is_path_accessible(path: str, permissions: str = "r") -> bool:
     names="fcntl",
     extra="`fcntl` is required for file locking/unlocking in Unix-based systems.",
     auto_install=False,
-    dist_name="fcntl",
+    dist_names="fcntl",
     # `fcntl` is standard on Unix;let the user know if unavailable.
     # so we set infer_dist_name to False
     infer_dist_name=False 

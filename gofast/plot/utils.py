@@ -1229,20 +1229,20 @@ def plot_vec(
     plt.show()
 
 def plot_errorbar(
-        ax,
-        x_ar,
-        y_ar,
-        y_err=None,
-        x_err=None,
-        color='k',
-        marker='x',
-        ms=2,
-        ls=':',
-        lw=1,
-        e_capsize=2,
-        e_capthick=0.5,
-        picker=None,
-        **kw
+    ax,
+    x_ar,
+    y_ar,
+    y_err=None,
+    x_err=None,
+    color='k',
+    marker='x',
+    ms=2,
+    ls=':',
+    lw=1,
+    e_capsize=2,
+    e_capthick=0.5,
+    picker=None,
+    **kw
     ):
     """
     Convenience function to create an error bar instance on a given
@@ -1667,16 +1667,16 @@ def _set_sns_style(s, /):
     return sns.set_style(s)
 
 def plot_bar(
-        x,
-        y,
-        wh=0.8,
-        kind="v",
-        fig_size=(8, 6),
-        savefig=None,
-        xlabel=None,
-        ylabel=None,
-        title=None,
-        **kw
+    x,
+    y,
+    wh=0.8,
+    kind="v",
+    fig_size=(8, 6),
+    savefig=None,
+    xlabel=None,
+    ylabel=None,
+    title=None,
+    **kw
     ):
     """
     Make a vertical or horizontal bar plot.
