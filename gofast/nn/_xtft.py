@@ -503,7 +503,7 @@ class XTFT(Model, NNLearner):
         self.anomaly_scores= validate_anomaly_scores(
             self.anomaly_config, forecast_horizon= self.forecast_horizon)
         
-        self.anomaly_loss_weight= self.anomaly_config.get('anomaly_loss_weight')
+        self.anomaly_loss_weight= self.anomaly_config.get('anomaly_loss_weight', 1.)
         
         if self.anomaly_scores is not None:
             # Use anomaly_scores from anomaly_config
@@ -621,10 +621,10 @@ class XTFT(Model, NNLearner):
             'scales'            : (list(self.scales)
                                    if self.scales is not None 
                                    else None),
-            'activation'        : str(self.activation),
+            'activation'        : self.activation,
             'use_residuals'     : bool(self.use_residuals),
             'use_batch_norm'    : bool(self.use_batch_norm),
-            'final_agg'         : str(self.final_agg),
+            'final_agg'         : self.final_agg,
             'multi_scale_agg'   : (str(self.multi_scale_agg)
                                    if self.multi_scale_agg is not None 
                                    else None),
@@ -632,7 +632,11 @@ class XTFT(Model, NNLearner):
                 'anomaly_scores'    : (self.anomaly_scores.numpy().tolist()
                                         if self.anomaly_scores is not None 
                                         else None),
-                'anomaly_loss_weight': float(self.anomaly_loss_weight)
+                'anomaly_loss_weight': ( 
+                    float(self.anomaly_loss_weight) if self.anomaly_loss_weight
+                    is not None else 1.
+                    )
+                
             }
         })
     
@@ -1026,13 +1030,13 @@ class SuperXTFT(XTFT):
             f"Predictions Shape: {predictions.shape}"
         )
         
-        
         # Compute anomaly scores if configured
         self.anomaly_scores = validate_anomaly_scores(
             self.anomaly_config, forecast_horizon=self.forecast_horizon
         )
         
-        self.anomaly_loss_weight = self.anomaly_config.get('anomaly_loss_weight')
+        self.anomaly_loss_weight = self.anomaly_config.get(
+            'anomaly_loss_weight', 1.)
         
         if self.anomaly_scores is not None:
             self.logger.debug(
@@ -1420,6 +1424,7 @@ Examples
 ...     y=y_array,
 ...     epochs=10,
 ...     batch_size=8, 
+...     validation_split= 0.2, 
 ...     callbacks = [early_stopping, model_checkpoint]
 ... )
 >>> my_model.save(os.path.join(data_path, 'dummy_model.keras'))

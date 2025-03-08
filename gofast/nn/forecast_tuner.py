@@ -497,7 +497,7 @@ def _model_builder_factory(
 
 xtft_tuner.__doc__=r"""\
 Fine-tune the XTFT forecasting model using Keras Tuner with Bayesian 
-Optimization.
+or RandomSearch Optimization.
 
 This function sets up a hyperparameter tuning workflow for the XTFT model, 
 leveraging Keras Tuner's Bayesian Optimization to search over a defined 
@@ -629,7 +629,7 @@ References
        Computing in Science & Engineering, 13(2), 22-30.
 """
 
-tft_tuner.__doc__=r"""\n
+tft_tuner.__doc__=r"""\
 Fine-tune Temporal Fusion Transformer (TFT) models using Keras Tuner.
 
 This function is a wrapper around :func:`xtft_tuner` that explicitly 
