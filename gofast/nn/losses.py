@@ -48,7 +48,7 @@ if KERAS_BACKEND:
     register_keras_serializable=KERAS_DEPS.register_keras_serializable
     
     
-DEP_MSG = dependency_message('loss') 
+DEP_MSG = dependency_message('nn.losses') 
 
 __all__ = [
     'quantile_loss', 
@@ -59,8 +59,9 @@ __all__ = [
     'objective_loss', 
  ]
 
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 def objective_loss(
-    multi_obj_layer: Loss,
+    multi_obj_loss: Loss,
     anomaly_scores: Optional[Tensor] = None,
 ):
     """
@@ -70,7 +71,7 @@ def objective_loss(
 
     Parameters
     ----------
-    multi_obj_layer : MultiObjectiveLoss
+    multi_obj_loss : MultiObjectiveLoss
         A `MultiObjectiveLoss` instance that combines
         quantile loss and anomaly loss. Typically you
         create it via:
@@ -92,7 +93,7 @@ def objective_loss(
     -----
     This function is "Keras-serializable" in that you can
     save and load models using it.  Under the hood, it calls
-    `multi_obj_layer(y_true, y_pred, anomaly_scores)`. If
+    `multi_obj_loss(y_true, y_pred, anomaly_scores)`. If
     `anomaly_scores` is None, only the quantile loss is used.
 
     Examples
@@ -108,7 +109,7 @@ def objective_loss(
     >>> anomaly_scores = tf.random.normal((32, 10, 8))
     >>> # Wrap everything as a single Keras loss function
     >>> loss_fn = objective_loss(
-    ...     multi_obj_layer=mo_loss,
+    ...     multi_obj_loss=mo_loss,
     ...     anomaly_scores=anomaly_scores
     ... )
     >>> # Now you can do:
@@ -120,16 +121,16 @@ def objective_loss(
         The layer combining quantile + anomaly losses.
     """
     from .components import MultiObjectiveLoss
-    # Optional: check if multi_obj_layer has a 'call' method
+    # Optional: check if multi_obj_loss has a 'call' method
     # or if it's a valid Keras layer. 
-    multi_obj_layer= validate_keras_loss (
-        multi_obj_layer, deep_check=True, 
+    multi_obj_loss= validate_keras_loss (
+        multi_obj_loss, deep_check=True, 
         ops="validate", 
     )
-    if not isinstance(multi_obj_layer, MultiObjectiveLoss):
+    if not isinstance(multi_obj_loss, MultiObjectiveLoss):
         warnings.warn(
             "Expected a MultiObjectiveLoss instance, got %s" % type(
-                multi_obj_layer)
+                multi_obj_loss)
     )
 
     @register_keras_serializable(
@@ -148,10 +149,10 @@ def objective_loss(
             check_consistent_length(y_true, y_pred, anomaly_scores)
 
             # Actual call to multi_obj_layer
-            return multi_obj_layer(y_true, y_pred, anomaly_scores)
+            return multi_obj_loss(y_true, y_pred, anomaly_scores)
         else:
             check_consistent_length(y_true, y_pred)
-            return multi_obj_layer(y_true, y_pred)
+            return multi_obj_loss(y_true, y_pred)
 
     return _loss_fn
 
@@ -184,7 +185,10 @@ def combined_quantile_loss(quantiles: List[float]):
     # Validate & store quantiles
     quantiles = validate_quantiles_in(quantiles)
     
-    @register_keras_serializable("gofast.nn.losses", name="combined_quantile_loss")
+    @register_keras_serializable(
+        "gofast.nn.losses", 
+        name="combined_quantile_loss"
+    )
     def _cqloss(y_true, y_pred):
         # Expand y_true so it matches y_pred's quantile dimension
         y_true_expanded = expand_dims(y_true, axis=2)  # => (B, H, 1, O)
@@ -211,6 +215,7 @@ def combined_quantile_loss(quantiles: List[float]):
 
     return _cqloss
 
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 def combined_total_loss(
     quantiles: List[float],
     anomaly_layer: Loss,   #  an instance of your AnomalyLoss
@@ -249,7 +254,10 @@ def combined_total_loss(
                 anomaly_layer)
     )
     
-    @register_keras_serializable(package="gofast.nn.losses", name="combined_total_loss")
+    @register_keras_serializable(
+        package="gofast.nn.losses", 
+        name="combined_total_loss"
+    )
     def _total_loss(y_true, y_pred):
         q_loss = quantile_loss_fn(y_true, y_pred)
         a_loss = anomaly_layer(anomaly_scores)

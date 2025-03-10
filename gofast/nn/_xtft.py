@@ -53,7 +53,6 @@ if KERAS_BACKEND:
     tf_autograph=KERAS_DEPS.autograph
     
     tf_autograph.set_verbosity(0)
-
     
     from ._tensor_validation import validate_anomaly_scores 
     from ._tensor_validation import validate_xtft_inputs 
@@ -676,7 +675,6 @@ class SuperXTFT(XTFT):
     """
     SuperXTFT: An enhanced version of XTFT with Variable Selection Networks (VSNs) 
     and integrated Gate → Add & Norm → GRN pipeline in attention layers.
-    
     """
     def __init__(
         self,
@@ -1068,6 +1066,7 @@ class SuperXTFT(XTFT):
     
     @classmethod
     def from_config(cls, config):
+
         logger = gofastlog().get_gofast_logger(__name__)
         logger.debug("Creating SuperXTFT instance from config.")
         return cls(**config)

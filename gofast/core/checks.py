@@ -5945,7 +5945,6 @@ def check_callable(
 
     return value
 
-
 def check_array_like(
     obj, 
     context="ml", 

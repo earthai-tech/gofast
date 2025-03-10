@@ -831,7 +831,7 @@ def create_sequences(
 @is_data_readable(data_to_read ='data')
 def compute_forecast_horizon(
     data=None,
-    date_col=None,
+    dt_col=None,
     start_pred=None,
     end_pred=None,
     error='raise',
@@ -850,15 +850,15 @@ def compute_forecast_horizon(
     ----------
     data : pandas.DataFrame, pandas.Series, list, or numpy.ndarray, optional
         The dataset containing datetime information. If a `pandas.DataFrame` is
-        provided, the `date_col` parameter must be specified to indicate which
+        provided, the `dt_col` parameter must be specified to indicate which
         column contains the datetime data. For `pandas.Series`, `list`, or
         `numpy.ndarray`, the function attempts to infer the frequency directly.
 
-    date_col : str, optional
+    dt_col : str, optional
         The name of the column in `data` that contains datetime information.
         This parameter is **required** if `data` is a `pandas.DataFrame`.
         Example:
-        ``date_col='timestamp'``
+        ``dt_col='timestamp'``
 
     start_pred : str, int, or datetime-like
         The starting point for forecasting. This can be a date string
@@ -913,7 +913,7 @@ def compute_forecast_horizon(
     ... })
     >>> horizon = compute_forecast_horizon(
     ...     data=df,
-    ...     date_col='date',
+    ...     dt_col='date',
     ...     start_pred='2023-04-10',
     ...     end_pred='2023-04-20',
     ...     error='raise',
@@ -993,23 +993,23 @@ def compute_forecast_horizon(
     # Process data if provided
     if data is not None:
         if isinstance(data, pd.DataFrame):
-            if date_col is None:
-                message = "`date_col` must be specified when data is a DataFrame."
+            if dt_col is None:
+                message = "`dt_col` must be specified when data is a DataFrame."
                 if error == 'raise':
                     raise ValueError(message)
                 elif error == 'warn':
                     warnings.warn(message)
                     return None
-            if date_col not in data.columns:
-                message = f"`date_col` '{date_col}' not found in DataFrame."
+            if dt_col not in data.columns:
+                message = f"`dt_col` '{dt_col}' not found in DataFrame."
                 if error == 'raise':
                     raise ValueError(message)
                 elif error == 'warn':
                     warnings.warn(message)
                     return None
-            dates = pd.to_datetime(data[date_col], errors='coerce')
+            dates = pd.to_datetime(data[dt_col], errors='coerce')
             if dates.isnull().any():
-                message = "Some dates could not be converted. Check `date_col` format."
+                message = "Some dates could not be converted. Check `dt_col` format."
                 if error == 'raise':
                     raise ValueError(message)
                 elif error == 'warn':
@@ -1295,10 +1295,10 @@ def extract_callbacks_from(fit_params, return_fit_params=False):
     "feature_columns":['array-like'], 
     "dynamic_feature_indices": ['array-like'], 
     "sequence_length": [Interval( Integral, 1, None, closed="left")], 
-    "time_col": [str], 
+    "dt_col": [str], 
     "static_feature_names": ['array-like', None], 
     "forecast_horizon": [Interval( Integral, 1, None, closed="left"), None],
-    "future_years":[list, Interval( Integral, 1, None, closed="left"), None],
+    "future_years":['array-like', Interval( Integral, 1, None, closed="left"), None],
     "encoded_cat_columns": ['array-like', None], 
     "scaling_params": [dict, None]
     }
@@ -1308,7 +1308,7 @@ def prepare_spatial_future_data(
     feature_columns: List[str],
     dynamic_feature_indices: List[int],
     sequence_length: int = 1,
-    time_col: str = 'date',
+    dt_col: str = 'date',
     static_feature_names: Optional[List[str]] = None,
     forecast_horizon: Optional[int] = None,
     future_years: Optional[List[int]] = None,
@@ -1336,7 +1336,7 @@ def prepare_spatial_future_data(
     inputs for prediction over the defined ``forecast_horizon``.
 
     The function handles both integer and datetime representations of the
-    ``time_col``, extracting the year from datetime columns when necessary. It
+    ``dt_col``, extracting the year from datetime columns when necessary. It
     also allows for flexibility in specifying static features and encoded
     categorical variables.
 
@@ -1347,7 +1347,7 @@ def prepare_spatial_future_data(
     ----------
     final_processed_data : pandas.DataFrame
         The processed DataFrame containing all features and targets. Must include
-        the ``location_id`` column and the specified ``time_col``.
+        the ``location_id`` column and the specified ``dt_col``.
     feature_columns : List[str]
         List of feature column names to be used for dynamic input preparation.
     dynamic_feature_indices : List[int]
@@ -1356,7 +1356,7 @@ def prepare_spatial_future_data(
     sequence_length : int, optional
         The number of past time steps to include in each input sequence.
         Default is ``1``.
-    time_col : str, optional
+    dt_col : str, optional
         The name of the time-related column in ``final_processed_data``.
         Defaults to ``'date'``.
     static_feature_names : List[str], optional
@@ -1374,7 +1374,7 @@ def prepare_spatial_future_data(
         Dictionary containing scaling parameters (mean and standard deviation)
         for features. Example: ``{'year': {'mean': 2000, 'std': 10}}``.
         If not provided, the function computes the mean and std for the
-        ``time_col``.
+        ``dt_col``.
     squeeze_last: bool, default=True, 
        Squeeze the last axis which correspond to the output dimension ``y`` 
        if equal to ``1``. 
@@ -1426,7 +1426,7 @@ def prepare_spatial_future_data(
     ...     future_years=[2021],
     ...     encoded_cat_columns=['encoded_cat'],
     ...     verbosity=5,
-    ...     time_col='year'
+    ...     dt_col='year'
     ... )
     >>> print(future_static.shape)
     (2, 3, 1)
@@ -1436,7 +1436,7 @@ def prepare_spatial_future_data(
     Notes
     -----
     - The function handles both integer and datetime representations of the
-      ``time_col``. If ``time_col`` is a datetime type, the year is extracted for
+      ``dt_col``. If ``dt_col`` is a datetime type, the year is extracted for
       scaling purposes.
     - If ``forecast_horizon`` is set to ``None``, the function defaults to
       generating data for the next immediate time step based on the last entry
@@ -1487,12 +1487,12 @@ def prepare_spatial_future_data(
     log("Scaling parameters set.", 3)
 
     # Determine time column
-    detected_time_col = _determine_time_column(final_processed_data, time_col, log)
+    detected_dt_col = _determine_dt_column(final_processed_data, dt_col, log)
     
     # Handle scaling for time column
     time_mean, time_std = _handle_time_scaling(
         final_processed_data,
-        detected_time_col,
+        detected_dt_col,
         scaling_params,
         log
     )
@@ -1515,7 +1515,7 @@ def prepare_spatial_future_data(
 
     # Iterate over each location
     for name, group in grouped:
-        group = _sort_group_by_time(group, detected_time_col, log, name)
+        group = _sort_group_by_time(group, detected_dt_col, log, name)
 
         # Ensure there is enough data to create a sequence
         if len(group) >= sequence_length:
@@ -1553,7 +1553,7 @@ def prepare_spatial_future_data(
                     step,
                     future_years,
                     group,
-                    detected_time_col,
+                    detected_dt_col,
                     log,
                     name
                 )
@@ -1572,7 +1572,7 @@ def prepare_spatial_future_data(
                     future_dynamic_inputs,
                     feature_columns,
                     dynamic_feature_indices,
-                    detected_time_col,
+                    detected_dt_col,
                     future_time,
                     time_mean,
                     time_std,
@@ -1632,64 +1632,64 @@ def prepare_spatial_future_data(
 
 
 # Helper Functions
-def _determine_time_column(
+def _determine_dt_column(
         final_processed_data: pd.DataFrame,
-        time_col: str,
+        dt_col: str,
         log_func
     ) -> str:
     """Determine and validate the time column."""
-    if time_col in final_processed_data.columns:
-        log_func(f"Using time column: {time_col}", 4)
-        return time_col
+    if dt_col in final_processed_data.columns:
+        log_func(f"Using time column: {dt_col}", 4)
+        return dt_col
     else:
         raise ValueError(
-            f"final_processed_data must contain the '{time_col}' column."
+            f"final_processed_data must contain the '{dt_col}' column."
         )
 
 
 def _handle_time_scaling(
         final_processed_data: pd.DataFrame,
-        detected_time_col: str,
+        detected_dt_col: str,
         scaling_params: Dict[str, Dict[str, float]],
         log_func
     ) -> Tuple[float, float]:
     """Handle scaling for the time column."""
-    if detected_time_col not in scaling_params:
-        if detected_time_col == 'year':
-            time_mean = final_processed_data[detected_time_col].mean()
-            time_std = final_processed_data[detected_time_col].std()
+    if detected_dt_col not in scaling_params:
+        if detected_dt_col == 'year':
+            time_mean = final_processed_data[detected_dt_col].mean()
+            time_std = final_processed_data[detected_dt_col].std()
         else:
             # Handle 'date' or other time columns
             if pd.api.types.is_datetime64_any_dtype(
-                final_processed_data[detected_time_col]
+                final_processed_data[detected_dt_col]
             ):
                 final_processed_data['year_extracted'] = (
-                    final_processed_data[detected_time_col].dt.year
+                    final_processed_data[detected_dt_col].dt.year
                 )
-                time_col_extracted = 'year_extracted'
-                time_mean = final_processed_data[time_col_extracted].mean()
-                time_std = final_processed_data[time_col_extracted].std()
+                dt_col_extracted = 'year_extracted'
+                time_mean = final_processed_data[dt_col_extracted].mean()
+                time_std = final_processed_data[dt_col_extracted].std()
                 log_func(
-                    f"Extracted year from '{detected_time_col}' column as "
-                    f"'{time_col_extracted}'",
+                    f"Extracted year from '{detected_dt_col}' column as "
+                    f"'{dt_col_extracted}'",
                     5
                 )
-                detected_time_col = time_col_extracted
+                detected_dt_col = dt_col_extracted
             else:
                 # Assume 'date' column contains integer year
-                time_mean = final_processed_data[detected_time_col].mean()
-                time_std = final_processed_data[detected_time_col].std()
-        scaling_params[detected_time_col] = {'mean': time_mean, 'std': time_std}
+                time_mean = final_processed_data[detected_dt_col].mean()
+                time_std = final_processed_data[detected_dt_col].std()
+        scaling_params[detected_dt_col] = {'mean': time_mean, 'std': time_std}
         log_func(
-            f"Computed scaling for '{detected_time_col}': mean={time_mean}, "
+            f"Computed scaling for '{detected_dt_col}': mean={time_mean}, "
             f"std={time_std}", 
             4
         )
     else:
-        time_mean = scaling_params[detected_time_col]['mean']
-        time_std = scaling_params[detected_time_col]['std']
+        time_mean = scaling_params[detected_dt_col]['mean']
+        time_std = scaling_params[detected_dt_col]['std']
         log_func(
-            f"Using provided scaling for '{detected_time_col}': mean="
+            f"Using provided scaling for '{detected_dt_col}': mean="
             f"{time_mean}, std={time_std}", 
             4
         )
@@ -1739,12 +1739,12 @@ def _group_by_location(
 
 def _sort_group_by_time(
         group: pd.DataFrame,
-        detected_time_col: str,
+        detected_dt_col: str,
         log_func,
         location_id: Union[int, str]
     ) -> pd.DataFrame:
     """Sort the group by the time column."""
-    group = group.sort_values(detected_time_col).reset_index(drop=True)
+    group = group.sort_values(detected_dt_col).reset_index(drop=True)
     log_func(f"Processing location_id: {location_id}", 3)
     return group
 
@@ -1805,7 +1805,7 @@ def _determine_future_time(
         step: int,
         future_years: List[int],
         group: pd.DataFrame,
-        detected_time_col: str,
+        detected_dt_col: str,
         log_func,
         location_id: Union[int, str]
     ) -> int:
@@ -1819,26 +1819,26 @@ def _determine_future_time(
             )
     else:
         # If forecast_horizon is None, use the next time step
-        if detected_time_col == 'year_extracted':
-            future_time = int(group[detected_time_col].iloc[-1]) + 1
-        elif detected_time_col == 'year':
-            future_time = int(group[detected_time_col].iloc[-1]) + 1
+        if detected_dt_col == 'year_extracted':
+            future_time = int(group[detected_dt_col].iloc[-1]) + 1
+        elif detected_dt_col == 'year':
+            future_time = int(group[detected_dt_col].iloc[-1]) + 1
         else:
             # Assume 'date' column has been processed
             if pd.api.types.is_datetime64_any_dtype(
-                group[detected_time_col]
+                group[detected_dt_col]
             ):
-                last_date = group[detected_time_col].iloc[-1]
+                last_date = group[detected_dt_col].iloc[-1]
                 future_time = last_date.year + 1
             else:
-                future_time = int(group[detected_time_col].iloc[-1]) + 1
+                future_time = int(group[detected_dt_col].iloc[-1]) + 1
     return future_time
 
 def _update_time_feature(
         future_dynamic_inputs: np.ndarray,
         feature_columns: List[str],
         dynamic_feature_indices: List[int],
-        detected_time_col: str,
+        detected_dt_col: str,
         future_time: int,
         time_mean: float,
         time_std: float,
@@ -1846,8 +1846,8 @@ def _update_time_feature(
         location_id: Union[int, str]
     ):
     """Update the time feature in the dynamic inputs."""
-    if detected_time_col in feature_columns:
-        time_idx_in_feature = feature_columns.index(detected_time_col)
+    if detected_dt_col in feature_columns:
+        time_idx_in_feature = feature_columns.index(detected_dt_col)
         if time_idx_in_feature in dynamic_feature_indices:
             dynamic_time_index = (
                 dynamic_feature_indices.index(time_idx_in_feature)
@@ -1857,19 +1857,19 @@ def _update_time_feature(
                 -1, dynamic_time_index, 0
             ] = scaled_time
             log_func(
-                f"Scaled '{detected_time_col}' for future input: "
+                f"Scaled '{detected_dt_col}' for future input: "
                 f"original={future_time}, scaled={scaled_time}", 
                 7
             )
         else:
             log_func(
-                f"'{detected_time_col}' is not in dynamic_feature_indices "
+                f"'{detected_dt_col}' is not in dynamic_feature_indices "
                 f"for location_id {location_id}.", 
                 6
             )
     else:
         log_func(
-            f"'{detected_time_col}' column not found in "
+            f"'{detected_dt_col}' column not found in "
             f"feature_columns for location_id {location_id}.", 
             6
         )
@@ -2505,7 +2505,7 @@ def generate_forecast(
     q=None,           # default quantiles: [0.1, 0.5, 0.9]
     tname=None,       # target name, e.g., 'subsidence'
     forecast_dt=None, # if 'auto', derive from dt_col; else, manual [2023, 2024, 2025, 2026]
-    savefile=None,    # default filename if None
+    savefile=None,     
     verbose=3
 ):
     """
@@ -3597,9 +3597,8 @@ def visualize_forecasts(
     else:
         raise ValueError("Mode must be either 'quantile' or 'point'.")
 
-    #XXX  # restore back to origin_dtype before 
-    # print(forecast_df[dt_col])
-    # print(eval_periods)
+    # XXX  # restore back to origin_dtype before 
+
     # Loop over evaluation periods and plot
     df_actual = test_data if test_data is not None else forecast_df 
     
@@ -3657,7 +3656,6 @@ def visualize_forecasts(
         axes = np.array([axes])
     elif n_cols == 1:
         axes = axes.reshape(total_rows, 1)
-
 
     for idx, period in enumerate(eval_periods):
         # Try to reconvert 
