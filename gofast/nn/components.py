@@ -2352,7 +2352,7 @@ class AnomalyLoss(Loss, NNLearner):
         self.weight = weight
 
     @tf_autograph.experimental.do_not_convert
-    def call(self, anomaly_scores: Tensor):
+    def call(self, anomaly_scores: Tensor, y_pred=None): 
         r"""
         Forward pass that computes the mean squared
         anomaly score multiplied by `weight`.

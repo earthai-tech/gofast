@@ -521,7 +521,7 @@ class XTFT(Model, NNLearner):
 
         # compute anomaly scores 
         # Handle anomaly_scores exclusively via anomaly_config
-        if self.anomaly_loss_weight is not None:
+        # if self.anomaly_loss_weight is not None:
             # Compute anomaly loss and add it to the total loss
             anomaly_loss = self.anomaly_loss_layer(self.anomaly_scores)
             self.add_loss(self.anomaly_loss_weight * anomaly_loss)
@@ -1050,8 +1050,8 @@ class SuperXTFT(XTFT):
                 )
                 self.anomaly_loss_weight = 1.0
         
-        # Add anomaly loss if configured
-        if self.anomaly_loss_weight is not None:
+        # # Add anomaly loss if configured
+        # if self.anomaly_loss_weight is not None:
             anomaly_loss = self.anomaly_loss_layer(self.anomaly_scores)
             self.add_loss(self.anomaly_loss_weight * anomaly_loss)
             self.logger.debug(f"Anomaly Loss Computed and Added: {anomaly_loss}")
