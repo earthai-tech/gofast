@@ -24,7 +24,7 @@ if KERAS_BACKEND:
     tf_assert_equal=KERAS_DEPS.assert_equal
     tf_autograph=KERAS_DEPS.autograph
     register_keras_serializable=KERAS_DEPS.register_keras_serializable
-    
+    tf_expand_dims=KERAS_DEPS.expand_dims
     tf_autograph.set_verbosity(0)
     
 else: 
@@ -41,13 +41,211 @@ if HAS_TF:
     # Enable compatibility mode for ndim
     config.compat_ndim_enabled = True 
 
+# --------------------------- tensor validation -------------------------------
+
+def set_anomaly_config(
+        anomaly_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Processes the anomaly_config dictionary to ensure it contains
+    'anomaly_scores' and 'anomaly_loss_weight' keys.
+
+    Parameters:
+    - anomaly_config (Optional[Dict[str, Any]]): 
+        A dictionary that may contain:
+            - 'anomaly_scores': Precomputed anomaly scores tensor.
+            - 'anomaly_loss_weight': Weight for anomaly loss.
+
+    Returns:
+    - Dict[str, Any]: 
+        A dictionary with keys 'anomaly_scores' and 'anomaly_loss_weight',
+        setting them to None if they were not provided.
+    """
+    if anomaly_config is None:
+        return {'anomaly_loss_weight': None, 'anomaly_scores': None}
+    
+    # Create a copy to avoid mutating the original dictionary
+    config = anomaly_config.copy()
+
+    # Ensure 'anomaly_scores' key exists
+    if 'anomaly_scores' not in config:
+        config['anomaly_scores'] = None
+
+    # Ensure 'anomaly_loss_weight' key exists
+    if 'anomaly_loss_weight' not in config:
+        config['anomaly_loss_weight'] = None
+
+    return config
+
+@ensure_pkg(
+    'tensorflow',
+    extra="Need 'tensorflow' for this function to proceed."
+)
+def validate_anomaly_scores_in(
+        scores_tensor: Tensor
+    ) -> Tensor:
+    """
+    Validate and format anomaly scores tensor to ensure proper
+    shape and type.
+
+    Parameters
+    ----------
+    scores_tensor : Tensor
+        Input anomaly scores tensor of any shape. Will be converted to:
+        - dtype: tf.float32
+        - shape: (batch_size, features) with at least 2 dimensions
+
+    Returns
+    -------
+    Tensor
+        Validated anomaly scores tensor with:
+        - dtype: tf.float32
+        - shape: (batch_size, features) where features >= 1
+
+    Raises
+    ------
+    ValueError
+        If input cannot be converted to TensorFlow tensor
+    TypeError
+        If input contains invalid non-numeric types
+
+    Notes
+    -----
+    1. Automatically adds feature dimension if missing
+    2. Ensures float32 precision for numerical stability
+    3. Designed for internal use with anomaly detection workflows
+
+    Examples
+    --------
+    >>> valid_scores = validate_anomaly_scores_in([0.1, 0.5, 0.3])
+    >>> valid_scores.shape
+    TensorShape([3, 1])
+
+    >>> valid_scores = validate_anomaly_scores_in([[0.2], [0.4], [0.9]])
+    >>> valid_scores.shape
+    TensorShape([3, 1])
+
+    See Also
+    --------
+    validate_anomaly_scores : Full validation with config handling
+    CombinedTotalLoss : Usage of validated scores in loss calculation
+    """
+
+    # Check and convert tensor type
+    if not isinstance(scores_tensor, Tensor):
+        try:
+            scores_tensor = tf_convert_to_tensor(
+                scores_tensor, dtype=tf_float32
+            )
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Invalid anomaly scores input: {e}\n"
+                "Expected array-like or TensorFlow tensor."
+            ) from e
+
+    # Ensure float32 precision
+    scores_tensor = tf_cast(scores_tensor, tf_float32)
+
+    # Add feature dimension if needed
+    if len(scores_tensor.shape) != 2:
+        scores_tensor = tf_expand_dims(scores_tensor, -1)
+
+    return scores_tensor
+
+@ensure_pkg(
+    'tensorflow',
+    extra="Requires TensorFlow for anomaly score validation"
+)
+def validate_anomaly_config(
+    anomaly_config: Optional[Dict[str, Any]],
+    forecast_horizon: int=1,
+    default_anomaly_loss_weight: float = 1.0,
+    strategy: Optional[str] = None, 
+    return_loss_weight: bool=False, 
+) -> Tuple[Dict[str, Any], Optional[str], float]:
+    """
+    Validates and processes anomaly detection configuration with strategy-aware checks.
+
+    Parameters
+    ----------
+    anomaly_config : Optional[Dict[str, Any]]
+        Configuration dictionary containing:
+        - anomaly_scores: Tensor of shape (batch_size, forecast_horizon)
+        - anomaly_loss_weight: Float weight for loss component
+    forecast_horizon : int
+        Expected number of forecasting steps
+    default_anomaly_loss_weight : float, default=1.0
+        Default weight if not specified in config
+    strategy : Optional[str], optional
+        Anomaly detection strategy to validate against
+
+    Returns
+    -------
+    Tuple[Dict[str, Any], Optional[str], float]
+        1. Validated configuration dictionary
+        2. Active strategy (None if invalid)
+        3. Final anomaly loss weight
+
+    Raises
+    ------
+    ValueError
+        For invalid tensor shapes in 'from_config' strategy
+    TypeError
+        For non-numeric anomaly loss weights
+    """
+    # Initialize with default-safe configuration
+    config = set_anomaly_config(anomaly_config or {})
+    active_strategy = strategy
+    # Update the weight with the default in dict if None 
+    loss_weight = config.get(
+        'anomaly_loss_weight') or  default_anomaly_loss_weight
+    # keep updated update the config dict 
+    config.update({'anomaly_loss_weight': loss_weight})
+    
+    # Strategy-specific validation
+    if active_strategy == 'from_config':
+        try:
+            scores = validate_anomaly_scores(
+                config, 
+                forecast_horizon=forecast_horizon,
+                mode='strict'
+            )
+            config['anomaly_scores'] = scores
+        except (ValueError, TypeError) as e:
+            warnings.warn(
+                f"Disabled anomaly detection: {e}",
+                UserWarning
+            )
+            active_strategy = None
+            config['anomaly_scores'] = None
+
+    # Weight validation with type safety
+    if (weight := config.get('anomaly_loss_weight')) is not None:
+        if isinstance(weight, (int, float)):
+            loss_weight = float(weight)
+        else:
+            warnings.warn(
+                f"Ignoring invalid weight type {type(weight).__name__}, "
+                f"using default {default_anomaly_loss_weight}",
+                UserWarning
+            )
+    # Update the weight with the default in dict if None 
+    config.update ({ 
+        'anomaly_loss_weight': loss_weight
+        })
+    
+    if return_loss_weight : 
+        return config, active_strategy, loss_weight 
+    
+    return config, active_strategy
+
 @ensure_pkg(
     'tensorflow',
     extra="Need 'tensorflow' for this function to proceed."
 )
 def validate_anomaly_scores(
     anomaly_config: Optional[Dict[str, Any]],
-    forecast_horizon: int,
+    forecast_horizon: Optional[int]=None,
+    mode: str= 'strict', 
 ) -> Optional[Tensor]:
     """
     Validates and processes the ``anomaly_scores`` in the provided 
@@ -61,6 +259,10 @@ def validate_anomaly_scores(
     - ``forecast_horizon`` (int): 
         The expected number of forecast horizons (second dimension 
         of `anomaly_scores`).
+    - ``mode`` (str) : 
+        The mode for checking the anomaly score. In ``strict`` mode, 
+        anomaly score should exclusively be 2D tensor. In 'soft' mode
+        can expand dimensions to fit the 2D dimensons. 
 
     Returns:
     - Optional[`Tensor`]: 
@@ -72,6 +274,10 @@ def validate_anomaly_scores(
     - ValueError: 
         If `anomaly_scores` is provided but is not a 2D tensor or the 
         second dimension does not match `forecast_horizons`.
+        
+    See Also: 
+        validate_anomaly_scores_in: 
+            Anomaly scores validated in ``'soft'`` mode
     """
 
     if anomaly_config is None:
@@ -106,11 +312,15 @@ def validate_anomaly_scores(
             # Cast to float32 if it's already a tensor
             anomaly_scores = tf_cast(anomaly_scores, tf_float32)
 
+        if mode !='strict': # in soft" mode, expand dim. 
+            return validate_anomaly_scores_in(anomaly_scores) 
+        
+        
         # Validate that `anomaly_scores` is a 2D tensor
         if len(anomaly_scores.shape) != 2:
             raise ValueError(
                 f"`anomaly_scores` must be a 2D tensor with shape "
-                f"(batch_size, forecast_horizons), but got "
+                f"(batch_size, forecast_horizon), but got "
                 f"{len(anomaly_scores.shape)}D tensor."
             )
 

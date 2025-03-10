@@ -102,7 +102,8 @@ __all__ = [
      'TemporalAttentionLayer',
      'VariableSelectionNetwork',
      'Activation', 
-     'aggregate_multiscale'
+     'aggregate_multiscale', 
+     'aggregate_time_window_output'
     ]
 
 _param_docs = DocstringComponents.from_nested_components(
@@ -2352,7 +2353,8 @@ class AnomalyLoss(Loss, NNLearner):
         self.weight = weight
 
     @tf_autograph.experimental.do_not_convert
-    def call(self, anomaly_scores: Tensor, y_pred=None): 
+    def call(self, anomaly_scores: Tensor, y_pred=None 
+             ): 
         r"""
         Forward pass that computes the mean squared
         anomaly score multiplied by `weight`.
@@ -2362,6 +2364,8 @@ class AnomalyLoss(Loss, NNLearner):
         ``anomaly_scores`` : tf.Tensor
             Tensor of shape (B, H, D) representing
             anomaly scores.
+        ``y_pred``: Optional 
+           Does nothing, just for API consistency.
 
         Returns
         -------
@@ -4081,3 +4085,129 @@ def aggregate_multiscale(lstm_output, mode="auto"):
         )  # (B, units * len(scales))
     
     return lstm_features 
+
+@register_keras_serializable(
+    'gofast.nn.components', 
+    name='aggregate_time_window_output'
+)
+def aggregate_time_window_output(
+        time_window_output:Tensor,
+        mode: Optional[str]=None
+    ):
+    """
+    Aggregates time window output features based on the specified
+    aggregation method.
+
+    This function performs the final aggregation on a 3D tensor
+    representing temporal features. The aggregation can be done by
+    selecting the last time step, computing the average across time,
+    or flattening the temporal and feature dimensions into a single
+    vector per sample.
+
+    The aggregation methods are defined as follows:
+
+    .. math::
+       \text{last: } F = T[:, -1, :]
+
+    .. math::
+       \text{average: } F = \frac{1}{T_{dim}} \sum_{i=1}^{T_{dim}}
+       T[:, i, :]
+
+    .. math::
+       \text{flatten: } F = \text{reshape}(T, (batch\_size,
+       time\_dim \times feat\_dim))
+
+    where :math:`T` is the input tensor with shape
+    :math:`(batch\_size, time\_dim, feat\_dim)` and :math:`F` is the
+    aggregated output.
+
+    Parameters
+    ----------
+    time_window_output : tf.Tensor
+        A 3D tensor of shape :math:`(batch\_size, time\_dim,
+        feat\_dim)` representing the output features over time.
+    mode : str, optional
+        Aggregation method to apply. Supported values are:
+
+        - ``"last"``: Selects the features from the last time step.
+        - ``"average"``: Computes the mean of features across
+          the time dimension.
+        - ``"flatten"``: Flattens the time and feature dimensions
+          into a single vector per sample.
+
+        If ``mode`` is `None`, the function falls back to the
+        ``flatten`` aggregation method.
+
+    Returns
+    -------
+    tf.Tensor
+        The aggregated features tensor after applying the specified
+        aggregation method.
+
+    Raises
+    ------
+    ValueError
+        If an unsupported aggregation method is provided in the
+        ``mode`` argument.
+
+    Examples
+    --------
+    >>> from gofast.nn.components import aggregate_time_window_output
+    >>> import tensorflow as tf
+    >>> # Create a dummy tensor with shape (2, 3, 4)
+    >>> dummy = tf.random.uniform((2, 3, 4))
+    >>> # Apply average aggregation
+    >>> result = aggregate_time_window_output(dummy,
+    ...                                      mode="average")
+
+    Notes
+    -----
+    - The function uses TensorFlow operations to ensure compatibility
+      with TensorFlow's computation graph.
+    - It is recommended to use this function as part of a larger neural
+      network pipeline [1]_.
+
+    See Also
+    --------
+    tf.reduce_mean
+        TensorFlow operation to compute mean along axes.
+
+    References
+    ----------
+    .. [1] Author Name, "Title of the reference", Journal/Conference,
+       Year.
+
+    """
+    mode = mode or 'flatten' 
+    if mode == "last":
+        # Select the features corresponding to the last time step for
+        # each sample.
+        final_features = time_window_output[:, -1, :]
+
+    elif mode == "average":
+        # Compute the mean of the features across the time dimension.
+        final_features = tf_reduce_mean(time_window_output, axis=1)
+
+    elif mode == "flatten":
+        # Retrieve the dynamic shape of the input tensor.
+        shape = tf_shape(time_window_output)
+        batch_size, time_dim, feat_dim = (
+            shape[0],
+            shape[1],
+            shape[2]
+        )
+        # Flatten the time and feature dimensions into a single vector
+        # per sample.
+        final_features = tf_reshape(
+            time_window_output,
+            [batch_size, time_dim * feat_dim]
+        )
+
+    else:
+        # Raise an error if an unsupported aggregation method is provided.
+        raise ValueError(
+            f"Unsupported mode value: '{mode}'. Supported values are "
+            f"'last', 'average', or 'flatten'."
+        )
+
+    return final_features

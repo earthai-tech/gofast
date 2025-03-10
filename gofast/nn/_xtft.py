@@ -5,6 +5,7 @@
 """Implements the Extreme Temporal Fusion Transformer (XTFT), a state-of-the-art 
 architecture for multi-horizon time-series forecasting.
 """
+
 from textwrap import dedent 
 from numbers import Real, Integral  
 from typing import List, Optional, Union, Dict, Any  
@@ -51,14 +52,26 @@ if KERAS_BACKEND:
     tf_constant=KERAS_DEPS.constant 
     tf_square=KERAS_DEPS.square 
     tf_autograph=KERAS_DEPS.autograph
+    tf_GradientTape=KERAS_DEPS.GradientTape
+    tf_unstack =KERAS_DEPS.unstack
+    tf_errors=KERAS_DEPS.errors 
+    tf_is_nan =KERAS_DEPS.is_nan 
+    tf_reduce_all=KERAS_DEPS.reduce_all
+    tf_zeros_like=KERAS_DEPS.zeros_like
     
     tf_autograph.set_verbosity(0)
     
     from ._tensor_validation import validate_anomaly_scores 
-    from ._tensor_validation import validate_xtft_inputs 
+    from ._tensor_validation import validate_xtft_inputs
+    from ._tensor_validation import validate_anomaly_config 
+    from ..compat.tf import optional_tf_function 
     
-    from .losses import combined_quantile_loss, combined_total_loss
-    from .utils import set_default_params, set_anomaly_config 
+    from .losses import ( 
+        combined_quantile_loss, 
+        combined_total_loss, 
+        prediction_based_loss
+    )
+    from .utils import set_default_params
     from .components import ( 
             AdaptiveQuantileLoss,
             AnomalyLoss,
@@ -76,7 +89,8 @@ if KERAS_BACKEND:
             QuantileDistributionModeling,
             VariableSelectionNetwork,
             PositionalEncoding, 
-            aggregate_multiscale 
+            aggregate_multiscale, 
+            aggregate_time_window_output
         )
     
 DEP_MSG = dependency_message('transformers') 
@@ -148,7 +162,11 @@ class XTFT(Model, NNLearner):
         "use_batch_norm": [bool],
         "use_residuals": [bool],
         "final_agg": [StrOptions({"last", "average",  "flatten"})],
-        },
+        "anomaly_detection_strategy": [
+            StrOptions({"prediction_based", "feature_based", "from_config"}), 
+            None
+        ],
+      },
     )
     @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
     def __init__(
@@ -164,7 +182,6 @@ class XTFT(Model, NNLearner):
         num_heads: int = 4,
         dropout_rate: float = 0.1,
         output_dim: int = 1, 
-        anomaly_config: Optional[Dict[str, Any]] = None,  
         attention_units: int = 32,
         hidden_units: int = 64,
         lstm_units: int = 64,
@@ -174,6 +191,9 @@ class XTFT(Model, NNLearner):
         use_residuals: bool = True,
         use_batch_norm: bool = False,
         final_agg: str = 'last',
+        anomaly_config: Optional[Dict[str, Any]] = None,  
+        anomaly_detection_strategy: Optional[str] = None,
+        anomaly_loss_weight: float =1., 
         **kw, 
     ):
         super().__init__(**kw)
@@ -195,7 +215,6 @@ class XTFT(Model, NNLearner):
             f"max_window_size={max_window_size},"
             f" memory_size={memory_size}, num_heads={num_heads}, "
             f"dropout_rate={dropout_rate}, output_dim={output_dim}, "
-            f"anomaly_config={None if anomaly_config is None else anomaly_config.keys()}, "
             f"attention_units={attention_units}, "
             f" hidden_units={hidden_units}, "
             f"lstm_units={lstm_units}, "
@@ -220,7 +239,7 @@ class XTFT(Model, NNLearner):
         self.num_heads = num_heads
         self.dropout_rate = dropout_rate
         self.output_dim = output_dim
-        self.anomaly_config=set_anomaly_config(anomaly_config)
+        # self.anomaly_config=set_anomaly_config(anomaly_config)
         self.attention_units = attention_units
         self.hidden_units = hidden_units
         self.lstm_units = lstm_units
@@ -229,6 +248,8 @@ class XTFT(Model, NNLearner):
         self.use_residuals = use_residuals
         self.use_batch_norm = use_batch_norm
         self.final_agg = final_agg
+        self.anomaly_detection_strategy=anomaly_detection_strategy 
+        self.anomaly_loss_weight=anomaly_loss_weight
 
         # Layers
         self.learned_normalization = LearnedNormalization()
@@ -271,10 +292,33 @@ class XTFT(Model, NNLearner):
             quantiles=self.quantiles,
             output_dim=output_dim
         )
-        
-        self.anomaly_loss_layer = AnomalyLoss(
-            weight=self.anomaly_config.get('anomaly_loss_weight', 1.)
+
+        # Validate anomaly configuration
+        self.anomaly_config, self.anomaly_detection_strategy,\
+            self.anomaly_loss_weight =validate_anomaly_config(
+                anomaly_config=anomaly_config,
+                forecast_horizon= self.forecast_horizon, 
+                strategy=anomaly_detection_strategy,
+                default_anomaly_loss_weight=self.anomaly_loss_weight, 
+                return_loss_weight=True
             )
+
+        self.logger.debug(
+            f"anomaly_config={self.anomaly_config.keys()}, "
+            f"anomaly_detection_strategy={anomaly_detection_strategy}"
+            f"anomaly_loss_weight={anomaly_loss_weight}"
+        )
+        # Initialize/Fetch anomaly scores 
+        self.anomaly_scores = self.anomaly_config.get('anomaly_scores')
+            
+        # Anomaly scores handling
+        self.anomaly_loss_layer = AnomalyLoss(
+            weight=self.anomaly_loss_weight
+        )
+
+        # Initialize anomaly detection layers
+        if self.anomaly_detection_strategy == 'feature_based':
+            self._init_feature_based_components()
         # ---------------------------------------------------------------------
         # The MultiObjectiveLoss encapsulates both quantile and anomaly losses
         # to allow simultaneous training on multiple objectives. While this 
@@ -310,8 +354,80 @@ class XTFT(Model, NNLearner):
         self.residual_dense = Dense(2 * embed_dim) if use_residuals else None
         # self.final_dense = Dense(output_dim)
         
+    def _init_feature_based_components(self):
+        """
+        Initializes architecture components for feature-based
+        anomaly detection.
+        
+        Creates:
+        1. Anomaly Attention: Multi-head attention layer to identify
+           unusual patterns in feature relationships
+        2. Anomaly Projection: Dense layer to project the anomaly 
+           attention output to the desired dimension.
+        3. Anomaly Scorer: Dense layer to convert the projected features
+           outputs to anomaly scores
+  
+        Design Rationale:
+        - key_dim aligns with hidden_units for dimension compatibility
+        - Single attention head focuses on global anomaly patterns
+        - Linear activation preserves relative magnitude of anomaly scores
+        """
+        self.anomaly_attention = MultiHeadAttention(
+            num_heads=1, 
+            key_dim=self.hidden_units,  
+            name='anomaly_attention'
+        )        
+        # Projection layer to dynamically adjust the dimension.
+        self.anomaly_projection = Dense(
+            self.hidden_units, activation='linear', 
+            name='anomaly_projection'
+        )
+        self.anomaly_scorer = Dense(
+            1, activation='linear', 
+            name='anomaly_scorer'
+        )
+
     @tf_autograph.experimental.do_not_convert
     def call(self, inputs, training=False, **kwargs):
+        """
+        Forward pass of the XTFT model.
+    
+        Parameters
+        ----------
+        inputs : tuple or list
+            Input data containing three elements:
+            1. Static features (batch_size, static_input_dim)
+            2. Dynamic historical features (batch_size, time_steps, dynamic_input_dim)
+            3. Future covariates (batch_size, horizon, future_input_dim)
+        training : bool, optional
+            Whether the model is in training mode, by default False
+        **kwargs
+            Additional keyword arguments
+    
+        Returns
+        -------
+        tf.Tensor
+            Predictions tensor of shape:
+            - (batch_size, horizon, len(quantiles)) if quantiles specified
+            - (batch_size, horizon, output_dim) otherwise
+    
+        Raises
+        ------
+        ValueError
+            If input validation fails through validate_xtft_inputs
+    
+        Notes
+        -----
+        - Handles three types of anomaly detection strategies:
+          1. 'feature_based': Generates scores from attention mechanisms
+          2. 'prediction_based': Handled in loss function
+          3. 'from_config': Uses precomputed anomaly scores
+        - Implements multi-scale temporal processing with:
+          - Positional encoding
+          - Hierarchical attention
+          - Memory-augmented attention
+          - Dynamic time windowing
+        """
         static_input , dynamic_input, future_input = validate_xtft_inputs (
             inputs =inputs,
             static_input_dim=self.static_input_dim, 
@@ -458,7 +574,7 @@ class XTFT(Model, NNLearner):
             "Attention Fusion Output Shape: "
             f"{attention_fusion_output.shape}"
         )
-    
+  
         time_window_output = self.dynamic_time_window(
             attention_fusion_output,
             training=training
@@ -466,22 +582,11 @@ class XTFT(Model, NNLearner):
         self.logger.debug(
             f"Time Window Output Shape: {time_window_output.shape}"
         )
-    
         # final_agg: last/average/flatten applied on time_window_output
-        if self.final_agg == "last":
-            final_features = time_window_output[:, -1, :]
-        elif self.final_agg == "average":
-            final_features = tf_reduce_mean(time_window_output, axis=1)
-        else:  # "flatten"
-            shape = tf_shape(time_window_output)
-            (batch_size,
-             time_dim,
-             feat_dim) = shape[0], shape[1], shape[2]
-            final_features = tf_reshape(
-                time_window_output,
-                [batch_size, time_dim * feat_dim]
+        final_features = aggregate_time_window_output(
+            time_window_output, self.final_agg
             )
-    
+
         decoder_outputs = self.multi_decoder(
             final_features,
             training=training
@@ -494,39 +599,70 @@ class XTFT(Model, NNLearner):
             decoder_outputs,
             training=training
         )
-        self.logger.debug(
-            f"Predictions Shape: {predictions.shape}"
-        )
-        
-        # Compute anomaly scores
-        self.anomaly_scores= validate_anomaly_scores(
-            self.anomaly_config, forecast_horizon= self.forecast_horizon)
-        
-        self.anomaly_loss_weight= self.anomaly_config.get('anomaly_loss_weight', 1.)
-        
-        if self.anomaly_scores is not None:
+        # Anomaly detection branch
+        if self.anomaly_detection_strategy == 'feature_based':
+            # Compute anomaly scores from attention features
+            attn_scores = self.anomaly_attention(
+                query=attention_fusion_output,
+                value=attention_fusion_output, 
+                training=training
+            )
+            # Project the anomaly attention output to the desired dimension.
+            projected_attn = self.anomaly_projection(
+                attn_scores, training=training
+                )
+            # From config Anomaly score shape is (B, T, O) where= 
+            # Batch size, T, is Time Steps and O is output dim. 
+            # Compute anomaly scores using the projected output.
+            self.anomaly_scores = self.anomaly_scorer(
+                projected_attn, training=training
+                )
+  
+        elif self.anomaly_detection_strategy == 'from_config':
             # Use anomaly_scores from anomaly_config
+            # should give in 2D tensor (B, H)
+            self.anomaly_scores = validate_anomaly_scores(
+                self.anomaly_config, 
+                self.forecast_horizon
+            )
             self.logger.debug(
                 "Using Anomaly Scores from anomaly_config"
                 f" Shape: {self.anomaly_scores.shape}")
-        
-            if self.anomaly_loss_weight is None: 
-                # Use provided anomaly_scores from anomaly_config
-                self.logger.debug(
-                    "Using Anomaly Scores from anomaly_config is None."
-                    " Ressetting to 1.")
-                
-                self.anomaly_loss_weight = 1. 
+            
+        # Handle anomaly loss
+        if self.anomaly_scores is not None:
+            # Use provided anomaly_scores from anomaly_config
+            # Use default zeros placeholder for y_pred with
+            # shape (B, T, O)
+            # shape = tf_shape(self.anomaly_scores)
+            # default_y_pred = tf_zeros(
+            #     [shape[0], shape[1], shape[2]],
+            #     dtype=self.anomaly_scores.dtype
+            # )
+            default_y_pred = tf_zeros_like(self.anomaly_scores)
 
-        # compute anomaly scores 
-        # Handle anomaly_scores exclusively via anomaly_config
-        # if self.anomaly_loss_weight is not None:
-            # Compute anomaly loss and add it to the total loss
-            anomaly_loss = self.anomaly_loss_layer(self.anomaly_scores)
+            self.logger.debug(
+                "Using Anomaly Scores from anomaly_config with"
+                f" weight: {self.anomaly_loss_weight}.")
+            
+            # Define appropriate dimensions
+            anomaly_loss = self.anomaly_loss_layer(
+                self.anomaly_scores, 
+                default_y_pred, 
+            )
             self.add_loss(self.anomaly_loss_weight * anomaly_loss)
             self.logger.debug(
                 f"Anomaly Loss Computed and Added: {anomaly_loss}")
-            
+        else:
+            # Optionally, log a warning or set a default value.
+            self.logger.warning(
+                "Anomaly scores are None. Skipping anomaly loss."
+            )
+        
+        self.logger.debug(
+            f"Predictions Shape: {predictions.shape}"
+        )
+
         return predictions
 
     def compile(self, optimizer, loss=None, **kws):
@@ -557,8 +693,21 @@ class XTFT(Model, NNLearner):
                 **kws
             )
             return
+        
+        # 2) Handle prediction-based strategy first
+        if self.anomaly_detection_strategy == 'prediction_based':
+            pred_loss_fn = prediction_based_loss(
+                quantiles=self.quantiles,
+                anomaly_loss_weight=self.anomaly_loss_weight
+            )
+            super().compile(
+                optimizer=optimizer,
+                loss=pred_loss_fn,
+                **kws
+            )
+            return
     
-        # 2) Otherwise, we handle the default logic
+        # 3) Otherwise, we handle the default logic
         if self.quantiles is None:
             # Deterministic scenario
             super().compile(
@@ -571,30 +720,136 @@ class XTFT(Model, NNLearner):
         # Probabilistic scenario with quantiles
         quantile_loss_fn = combined_quantile_loss(self.quantiles)
     
-        if not hasattr(self, "anomaly_scores"):
-            self.anomaly_scores = self.anomaly_config.get("anomaly_scores")
+        # Handle from_config strategy
+        if self.anomaly_detection_strategy == 'from_config':
+            self.anomaly_scores = self.anomaly_config.get(
+                "anomaly_scores")
+            
+            if self.anomaly_scores is not None:
+                total_loss_fn = combined_total_loss(
+                    quantiles=self.quantiles,
+                    anomaly_layer=self.anomaly_loss_layer,
+                    anomaly_scores=self.anomaly_scores
+                )
+                super().compile(
+                    optimizer=optimizer,
+                    loss=total_loss_fn,
+                    **kws
+                )
+                return
+        
+        # Only quantile loss
+        # Handles feature-based and other cases)
+        super().compile(
+            optimizer=optimizer,
+            loss=quantile_loss_fn,
+            **kws
+        )
+
+    @optional_tf_function
+    def train_step(self, data):
+        """
+        Custom training step with anomaly detection strategy handling.
     
-        # If anomaly scores exist, add anomaly loss to the quantile loss
-        if self.anomaly_scores is not None:
-            total_loss_fn = combined_total_loss(
-                quantiles=self.quantiles,
-                anomaly_layer=self.anomaly_loss_layer,
-                anomaly_scores=self.anomaly_scores
-            )
-            super().compile(
-                optimizer=optimizer,
-                loss=total_loss_fn,
-                **kws
-            )
-        else:
-            # Only quantile loss
-            super().compile(
-                optimizer=optimizer,
-                loss=quantile_loss_fn,
-                **kws
-            )
+        Parameters
+        ----------
+        data : tuple/tf.data.Dataset
+            Training data containing:
+            - For prediction-based strategy: (x, y) pairs
+            - Other strategies: Standard Keras-compatible format
+    
+        Returns
+        -------
+        dict
+            Metric results dictionary
+    
+        Notes
+        -----
+        - Special handling for prediction-based anomaly detection:
+          - Requires explicit (x, y) pairs
+          - Validates y_true integrity
+          - Falls back to standard training if data format invalid
+        - For other strategies, uses native Keras training logic
+    
+        Raises
+        ------
+        Warning (logged)
+            - For missing y_true in prediction-based mode
+            - For invalid/nan values in y_true
+    
+        Example
+        -------
+        >>> model.compile(...)
+        >>> model.fit(dataset, epochs=10)
+        """
+        # Handle prediction-based strategy
+        if self.anomaly_detection_strategy == 'prediction_based':
+            try:
+                # Attempt to unpack (x, y) pair
+                if isinstance(data, (list, tuple)) and len(data) >= 2:
+                    x, y = data[0], data[1]
+                else:
+                    # For TF Dataset/other formats, try tensor split
+                    x, y = tf_unstack(data, num=2, axis=0)
+                    
+            except (ValueError, tf_errors.InvalidArgumentError):
+                self.logger.warning(
+                    "Prediction-based strategy requires (x, y) data pairs. "
+                    "Falling back to standard training step."
+                )
+                return super().train_step(data)
+    
+            # Verify y_true contains valid values
+            if y.shape.ndims == 0 or tf_reduce_all(tf_is_nan(y)):
+                self.logger.warning(
+                    "Invalid y_true provided for prediction-based strategy. "
+                    "Contains NaN values or incorrect shape."
+                )
+                return super().train_step(data)
+    
+            with tf_GradientTape() as tape:
+                y_pred = self(x, training=True)
+                loss = self.compiled_loss(y, y_pred)
+    
+            # Gradient updates
+            trainable_vars = self.trainable_variables
+            gradients = tape.gradient(loss, trainable_vars)
+            self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+            
+            # Update metrics
+            self.compiled_metrics.update_state(y, y_pred)
+            return {m.name: m.result() for m in self.metrics}
+    
+        # Standard processing for other strategies
+        return super().train_step(data)
 
     def get_config(self):
+        """
+        Get serialization configuration for model saving/loading.
+    
+        Returns
+        -------
+        dict
+            Complete configuration dictionary containing:
+            - Model architecture parameters
+            - Anomaly detection configuration
+            - Component hyperparameters
+            - Training configuration
+    
+        Notes
+        -----
+        - Handles special cases for:
+          - Quantile list serialization
+          - Numpy array conversion for anomaly scores
+          - Custom layer configurations
+        - Logs configuration changes via model logger
+    
+        Example
+        -------
+        >>> config = model.get_config()
+        >>> json.dump(config, open('model_config.json', 'w'))
+        """
+        # Method implementation...
         # Retrieve the base configuration from the superclass.
         config = super().get_config().copy()
         # Update configuration with XTFT-specific parameters.
@@ -635,8 +890,10 @@ class XTFT(Model, NNLearner):
                     float(self.anomaly_loss_weight) if self.anomaly_loss_weight
                     is not None else 1.
                     )
-                
-            }
+            },
+            'anomaly_loss_weight': self.anomaly_loss_weight, 
+            'anomaly_detection_strategy': self.anomaly_detection_strategy, 
+            
         })
     
         # Log that the configuration has been updated.
@@ -647,6 +904,31 @@ class XTFT(Model, NNLearner):
     
     @classmethod
     def from_config(cls, config):
+        """
+        Reconstruct model instance from configuration dictionary.
+    
+        Parameters
+        ----------
+        config : dict
+            Configuration dictionary generated by get_config()
+    
+        Returns
+        -------
+        XTFT
+            Fully reconstructed model instance
+    
+        Notes
+        -----
+        - Handles special conversions:
+          - Anomaly scores list -> numpy array
+          - Quantile list restoration
+          - Custom layer reconstruction
+        - Maintains logger instance during reconstruction
+    
+        Example
+        -------
+        >>> loaded_model = XTFT.from_config(json.load(open('model_config.json')))
+        """
         # Initialize logger for instance creation.
         logger = gofastlog().get_gofast_logger(__name__)
         logger.debug("Creating XTFT instance from configuration.")
@@ -656,7 +938,6 @@ class XTFT(Model, NNLearner):
             config["anomaly_config"]["anomaly_scores"] = np.array(
                 config["anomaly_config"]["anomaly_scores"], dtype=np.float32
             )
-    
         # Return a new instance created using the updated configuration.
         return cls(**config)
 
@@ -987,18 +1268,10 @@ class SuperXTFT(XTFT):
         )
         
         # Final Aggregation
-        if self.final_agg == "last":
-            final_features = time_window_output[:, -1, :]
-        elif self.final_agg == "average":
-            final_features = tf_reduce_mean(time_window_output, axis=1)
-        else:  # "flatten"
-            shape = tf_shape(time_window_output)
-            batch_size, time_dim, feat_dim = shape[0], shape[1], shape[2]
-            final_features = tf_reshape(
-                time_window_output,
-                [batch_size, time_dim * feat_dim]
+        final_features = aggregate_time_window_output(
+            time_window_output, self.final_agg
             )
-        
+     
         # Decode the aggregated features
         decoder_outputs = self.multi_decoder(
             final_features,

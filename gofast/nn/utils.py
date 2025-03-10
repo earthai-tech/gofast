@@ -16,7 +16,7 @@ import time
 import datetime 
 from numbers import Integral, Real 
 import warnings
-from typing import List, Tuple, Optional, Union, Dict, Callable, Any
+from typing import List, Tuple, Optional, Union, Dict, Callable
 
 import numpy as np
 import pandas as pd
@@ -1317,7 +1317,6 @@ def prepare_spatial_future_data(
     spatial_cols: Tuple [str, str]=None, 
     squeeze_last: bool=False, 
     verbosity: int = 0,
-    
 ) -> Tuple[
     np.ndarray,
     np.ndarray,
@@ -1695,7 +1694,6 @@ def _handle_time_scaling(
         )
     return time_mean, time_std
 
-
 def _determine_static_features(
         static_feature_names: Optional[List[str]],
         encoded_cat_columns: List[str],
@@ -1775,7 +1773,6 @@ def _prepare_static_inputs(
         5
     )
     return static_inputs, static_values
-
 
 def _prepare_dynamic_inputs(
         last_sequence_features: pd.DataFrame,
@@ -1921,39 +1918,6 @@ def _convert_to_numpy(
     )
     return future_static_inputs, future_dynamic_inputs
 
-def set_anomaly_config(
-        anomaly_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Processes the anomaly_config dictionary to ensure it contains
-    'anomaly_scores' and 'anomaly_loss_weight' keys.
-
-    Parameters:
-    - anomaly_config (Optional[Dict[str, Any]]): 
-        A dictionary that may contain:
-            - 'anomaly_scores': Precomputed anomaly scores tensor.
-            - 'anomaly_loss_weight': Weight for anomaly loss.
-
-    Returns:
-    - Dict[str, Any]: 
-        A dictionary with keys 'anomaly_scores' and 'anomaly_loss_weight',
-        setting them to None if they were not provided.
-    """
-    if anomaly_config is None:
-        return {'anomaly_loss_weight': None, 'anomaly_scores': None}
-    
-    # Create a copy to avoid mutating the original dictionary
-    config = anomaly_config.copy()
-
-    # Ensure 'anomaly_scores' key exists
-    if 'anomaly_scores' not in config:
-        config['anomaly_scores'] = None
-
-    # Ensure 'anomaly_loss_weight' key exists
-    if 'anomaly_loss_weight' not in config:
-        config['anomaly_loss_weight'] = None
-
-    return config
-
 def set_default_params(
     quantiles: Union[str, List[float], None] = None,
     scales: Union[str, List[int], None] = None,
@@ -2052,7 +2016,8 @@ def set_default_params(
                 "'quantiles' must be a list of floats or"
                f" 'auto', but got type {type(quantiles).__name__}.")
         # Validate each quantile
-        invalid_quantiles = [q for q in quantiles if not isinstance(q, float) or not (0 < q < 1)]
+        invalid_quantiles = [q for q in quantiles if not isinstance(
+            q, float) or not (0 < q < 1)]
         if invalid_quantiles:
             raise ValueError(
                 f"Each quantile must be a float between 0 and 1 (exclusive). "

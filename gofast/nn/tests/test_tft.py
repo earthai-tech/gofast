@@ -119,7 +119,6 @@ def test_forward_pass(model_params, dummy_data):
         f"Expected output shape {expected_shape}, but got {outputs.shape}"
     )
 
-
 def test_training_step(model_params, dummy_data):
     """
     Test that the model can be compiled and perform a training step.

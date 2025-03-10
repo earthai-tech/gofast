@@ -16,7 +16,7 @@ from functools import wraps
 from contextlib import contextmanager 
 from typing import Callable 
 
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 # 0 = all messages are logged (default)
 # 1 = filter out INFO messages
 # 2 = filter out INFO and WARNING messages
@@ -24,6 +24,8 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 # Disable OneDNN logs or usage (Optional):
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+# # '3' shows only errors, suppressing warnings and infos
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 try:
     import tensorflow as tf
@@ -105,13 +107,18 @@ class KerasDependencies:
             'reduce_sum': ('tensorflow', 'reduce_sum'),
             'reduce_all': ('tensorflow', 'reduce_all'),
             'rank': ('tensorflow', 'rank'), 
+            'zeros': ('tensorflow', 'zeros'),
+            'zeros_like': ('tensorflow', 'zeros_like'), 
             'stack': ('tensorflow', 'stack'), 
             'reshape': ('tensorflow', 'reshape'), 
             'tile': ('tensorflow', 'tile'), 
             'concat': ('tensorflow', 'concat'),
+            'unstack': ('tensorflow', 'unstack'), 
+            'errors': ('tensorflow', 'errors'), 
             'expand_dims': ('tensorflow', 'expand_dims'), 
             'shape': ('tensorflow', 'shape'), 
             'square': ('tensorflow.math', 'square'),
+            'is_nan': ('tensorflow.math', 'is_nan'), 
             'GradientTape': ('tensorflow', 'GradientTape'),
             'Dataset': ('tensorflow.data', 'Dataset'),
             'set_seed':('tensorflow.random', 'set_seed'), 
@@ -124,6 +131,7 @@ class KerasDependencies:
             'convert_to_tensor': ('tensorflow', 'convert_to_tensor'), 
             'Tensor': ('tensorflow', 'Tensor'), 
             'cast': ('tensorflow', 'cast'), 
+            'abs': ('tensorflow', 'abs'), 
             'float32': ('tensorflow', 'float32'), 
             'autograph': ('tensorflow', 'autograph'), 
             # 'zeros': ('tensorflow', 'zeros'),

@@ -25,6 +25,7 @@ import warnings
 from numbers import Real 
 from typing import List, Optional 
 
+from .._gofastlog import gofastlog
 from ..compat.sklearn import Interval
 from ..core.checks import ParamsValidator, check_params
 from ..core.diagnose_q import validate_quantiles_in 
@@ -37,18 +38,21 @@ if KERAS_BACKEND:
     K = KERAS_DEPS.backend
     Loss=KERAS_DEPS.Loss
     Tensor=KERAS_DEPS.Tensor 
-    reduce_mean=KERAS_DEPS.reduce_mean 
-    square=KERAS_DEPS.square 
-    reshape=KERAS_DEPS.reshape 
-    convert_to_tensor=KERAS_DEPS.convert_to_tensor 
-    expand_dims=KERAS_DEPS.expand_dims
-    maximum=KERAS_DEPS.maximum
-    reduce_mean=KERAS_DEPS.reduce_mean 
-    rank=KERAS_DEPS.rank 
+    tf_abs=KERAS_DEPS.abs
+    tf_reduce_mean=KERAS_DEPS.reduce_mean 
+    tf_square=KERAS_DEPS.square 
+    tf_reshape=KERAS_DEPS.reshape 
+    tf_convert_to_tensor=KERAS_DEPS.convert_to_tensor 
+    tf_expand_dims=KERAS_DEPS.expand_dims
+    tf_maximum=KERAS_DEPS.maximum
+    tf_rank=KERAS_DEPS.rank 
+    tf_zeros_like=KERAS_DEPS.zeros_like
     register_keras_serializable=KERAS_DEPS.register_keras_serializable
     
     
 DEP_MSG = dependency_message('nn.losses') 
+
+logger = gofastlog.get_gofast_logger(__name__)
 
 __all__ = [
     'quantile_loss', 
@@ -57,6 +61,7 @@ __all__ = [
     'combined_quantile_loss', 
     'combined_total_loss',
     'objective_loss', 
+    'prediction_based_loss'
  ]
 
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
@@ -156,6 +161,74 @@ def objective_loss(
 
     return _loss_fn
 
+
+
+@ParamsValidator({
+    'quantiles': ['array-like', None],  
+    'anomaly_loss_weight': [Real, None]
+})
+@ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
+def prediction_based_loss(
+    quantiles: Optional[List[float]] = None,
+    anomaly_loss_weight: float = 0.1
+):
+    """
+    Create a combined prediction + anomaly loss function for prediction-based strategy.
+
+    Parameters
+    ----------
+    quantiles : list of float, optional
+        Quantiles for quantile loss calculation. If None, uses MSE.
+    anomaly_loss_weight : float, default=0.1
+        Weight for anomaly loss component.
+
+    Returns
+    -------
+    callable
+        A loss function: loss_fn(y_true, y_pred)
+
+    Notes
+    -----
+    - Handles both quantile and MSE-based prediction losses
+    - Anomaly loss is computed as mean tf_squared prediction errors
+    - Compatible with Keras serialization/deserialization
+    """
+    # Validate quantiles if provided
+    if quantiles is not None:
+        quantiles = validate_quantiles_in(quantiles)
+        logger.debug(f"Using quantiles: {quantiles}")
+
+    @register_keras_serializable(
+        "gofast.nn.losses", 
+        name=f"prediction_based_loss_q{quantiles}_w{anomaly_loss_weight}"
+    )
+    def _pb_loss(y_true, y_pred):
+        # Compute prediction loss
+        if quantiles:
+            # Quantile loss calculation
+            pred_loss = combined_quantile_loss(quantiles)(y_true, y_pred)
+        else:
+            # Standard MSE loss
+            pred_loss = tf_reduce_mean(tf_square(y_true - y_pred))
+
+        # Compute anomaly scores from absolute errors
+        prediction_errors = tf_abs(y_true - y_pred)
+        
+        # Handle quantile dimension if present
+        if len(y_pred.shape) == 3 and quantiles:  # (batch, horizon, quantiles)
+            # Average errors across quantiles
+            anomaly_scores = tf_reduce_mean(prediction_errors, axis=-1)
+        else:
+            anomaly_scores = prediction_errors
+
+        # Compute anomaly loss (mean tf_squared anomaly scores)
+        anomaly_loss = tf_reduce_mean(tf_square(anomaly_scores))
+
+        # Combine losses
+        return pred_loss + anomaly_loss_weight * anomaly_loss
+
+    return _pb_loss
+
 @ParamsValidator({'quantiles': [Real, 'array-like']})
 @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
 def combined_quantile_loss(quantiles: List[float]):
@@ -191,11 +264,11 @@ def combined_quantile_loss(quantiles: List[float]):
     )
     def _cqloss(y_true, y_pred):
         # Expand y_true so it matches y_pred's quantile dimension
-        y_true_expanded = expand_dims(y_true, axis=2)  # => (B, H, 1, O)
+        y_true_expanded = tf_expand_dims(y_true, axis=2)  # => (B, H, 1, O)
 
-        if rank(y_pred) == 3:
+        if tf_rank(y_pred) == 3:
             # e.g. shape (B, H, Q) => expand last dim
-            y_pred = expand_dims(y_pred, axis=-1)  # => (B, H, Q, 1)
+            y_pred = tf_expand_dims(y_pred, axis=-1)  # => (B, H, Q, 1)
 
         # Broadcast y_true_expanded to match y_pred's shape
         # shape => (B, H, Q, O)
@@ -205,10 +278,10 @@ def combined_quantile_loss(quantiles: List[float]):
 
         # Accumulate pinball losses for each quantile
         for i, q in enumerate(quantiles):
-            q_loss = maximum(q * error[:, :, i, :],
+            q_loss = tf_maximum(q * error[:, :, i, :],
                               (q - 1) * error[:, :, i, :])
             # Aggregate loss (mean over batch, horizons, and output_dim)
-            loss_val += reduce_mean(q_loss)
+            loss_val += tf_reduce_mean(q_loss)
 
         # Average loss over all quantiles
         return loss_val / len(quantiles)
@@ -260,7 +333,10 @@ def combined_total_loss(
     )
     def _total_loss(y_true, y_pred):
         q_loss = quantile_loss_fn(y_true, y_pred)
-        a_loss = anomaly_layer(anomaly_scores)
+        a_loss = anomaly_layer(
+            anomaly_scores, 
+            tf_zeros_like(anomaly_scores)
+        )
         return q_loss + a_loss
 
     return _total_loss
@@ -561,7 +637,7 @@ def quantile_loss_multi(quantiles=[0.1, 0.5, 0.9]):
         losses = []
         for q in quantiles:
             error = y_true - y_pred
-            loss_q = K.mean(K.maximum(q * error, (q - 1) * error), axis=-1)
+            loss_q = K.mean(K.tf_maximum(q * error, (q - 1) * error), axis=-1)
             losses.append(loss_q)
         
         # Stack the losses for each quantile and compute the mean
@@ -624,7 +700,7 @@ def anomaly_loss(anomaly_scores, anomaly_loss_weight=1.0):
         A callable loss function with signature 
         ``loss(y_true, y_pred)`` compatible with Keras. This 
         returned function ignores `y_true` and focuses only on 
-        `anomaly_scores`, computing the mean of the squared 
+        `anomaly_scores`, computing the mean of the tf_squared 
         anomaly scores and scaling by ``anomaly_loss_weight``.
     
     Examples
@@ -654,8 +730,8 @@ def anomaly_loss(anomaly_scores, anomaly_loss_weight=1.0):
     See Also
     --------
     :func:`tf.keras.losses.Loss` : Base class for all Keras losses.
-    :func:`tf.reduce_mean` : TensorFlow method for computing mean.
-    :func:`tf.square` : Squares tensor elements.
+    :func:`tf.tf_reduce_mean` : TensorFlow method for computing mean.
+    :func:`tf.tf_square` : Squares tensor elements.
     
     References
     ----------
@@ -663,21 +739,21 @@ def anomaly_loss(anomaly_scores, anomaly_loss_weight=1.0):
     """
 
     # if not isinstance(anomaly_scores, tf.Tensor):
-    #     anomaly_scores = tf.convert_to_tensor(anomaly_scores, dtype=tf.float32)
+    #     anomaly_scores = tf.tf_convert_to_tensor(anomaly_scores, dtype=tf.float32)
     # else:
     #     if anomaly_scores.dtype not in (tf.float16, tf.float32, tf.float64):
     #         anomaly_scores = tf.cast(anomaly_scores, tf.float32)
 
-    if anomaly_scores.shape.rank is None:
-        anomaly_scores =reshape(anomaly_scores, [-1])
+    if anomaly_scores.shape.tf_rank is None:
+        anomaly_scores =tf_reshape(anomaly_scores, [-1])
 
-    anomaly_loss_weight =convert_to_tensor(
+    anomaly_loss_weight =tf_convert_to_tensor(
         anomaly_loss_weight, dtype=anomaly_scores.dtype
     )
     @register_keras_serializable(
         "gofast.nn.losses", name="anomaly_loss"
     )
     def _a_loss(y_true, y_pred):
-        return anomaly_loss_weight * reduce_mean(square(anomaly_scores))
+        return anomaly_loss_weight * tf_reduce_mean(tf_square(anomaly_scores))
 
     return _a_loss

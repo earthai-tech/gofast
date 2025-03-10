@@ -48,10 +48,10 @@ if KERAS_BACKEND:
     
 DEP_MSG = dependency_message('nn.optimize') 
 
-__all__=['QPSOOptimizer']
+__all__=['QPSOptimizer']
 
 
-class QPSOOptimizer(NNLearner):
+class QPSOptimizer(NNLearner):
     @validate_params({
         "n_particles": [Interval(Integral, 1, None, closed='left')],
         "n_features": [Interval(Integral, 1, None, closed='left')], 
