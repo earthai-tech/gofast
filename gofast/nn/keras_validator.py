@@ -20,7 +20,7 @@ if KERAS_BACKEND:
     Model= KERAS_DEPS.Model 
     Sequential=KERAS_DEPS.Sequential
     
-DEP_MSG = dependency_message('nn.validator') 
+DEP_MSG = dependency_message('nn.keras_validator') 
     
 __all__=[
     "is_keras_model", "validate_keras_model",
