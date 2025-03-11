@@ -20,8 +20,9 @@ from ..compat.sklearn import validate_params
 from ..core.array_manager import to_series 
 from ..core.checks import assert_ratio, check_numeric_dtype
 from ..core.checks import check_params 
+from ..core.generic import vlog 
 from ..core.handlers import columns_getter, columns_manager 
-from ..core.io import is_data_readable
+from ..core.io import SaveFile, is_data_readable
 from ..core.utils import error_policy, smart_format 
 from ..decorators import isdf 
 from .validator import parameter_validator, validate_length_range 
@@ -37,6 +38,8 @@ __all__ = [
     "to_importances", 
     "parse_used_columns", 
     "evaluate_df", 
+    "to_micmic", 
+    "spread_uncertainty", 
     ]
 
 
@@ -2176,3 +2179,496 @@ def parse_used_columns(
             used_cols.add(col)
 
     return list(used_cols)
+
+@SaveFile
+@check_params ({ 
+    "new_names": Optional[Union[str, List[str]]], 
+    "columns": Optional[Union [str, List[str]]]
+ })
+@isdf 
+def to_micmic(
+    df,
+    r=0.8,
+    eval_metric='r2',
+    columns=None,
+    sigma_err=0.0,
+    drop_origin=False,
+    new_names=None,
+    epsilon=1e-8,   
+    positive_only=False,  
+    savefile=None, 
+    verbose=0
+):
+    """
+    Creates a "micmic" version of selected numerical columns in
+    the input DataFrame based on a user-defined ratio controlling
+    an approximate :math:`R^2` or Mean Absolute Error (MAE) metric.
+    Generates additional noise and optional post-processing, such
+    as enforcing non-negative values.
+    
+    Parameters
+    ------------
+    df : pandas.DataFrame
+        The input dataframe containing data to be micmic'ed.
+    r : float, default 0.8
+        The ratio controlling the desired correlation or error
+        metric target. When `eval_metric` is `r2`, `r` stands
+        for the approximate :math:`R^2` value to achieve. When
+        `eval_metric` is `mae`, it represents the target average
+        error.
+    eval_metric : str, default 'r2'
+        The metric to match. Supported values are `r2` or `mae`.
+        If unknown, the function simply copies values.
+    columns : str or list of str, optional
+        Column name(s) to process. If None, automatically picks
+        numeric columns. A single string can be provided for
+        a single column.
+    sigma_err : float, default 0.0
+        Fraction of the resulting micmic values to reshuffle
+        within the :math:`Q_{10}`–:math:`Q_{90}` range for added
+        unpredictability. For example, ``sigma_err=0.3`` replaces
+        30% of the new column values randomly in that range.
+    drop_origin : bool, default False
+        If True, drops the original columns being micmic'ed and
+        retains only the new micmic columns.
+    new_names : str or list of str, optional
+        The names for the newly created micmic columns. If None,
+        defaults to adding a ``mic_`` prefix to each column name.
+    epsilon : float, default 1e-8
+        A small constant to avoid division-by-zero issues in
+        variance or error calculations.
+    positive_only : bool, default False
+        If True, micmic values are clipped at 0, so no negative
+        values appear in the output.
+    savefile : str, optional
+        If provided, the resulting DataFrame can be saved to
+        the specified file path (e.g., CSV). If None, nothing
+        is saved.
+    verbose : int, default 0
+        Controls the verbosity of the console output:
+        - `verbose=0` gives no additional messages
+        - `verbose=1` prints a summary message
+        - `verbose=2` prints intermediate column details
+        - `verbose>=3` may offer extra debugging messages
+    
+    Return
+    --------
+    new_df: DataFrame 
+       New micmic dataframe.
+       
+    Formulation
+    ------------
+    When `eval_metric` is `r2`, the function attempts to satisfy
+    the relation:
+    
+    .. math::
+       r = \\frac{\\mathrm{Var}(X)}
+       {\\mathrm{Var}(X) + \\mathrm{Var}(\\eta)},
+    
+    where :math:`X` is the original column and
+    :math:`\\eta \\sim \\mathcal{N}(0, \\sigma^2)` is the added
+    noise. Solving for the variance of the noise
+    :math:`\\mathrm{Var}(\\eta)` yields:
+    
+    .. math::
+       \\mathrm{Var}(\\eta) = \\mathrm{Var}(X) \\times
+       \\frac{1 - r}{r}.
+    
+    For `mae`, the function relies on a normal distribution
+    where the expected absolute deviation is set to match `r`.
+    
+    Examples
+    --------
+    >>> from gofast.utils.ext import to_micmic
+    >>> # Create a micmic column for 'price' with ~0.8 R^2
+    >>> new_df = to_micmic(
+    ...     df,
+    ...     r=0.8,
+    ...     eval_metric='r2',
+    ...     columns='price',
+    ...     sigma_err=0.2,
+    ...     positive_only=True,
+    ...     verbose=2
+    ... )
+    Column: price, New Column: mic_price
+    Micmic transformation complete.
+    
+    Notes
+    -----
+    - When `positive_only` is True, all negative results
+      are clipped to 0.
+    - If the original column is constant (or near-constant
+      within ``epsilon``), the function simply copies
+      the values, as noise-based transformations do not
+      apply well in degenerate variance conditions.
+    - Using a large value for `sigma_err` may drastically
+      reshuffle the distribution of the micmic column.
+    
+    See Also
+    --------
+    No additional public functions in this module reference
+    :func:`to_micmic`, but related data transformation routines
+    can be built upon this approach.
+    
+    References
+    ----------
+    .. [1] Geladi, P. & Kowalski, B. (1986). Partial least-squares
+       regression: A tutorial. Analytica Chimica Acta, 185, 1–17.
+    """
+
+    r= assert_ratio(r, bounds=(0, 1), name="likehood ratio 'r'")
+    
+    # pick numeric columns if none provided
+    columns = columns_manager(columns, empty_as_none=True)
+    if columns is None:
+        columns = select_dtypes(
+            df, incl= np.number, return_columns=True)
+        
+    # Safeguard: remove any columns not in df
+    columns = [c for c in columns if c in df.columns]
+    
+    if not columns: 
+        warnings.warn (
+            "No numeric columns detected, return data as is."
+            )
+        return df 
+    
+    # Check whether the columns provided are numerics.
+    check_numeric_dtype(
+        df[columns], param_names={"X": f"Data: columns {columns}"}
+    )
+    # Prepare container for new columns
+    new_df = df.copy(deep=True)
+
+    # Handle new column naming
+    if new_names is None:
+        # Default: append "mic_" to each column name
+        new_names = [f"mic_{c}" for c in columns]
+    elif isinstance(new_names, str):
+        # If a single string is provided for one column
+        new_names = [new_names]
+    new_names = columns_manager(new_names, empty_as_none=False) 
+    
+    # assert new_names is a list of the correct length
+    if len(new_names) < len(columns): 
+        new_names +=[f"mic_{c}" for c in columns[len(new_names):]]
+    elif len(new_names )> len(columns): 
+        new_names = new_names [:len(columns)]
+        
+    # Loop over each specified column
+    for col_idx, col in enumerate(columns):
+        # Original values
+        original_vals = df[col].values.astype(float)
+
+        # Decide how to build new values based on eval_metric
+        if eval_metric.lower() == 'r2':
+            # "R²" approach:
+            # new_val = original_val + noise, so that theoretical R² ~ r
+            var_o = np.var(original_vals)
+            # Ensure we have a minimum variance
+            if var_o <= epsilon:
+                # Degenerate case: near-constant column
+                new_col = original_vals.copy()
+            else:
+                # R² formula derivation:
+                # r = var_o / (var_o + var_noise)
+                # var_noise = var_o * (1 - r) / r
+                if r < 1:
+                    var_noise = var_o * (1 - r) / r
+                else:
+                    var_noise = 0.0
+                noise_std = np.sqrt(var_noise) if var_noise > 0 else 0
+                noise = np.random.normal(
+                    loc=0.0,
+                    scale=noise_std,
+                    size=len(original_vals)
+                )
+                new_col = original_vals + noise
+
+        elif eval_metric.lower() == 'mae':
+            # "MAE" approach:
+            # new_val = original_val + e, E[|e|] ~ r
+            # For Normal(0, σ), E[|Z|] = σ * sqrt(2/π)
+            if r <= 0:
+                new_col = original_vals.copy()
+            else:
+                sigma = r / np.sqrt(2 / np.pi)
+                e = np.random.normal(
+                    loc=0.0,
+                    scale=sigma,
+                    size=len(original_vals)
+                )
+                new_col = original_vals + e
+
+        else:
+            # Fallback: if unknown metric, just copy
+            new_col = original_vals.copy()
+
+        # Shuffle a fraction "sigma_err" 
+        # in Q10-Q90 range for extra noise
+        if sigma_err > 0:
+            n_to_shuffle = int(len(new_col) * sigma_err)
+            shuffle_idx = np.random.choice(
+                len(new_col),
+                size=n_to_shuffle,
+                replace=False
+            )
+            # We'll replace those entries with random values
+            # in the [q10, q90] range
+            q10, q90 = np.percentile(new_col, [10, 90])
+            new_col[shuffle_idx] = np.random.uniform(
+                low=q10,
+                high=q90,
+                size=n_to_shuffle
+            )
+
+        # Enforce positivity if requested
+        if positive_only:
+            new_col = np.clip(new_col, 0, None)
+
+        # Insert the new column into the DataFrame
+        new_col_name = new_names[col_idx]
+        new_df[new_col_name] = new_col
+
+        # Possibly drop the original column
+        if drop_origin:
+            new_df.drop(columns=[col], inplace=True)
+
+        # Verbose feedback
+        if verbose >= 2:
+            vlog(f"Column: {col}, New Column: {new_col_name}")
+
+    # Final verbosity
+    if verbose >= 1:
+        vlog("Micmic transformation complete.")
+
+    return new_df
+
+@SaveFile
+@check_params ({ 
+    "column": Optional[Union [str, List[str]]]
+ })
+@isdf 
+def spread_uncertainty(
+    df,
+    column=None,
+    sigma_vals=None,
+    order='descending',
+    epsilon=1e-8,
+    sigma_err=0., 
+    new_names=None,
+    positive_only=False, 
+    drop_origin=False,
+    savefile=None, 
+    verbose=0
+):
+    """
+    Generates a set of "uncertainty" columns from a given numeric
+    column based on a list of ratio-like values (``sigma_vals``). The
+    function internally calls `to_micmic` with ``eval_metric='r2'``
+    to produce new columns that mimic the original column yet
+    introduce controlled noise according to user-defined targets.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame or pandas.Series
+        The data source. If `df` is a DataFrame, then the
+        specified `column` will be used. If `df` is a Series,
+        the series name is taken as the reference column
+        unless it is ``None``, in which case it defaults to
+        ``'reference'``.
+    column : str, optional
+        The column name to which uncertainties will be
+        applied. Not required if `df` is a Series. Must
+        be numeric if provided.
+    sigma_vals : float or list of floats, optional
+        A scalar or list of ratio-like values that define
+        the noise intensities to introduce. These ratios,
+        :math:`\\rho`, are interpreted as approximate
+        :math:`R^2` objectives in the internal call to
+        ``to_micmic``. For multiple values, multiple
+        new columns are created accordingly.
+    order : str, default 'descending'
+        Controls the sorting order of `sigma_vals`. Accepted
+        values are `'ascending'` or `'descending'`. If set
+        to `'descending'`, the highest ratio is processed
+        first.
+    epsilon : float, default 1e-8
+        A small value to avoid division by zero in variance
+        calculations and related numeric steps.
+    sigma_err : float, default 0.0
+        The fraction of generated values to reshuffle within
+        the :math:`Q_{10}`–:math:`Q_{90}` range, offering
+        further randomness in the final columns. For example,
+        a value of ``0.3`` randomly reassigns 30% of the new
+        column entries.
+    new_names : str or list of str, optional
+        Names for the new columns. If insufficient names are
+        provided, default naming is applied. If more names
+        than `sigma_vals` exist, extras are discarded.
+    positive_only : bool, default False
+        If True, micmic values are clipped at 0, so no negative
+        values appear in the output.
+    drop_origin : bool, default False
+        If True, removes the source column from the output
+        DataFrame after creating the new uncertainty columns.
+    savefile : str, optional
+        If provided, the resulting DataFrame can be saved to
+        the specified file path (e.g., CSV). If None, nothing
+        is saved.
+    verbose : int, default 0
+        Controls how much logging is printed to the console.
+        
+    Return 
+    --------
+    result_df: pd.DataFrame 
+        New data with uncertainties generated. 
+        
+    Formulation 
+    -------------
+    Each value in ``sigma_vals`` targets the relation:
+    
+    .. math::
+       \\rho = \\frac{\\mathrm{Var}(X)}
+       {\\mathrm{Var}(X) + \\mathrm{Var}(\\eta)},
+    
+    where :math:`X` is the original reference column and
+    :math:`\\eta` is a noise term drawn from a normal distribution.
+    Thus, the variance of the noise is determined by:
+    
+    .. math::
+       \\mathrm{Var}(\\eta) = \\mathrm{Var}(X) \\times
+       \\frac{1 - \\rho}{\\rho}.
+    
+    Examples
+    --------
+    >>> from gofast.utils.ext import spread_uncertainty
+    >>> import pandas as pd 
+    >>> df = pd.DataFrame ({"height": [175, 125, 150, 180, 173.5], 
+    ...                        "weight": [65, 70, 75, 62, 69.5]})
+    >>> result = spread_uncertainty(
+    ...     df,
+    ...     column='height',
+    ...     sigma_vals=[0.7, 0.4, 0.2],
+    ...     order='descending',
+    ...     drop_origin=False,
+    ...     sigma_err=0.2,
+    ...     verbose=1
+    ... )
+    Created 3 new columns with uncertainties.
+    
+    Notes
+    -----
+    - For every value in `sigma_vals`, one new column is added
+      to the result. Hence, providing multiple values creates
+      multiple columns.
+    - This function uses `to_micmic` internally with
+      ``eval_metric='r2'`` to achieve the approximate ratio
+      :math:`\\rho`.
+    - If `drop_original=True`, the original column specified
+      by `column` is removed from the output.
+    
+    See Also
+    --------
+    to_micmic : Generates micmic columns using various metrics
+      (like R² or MAE).
+    
+    References
+    ----------
+    .. [1] Draper, N.R. and Smith, H. (1998). Applied Regression
+       Analysis (3rd ed.). Wiley.
+    """
+
+
+    
+    # Handle default uncertainities
+    sigma_vals= columns_manager(sigma_vals, empty_as_none=True)
+    if sigma_vals is None:
+        sigma_vals = [0.8]
+    
+    # Ensure it's a list
+    sigma_vals = [
+        assert_ratio(
+            sv, bounds=(0, 1.), 
+            name="Uncertainty values 'sigma'"
+            )
+        for sv in sigma_vals 
+    ]
+    # Sort the uncertainties according to 'order'
+    if order.lower() == 'descending':
+        sigma_vals.sort(reverse=True)
+    else:
+        sigma_vals.sort()
+    
+    if isinstance (column, (list, tuple)): 
+        column = column[0] 
+    # Check if df is a Series
+    if isinstance(df, pd.Series):
+        # Convert to DataFrame if needed
+        col_name = df.name if df.name else 'reference'
+        temp_df = df.to_frame(name=col_name)
+    else:
+        temp_df = df.copy(deep=True)
+        col_name = column
+    
+    # Basic checks
+    if col_name is None or col_name not in temp_df.columns:
+        raise ValueError(
+            "A valid column name must be provided, or df "
+            "must be a Series with a non-empty name."
+        )
+    
+    # Prepare new DataFrame
+    result_df = temp_df.copy(deep=True)
+    
+    # Build default new column names if needed
+    if new_names is None:
+        new_names = [f"uncert_{column}_{v}" for v in sigma_vals]
+    elif isinstance(new_names, str):
+        new_names = [new_names]
+    else:
+        new_names = list(new_names)
+    
+    # If new_names is fewer than the uncertainties, fill up
+    # If more, truncate
+    if len(new_names) < len(sigma_vals):
+        # Extend with default naming
+        deficit = len(sigma_vals) - len(new_names)
+        auto_names = [
+            f"uncert_{v}"
+            for v in sigma_vals[deficit:]
+        ]
+        new_names += auto_names
+    elif len(new_names) > len(sigma_vals):
+        # Truncate
+        new_names = new_names[: len(sigma_vals)]
+    
+    # For each uncertainty, call to_micmic with eval_metric='r2'
+    # to generate new columns
+    for idx, val in enumerate(sigma_vals):
+        mic_df = to_micmic(
+            df=result_df[[col_name]],
+            r=val,
+            eval_metric='r2',
+            columns=col_name,
+            sigma_err=sigma_err,
+            drop_origin=False,
+            new_names=new_names[idx],
+            epsilon=epsilon,
+            positive_only=positive_only,
+            verbose=0
+        )
+        # Extract the newly created column
+        result_df[new_names[idx]] = mic_df[new_names[idx]]
+    
+    # Finally, decide whether to drop the original column
+    if drop_origin and (col_name in result_df.columns):
+        result_df.drop(columns=[col_name], inplace=True)
+    
+    # Verbose feedback
+    if verbose:
+        vlog(f"Created {len(sigma_vals)} new columns "
+              f"with uncertainties.", 
+              )
+    
+    return result_df

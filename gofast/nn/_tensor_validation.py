@@ -306,7 +306,8 @@ def validate_anomaly_scores(
                 )
             except (ValueError, TypeError) as e:
                 raise ValueError(
-                    f"Failed to convert `anomaly_scores` to a TensorFlow tensor: {e}"
+                    "Failed to convert `anomaly_scores`"
+                    f" to a TensorFlow tensor: {e}"
                 )
         else:
             # Cast to float32 if it's already a tensor

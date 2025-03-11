@@ -421,6 +421,9 @@ class SaveFile:
                         return result
 
                 # Determine which DataFrame to save
+                if isinstance (result, pd.Series): 
+                    result= result.to_frame() 
+                    
                 if isinstance(result, pd.DataFrame):
                     df_to_save = result
                 elif isinstance(result, tuple):
@@ -432,15 +435,29 @@ class SaveFile:
                             "for the returned tuple."
                         )
                         return result
+                    
+                    except Exception as e: 
+                        # If something wrong happend
+                        warnings.warn(
+                            f"An unexpected error occurred: {e}."
+                            " Data cannot be saved; skipped."
+                        )
+                        return result 
+                        
+                    
+                    if isinstance (df_to_save, pd.Series): 
+                        df_to_save = df_to_save.to_frame() 
+                    
                     if not isinstance(df_to_save, pd.DataFrame):
                         warnings.warn(
                             f"Element at `data_index` {self.data_index} "
-                            "is not a DataFrame."
+                            "is not a DataFrame; saving skipped"
                         )
                         return result
                 else:
                     warnings.warn(
-                        f"Return type '{type(result)}' is not a DataFrame or tuple."
+                        f"Return type '{type(result)}' is not a"
+                        " DataFrame or tuple; skip saving data."
                     )
                     return result
 

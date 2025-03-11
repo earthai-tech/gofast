@@ -95,7 +95,6 @@ if KERAS_BACKEND:
     
 DEP_MSG = dependency_message('transformers') 
 
-
 @register_keras_serializable('gofast.nn.transformers', name="XTFT")
 @doc (
     key_improvements= dedent(_shared_docs['xtft_key_improvements']), 
@@ -166,6 +165,7 @@ class XTFT(Model, NNLearner):
             StrOptions({"prediction_based", "feature_based", "from_config"}), 
             None
         ],
+        'anomaly_loss_weight': [Real]
       },
     )
     @ensure_pkg(KERAS_BACKEND or "keras", extra=DEP_MSG)
@@ -193,7 +193,7 @@ class XTFT(Model, NNLearner):
         final_agg: str = 'last',
         anomaly_config: Optional[Dict[str, Any]] = None,  
         anomaly_detection_strategy: Optional[str] = None,
-        anomaly_loss_weight: float =1., 
+        anomaly_loss_weight: float =.1, 
         **kw, 
     ):
         super().__init__(**kw)
@@ -607,7 +607,8 @@ class XTFT(Model, NNLearner):
                 value=attention_fusion_output, 
                 training=training
             )
-            # Project the anomaly attention output to the desired dimension.
+            # Project the anomaly attention output 
+            # to the desired dimension.
             projected_attn = self.anomaly_projection(
                 attn_scores, training=training
                 )
@@ -849,7 +850,6 @@ class XTFT(Model, NNLearner):
         >>> config = model.get_config()
         >>> json.dump(config, open('model_config.json', 'w'))
         """
-        # Method implementation...
         # Retrieve the base configuration from the superclass.
         config = super().get_config().copy()
         # Update configuration with XTFT-specific parameters.
@@ -883,9 +883,6 @@ class XTFT(Model, NNLearner):
                                    if self.multi_scale_agg is not None 
                                    else None),
             'anomaly_config'    : {
-                'anomaly_scores'    : (self.anomaly_scores.numpy().tolist()
-                                        if self.anomaly_scores is not None 
-                                        else None),
                 'anomaly_loss_weight': ( 
                     float(self.anomaly_loss_weight) if self.anomaly_loss_weight
                     is not None else 1.
@@ -901,7 +898,7 @@ class XTFT(Model, NNLearner):
             "Configuration for XTFT has been updated in get_config."
         )
         return config
-    
+
     @classmethod
     def from_config(cls, config):
         """
@@ -970,7 +967,7 @@ class SuperXTFT(XTFT):
         num_heads: int = 4,
         dropout_rate: float = 0.1,
         output_dim: int = 1, 
-        anomaly_config: Optional[Dict[str, Any]] = None,  
+        
         attention_units: int = 32,
         hidden_units: int = 64,
         lstm_units: int = 64,
@@ -980,6 +977,9 @@ class SuperXTFT(XTFT):
         use_residuals: bool = True,
         use_batch_norm: bool = False,
         final_agg: str = 'last',
+        anomaly_config: Optional[Dict[str, Any]] = None,  
+        anomaly_detection_strategy: Optional[str]=None, 
+        anomaly_loss_weight: float=1.0,
         **kw
     ):
         super().__init__(
@@ -994,7 +994,6 @@ class SuperXTFT(XTFT):
             num_heads=num_heads,
             dropout_rate=dropout_rate,
             output_dim=output_dim,
-            anomaly_config=anomaly_config,
             attention_units=attention_units,
             hidden_units=hidden_units,
             lstm_units=lstm_units,
@@ -1004,6 +1003,9 @@ class SuperXTFT(XTFT):
             use_residuals=use_residuals,
             use_batch_norm=use_batch_norm,
             final_agg=final_agg,
+            anomaly_config=anomaly_config, 
+            anomaly_detection_strategy=anomaly_detection_strategy, 
+            anomaly_loss_weight=anomaly_loss_weight, 
             **kw, 
         )
         
@@ -1259,6 +1261,21 @@ class SuperXTFT(XTFT):
             f"{attention_fusion_output.shape}"
         )
         
+        # After computing attention_fusion_output
+        if self.anomaly_detection_strategy == 'feature_based':
+            attn_scores = self.anomaly_attention(
+                query=attention_fusion_output,
+                value=attention_fusion_output,
+                training=training
+            )
+            projected_attn = self.anomaly_projection(attn_scores)
+            self.anomaly_scores = self.anomaly_scorer(projected_attn)
+        elif self.anomaly_detection_strategy == 'from_config':
+            self.anomaly_scores = validate_anomaly_scores(
+                self.anomaly_config, 
+                self.forecast_horizon
+            )
+        
         time_window_output = self.dynamic_time_window(
             attention_fusion_output,
             training=training
@@ -1297,45 +1314,28 @@ class SuperXTFT(XTFT):
             Z_grn,
             training=training
         )
-        self.logger.debug(
-            f"Predictions Shape: {predictions.shape}"
-        )
         
-        # Compute anomaly scores if configured
-        self.anomaly_scores = validate_anomaly_scores(
-            self.anomaly_config, forecast_horizon=self.forecast_horizon
-        )
-        
-        self.anomaly_loss_weight = self.anomaly_config.get(
-            'anomaly_loss_weight', 1.)
-        
+        # Compute anomaly scores if configureg 
+        # Add anomaly loss if scores exist
         if self.anomaly_scores is not None:
             self.logger.debug(
                 "Using Anomaly Scores from anomaly_config "
                 f"Shape: {self.anomaly_scores.shape}"
             )
             
-            if self.anomaly_loss_weight is None: 
-                self.logger.debug(
-                    "Anomaly Loss Weight is None. Resetting to 1.0."
+            anomaly_loss = self.anomaly_loss_layer(
+                self.anomaly_scores, tf_zeros_like(self.anomaly_scores)
                 )
-                self.anomaly_loss_weight = 1.0
-        
-        # # Add anomaly loss if configured
-        # if self.anomaly_loss_weight is not None:
-            anomaly_loss = self.anomaly_loss_layer(self.anomaly_scores)
             self.add_loss(self.anomaly_loss_weight * anomaly_loss)
-            self.logger.debug(f"Anomaly Loss Computed and Added: {anomaly_loss}")
+            self.logger.debug(
+                f"Anomaly Loss Computed and Added: {anomaly_loss}"
+                )
+        
+        self.logger.debug(
+            f"Predictions Shape: {predictions.shape}"
+        )
         
         return predictions
-    
-    def compile(self, optimizer, loss=None, **kwargs):
-        super().compile (optimizer=optimizer, loss=loss, **kwargs)
-        
-    
-    def get_config(self):
-        config = super().get_config().copy()
-        return config
     
     @classmethod
     def from_config(cls, config):
@@ -1452,67 +1452,9 @@ output_dim : int, optional
     multi-variate forecasting, set a larger value to predict
     multiple targets simultaneously.
 
-anomaly_config : dict, optional
-        Configuration dictionary for anomaly detection. It may contain 
-        the following keys:
-
-        - ``'anomaly_scores'`` : array-like, optional
-            Precomputed anomaly scores tensor of shape `(batch_size, forecast_horizon)`. 
-            If not provided, anomaly loss will not be applied.
-
-        - ``'anomaly_loss_weight'`` : float, optional
-            Weight for the anomaly loss in the total loss computation. 
-            Balances the contribution of anomaly detection against the 
-            primary forecasting task. A higher value emphasizes identifying 
-            and penalizing anomalies, potentially improving robustness to
-            irregularities in the data, while a lower value prioritizes
-            general forecasting performance.
-            If not provided, anomaly loss will not be applied.
-
-        **Behavior:**
-        If `anomaly_config` is `None`, both `'anomaly_scores'` and 
-        `'anomaly_loss_weight'` default to `None`, and anomaly loss is 
-        disabled. This means the model will perform forecasting without 
-        considering  any anomaly detection mechanisms.
-
-        **Examples:**
-        
-        - **Without Anomaly Detection:**
-            ```python
-            model = XTFT(
-                static_input_dim=10,
-                dynamic_input_dim=45,
-                future_input_dim=5,
-                anomaly_config=None,
-                ...
-            )
-            ```
-        
-        - **With Anomaly Detection:**
-            ```python
-            import tensorflow as tf
-
-            # Define precomputed anomaly scores
-            precomputed_anomaly_scores = tf.random.normal((batch_size, forecast_horizon))
-
-            # Create anomaly_config dictionary
-            anomaly_config = {{
-                'anomaly_scores': precomputed_anomaly_scores,
-                'anomaly_loss_weight': 1.0
-            }}
-
-            # Initialize the model with anomaly_config
-            model = XTFT(
-                static_input_dim=10,
-                dynamic_input_dim=45,
-                future_input_dim=5,
-                anomaly_config=anomaly_config,
-                ...
-            )
-            ```
 
 anomaly_loss_weight : float, optional
-    Weight of the anomaly loss term. Default is ``1.0``. 
+    Weight of the anomaly loss term. Default is ``.1``. 
 
 attention_units : int, optional
     Number of units in attention layers. Default is ``32``.
@@ -1585,7 +1527,65 @@ final_agg : str, optional
     a suitable aggregation can influence forecast stability and
     sensitivity to recent or aggregate patterns.
 
-**kwargs : dict
+anomaly_config : dict, optional
+        Configuration dictionary for anomaly detection. It may contain 
+        the following keys:
+
+        - ``'anomaly_scores'`` : array-like, optional
+            Precomputed anomaly scores tensor of shape `(batch_size, forecast_horizon)`. 
+            If not provided, anomaly loss will not be applied.
+
+        - ``'anomaly_loss_weight'`` : float, optional
+            Weight for the anomaly loss in the total loss computation. 
+            Balances the contribution of anomaly detection against the 
+            primary forecasting task. A higher value emphasizes identifying 
+            and penalizing anomalies, potentially improving robustness to
+            irregularities in the data, while a lower value prioritizes
+            general forecasting performance.
+            If not provided, anomaly loss will not be applied.
+
+        **Behavior:**
+        If `anomaly_config` is `None`, both `'anomaly_scores'` and 
+        `'anomaly_loss_weight'` default to `None`, and anomaly loss is 
+        disabled. This means the model will perform forecasting without 
+        considering  any anomaly detection mechanisms.
+
+        **Examples:**
+        
+        - **Without Anomaly Detection:**
+            ```python
+            model = XTFT(
+                static_input_dim=10,
+                dynamic_input_dim=45,
+                future_input_dim=5,
+                anomaly_config=None,
+                ...
+            )
+            ```
+        
+        - **With Anomaly Detection:**
+            ```python
+            import tensorflow as tf
+
+            # Define precomputed anomaly scores
+            precomputed_anomaly_scores = tf.random.normal((batch_size, forecast_horizon))
+
+            # Create anomaly_config dictionary
+            anomaly_config = {{
+                'anomaly_scores': precomputed_anomaly_scores,
+                'anomaly_loss_weight': 1.0
+            }}
+
+            # Initialize the model with anomaly_config
+            model = XTFT(
+                static_input_dim=10,
+                dynamic_input_dim=45,
+                future_input_dim=5,
+                anomaly_config=anomaly_config,
+                ...
+            )
+            ```
+**kw : dict
     Additional keyword arguments passed to the model. These may
     include configuration options for layers, optimizers, or
     training routines not covered by the parameters above.

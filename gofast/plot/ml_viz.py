@@ -641,7 +641,7 @@ def plot_taylor_diagram_in(
           using an exponential decay function to highlight the 
           best-performing region.
         - `'rwf'` and `'center_focus'`: These are unsupported in this 
-          function. Consider using :func:`gofast.plot.taylor_diagram`
+          function. Consider using :func:`gofast.plot.plot_taylor_diagram`
           instead.
 
     norm_c :bool, optional) 
@@ -5052,10 +5052,5 @@ def plot_residuals(
             
     plt.show()
     
-
-
-
-
-
 
 

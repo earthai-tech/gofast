@@ -62,8 +62,8 @@ __all__= [
     'read_worksheets',
     'resample_data', 
     'replace_data', 
-    'long_to_wide', 
-    'wide_to_long', 
+    'to_wide', 
+    'to_long', 
     'repeat_feature_accross', 
     'merge_datasets', 
     'swap_ic', 
@@ -3712,7 +3712,7 @@ def replace_data(
     'error': [StrOptions({'raise', 'warn', 'ignore'})]
     }
  )
-def long_to_wide(
+def to_wide(
     long_df,
     index_columns=None,
     pivot_column='year',
@@ -3929,7 +3929,7 @@ def long_to_wide(
     'error': [StrOptions({'raise', 'warn', 'ignore'})]
     }
  )
-def wide_to_long(
+def to_long(
     wide_df, 
     id_vars=None, 
     value_vars=None,

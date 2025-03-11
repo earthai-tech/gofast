@@ -985,11 +985,11 @@ def plot_factory_ops(
         validate_yy(y_true, pred, expected_type="continuous", flatten=True)[1]
         for pred in y_preds
     ]
-
     # Generate default model names if none are provided
     if names is None:
         names = [f"Model_{i+1}" for i in range(len(y_preds))]
     else:
+        names = columns_manager(names, empty_as_none= False ) 
         if len(names) < len(y_preds):
             names += [f"Model_{i+1}" for i in range(len(names), len(y_preds))]
 
