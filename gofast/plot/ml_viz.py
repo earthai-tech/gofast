@@ -1244,8 +1244,7 @@ def plot_taylor_diagram(
         ax.set_thetagrids(angle_ticks, labels=[f"{ct:.2f}" for ct in corr_ticks])
         # We can label this dimension as 'Correlation'
         ax.set_ylabel('')  # remove default 0.5, 1.06
-        # XXX TODO. Create dict to map the location of for each acov 
-        # rather to use fix 1. 
+  
         ax.text(*corr_pos,  'Correlation', ha='center', va='center', 
                 transform=ax.transAxes, **corr_kw)
         ax.text(*std_pos,  'Standard Deviation', ha='center', va='center', 

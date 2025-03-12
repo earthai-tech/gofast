@@ -133,8 +133,10 @@ def verify_identical_items(
 
 def vlog(
     message, 
+    verbose=None, 
     level: int = 3, 
-    depth: Union[int, str] = "auto"
+    depth: Union[int, str] = "auto", 
+    status=None, 
 ):
     """
     Logs messages with appropriate indentation based on verbosity level 
@@ -153,6 +155,10 @@ def vlog(
     ----------
     message   : str
         The message to log.
+    verbose : int, optional
+        The verbosity level for the function call. If not provided,
+        it falls back to a global `verbose` variable (if defined).
+        Default is `None`.
     level     : int, optional
         The verbosity level of the message. Commonly:
           1 = ERROR, 2 = WARNING, 3 = INFO, 
@@ -162,7 +168,12 @@ def vlog(
         The indentation level. If set to "auto", defaults are applied 
         based on `level`. Otherwise, an integer specifying the number 
         of indent levels is used. Default is "auto".
-
+    status : str, optional
+        Specifies if the message should be logged or not based 
+        on the `verbose` level. If the `status` is 'log',
+        the message is logged only if the  verbosity level is greater 
+        than or equal to the specified `level`. Default is `None`.
+        
     Returns
     -------
     None
@@ -207,10 +218,24 @@ def vlog(
 
     # Use a global or outer-scope 'verbose' variable for overall verbosity.
     # It is assumed that 'verbose' is defined in the calling scope.
-    if globals().get("verbose", 0) >= level:
+
+    # Use the verbosity parameter if provided, 
+    # otherwise fallback to global verbose.
+    verbose = verbose if verbose is not None else globals().get('verbose', 0)
+    
+    # If status is 'log', check if verbosity 
+    # level allows logging the message.
+    if status == 'log' and verbose >= level:
         indent = " " * (depth * 2)
         print(f"{indent}{verbosity_labels[level]} {message}")
+        
+    # Only print the message if verbosity is non-zero
+    # and verbosity level is enough.
+    elif verbose > 0:
+        indent = " " * (depth * 2)
+        print(f"{indent} {message}")
 
+  
 def get_actual_column_name(
     df: pd.DataFrame, 
     tname: str = None, 

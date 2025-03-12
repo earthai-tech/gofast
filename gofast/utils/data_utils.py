@@ -3856,7 +3856,7 @@ def to_wide(
     # Set default index columns if not provided
     if index_columns is None:
         index_columns = ['longitude', 'latitude']
-
+    index_columns= columns_manager(index_columns, empty_as_none=False)
     # Check that required columns exist in DataFrame
     required_columns = index_columns + [pivot_column, value_column]
     missing_columns = set(required_columns) - set(long_df.columns)

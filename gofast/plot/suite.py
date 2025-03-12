@@ -3180,7 +3180,6 @@ def plot_categorical_feature(
     plt.tight_layout()
     plt.show()
 
-
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_fit_plot.png'),
     fig_size=(8, 6)
@@ -3612,7 +3611,7 @@ def plot_fit(
             **kwargs
         )
         ax.set_xlabel(xlabel or "Predicted Values")  # Set x-axis label
-        ax.set_ylabel(ylabel or "Frequency")          # Set y-axis label
+        ax.set_ylabel(ylabel or "Frequency")         # Set y-axis label
     
     # QQ Plot analysis
     elif kind == 'qq_plot':

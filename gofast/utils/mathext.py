@@ -65,6 +65,7 @@ from ..core.checks  import  (
     is_iterable, 
     check_params, 
 ) 
+from ..core.generic import vlog
 from ..core.handlers import ( 
     columns_manager, 
     param_deprecated_message, 
@@ -72,7 +73,8 @@ from ..core.handlers import (
 )
 from ..core.io import is_data_readable 
 from ..core.utils import normalize_string, smart_format 
-from .deps_utils import ensure_pkg, is_module_installed  
+from .deps_utils import ensure_pkg, is_module_installed 
+from .ext import reorder_by
 from .validator import (
     _is_numeric_dtype,
     _ensure_y_is_valid,
@@ -173,7 +175,7 @@ def compute_importances(
     return_rank=False,
     normalize=False,
     ascending=False, 
-    keep_mean=False,
+    verbose=0
 ):
     r"""
     Compute feature importances or ranks from one or multiple
@@ -248,11 +250,10 @@ def compute_importances(
           feature and sorts **from lowest to highest**.
         - `False` (default) → Computes the mean importance  
           for each feature and sorts **from highest to lowest**.
-    keep_mean : bool, optional
-        If ``True``, stores a column `"mean_importance"` with
-        the average across models, and a `"mean_rank"`.
-        Otherwise, these summary columns are dropped before
-        returning.
+    verbose: int, optional 
+       Checks in different steps of the function (steps 1 to 7).
+       higher levels provide more detailed information about
+       the function's progress.
 
     Returns
     -------
@@ -304,12 +305,17 @@ def compute_importances(
 
     # 1) Force pkg to 'sklearn' if user leaves it None
     #    or specifically indicates scikit-learn.
+    
+    vlog("[INFO] Setting package to 'sklearn' if none specified.",
+         verbose 
+         )
+    
     pkg = (
         'sklearn'
         if pkg in [None, 'sklearn', 'scikit-learn', 'skl']
         else pkg
     )
-
+  
     target_type = None
     if y is not None:
         target_type = type_of_target(y)
@@ -317,6 +323,9 @@ def compute_importances(
     # 2) Infer the task type (regression vs. classification).
     #    If user didn't specify y but the model is prefit,
     #    we skip this step. 
+    vlog(f"[INFO] Inferring task type. Target type is {target_type}.", 
+         verbose )
+    
     task = 'reg' if target_type in [
         'continuous', 'continous-multioutput'
     ] else (
@@ -362,7 +371,7 @@ def compute_importances(
     if X is not None:
         # check whether X is a dataframe 
         # if not build dataframe. 
-        
+        vlog("[INFO] Extracting feature names.", verbose)
         X= build_data_if (
             X, force=True, 
             input_name="Feature Data", 
@@ -379,6 +388,7 @@ def compute_importances(
     # 6) Convert models to dict if a list of estimators is given
     if not isinstance(models, dict):
         # Assign generic name or derive from model
+        vlog("[INFO] Converting models to a dictionary.", verbose)
         models = {
             get_estimator_name(m): m
             for m in models
@@ -390,6 +400,7 @@ def compute_importances(
     # 7) Fit each model if prefit=False, then compute importances
     for model_name, model in models.items():
         if not prefit:
+            vlog(f" [DEBUG] Fitting model {model_name}.",verbose)
             # Must have a fit method
             has_methods(model, methods=['fit'])
             if X is None or y is None:
@@ -400,14 +411,23 @@ def compute_importances(
 
         # Priority to user-defined xai_methods if set
         if xai_methods:
+            vlog(f"  [TRACE] Using custom XAI method for {model_name}.", 
+                 verbose
+                 )
             importances = xai_methods(model, X, y)
         elif pkg == 'shap':
+            vlog(f" [DEBUG] Using SHAP for {model_name}.", verbose)
+            
             import shap
             explainer = shap.Explainer(model, X)
             shap_values = explainer(X)
             # Mean absolute SHAP values per feature
             importances = np.abs(shap_values.values).mean(axis=0)
         elif pkg == 'sklearn':
+            vlog(f"  [TRACE] Using sklearn feature importances for {model_name}.", 
+                 verbose
+                 )
+            
             # Use builtin feature_importances_ or coef_
             if hasattr(model, "feature_importances_"):
                 importances = model.feature_importances_
@@ -457,62 +477,28 @@ def compute_importances(
         # parameter name.
         from .mathext import normalize as normalizer
         importances_df = normalizer(importances_df)
-
+    
     # 10) If multiple models, compute the mean across them
-    if len(feature_importances) > 1:
-        importances_df["mean_importance"] = importances_df.mean(axis=1)
-
     # 11) Rank each column in descending order of importance
-    ranking_matrix = importances_df.rank(
-        ascending=ascending,
-        axis=0
-    ).astype(int)
-
-    # If multiple models, also rank by mean_importance
-    if "mean_importance" in importances_df.columns:
-        ranking_matrix["mean_rank"] = importances_df["mean_importance"].rank(
-            ascending=ascending
-        ).astype(int)
-
     # 12) Sort by "mean_rank" if it exists, else by the first column
-    if "mean_rank" in ranking_matrix.columns:
-        ranking_matrix = ranking_matrix.sort_values(
-            by="mean_rank",
-            axis=0,
-            ascending=not ascending
+    
+    final_df = reorder_by ( 
+        importances_df, 
+        ascending=ascending, 
+        to_rank= return_rank, 
+        rank_strategy= 'by_data', 
+    )
+    vlog("[INFO] Returning final DataFrame with {}".format(
+        "ranking matrix." if return_rank else "feature importances." ), 
+        verbose
         )
-    else:
-        # Fallback: sort by the first model's ranks
-        ranking_matrix = ranking_matrix.sort_values(
-            by=ranking_matrix.columns[0],
-            axis=0,
-            ascending=not ascending
-        )
+    # 13) Return either the rank or the raw importances
+    if not as_frame:
+        return final_df.values 
+    
+    
+    return final_df
 
-    # 13) Optionally remove mean_importance and mean_rank columns
-    if not keep_mean:
-        importances_df.drop(
-            columns=["mean_importance"],
-            errors='ignore',
-            inplace=True
-        )
-        ranking_matrix.drop(
-            columns=["mean_rank", "mean_importance"],
-            errors='ignore',
-            inplace=True
-        )
-
-    # 14) Return either the rank or the raw importances
-    if return_rank:
-        if as_frame:
-            return ranking_matrix
-        else:
-            return ranking_matrix.values
-    else:
-        if as_frame:
-            return importances_df
-        else:
-            return importances_df.values
 
 @validate_params ({ 
     'y_true': ['array-like', None], 

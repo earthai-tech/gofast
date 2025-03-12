@@ -40,6 +40,7 @@ __all__ = [
     "evaluate_df", 
     "to_micmic", 
     "spread_uncertainty", 
+    "reorder_by"
     ]
 
 
@@ -656,6 +657,9 @@ def to_importances(
             by="mean_importance", ascending=False
             ).drop(columns=["mean_importance"])
     
+    # for consisteny 
+    imp = reorder_by (imp, ascending=ascending )
+    
     imp = to_series(imp, handle_2d ="passthrough")
     
     return imp
@@ -672,9 +676,10 @@ def to_ranking(
     importances, 
     models=None, 
     features=None,
-    ascending=True, 
+    ascending=False, 
     rank_method='min',
     name="feature",
+    strategy="by_data", 
     **kw
 ):
     """
@@ -708,9 +713,10 @@ def to_ranking(
         If fewer names are provided than rows, the remaining rows
         are named using the prefix specified by ``name``, e.g.
         ``feature_1``, ``feature_2``, etc.
-    ascending : bool, default=True
+    ascending : bool, default=False
         Controls the order of ranking. By default, higher importance
-        scores are ranked as 1 (i.e. highest importance).
+        scores are ranked as 1 (i.e. highest importance). and sorted 
+        by `'rank_strategy'`
     rank_method : str, default ``min``
         The method used to compute the rank. Acceptable values are
         those supported by pandas ``rank`` (e.g., ``min``,
@@ -830,11 +836,209 @@ def to_ranking(
     # Compute the ranking for each column.
     # By default, higher importance should get rank 1; hence,
     # if ascending is False, we rank in descending order.
-    ranking = df.rank(ascending=not ascending, method=rank_method, **kw)
-    
+    ranking = reorder_by (
+        df, 
+        ascending =ascending, 
+        to_rank=True, 
+        rank_strategy=strategy, 
+        rank_method=rank_method, 
+        **kw
+    )
     ranking = to_series (ranking, handle_2d ="passthrough")
     
     return ranking.astype(int)
+
+@check_params ({ 
+    "features": Optional[List[str]], 
+    "name": str, 
+    })
+@validate_params({
+    "to_ranking": ['array-like']
+    }
+)
+@isdf
+def reorder_by(
+    df, 
+    ascending=True, 
+    to_rank=False, 
+    rank_strategy='by_col', 
+    rank_method='min', 
+    **rank_kw
+):
+    """
+    Reorders the rows of a DataFrame based on computed rankings or values.
+
+    The `reorder_by` function provides an efficient way to rearrange a 
+    DataFrame based on either ranking the columns individually, ranking 
+    based on the sum of row values, or ranking the entire DataFrame by 
+    a computed temporary column. The DataFrame can be either sorted 
+    or ranked based on different strategies for both column-wise and 
+    row-wise calculations. This function allows flexible ranking 
+    strategies to cater to various needs for data reorganization.
+
+    Parameters
+    ------------
+    df : pandas.DataFrame
+        The DataFrame to be reordered. It must contain numeric values 
+        for the ranking or reordering process.
+        
+    ascending : bool, default=True
+        If `True`, the DataFrame is sorted in ascending order based on 
+        either the row-wise computed mean or the rank values. If `False`, 
+        it is sorted in descending order.
+
+    to_rank : bool, default=False
+        Whether to return the ranked DataFrame instead of the reordered 
+        DataFrame. If `True`, the function converts values into ranks 
+        instead of sorting them by the computed temporary column. 
+
+    rank_strategy : {'by_col', 'by_data'}, default='by_col'
+        Defines the strategy used for ranking the DataFrame. 
+        - If `'by_col'`, the DataFrame is ranked individually by each 
+          column.
+        - If `'by_data'`, the ranking is based on the summed values of 
+          each row (calculated via a temporary column), and the entire 
+          DataFrame is reordered based on the ranks of these summed values.
+    
+    rank_method : {'min', 'max', 'average', 'first'}, default='min'
+        Specifies the method used to rank the values. Available options:
+        - `'min'`: Assigns the smallest rank to tied elements.
+        - `'max'`: Assigns the largest rank to tied elements.
+        - `'average'`: Assigns the average rank to tied elements.
+        - `'first'`: Assigns ranks in the order of appearance of the elements.
+        
+    rank_kw : keyword arguments, optional
+        Additional parameters passed directly to pandas' `rank` method 
+        to fine-tune the ranking behavior. These can include parameters 
+        like `na_option`, `numeric_only`, etc.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The reordered or ranked DataFrame, depending on the value of 
+        the `to_rank` parameter. If `to_rank` is `True`, the output will 
+        be a DataFrame with rank values; otherwise, the original DataFrame 
+        will be rearranged based on either row-wise sums or individual 
+        column rankings.
+
+    Formulation
+    -------------
+    Given a DataFrame `df` with `n` rows and `m` columns, the temporary 
+    column `temp_col` is computed as the mean across each row, i.e.,
+
+    .. math::
+       \text{temp\_col}_i = \frac{1}{m} \sum_{j=1}^{m} \text{df}_{ij}
+
+    where :math:`\text{df}_{ij}` denotes the value at row `i` and column `j`.
+
+    If `to_rank=True`, the function then performs the following operations:
+
+    1. **By Column**: Each column is ranked independently.
+    2. **By Data**: The sum of each row is used to rank the rows 
+       across all columns.
+
+    The final result depends on the sorting behavior defined by 
+    `ascending` and `rank_strategy`.
+
+    Example
+    -------
+    >>> from gofast.utils.ext import reorder_by
+    >>> df = pd.DataFrame({
+    >>>     'A': [0.1, 0.01, 0.2],
+    >>>     'B': [0.6, 0.9, 0.0],
+    >>>     'C': [0.33, 0.1, 1.3]
+    >>> })
+    >>> result = reorder_by(df, ascending=True, to_rank=False)
+    >>> print(result)
+    >>> result_ranked = reorder_by(df, to_rank=True, rank_strategy='by_col')
+    >>> print(result_ranked)
+
+    Notes
+    -----
+    - When `to_rank=True` and `rank_strategy='by_data'`, the ranking is 
+      performed on the sum of each row. The rows are then reordered 
+      according to their rank.
+    - The temporary column `temp_col` is used in the case of `by_data` 
+      strategy to compute the row-wise sums before ranking. This column 
+      is removed before returning the result.
+
+    See Also
+    --------
+    pandas.DataFrame.rank : Rank values in a DataFrame.
+    
+    References
+    ----------
+    .. [1] Pandas Documentation: DataFrame Rank Method,
+           https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.rank.html
+    """
+
+    rank_strategy= rank_strategy or 'by_col'
+    
+    rank_strategy = parameter_validator(
+        "rank_strategy",
+        target_strs={'by_col', 'by_data'},
+        error_msg=(
+            f"Ranking strategy '{rank_strategy}'."
+            " Choose one of 'by_col' or 'by_data'"
+            )
+        )(rank_strategy)
+
+    # Compute the temporary column: mean along axis=1 (row-wise)
+    df['temp_col'] = df.mean(axis=1)
+    
+    # Case 1: When to_rank is False - arrange based on mean values.
+    if not to_rank:
+        # Rank the dataframe based on the sum of temp_col
+        df_sorted = df.sort_values(by='temp_col', ascending=ascending)
+        # Drop the temporary column after rearranging
+        df_sorted = df_sorted.drop(columns=['temp_col'])
+        
+        return df_sorted
+
+    # Case 2: When to_rank is True - convert data to ranking values.
+    else:
+        # Rank the dataframe based on the selected strategy
+        if rank_strategy == 'by_col':
+            # Rank each column individually based on values
+            df_ranked = df.rank(
+                ascending=ascending, 
+                method=rank_method, 
+                **rank_kw
+            ).astype(int)
+            
+            # Drop the temporary column after ranking
+            df_ranked = df_ranked.drop(columns=['temp_col'])
+            
+            return df_ranked.astype(int)  
+        
+        elif rank_strategy == 'by_data':
+            # Rank based on the temporary column 'temp_col'
+            # Rank each column by data first
+            df_ranked = df.rank(
+                ascending=False, 
+                method=rank_method, 
+                **rank_kw
+            ).astype(int)
+       
+            # Rank the temp column and use that to rank the whole dataframe
+            df_ranked['temp_col_rank'] = df['temp_col'].rank(
+                ascending=False, 
+                method=rank_method, 
+                **rank_kw
+            ).astype(int)
+     
+            # Sort dataframe based on temp_col_rank
+            df_ranked = df_ranked.sort_values(
+                by='temp_col_rank', 
+                ascending=not ascending
+            )
+            
+            # Drop the temporary ranking column
+            # Drop the temporary column used for mean calculation
+            df_ranked = df_ranked.drop(columns=['temp_col', 'temp_col_rank'])
+        
+            # Ensure consistent integer ranking
+            return df_ranked.astype(int)
 
 def normalize_in(
     *d: List[ArrayLike], 

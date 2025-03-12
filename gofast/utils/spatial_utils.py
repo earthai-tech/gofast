@@ -841,11 +841,11 @@ def get_xy_coordinates(
     return  xy , df , xynames 
 
 @is_data_readable 
-@isdf
 @validate_params ({ 
     'data': ['array-like'], 
     'method': [StrOptions({"abs", "absolute",  "relative"}), None], 
     })
+@isdf
 def batch_spatial_sampling(
     data,
     sample_size=0.1,
@@ -1305,12 +1305,13 @@ def batch_spatial_sampling(
         
     return batches
 
+@SaveFile
 @is_data_readable 
-@isdf
 @validate_params ({ 
     'data': ['array-like'], 
     'method': [StrOptions({"abs", "absolute",  "relative"}), None], 
     })
+@isdf
 def spatial_sampling(
     data,
     sample_size=0.01,
@@ -1320,7 +1321,9 @@ def spatial_sampling(
     method='abs', 
     min_relative_ratio=.01, 
     random_state=42, 
-    verbose=1, 
+    savefile=None, 
+    verbose=1,
+    
 ):
     """
     Sample spatial data intelligently to represent the distribution

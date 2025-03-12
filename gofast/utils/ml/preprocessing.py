@@ -3325,7 +3325,7 @@ def generate_proxy_feature(
 
     Example:
     --------
-    >>> from gofast.utils.mlutils import generate_proxy_feature
+    >>> from gofast.utils.ml.preprocessing import generate_proxy_feature
     >>> import pandas as pd
 
     # Create a sample dataframe
