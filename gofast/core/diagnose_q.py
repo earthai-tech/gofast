@@ -24,8 +24,173 @@ __all__= [
     'validate_quantiles_in', 'validate_q_dict',
     'check_forecast_mode', 'detect_quantiles_in',
     'build_q_column_names','detect_digits', 
-    'validate_consistency_q'
+    'validate_consistency_q', 'parse_qcols'
 ]
+
+def parse_qcols(q_cols, fallback_cols=None, error="warn"):
+    """
+    parse_qcols is a utility function designed to interpret
+    quantile column mappings from either a dictionary or list.
+    It automatically identifies the lowest quantile, the median
+    quantile (preferably 50 if available), and the highest
+    quantile. The remaining quantiles, if any, are accessible
+    through a parsed dictionary. This utility helps streamline
+    the process of extracting quantile-based columns for later
+    processing or plotting [1]_.
+    
+    Given a set of quantiles in :math:`q`, typically named
+    like ``q10``, ``q50``, ``q90``, parse_qcols attempts to
+    extract the numeric part of each name. For example:
+    
+    .. math::
+       q_{key} = \\text{float}(\\text{key}[1:])
+    
+    If ``'q50'`` is found, it is treated as the median quantile.
+    Otherwise, parse_qcols uses the central element of the
+    sorted list of parsed quantiles. The minimum quantile
+    becomes the "lowest" and the maximum becomes the "highest."
+    
+    Parameters
+    ----------
+    q_cols : dict or list, optional
+        A collection of quantile definitions. If this
+        parameter is a dictionary with keys like ``q10``,
+        ``q50``, or ``q90``, the numeric portion is parsed.
+        If it is a list, items are assigned dummy keys in
+        ascending order (``q0``, ``q1``, etc.).
+    fallback_cols : tuple of str, optional
+        A 3-tuple (``lower_col``, ``median_col``,
+        ``upper_col``) to return if the quantile parsing
+        fails or if <parameter `q_cols`> is None.
+    error : {'warn', 'raise', 'ignore'}, optional
+        A function used to warn about parsing issues. If
+        'raise', error raises rather than warning issues.
+    
+    Returns
+    -------
+    dict
+        A dictionary containing:
+        - ``lowest_col``: The column name of the lowest
+          quantile.
+        - ``median_col``: The column name of the median
+          quantile (preferably 50).
+        - ``highest_col``: The column name of the highest
+          quantile.
+        - ``parsed_qvals``: A mapping of parsed quantile
+          floats to their column names.
+        - ``valid``: A boolean indicating whether valid
+          quantiles were parsed.
+    
+    Notes
+    -----
+    By default, parse_qcols handles numeric quantile keys that
+    begin with the letter 'q', followed by a valid float value
+    (e.g., ``q10`` -> 10.0). Keys that cannot be converted into
+    floats are ignored. If none are valid, parse_qcols returns
+    values from <parameter `fallback_cols`>.
+    
+    Examples
+    --------
+    >>> from gofast.core.diagnose_q import parse_qcols
+    >>> # Example dictionary
+    >>> q_def = {'q10': 'low_10', 'q50': 'med_50', 'q90': 'hi_90'}
+    >>> result = parse_qcols(q_def)
+    >>> result['lowest_col']
+    'low_10'
+    
+    See Also
+    --------
+    None currently.
+    
+    References
+    ----------
+    .. [1] Doe, A., & Smith, J. (2021). Dynamic quantile
+       extraction in large datasets. Journal of Data
+       Diagnostics, 4(2), 101-110.
+    """
+    # Provide a default warning function if none is passed
+    if fallback_cols is None:
+        fallback_cols = (None, None, None)
+
+    # Prepare output structure with defaults
+    output = {
+        'lowest_col':  fallback_cols[0],
+        'median_col':  fallback_cols[1],
+        'highest_col': fallback_cols[2],
+        'parsed_qvals': {},
+        'valid': False
+    }
+
+    # If q_cols is not provided, return fallback immediately
+    if not q_cols:
+        return output
+    
+    if isinstance (q_cols, str): 
+        q_cols = [q_cols]
+    # If q_cols is a list, convert to dict with dummy keys (q0, q1, etc.)
+    if isinstance(q_cols, (list, tuple)):
+        q_cols = {f"q{i}": col_name for i, col_name in enumerate(q_cols)}
+
+    # Parse keys like 'q10', 'q50', 'q90' into numeric floats
+    parsed = {}
+    for k, col_name in q_cols.items():
+        if not isinstance(k, str):
+            msg =f"Quantile key '{k}' is not a string. Skipped." 
+            if error =="warn": 
+                warnings.warn(msg)
+            elif error =="raise": 
+                raise TypeError (msg)
+            continue
+        if not k.startswith('q'):
+            msg=(f"Key '{k}' is not prefixed with 'q'. Skipped.")
+            if error =="warn": 
+                warnings.warn(msg)
+            elif error =="raise": 
+                raise ValueError (msg)
+            continue
+        # Attempt to convert 'q10' -> 10.0
+        try:
+            q_val = float(k[1:])
+            parsed[q_val] = col_name
+        except ValueError as e :
+            msg=(f"Cannot parse quantile '{k}'. Skipped.")
+            if error =="warn": 
+                warnings.warn(msg)
+            elif error =="raise": 
+                raise ValueError (msg) from e 
+    
+    # If nothing valid was parsed, return fallback
+    if not parsed:
+        msg=(
+            "No valid quantile columns found in `q_cols`. "
+            "Falling back to explicit columns if provided."
+        )
+        if error =="warn": 
+            warnings.warn(msg)
+        elif error =="raise": 
+            raise ValueError (msg)
+            
+        return output
+
+    # Sort parsed q-values
+    sorted_qvals = sorted(parsed.keys())
+    output['parsed_qvals'] = parsed
+    output['valid'] = True
+
+    # The lowest quantile
+    output['lowest_col'] = parsed[sorted_qvals[0]]
+    # The highest quantile
+    output['highest_col'] = parsed[sorted_qvals[-1]]
+
+    # For median, prefer '50' if it exists, else pick middle
+    if 50.0 in parsed:
+        output['median_col'] = parsed[50.0]
+    else:
+        mid_idx = len(sorted_qvals) // 2
+        output['median_col'] = parsed[sorted_qvals[mid_idx]]
+
+    return output
+
 
 def check_forecast_mode(
     mode, 

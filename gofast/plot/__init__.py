@@ -107,7 +107,9 @@ from .suite import (
     plot_factory_ops, 
     plot_ranking, 
     plot_coverage, 
-    plot_qdist
+    plot_qdist, 
+    plot_with_uncertainty, 
+    plot_qbased_preds
     )
 
 __all__= [
@@ -210,7 +212,9 @@ __all__= [
     'plot_factory_ops', 
     'plot_ranking', 
     'plot_coverage', 
-    'plot_qdist'
+    'plot_qdist', 
+    'plot_with_uncertainty', 
+    'plot_qbased_preds'
                
     ]
 

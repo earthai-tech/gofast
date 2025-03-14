@@ -8,6 +8,7 @@ Includes functions for color conversion, alpha value generation, and
 ensuring compatibility with visualization libraries.
 """
 from __future__ import print_function
+import warnings
 import itertools
 import inspect 
 from functools import wraps 
@@ -26,7 +27,74 @@ __all__=[
     'generate_mpl_styles',
     'get_colors_and_alphas',
     'hex_to_rgb', 
+    'deprecated_params_plot'
     ]
+
+
+def deprecated_params_plot(func):
+    """
+    Decorator that handles the deprecated parameters
+    ``median_col``, ``lower_col``, and ``upper_col`` in
+    a backward-compatible way. If any of these parameters
+    are provided by the user, a deprecation warning is
+    issued. If ``q_cols`` is None, the decorator converts
+    these three columns into a `q_cols` dictionary
+    internally.
+
+    Notes
+    -----
+    - If `q_cols` is already provided, the decorator
+      does not overwrite it, even if the deprecated
+      parameters are present.
+    - If `median_col`, `lower_col`, or `upper_col` are
+      provided while `q_cols` is also given, a warning
+      is still issued that these parameters are
+      deprecated and ignored.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        median_col = kwargs.get('median_col', None)
+        lower_col  = kwargs.get('lower_col', None)
+        upper_col  = kwargs.get('upper_col', None)
+        q_cols     = kwargs.get('q_cols', None)
+
+        # Check if any deprecated parameters were explicitly set
+        deprecated_params_used = any([
+            median_col is not None,
+            lower_col  is not None,
+            upper_col  is not None
+        ])
+
+        # If they are used, issue a deprecation warning
+        if deprecated_params_used:
+            warnings.warn(
+                "Parameters 'median_col', 'lower_col', and 'upper_col' "
+                "are deprecated and will be removed in a future release. "
+                "Please use 'q_cols' instead.",
+                category=DeprecationWarning,
+                stacklevel=2
+            )
+
+        # If q_cols is None, but the user supplied the
+        # deprecated parameters, convert them into q_cols
+        if q_cols is None and deprecated_params_used:
+            # Build a minimal q_cols dictionary
+            # We only add entries that are actually provided
+            tmp_qcols = {}
+            if lower_col:
+                tmp_qcols['q0'] = lower_col
+            if median_col:
+                tmp_qcols['q50'] = median_col
+            if upper_col:
+                tmp_qcols['q100'] = upper_col
+
+            # If there's at least one entry, set q_cols
+            if tmp_qcols:
+                kwargs['q_cols'] = tmp_qcols
+
+        return func(*args, **kwargs)
+
+    return wrapper
 
 def default_params_plot(
     savefig=None, 

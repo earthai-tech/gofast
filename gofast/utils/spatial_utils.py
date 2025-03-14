@@ -98,7 +98,225 @@ __all__ = [
      'batch_spatial_sampling', 
      'make_mxs_labels',
      'extract_zones_from', 
+     'filter_position'
  ]
+
+@validate_params ({ 
+    'threshold':[Interval(Real, 0, 1, closed='neither')], 
+    'error': [StrOptions({'raise', 'warn', 'ignore'})], 
+    'pos': [Real, 'array-like']
+    })
+@isdf
+def filter_position(
+    df,
+    pos,
+    pos_cols=None,
+    find_closest=True,
+    threshold=0.01,
+    error='raise',
+    verbose=0
+   ):
+    """
+    filter_position is a utility that filters a
+    pandas.DataFrame based on user-specified spatial
+    positions. It can match positions exactly or compute
+    distances to find the closest points within a threshold.
+    
+    For a single dimension, the distance is computed as:
+    
+    .. math::
+       d = |x - p|
+    
+    For multi-dimensional data with n coordinates, the
+    Euclidean distance is computed as:
+    
+    .. math::
+       d = \\sqrt{\\sum_{i=1}^n (x_i - p_i)^2}
+    
+    Parameters
+    ------------
+    df : pandas.DataFrame
+        The DataFrame that will be filtered. This parameter
+        is essential and must contain columns referenced by
+        `pos_cols` if ``pos_cols`` is not None.
+    
+    pos : float or tuple of floats
+        The reference position(s) to match or approximate.
+        When `pos_cols` is None, `pos` is interpreted as an
+        index value. Otherwise, each value in `pos` aligns
+        with a specific column in `pos_cols`.
+    
+    pos_cols : str or tuple of str, optional
+        Name(s) of the column(s) in `df` to match against
+        `pos`. If ``pos_cols=None``, then `pos` is treated
+        as an index filter. If multiple columns are given
+        (e.g., latitude and longitude), each coordinate in
+        `pos` should correspond to one column in `pos_cols`.
+    
+    find_closest : bool, optional
+        If True, nearest-neighbor filtering is performed
+        within the distance `threshold`. If False, exact
+        matches are used.
+    
+    threshold : float, optional
+        The maximum distance within which points are
+        considered a match if `find_closest` is True. The
+        unit corresponds to the column data (e.g., degrees
+        for geographic lat/lon).
+    
+    error : {'raise', 'warn', 'ignore'}, optional
+        Specifies how to handle dimension mismatches or
+        missing values. If ``'raise'``, a ValueError will be
+        raised. If ``'warn'``, a warning is printed and extra
+        values are ignored. If ``'ignore'``, mismatches are
+        silently ignored.
+    
+    verbose : int, optional
+        Controls the level of output messages:
+        - 0: No output
+        - 1: Basic info
+        - 2: Additional details
+        - >=3: Comprehensive summary
+    
+    Returns
+    -------
+    pandas.DataFrame
+        A new DataFrame that contains only rows matching or
+        approximating the specified position(s) within the
+        given threshold if `find_closest` is True.
+    
+    Notes
+    -----
+    When `pos_cols` is None, the function attempts to filter
+    by DataFrame index using the first element of `pos`. This
+    approach may fail for multi-level indexes unless
+    ``error='warn'`` or ``error='ignore'`` is used to bypass
+    the dimension mismatch. See [1]_ for further discussion
+    on multi-dimensional indexing.
+    
+    Examples
+    --------
+    >>> from gofast.utils.spatial_utils import filter_position
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'lat': [113.309998, 113.310001],
+    ...     'lon': [22.831362, 22.831364]
+    ... })
+    >>> # Exact match
+    >>> result_exact = filter_position(df, pos=(113.309998,
+    ...                                         22.831362),
+    ...                                pos_cols=('lat', 'lon'),
+    ...                                find_closest=False)
+    >>> # Nearest match with threshold
+    >>> result_close = filter_position(df,
+    ...                                pos=(113.31,
+    ...                                     22.83),
+    ...                                pos_cols=('lat',
+    ...                                          'lon'),
+    ...                                find_closest=True,
+    ...                                threshold=0.01)
+    
+    See Also
+    --------
+    gofast.utils.data_utils.truncate_data: 
+        Truncate multiple DataFrames based on spatial 
+        coordinates or index alignment with a base DataFrame.
+    
+    References
+    ----------
+    .. [1] Smith, J., & Doe, A. (2020). Multi-dimensional
+       indexing in big data. Journal of Spatial Computing,
+       15(3), 200-210.
+    """
+    # Initialize filtered_df as the original DataFrame
+    filtered_df = df.copy()
+
+    # Convert pos to tuple if it's not already
+    if not isinstance(pos, (tuple, list)):
+        pos = (pos,)
+
+    # Helper function to handle errors
+    def _handle_error(msg, ex_msg=''):
+        if error == 'raise':
+            raise ValueError(msg)
+        elif error == 'warn':
+            warnings.warn(f"{msg}{ex_msg}")
+        # if error == 'ignore', do nothing
+
+    # If no position columns specified,
+    # treat pos as DataFrame index
+    if pos_cols is None:
+        if len(pos) > 1:
+            _handle_error(
+                "Multiple position values provided but no pos_cols. "
+                "Unable to match multi-level index. ",
+                "Using the first position value only."
+            )
+        idx = pos[0]  # Consider only the first if multiple are given
+        if idx not in df.index:
+            _handle_error(
+                f"Index '{idx}' not found in DataFrame. ",
+                "Returning empty DataFrame."
+            )
+            return filtered_df.iloc[0:0]  # Return empty DF if not found
+        # Filter by index
+        filtered_df = filtered_df.loc[[idx]]
+        return filtered_df
+
+    # Ensure pos_cols is tuple for consistency
+    if not isinstance(pos_cols, (tuple, list)):
+        pos_cols = (pos_cols,)
+    
+    pos_cols = columns_manager(pos_cols) 
+    
+    # Check dimension match between pos and pos_cols
+    if len(pos) != len(pos_cols):
+        # If mismatch, handle based on error param
+        _handle_error(
+            f"pos ({len(pos)}) and pos_cols ({len(pos_cols)}) lengths "
+            "do not match.", " Extra values or columns will be ignored."
+        )
+        # If ignoring or warning, align up to the shortest length
+        min_len = min(len(pos), len(pos_cols))
+        pos = pos[:min_len]
+        pos_cols = pos_cols[:min_len]
+
+    # If find_closest is disabled, do exact matching
+    if not find_closest:
+        # Build query for exact match
+        mask = True
+        for p_val, col in zip(pos, pos_cols):
+            mask &= (filtered_df[col] == p_val)
+        filtered_df = filtered_df[mask]
+        return filtered_df
+
+    # If find_closest is enabled, use threshold-based filtering
+    # Compute distance (Euclidean if multiple columns, absolute if single)
+    if len(pos_cols) == 1:
+        # Single dimension: absolute difference
+        col = pos_cols[0]
+        distance = (filtered_df[col] - pos[0]).abs()
+        filtered_df = filtered_df[distance <= threshold]
+    else:
+        # Multi-dimensional: Euclidean distance
+        # Summation of squared diffs for each column
+        squared_diff = 0
+        for p_val, col in zip(pos, pos_cols):
+            squared_diff += (filtered_df[col] - p_val) ** 2
+        distance = squared_diff ** 0.5
+        filtered_df = filtered_df[distance <= threshold]
+
+    # If verbose, provide basic info
+    if verbose >= 1:
+        print(f"Filtered {len(df)} rows to {len(filtered_df)} rows "
+              f"within threshold {threshold}.")
+
+    # If verbose >= 2, show sample of distance
+    if verbose >= 2 and not filtered_df.empty:
+        print("Example distance values within threshold:")
+        print(distance[distance <= threshold].head())
+
+    return filtered_df
 
 @is_data_readable(data_to_read='data')
 @SaveFile

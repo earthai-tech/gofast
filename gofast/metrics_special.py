@@ -40,6 +40,7 @@ from .api.summary import TW, ReportFactory, assemble_reports
 from .api.summary import ResultSummary 
 from .core.array_manager import to_arrays 
 from .core.checks import exist_features, is_iterable
+from .core.generic import transform_contributions 
 from .core.utils import normalize_string
 from .compat.sklearn import StrOptions, HasMethods, Interval, validate_params 
 from .decorators import Substitution, Appender
@@ -141,7 +142,8 @@ def miv_score(
     max_iter=10, 
     plot_type='bar',  
     percent=False,    
-    relative=False,   
+    relative=False, 
+    normalize=False, 
     show_grid=True, 
     fig_size=(12, 8),
     cmap='viridis', 
@@ -215,6 +217,11 @@ def miv_score(
         of feature impact.
         If ``False``, MIV is computed based on the difference between positive 
         and negative perturbations.
+        
+    normalize : bool, optional, default=False
+        Whether to normalize the contributions using min-max scaling. If 
+        `True`, the values will be scaled to the range defined in 
+        ``norm_range``.
 
     show_grid : bool, default=True
         If ``True``, displays grid lines on applicable plots (e.g., bar, barh, scatter).
@@ -396,13 +403,20 @@ def miv_score(
         
         # Average MIV over all iterations for the current feature
         avg_miv = np.mean(miv_list)
-        if percent:
-            avg_miv *= 100  # Convert to percentage if required
+        
+        # if percent:
+        #     avg_miv *= 100  # Convert to percentage if required
         miv_values[feature] = avg_miv
         
         if verbose >= 2:
             print(f"MIV for {feature}: {avg_miv:.4f}{'%' if percent else ''}")
     
+    miv_values = transform_contributions( 
+        miv_values, 
+        to_percent=percent, 
+        normalize =normalize, 
+        zero_division= 'ignore', 
+    )
     # Create metric summary using MetricFormatter
     metric_summary = MetricFormatter(
         descriptor="mean_impact_value", 

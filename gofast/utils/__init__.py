@@ -185,6 +185,7 @@ MODULE_MAPPING = {
         'extract_coordinates', 
         'dual_merge', 
         'extract_zones_from', 
+        'filter_position', 
         ]
 }
 

@@ -55,6 +55,16 @@ __all__=[
     'savefigure', 
 ]
 
+_param_defaults = {
+    'title': "Box Plot: Quantiles Across Time", 
+    'xlabel': "Date", 
+    "ylabel": "Values", 
+    'palette': "Set2", 
+    'var_name': "Quantiles", 
+    'value_name': "Values", 
+}
+
+
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE("my_r-squared_plot.png"), 
     fig_size = (10, 6), 
@@ -2372,3 +2382,33 @@ def flex_figsize(
 
     return figsize
 
+
+def _set_defaults(**kwargs):
+    """
+    Set the default values for multiple parameters if they are not provided.
+
+    This function checks whether each parameter passed in `kwargs` is None. 
+    If it is None, the corresponding value from the `_param_defaults` dictionary 
+    is used as the default.
+
+    Parameters
+    ----------
+    kwargs : dict
+        The keyword arguments passed to the function. The function checks 
+        each key in `kwargs` and replaces its value with the default if it is None.
+
+    Returns
+    -------
+    dict
+        A dictionary containing the updated parameters, where each parameter 
+        is either the provided value or the default value if not provided.
+    """
+    # Initialize the updated parameters with the defaults
+    params = _param_defaults.copy()
+
+    # Update the dictionary with the values from kwargs, if they are not None
+    for key, value in kwargs.items():
+        if value is not None:
+            params[key] = value
+
+    return params

@@ -302,7 +302,6 @@ def compute_importances(
            *Advances in Neural Information Processing Systems*,
            30, 4768-4777.
     """
-
     # 1) Force pkg to 'sklearn' if user leaves it None
     #    or specifically indicates scikit-learn.
     

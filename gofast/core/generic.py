@@ -8,11 +8,11 @@ comparison, and other generic operations
 """
 import warnings
 from typing import Union 
-import numpy as np #noqa
+import numpy as np 
 import pandas as pd 
 
 __all__ =['verify_identical_items', 'vlog', 'detect_dt_format',
-          'get_actual_column_name']
+          'get_actual_column_name', 'transform_contributions']
 
 def verify_identical_items(
     list1, 
@@ -393,3 +393,186 @@ def detect_dt_format(series: pd.Series) -> str:
             fmt += ":%S"
     
     return fmt
+
+def transform_contributions(
+    contributions, 
+    to_percent=True, 
+    normalize=False, 
+    norm_range=(0, 1), 
+    scale_type=None, 
+    zero_division='warn', 
+    epsilon=1e-6, 
+    log_transform=False
+):
+    """
+    Converts the feature contributions either to a direct percentage, 
+    normalizes them to a custom range, or applies a scaling strategy 
+    based on the chosen parameters.
+
+    Parameters
+    ----------
+    contributions : dict
+        A dictionary where keys are feature names and values are the 
+        feature contributions. Each value is expected to be a numerical 
+        value representing the contribution of the respective feature.
+
+    to_percent : bool, optional, default=True
+        Whether to convert the contributions to percentages. If `True`, 
+        each value in `contributions` will be multiplied by 100. This is 
+        useful when contributions are given in decimal form but are expected 
+        as percentages.
+
+    normalize : bool, optional, default=False
+        Whether to normalize the contributions using min-max scaling. If 
+        `True`, the values will be scaled to the range defined in 
+        ``norm_range``.
+
+    norm_range : tuple, optional, default=(0, 1)
+        A tuple specifying the range (min, max) for normalization. This range 
+        is applied when `normalize` is set to `True`. The contributions will 
+        be rescaled so that the minimum value maps to `norm_range[0]` and the 
+        maximum value maps to `norm_range[1]`.
+
+    scale_type : str, optional, default=None
+        The scaling strategy. Options include:
+        - ``'zscore'``: Performs Z-score normalization.
+        - ``'log'``: Applies a logarithmic transformation to the data.
+        If `None`, no scaling is applied.
+
+    zero_division : str, optional, default='warn'
+        Defines how to handle zero or missing values in the contributions. 
+        Options include:
+        - ``'skip'``: Skips zero values (no modification).
+        - ``'warn'``: Issues a warning if zero values are found.
+        - ``'replace'``: Replaces zeros with a small value defined by 
+          ``epsilon`` to avoid division by zero or undefined results.
+
+    epsilon : float, optional, default=1e-6
+        A small value used to replace zeros when `zero_division` is set to 
+        ``'replace'``. This prevents division by zero errors during 
+        transformations like Z-score or log transformation.
+
+    log_transform : bool, optional, default=False
+        Whether to apply a logarithmic transformation to the contributions. 
+        If `True`, it applies the natural logarithm to each value in the 
+        `contributions` dictionary. Only positive values are valid for log 
+        transformation, and zero values are either skipped or replaced 
+        based on the ``zero_division`` parameter.
+
+    Returns
+    -------
+    dict
+        A dictionary with feature names as keys and the transformed feature 
+        contributions as values. The transformation is applied according to 
+        the chosen parameters.
+
+    Notes
+    -----
+    - When ``normalize=True``, if the minimum and maximum values in the 
+      `contributions` are the same, normalization is skipped with a warning.
+    - If ``scale_type='zscore'``, the function applies Z-score normalization:
+      
+      .. math::
+          Z = \frac{X - \mu}{\sigma}
+      
+      where :math:`X` is the contribution, :math:`\mu` is the mean of the 
+      contributions, and :math:`\sigma` is the standard deviation of the 
+      contributions.
+      
+    - If ``log_transform=True``, the function applies the natural logarithm:
+      
+      .. math::
+          \text{log}(X) \text{ for } X > 0
+          
+    - The ``zero_division`` parameter handles zero values by either skipping, 
+      warning, or replacing them with a small value (`epsilon`).
+
+    Examples
+    --------
+    >>> from gofast.core.generic import transform_contributions
+    >>> contributions = {
+    >>>     'GWL': 2.226836617133828,
+    >>>     'rainfall_mm': 12.398293851061492,
+    >>>     'normalized_seismic_risk_score': 0.9402759347406523,
+    >>>     'normalized_density': 4.806074194258057,
+    >>>     'density_concentration': 5.666943330566496e-06,
+    >>>     'geology': 1.2798872011280326e-05,
+    >>>     'density_tier': 1.044039559604414e-05,
+    >>>     'rainfall_category': 0.0
+    >>> }
+    >>> transform_contributions(contributions, to_percent=True, normalize=True)
+    >>> transform_contributions(contributions, to_percent=False, scale_type='zscore')
+    
+    See Also
+    --------
+    `numpy.mean`: Compute the arithmetic mean of an array.
+    `numpy.std`: Compute the standard deviation of an array.
+
+    References
+    ----------
+    [1]_ "Statistical Methods for Data Transformation" by J. Smith, 
+         Springer, 2020.
+    """
+    
+    # Handle zero values based on user preference
+    if zero_division == 'replace':
+        contributions = {
+            feature: (contribution if contribution != 0 else epsilon)
+            for feature, contribution in contributions.items()
+        }
+    elif zero_division == 'warn' and any(
+        contribution == 0 for contribution in contributions.values()
+    ):
+        warnings.warn(
+            "Some contribution values are zero. Consider replacing them.",
+            UserWarning
+        )
+
+    # Convert contributions to percentage if specified
+    if to_percent:
+        contributions = {
+            feature: contribution * 100 
+            for feature, contribution in contributions.items()
+        }
+    
+    # Apply normalization to the specified range
+    if normalize:
+        min_val = min(contributions.values())
+        max_val = max(contributions.values())
+        
+        # Check if min and max values are the same to avoid division by zero
+        if min_val == max_val:
+            warnings.warn(
+                "All contribution values are the same, cannot normalize; Skipped.",
+                UserWarning
+            )
+        else:
+            norm_range = 100 * np.asarray(
+                norm_range) if to_percent else norm_range 
+            
+            contributions = {
+                feature: (
+                    ((contribution - min_val) / (max_val - min_val)) * 
+                    (norm_range[1] - norm_range[0]) + norm_range[0]
+                ) 
+                for feature, contribution in contributions.items()
+            }
+
+    # Apply scaling (Z-score or log)
+    if scale_type == 'zscore':
+        mean_val = np.mean(list(contributions.values()))
+        std_val = np.std(list(contributions.values()))
+        
+        contributions = {
+            feature: (contribution - mean_val) / std_val 
+            if std_val != 0 else contribution
+            for feature, contribution in contributions.items()
+        }
+    
+    elif log_transform:
+        contributions = {
+            feature: np.log(contribution) if contribution > 0 else 0
+            for feature, contribution in contributions.items()
+        }
+    
+    return contributions

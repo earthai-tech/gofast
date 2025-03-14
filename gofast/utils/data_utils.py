@@ -80,7 +80,6 @@ __all__= [
     'filter_by_isin', 
     ]
 
-     
 @SaveFile  
 @is_data_readable 
 @Dataify(auto_columns=True, fail_silently=True) 
@@ -3922,10 +3921,10 @@ def to_wide(
     "wide_df": ['array-like'], 
     'id_vars': ['array-like', str, None], 
     'value_vars': ['array-like', str, None], 
-    'value_name': [str], 
-    'var_name': [str], 
-    'rename_columns': [list], 
-    'rename-dict': [dict], 
+    'value_name': [str, None], 
+    'var_name': [str, None], 
+    'rename_columns': ['array-like', None], 
+    'rename-dict': [dict, None], 
     'error': [StrOptions({'raise', 'warn', 'ignore'})]
     }
  )
@@ -3991,15 +3990,15 @@ def to_long(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.utils.data_utils import wide_to_long 
+    >>> from gofast.utils.data_utils import to_long 
     >>> wide_df = pd.DataFrame({
     ...     'id': [1, 2],
     ...     'longitude': [10, 20],
     ...     'latitude': [30, 40],
     ...     '2015': [0.1, 0.15],
-    ...     '2016': [0.2, 0.25]
+    ...     '2016': [0.2, 0.25], 
     ... })
-    >>> long_df = wide_to_long(
+    >>> long_df = to_long(
     ...     wide_df, 
     ...     id_vars=['id', 'longitude', 'latitude'], 
     ...     value_name='subsidence', 
@@ -4013,7 +4012,7 @@ def to_long(
     3   2         20        40  2016        0.25
 
     >>> # Using rename_columns
-    >>> renamed_df = wide_to_long(
+    >>> renamed_df = to_long(
     ...     wide_df, 
     ...     id_vars=['id', 'longitude', 'latitude'], 
     ...     value_name='subsidence', 

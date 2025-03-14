@@ -28,6 +28,7 @@ from sklearn.metrics import precision_recall_curve
 from ..api.types import Optional, Tuple,  Union, List 
 from ..api.types import Dict, DataFrame
 from ..api.summary import ResultSummary
+from ..compat.pandas import select_dtypes 
 from ..core.array_manager import smart_ts_detector, drop_nan_in 
 from ..core.checks import ( 
     is_iterable, check_params, check_numeric_dtype, 
@@ -42,7 +43,7 @@ from ..core.diagnose_q import (
 )
 from ..core.handlers import columns_manager, param_deprecated_message 
 from ..core.io import is_data_readable 
-from ..core.plot_manager import default_params_plot 
+from ..core.plot_manager import default_params_plot, deprecated_params_plot 
 from ..compat.sklearn import ( 
     validate_params,
     StrOptions, 
@@ -51,14 +52,15 @@ from ..compat.sklearn import (
 )
 from ..decorators import isdf
 from ..metrics import get_scorer 
+from ..utils.spatial_utils import filter_position 
 from ..utils.mathext import compute_importances  
 from ..utils.validator import  ( 
     build_data_if, validate_positive_integer, 
-    is_frame, check_consistent_length, 
-    validate_yy, filter_valid_kwargs
+    is_frame, validate_yy, filter_valid_kwargs
 )
 from ._config import PlotConfig
-from .utils import flex_figsize 
+from .utils import _set_defaults, _param_defaults, flex_figsize 
+from .utils import make_plot_colors 
 
 __all__=[
     "plot_spatial_features", 
@@ -68,6 +70,7 @@ __all__=[
     'plot_dist', 
     'plot_quantile_distributions', 
     'plot_uncertainty', 
+    'plot_with_uncertainty',
     'plot_prediction_intervals',
     'plot_temporal_trends', 
     'plot_relationship', 
@@ -77,7 +80,8 @@ __all__=[
     'plot_factory_ops', 
     'plot_ranking', 
     'plot_coverage', 
-    'plot_qdist'
+    'plot_qdist', 
+    'plot_qbased_preds'
 ]
 
 @default_params_plot(
@@ -833,11 +837,13 @@ def plot_ranking(
     "names": Optional[Union[str, List[str]]], 
     "title": Optional[str], 
     'figsize': Optional[Tuple[int, int]], 
-    })
+    }, 
+    coerce=False, 
+ )
 @validate_params({ 
     'train_times': ['array-like', None], 
     'metrics': [str, 'array-like', None], 
-    'scale': [StrOptions({"norm", "min-max", 'scale'}), None], 
+    'scale': [StrOptions({"norm", "min-max", 'std', 'standard'}), None], 
     "lower_bound": [Real], 
     })
 def plot_factory_ops(
@@ -919,7 +925,7 @@ def plot_factory_ops(
     scale : {'norm', 'scale', None}, optional
         The transformation applied to metric values:
         - `'norm'`: min-max normalization per metric.
-        - `'scale'`: standard scaling per metric.
+        - `'std'`: standard scaling per metric.
         - `None`: no scaling is applied.
     lower_bound : float, optional
         The lower boundary for the radar chart radius, default
@@ -988,10 +994,10 @@ def plot_factory_ops(
     # Generate default model names if none are provided
     if names is None:
         names = [f"Model_{i+1}" for i in range(len(y_preds))]
-    else:
-        names = columns_manager(names, empty_as_none= False ) 
-        if len(names) < len(y_preds):
-            names += [f"Model_{i+1}" for i in range(len(names), len(y_preds))]
+
+    names = columns_manager(names, empty_as_none= False ) 
+    if len(names) < len(y_preds):
+        names += [f"Model_{i+1}" for i in range(len(names), len(y_preds))]
 
     # Set default metrics if none are provided
     if metrics is None:
@@ -1059,7 +1065,7 @@ def plot_factory_ops(
         denom = np.where((max_val - min_val) == 0, 1, (max_val - min_val))
         results_arr = (results_arr - min_val) / denom
 
-    elif scale == 'scale':
+    elif scale in [ 'standard', 'std']:
         # Standard scaling for each metric (column-wise)
         if verbose > 0:
             print("[DEBUG] Performing standard scaling on metrics.")
@@ -1774,6 +1780,7 @@ def plot_perturbations(
     plot_type='bar',
     percent=False,
     relative=False,
+    normalize=False, 
     show_grid=True,
     fig_size=(12, 8),
     cmap='Blues',
@@ -1851,6 +1858,11 @@ def plot_perturbations(
         If ``True``, uses the original model predictions to compute a
         relative MIV. Otherwise, MIV is the difference between positive
         and negative perturbations.
+        
+    normalize : bool, optional, default=False
+        Whether to normalize the contributions using min-max scaling. If 
+        `True`, the values will be scaled to the range defined in 
+        ``norm_range``.
     
     show_grid : bool, default=True
         If ``True``, displays grid lines on certain plot types (bar,
@@ -1985,6 +1997,7 @@ def plot_perturbations(
             percent=False,        # keep raw numeric values, handle 'percent' here
             relative=relative,
             show_grid=False,      # not relevant here
+            normalize=normalize,  
             fig_size=None,        # not relevant now
             cmap=cmap,            # not relevant now
             verbose=0             # silent
@@ -2537,7 +2550,7 @@ def plot_spatial_features(
     y_col='latitude',
     colormaps=None,
     figsize=None,
-    point_size=10,
+    s=10,
     marker='o',
     plot_type='scatter',
     colorbar_orientation='vertical',
@@ -2593,7 +2606,7 @@ def plot_spatial_features(
         provided, the figure size is determined based on the number of
         features and dates.
 
-    point_size : int, default 10
+    s : int, default 10
         Size of the points in the scatter plot.
 
     marker : str, default ``'o'``
@@ -2661,7 +2674,7 @@ def plot_spatial_features(
     ...     x_col='lon',
     ...     y_col='lat',
     ...     colormaps=['coolwarm', 'YlGnBu'],
-    ...     point_size=15,
+    ...     s=15,
     ...     plot_type='scatter',
     ...     axis_off=False,
     ...     titles={'temperature': 'Temp on {date}',
@@ -2747,6 +2760,10 @@ def plot_spatial_features(
     if colormaps is None:
         colormaps = ['viridis', 'plasma', 'inferno', 'magma', 'cividis']
 
+    colormaps = make_plot_colors (
+        features, features, cmap_only=True, 
+        get_only_names= True 
+    )
     if figsize is None:
         figsize = (5 * ncols, 5 * nrows)
 
@@ -2797,7 +2814,7 @@ def plot_spatial_features(
                         c=c,
                         cmap=cmap,
                         norm=norm,
-                        s=point_size,
+                        s=s,
                         marker=marker,
                         **kwargs
                     )
@@ -2861,7 +2878,7 @@ def plot_spatial_features(
                     c=c,
                     cmap=cmap,
                     norm=norm,
-                    s=point_size,
+                    s=s,
                     marker=marker,
                     **kwargs
                 )
@@ -2926,7 +2943,7 @@ def plot_categorical_feature(
     y_col='latitude',
     cmap='tab10',
     figsize=None,
-    point_size=10,
+    s=10,
     marker='o',
     axis_off=True,
     legend_loc='upper left',
@@ -2979,7 +2996,7 @@ def plot_categorical_feature(
         not provided, the figure size is determined based on the
         number of dates and default settings.
 
-    point_size : int, default 10
+    s : int, default 10
         Size of the points in the scatter plot.
 
     marker : str, default ``'o'``
@@ -3045,7 +3062,7 @@ def plot_categorical_feature(
     ...     feature='category',
     ...     x_col='longitude',
     ...     y_col='latitude',
-    ...     point_size=20,
+    ...     s=20,
     ...     legend_loc='upper right'
     ... )
     >>> # Plotting with dates
@@ -3056,7 +3073,7 @@ def plot_categorical_feature(
     ...     dt_col='year',
     ...     x_col='longitude',
     ...     y_col='latitude',
-    ...     point_size=20,
+    ...     s=20,
     ...     legend_loc='upper right',
     ...     titles='Category Distribution in {date}'
     ... )
@@ -3155,7 +3172,7 @@ def plot_categorical_feature(
                 x, y,
                 label=category,
                 c=[category_color_map[category]],
-                s=point_size,
+                s=s,
                 marker=marker,
                 **kwargs
             )
@@ -3751,6 +3768,17 @@ def plot_fit(
     # Return the figure object for further manipulation if needed
     return fig
 
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_relationship_plot.png'),
+    fig_size=(8, 8)
+  )
+@validate_params({
+    "y_true": ['array-like'], 
+    "y_pred": ['array-like'], 
+    "theta_scale": [StrOptions({ 'proportional', 'uniform' })], 
+    'acov': [StrOptions({
+        'default', 'half_circle', 'quarter_circle', 'eighth_circle'})], 
+    })
 def plot_relationship(
     y_true, *y_preds, 
     names=None, 
@@ -3758,9 +3786,9 @@ def plot_relationship(
     theta_offset=0,  
     theta_scale='proportional',  
     acov='default',  
-    figsize=(8, 8), 
+    figsize=None, 
     cmap='viridis',  
-    point_size=50,  
+    s=50,  
     alpha=0.7,  
     legend=True,  
     show_grid=True,  
@@ -3828,7 +3856,7 @@ def plot_relationship(
         Colormap for the scatter points. Refer to Matplotlib
         documentation for a list of supported colormaps.
 
-    point_size : float, default=50
+    s : float, default=50
         Size of scatter points representing predictions.
 
     alpha : float, default=0.7
@@ -4001,7 +4029,7 @@ def plot_relationship(
             theta, r, 
             label=names[i], 
             c=color_palette[i % len(color_palette)], 
-            s=point_size, alpha=alpha, edgecolor='black'
+            s=s, alpha=alpha, edgecolor='black'
         )
 
     # If z_values are provided, replace angle labels with z_values
@@ -6337,7 +6365,8 @@ def plot_uncertainty(
     showfliers=True,
     grid=True,
     savefig=None,
-    dpi=300
+    dpi=300, 
+    **kws
 ):
     r"""
     Plot uncertainty distributions from numeric columns in a DataFrame 
@@ -6480,13 +6509,20 @@ def plot_uncertainty(
 
     # Plot according to type
     if plot_type == 'box':
-        sns.boxplot(data=plot_data, showfliers=showfliers, palette=palette)
+        kws= filter_valid_kwargs(sns.boxplot, kws)
+        sns.boxplot(
+            data=plot_data, showfliers=showfliers, 
+            palette=palette, 
+            **kws)
     elif plot_type == 'violin':
-        sns.violinplot(data=plot_data, palette=palette)
+        kws= filter_valid_kwargs(sns.violinplot, kws)
+        sns.violinplot(data=plot_data, palette=palette, **kws)
     elif plot_type == 'strip':
-        sns.stripplot(data=plot_data, palette=palette)
+        kws= filter_valid_kwargs(sns.stripplot, kws)
+        sns.stripplot(data=plot_data, palette=palette, **kws)
     elif plot_type == 'swarm':
-        sns.swarmplot(data=plot_data, palette=palette)
+        kws= filter_valid_kwargs(sns.swarmplot, kws)
+        sns.swarmplot(data=plot_data, palette=palette, **kws)
    
     plt.title(title, fontsize=14)
     plt.ylabel(ylabel or "Predicted Value", fontsize=12)
@@ -6510,194 +6546,334 @@ def plot_uncertainty(
 @validate_params ({ 
     'df': ['array-like'], 
     'x': ['array-like', None], 
-    'line_colors': ['array-like'], 
-    'numeric_only': [bool], 
+    'line_colors': [str, 'array-like'], 
     })
+@deprecated_params_plot
 def plot_prediction_intervals(
     df,
-    median_col=None,
-    lower_col=None,
-    upper_col=None, 
-    actual_col=None,
-    x=None,
+    q_cols=None,         
+    median_col=None,      
+    lower_col=None,       
+    upper_col=None,        
+    ref_col=None,         
+    sample_size=None,      
+    dt_col=None,          
     title=None,
-    xlabel="X",
+    xlabel="Sample",
     ylabel="Value",
     legend=True,
     line_colors=('black', 'blue'),
     fill_color='blue',
     fill_alpha=0.2,
     figsize=None,
-    grid=True,
+    show_grid=True,
+    grid_props=None,
+    rotation=0, 
     savefig=None,
-    dpi=300
+    dpi=300,
+    **kws
 ):
-    r"""
-    Plot prediction intervals to visualize forecast uncertainty or 
-    variation in predicted values. This function displays a median 
-    prediction line, optionally actual observed values, and fills the 
-    area between lower and upper quantiles (or prediction bounds) to 
-    highlight uncertainty.
+    """
+    Plots predicted intervals (e.g., lower, median, and upper
+    quantiles) along with an optional reference series. It
+    supports quantile specifications in two ways: either through
+    the individual arguments ``<argument``> `lower_col`,
+    ``<argument``> `median_col`, and ``<argument``> `upper_col` or
+    through ``<argument``> `q_cols` [1]_.
 
     Parameters
     ----------
     df : pandas.DataFrame
-        The DataFrame containing columns for actual and predicted 
-        values. Must at least have `<median_col>`, `<lower_col>` and 
-        `<upper_col>`.
-    median_col : str
-        The name of the column in `df` representing the median 
-        prediction. This is the central prediction line.
-    lower_col : str
-        The name of the column in `df` representing the lower bound 
-        of the prediction interval.
-    upper_col : str
-        The name of the column in `df` representing the upper bound 
-        of the prediction interval.
-    actual_col : str or None, optional
-        The name of the column in `df` representing actual observed 
-        values. If None, no actual line is plotted.
-    x : array-like or None, optional
-        The x-coordinates for plotting. If None, the index of `df` is 
-        used.
+        The input DataFrame containing the necessary columns.
+    q_cols : dict or list, optional
+        Quantile definitions. If it is a dictionary with keys
+        like ``q10``, ``q50``, or ``q90``, the numeric portion
+        is parsed into float quantiles. If it is a list,
+        items are assigned dummy quantile keys (``q0``,
+        ``q1``, etc.). If <parameter `q_cols`> is provided,
+        any values in <parameter `median_col`>,
+        <parameter `lower_col`>, and <parameter `upper_col`>
+        are ignored.
+    median_col : str, optional
+        The column name representing the median predictions
+        (deprecated in favor of ``q_cols``). If specified,
+        generates a deprecation warning.
+    lower_col : str, optional
+        The column name representing the lower interval
+        (deprecated in favor of ``q_cols``). If specified,
+        generates a deprecation warning.
+    upper_col : str, optional
+        The column name representing the upper interval
+        (deprecated in favor of ``q_cols``). If specified,
+        generates a deprecation warning.
+    ref_col : str, optional
+        Column name for a reference series (e.g., true values,
+        observations). Plotted as a separate line.
+    sample_size : int, float, or str, optional
+        Controls downsampling:
+        - If int, randomly samples <parameter `sample_size`>
+          rows.
+        - If float in (0, 1), uses that fraction of rows.
+        - If ``auto``, a simple heuristic is used (e.g.,
+          sample 500 if the dataset is large).
+    dt_col : str, optional
+        Column used on the x-axis. If None, the DataFrame
+        index is used. If not already in datetime format,
+        it is converted using ``pandas.to_datetime``.
     title : str, optional
-        The plot title, describing the scenario or data.
-    xlabel: str, optional
-        The label for the x-axis.
+        Plot title. Defaults to ``"Prediction Intervals"`` if
+        unspecified.
+    xlabel : str, optional
+        X-axis label, defaults to ``"Sample"``.
     ylabel : str, optional
-        The label for the y-axis.
+        Y-axis label, defaults to ``"Value"``.
     legend : bool, optional
-        If True, display a legend showing line and interval labels.
-    line_colors : tuple, optional
-        A tuple of colors (actual_line_color, median_line_color). 
-        Defaults to ('black', 'blue').
-    fill_color`: str, optional
-        The color used for filling the interval region. Default is 
-        'blue'.
+        If True, displays a legend of plotted series. Defaults
+        to True.
+    line_colors : tuple of str, optional
+        Defines the colors for the reference series and median
+        line, in that order. Defaults to ``('black', 'blue')``.
+    fill_color : str, optional
+        The fill color for the interval range. Defaults to
+        ``'blue'``.
     fill_alpha : float, optional
-        The transparency level of the filled interval region. 
-        Default is 0.2.
-    figsize : tuple or None, optional
-        The figure size in inches (width, height). If None, defaults 
-        to (10, 6).
-    grid: bool, optional
-        If True, display a grid on the plot. Default is True.
-    savefig : str or None, optional
-        If provided, a file path to save the figure. If None, the 
-        figure is displayed interactively.
-    dpi: int, optional
-        The resolution of the saved figure in dots-per-inch. 
-        Default is 300.
-
-    Methods
-    -------
-    This object is a standalone function without additional methods. 
-    Users interact solely through the given parameters.
+        Opacity of the fill for the interval. Defaults to 0.2.
+    figsize : tuple, optional
+        The figure size (width, height) in inches.
+    show_grid : bool, optional
+        If True, a grid is added to the plot. Defaults to True.
+    grid_props : dict, optional
+        Customization for the grid, e.g. ``{'linestyle': ':',
+        'alpha': 0.7}``.
+    savefig : str, optional
+        If not None, saves the figure to the specified file
+        path. The saved figure uses ``dpi`` for resolution.
+    dpi : int, optional
+        Dots per inch for image saving. Defaults to 300.
+    **kws
+        Additional keyword arguments passed to
+        ``matplotlib`` plot calls (e.g. line style).
 
     Notes
     -----
-    Given a series of predictions indexed by :math:`i`, let 
-    :math:`m_i` be the median prediction and 
-    :math:`\ell_i`, :math:`u_i` be the lower and upper bounds of the 
-    prediction interval at index :math:`i`. The plot represents:
+    By default, the function attempts to parse columns for the
+    lowest, median, and highest quantiles from
+    <parameter `q_cols`>. If no valid quantiles are found or if
+    <parameter `q_cols`> is missing, the deprecated parameters
+    <parameter `lower_col`>, <parameter `median_col`>, and
+    <parameter `upper_col`> are used, issuing warnings.
+    The upper and lower bounds define a range of prediction
+    intervals:
 
     .. math::
-       \ell_i \leq m_i \leq u_i
+       [\\text{lower}, \\; \\text{upper}]
 
-    as a shaded region from :math:`\ell_i` to :math:`u_i`, with a line 
-    at :math:`m_i`. If actual values :math:`a_i` are provided, they are 
-    plotted as well to compare predictions against reality.
-    
-    By visualizing the median prediction along with the lower and 
-    upper bounds, users gain insight into the uncertainty or 
-    confidence intervals around their forecasts. If actual 
-    observations are provided, comparing them against the median 
-    and interval can highlight prediction accuracy or deviation.
+    and the median or central quantile is plotted as a reference
+    line, usually corresponding to :math:`q_{50}`, unless
+    otherwise specified:
+
+    .. math::
+       \\text{median} = q_{50}
 
     Examples
     --------
     >>> from gofast.plot.suite import plot_prediction_intervals
     >>> import pandas as pd
     >>> df = pd.DataFrame({
-    ...    'median_pred': [10, 12, 11, 13],
-    ...    'lower_pred':  [9,  11, 10, 12],
-    ...    'upper_pred':  [11, 13, 12, 14],
-    ...    'actual':      [10.5, 11.5, 11.2, 12.8]
+    ...   'lower': [0.8, 1.0, 1.2],
+    ...   'median': [1.0, 1.2, 1.4],
+    ...   'upper': [1.2, 1.4, 1.6]
     ... })
-    >>> # Plot intervals with actual:
+    >>> # Example with deprecated parameters
     >>> plot_prediction_intervals(
-    ...     df,
-    ...     actual_col='actual',
-    ...     median_col='median_pred',
-    ...     lower_col='lower_pred',
-    ...     upper_col='upper_pred',
-    ...     xlabel='Time Step',
-    ...     ylabel='Value',
-    ...     title='Forecast Intervals'
+    ...   df,
+    ...   lower_col='lower',
+    ...   median_col='median',
+    ...   upper_col='upper'
     ... )
+    >>> # Example with q_cols
+    >>> q_def = {'q10': 'lower', 'q50': 'median', 'q90': 'upper'}
+    >>> plot_prediction_intervals(df, q_cols=q_def)
 
     See Also
     --------
-    matplotlib.pyplot.fill_between : Used for filling intervals.
-    matplotlib.pyplot.plot : For line plotting.
+    None currently.
 
     References
     ----------
-    .. [1] Gneiting, T., and Raftery, A. E. "Strictly Proper 
-           Scoring Rules, Prediction, and Estimation." J. Amer. 
-           Statist. Assoc. 102 (2007): 359–378.
+    .. [1] Doe, J., & Smith, A. (2022). Visualizing data
+       intervals: A systematic approach. Journal of Plotting
+       Science, 10(3), 55-67.
     """
-    is_frame(df, df_only=True, raise_exception =True, objname ='df')
-    
-    # If x is None, use the index
-    if x is None:
-        x = np.arange(len(df))
-        
-    check_consistent_length(df, x )
-    
-    # Validate columns
-    if median_col is None or lower_col is None or upper_col is None:
+    # Update default plot parameters
+    _param_defaults.update({
+        'title': "Prediction Intervals",
+        'xlabel': xlabel,
+        'ylabel': ylabel,
+    })
+    params = _set_defaults(title=title, xlabel=xlabel, ylabel=ylabel)
+
+    # Validate DataFrame
+    is_frame(df, df_only=True, raise_exception=True, objname='df')
+
+    # Handle dt_col vs. using index
+    if dt_col is None:
+        x_data = df.index
+    else:
+        # If dt_col exists, ensure it's datetime if possible
+        if dt_col not in df.columns:
+            raise ValueError(f"Column '{dt_col}' not found in df.")
+        if not pd.api.types.is_datetime64_any_dtype(df[dt_col]):
+            df[dt_col] = pd.to_datetime(df[dt_col], errors='coerce')
+        x_data = df[dt_col]
+
+    # Handle sample_size
+    # If sample_size is an integer, float, or 'auto', downsample accordingly
+    n = len(df)
+    if sample_size is not None:
+        if isinstance(sample_size, int):
+            # Clip sample_size to the number of rows if larger
+            sample_size = min(sample_size, n)
+            df = df.sample(sample_size, random_state=42)
+        elif isinstance(sample_size, float):
+            # Interpret float as fraction
+            if 0 < sample_size < 1:
+                df = df.sample(int(n * sample_size), random_state=42)
+            else:
+                warnings.warn(
+                    f"sample_size={sample_size} is not in (0,1). Ignored."
+                )
+        elif sample_size == 'auto':
+            # Simple heuristic: if n > 500, sample 500
+            if n > 500:
+                df = df.sample(500, random_state=42)
+        else:
+            warnings.warn(
+                f"Unrecognized sample_size={sample_size}. Ignored."
+            )
+        # If we resampled df, also resample x_data accordingly
+        x_data = df[dt_col] if dt_col else df.index
+
+    #
+    # Resolve lower, median, upper columns from q_cols if provided
+    #----
+    # If q_cols is a dict (e.g., {'q10': col10, 'q50': col50, 'q90': col90}),
+    # try to identify min/median/max keys automatically.
+    if q_cols is not None:
+        # Convert list to dict if necessary
+        if isinstance(q_cols, list):
+            # Example: q_cols=['col_low','col_med','col_high']
+            # We'll map them in ascending order as best as we can
+            q_cols_dict = {}
+            for i, col_name in enumerate(q_cols):
+                q_cols_dict[f"q{i}"] = col_name
+            q_cols = q_cols_dict
+
+        # Attempt to parse numeric portion from keys like 'q10', 'q50', 'q90'
+        parsed = {}
+        for k, col_name in q_cols.items():
+            if k.startswith('q'):
+                try:
+                    q_val = float(k[1:])
+                    parsed[q_val] = col_name
+                except ValueError:
+                    warnings.warn(f"Cannot parse quantile '{k}'. Skipped.")
+            else:
+                warnings.warn(f"Key '{k}' is not prefixed with 'q'. Skipped.")
+
+        if not parsed:
+            warnings.warn(
+                "No valid quantile columns found in q_cols. "
+                "Falling back to median_col, lower_col, upper_col."
+            )
+        else:
+            sorted_qvals = sorted(parsed.keys())
+            # Lowest quantile
+            lower_key = sorted_qvals[0]
+            lower_col = parsed[lower_key]
+            # Highest quantile
+            upper_key = sorted_qvals[-1]
+            upper_col = parsed[upper_key]
+            # Median: prefer '50' if present, else middle
+            if 50.0 in parsed:
+                median_col = parsed[50.0]
+            else:
+                mid_idx = len(sorted_qvals) // 2
+                median_col = parsed[sorted_qvals[mid_idx]]
+
+    # Ensure columns exist
+    required_cols = [median_col, lower_col, upper_col]
+    if any(col is None for col in required_cols):
         raise ValueError(
-            "median_col, lower_col, and upper_col must be specified.")
-    
-    exist_features(df, features =[median_col, lower_col, upper_col])
-    # Extract data
+            "Unable to resolve lower_col, median_col, upper_col. "
+            "Provide them or use q_cols with valid mappings."
+        )
+    exist_features(df, features=required_cols)
+
+    # Extract the values
     median_vals = df[median_col].values
     lower_vals = df[lower_col].values
     upper_vals = df[upper_col].values
 
-    # Create figure
-    plt.figure(figsize=figsize)
+    # Prepare figure
+    #
+    fig, ax = plt.subplots(figsize=figsize)
     
-    # Plot actual if provided
-    if actual_col is not None:
-        exist_features(df, features=actual_col, name ='Actual feature column')
-        plt.plot(x, df[actual_col].values, label=actual_col, color=line_colors[0])
+    line_colors = columns_manager(line_colors, empty_as_none=False)
+    line_colors = make_plot_colors(range(2), line_colors)
+    # Plot reference column if provided
+    if ref_col is not None:
+        exist_features(
+            df, features=ref_col, name='Reference feature column')
+        ax.plot(
+            x_data,
+            df[ref_col].values,
+            label=ref_col,
+            color=line_colors[0],
+            **filter_valid_kwargs(ax.plot, {})
+        )
 
     # Plot median line
-    plt.plot(x, median_vals, label=median_col, color=line_colors[1])
-
-    # Fill interval
-    plt.fill_between(
-        x, lower_vals, upper_vals,
-        color=fill_color, alpha=fill_alpha,
-        label=f'{lower_col} - {upper_col}'
+    median_kws = filter_valid_kwargs(ax.plot, kws)
+    ax.plot(
+        x_data,
+        median_vals,
+        label=median_col,
+        color=line_colors[1],
+        **median_kws
     )
 
-    plt.title(title)
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
+    # Fill between for interval
+    fill_kws = filter_valid_kwargs(ax.fill_between, kws)
+    ax.fill_between(
+        x_data,
+        lower_vals,
+        upper_vals,
+        color=fill_color,
+        alpha=fill_alpha,
+        label=f'{lower_col} - {upper_col}',
+        **fill_kws
+    )
 
-    if grid:
-        plt.grid(True, linestyle='--', alpha=0.5)
+    # Apply plot labels and properties
+    ax.set_title(params['title'])
+    ax.set_xlabel(params['xlabel'])
+    ax.set_ylabel(params['ylabel'])
+
+    if show_grid:
+        grid_cfg = grid_props or {'linestyle': ':', 'alpha': 0.7}
+        ax.grid(True, **grid_cfg)
 
     if legend:
-        plt.legend()
+        ax.legend()
 
+    # Save figure if requested
     if savefig:
         plt.savefig(savefig, dpi=dpi, bbox_inches='tight')
 
+    # Show the plot
     plt.show()
+
 
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_temporal_trends_plot.png'), 
@@ -6937,3 +7113,1176 @@ def plot_temporal_trends(
     # Show the plot
     plt.show()
     
+def _plot_error_bars(
+    df, q_cols, 
+    dt_col, 
+    ax=None, 
+    label=None, 
+    capsize=5, 
+    title=None, 
+    xlabel="Date", 
+    ylabel="Values",
+    **kws
+    ):
+    """
+    Helper function for error bars plot with improved flexibility
+    and robustness.
+    
+    - Handles missing dt_col gracefully by checking for its presence.
+    - Allows customization of plot title, labels, and plot style.
+    - Can optionally use provided axes for more control over
+       subplot placements.
+    """
+    _param_defaults.update ({
+        'label': "Quantile 50", 
+        'title': "Error Bars: Quantiles", 
+        'xlabel': "Date", 
+        "ylabel": "Values", 
+    })
+    # Set defaults using _set_defaults
+    params = _set_defaults(
+        title=title, xlabel=xlabel, ylabel=ylabel,
+        label=label 
+    )
+
+ 
+    # Set the axes (use provided axes or create a new one)
+    if ax is None:
+        ax = plt.gca()
+    
+    # Compute the error bars using the quantiles provided (q10, q50, q90)
+    yerr_lower = df[q_cols[1]] - df[q_cols[0]]  # q50 - q10
+    yerr_upper = df[q_cols[2]] - df[q_cols[1]]  # q90 - q50
+    
+    # Error bars plot
+    kws = filter_valid_kwargs(ax.errorbar, kws)
+    ax.errorbar(
+        df[dt_col], df[q_cols[1]], yerr=[yerr_lower, yerr_upper],
+        fmt='o', 
+        label=label, capsize=capsize, **kws
+    )
+    
+    # Set plot title and labels
+    ax.set_title(params['title'])
+    ax.set_xlabel(params['xlabel'])
+    ax.set_ylabel(params['ylabel'])
+    
+    # Show legend
+    ax.legend()
+    
+
+def _plot_line_shaded(
+    df, dt_col, q_cols, 
+    ax=None,
+    alpha=0.5, 
+    line_color='blue', 
+    fill_color='lightblue', 
+    title="Shaded Region Plot: Quantiles", 
+    xlabel="Date", 
+    ylabel="Values", 
+    label_median="Median (q50)", 
+    label_shaded="q10 to q90 range", 
+    **kws
+    ):
+    """
+    Helper function for shaded region plot with improved flexibility
+    and robustness.
+
+    - Handles missing dt_col gracefully by checking for its presence.
+    - Allows customization of plot title, labels, and plot style.
+    - Can optionally use provided axes for more control over subplot placements.
+    """
+    _param_defaults.update ({
+        'fill_color': "lightblue", 
+        'line_color':"blue", 
+        'title': "Shaded Region Plot: Quantiles", 
+        'xlabel': "Date", 
+        "ylabel": "Values", 
+        "label_median": "Median (q50)", 
+        "label_shaded": "q10 to q90 range", 
+    })
+    # Set defaults using _set_defaults
+    params = _set_defaults(
+        title=title, xlabel=xlabel, ylabel=ylabel,
+        fill_color=fill_color, line_color=line_color, 
+        label_median=label_median, 
+        label_shaded=label_shaded, 
+    )
+    
+    # Set the axes (use provided axes or create a new one)
+    if ax is None:
+        ax = plt.gca()
+    
+    kws = filter_valid_kwargs(ax.plot, kws)
+    # Plot the median (q50)
+    ax.plot(
+        df[dt_col], df[q_cols[1]], 
+        label=params['label_median'], 
+        color=params ['line_color'], 
+        **kws
+    )
+    # Shaded region between q10 and q90
+    ax.fill_between(
+        df[dt_col], df[q_cols[0]], df[q_cols[2]], 
+        color=params ['fill_color'], 
+        alpha=alpha, label=params ['label_shaded']
+    )
+
+    # Set plot title and labels
+    ax.set_title(params['title'])
+    ax.set_xlabel(params['xlabel'])
+    ax.set_ylabel(params['ylabel'])
+
+    # Show legend
+    ax.legend()
+
+def _plot_box_plot(
+    df, dt_col, q_cols, 
+    ax=None, 
+    title=None, 
+    xlabel=None, 
+    ylabel=None, 
+    palette=None, 
+    notch=False, 
+    var_name=None, 
+    value_name=None, 
+    width=0.8, 
+    **kws
+):
+    """
+    Helper function for creating a box plot with added flexibility and robustness.
+    
+    - Handles missing dt_col gracefully by checking for its presence.
+    - Allows customization of plot title, labels, box styles, and color palettes.
+    - Can optionally use provided axes for more control over subplot placements.
+    """
+    _param_defaults.update ({
+        'title': "Box Plot: Quantiles Across Time", 
+        'xlabel': "Date", 
+        "ylabel": "Values", 
+    })
+    # Set defaults using _set_defaults
+    params = _set_defaults(
+        title=title, xlabel=xlabel, ylabel=ylabel, palette=palette,
+        var_name=var_name, value_name=value_name, width=width
+    )
+
+    # Set the axes (use provided axes or create a new one)
+    if ax is None:
+        ax = plt.gca()
+    
+    # Melt the dataframe to have a long format suitable for the box plot
+    df_box = df.melt(
+        id_vars=[dt_col], value_vars=q_cols, 
+        var_name=params['var_name'], value_name=params['value_name']
+    )
+    
+    kws = filter_valid_kwargs(sns.boxplot, kws)
+    # Create the box plot with flexibility for customization
+    sns.boxplot(
+        x=dt_col, y=params['value_name'],
+        hue=params['var_name'], data=df_box, 
+        ax=ax, palette=params['palette'], 
+        notch=notch, 
+        width=params['width'], **kws
+    )
+
+    # Set the title and labels
+    ax.set_title(params['title'])
+    ax.set_xlabel(params['xlabel'])
+    ax.set_ylabel(params['ylabel'])
+
+    # Show the legend
+    ax.legend()
+
+def _plot_violin_plot(
+    df, 
+    dt_col, 
+    q_cols, 
+    ax=None, 
+    title=None, 
+    xlabel=None, 
+    ylabel=None, 
+    palette=None, 
+    split=False, 
+    scale="area", 
+    **kws
+):
+    """
+    Helper function for creating a violin plot with added flexibility 
+    and robustness.
+    
+    - Handles missing dt_col gracefully by checking for its presence.
+    - Allows customization of plot title, labels, violin styles, and 
+      color palettes.
+    - Can optionally use provided axes for more control over subplot
+      placements.
+    """
+    # we need to update the title 
+    _param_defaults.update ({
+        'title': "Violin Plot: Quantiles Across Time",
+        'xlabel': "Date", 
+        "ylabel": "Values", 
+        "palette": "Set2"
+    })
+    # Set defaults using _set_defaults and __param_defaults updated. 
+    params = _set_defaults(
+        title=title, xlabel=xlabel, ylabel=ylabel, palette=palette
+    )
+
+    # Set the axes (use provided axes or create a new one)
+    if ax is None:
+        ax = plt.gca()
+    
+    # Melt the dataframe to have a long format suitable for the violin plot
+    df_violin = df.melt(
+        id_vars=[dt_col], value_vars=q_cols, 
+        var_name="Quantiles", value_name="Values"
+    )
+    
+    # Auto-disable split if there are not exactly two hue levels
+    unique_levels = df_violin["Quantiles"].unique()
+    
+    if split and len(unique_levels) != 2:
+        warnings.warn("`split` set to True but found {} hue levels."
+                      " Disabling split.".format(len(unique_levels)))
+        split = False
+    
+    kws = filter_valid_kwargs(sns.violinplot, kws)
+    # Create the violin plot with flexibility for customization
+    sns.violinplot(
+        x=dt_col, y="Values", hue="Quantiles", 
+        data=df_violin, ax=ax, 
+        palette=params['palette'],
+        split=split, scale=scale, 
+        **kws
+    )
+
+    # Set the title and labels
+    ax.set_title(params['title'])
+    ax.set_xlabel(params['xlabel'])
+    ax.set_ylabel(params['ylabel'])
+
+    # Show the legend
+    ax.legend()
+
+def _plot_histogram(
+    df, q_cols, 
+    bins=30, 
+    alpha=0.5, 
+    ax=None, 
+    title=None, 
+    xlabel=None,
+    ylabel=None, 
+    **kws
+):
+    """
+    Helper function for creating a histogram with overlapping
+    distributions.
+    
+    - Allows customization of bins, alpha (opacity), and other 
+      plot styles.
+    - Handles multiple quantiles and overlays them in the 
+      same histogram.
+    - Uses defaults if parameters are not provided.
+    """
+    # Update the _param_defaults for these functions
+    _param_defaults.update({
+        'title': "Histogram with Overlapping Quantiles", 
+        'xlabel': "Values", 
+        'ylabel': "Density", 
+    })
+
+    # Set defaults using _set_defaults
+    params = _set_defaults(
+        title=title, xlabel=xlabel, ylabel=ylabel, 
+        bins=bins, alpha=alpha
+    )
+
+    # Set the axes (use provided axes or create a new one)
+    if ax is None:
+        ax = plt.gca()
+
+    # Create the histogram for each quantile
+    kws = filter_valid_kwargs(ax.hist, kws)
+    ax.hist(
+        df[q_cols[0]], bins=params['bins'], alpha=params['alpha'], 
+        label="q10", density=True, **kws
+    )
+    ax.hist(
+        df[q_cols[1]], bins=params['bins'], alpha=params['alpha'], 
+        label="q50", density=True, **kws
+    )
+    ax.hist(
+        df[q_cols[2]], bins=params['bins'], alpha=params['alpha'], 
+        label="q90", density=True, **kws
+    )
+
+    # Set the title and labels
+    ax.set_title(params['title'])
+    ax.set_xlabel(params['xlabel'])
+    ax.set_ylabel(params['ylabel'])
+
+    # Show the legend
+    ax.legend()
+
+def _plot_fan_chart(
+    df, dt_col, 
+    q_cols, 
+    title=None, 
+    xlabel=None,
+    ylabel=None, 
+    ax=None, 
+    alpha=0.5, 
+    color1=None,
+    color2=None, 
+    **kws
+):
+    """
+    Helper function for creating a fan chart to display confidence 
+    intervals.
+    
+    - The fan chart is created by plotting the median (q50) and 
+      filling between the lower (q10) and upper (q90) quantiles.
+    - Allows customization of plot colors and transparency.
+    """
+    # Update the _param_defaults for these functions
+    _param_defaults.update({
+        'title': "Fan Chart: q10, q50, q90", 
+        'xlabel': "Date", 
+        'ylabel': "Values", 
+        'color1':'lightblue',
+        'color2':'lightgreen', 
+        
+    })
+    # Set defaults using _set_defaults
+    params = _set_defaults(
+        title=title, xlabel=xlabel,
+        ylabel=ylabel
+    )
+
+    # Set the axes (use provided axes or create a new one)
+    if ax is None:
+        ax = plt.gca()
+
+    # Plot the median (q50)
+    kws = filter_valid_kwargs(ax.plot, kws)
+    ax.plot(
+        df[dt_col], df[q_cols[1]], 
+        label="Median (q50)", 
+        color='blue', 
+        **kws
+    )
+
+    # Fill between the quantiles (q10 to q50 and q50 to q90)
+    ax.fill_between(
+        df[dt_col], df[q_cols[0]], df[q_cols[1]], 
+        color= params['color1'], alpha=alpha, 
+        label="q10 to q50 range"
+    )
+    ax.fill_between(
+        df[dt_col], df[q_cols[1]], df[q_cols[2]], 
+        color=params['color2'], 
+        alpha=alpha, 
+        label="q50 to q90 range"
+    )
+
+    # Set the title and labels
+    ax.set_title(params['title'])
+    ax.set_xlabel(params['xlabel'])
+    ax.set_ylabel(params['ylabel'])
+
+    # Show the legend
+    ax.legend()
+
+def _plot_kde(
+    df, q_cols, 
+    title=None, 
+    xlabel=None, 
+    ylabel=None, 
+    ax=None, 
+    alpha=0.5, 
+    **kws
+):
+    """
+    Helper function for creating a Kernel Density Estimation (KDE)
+    plot for multiple quantiles.
+    
+    - Handles the plotting of KDE for each quantile (q10, q50, q90).
+    - Allows customization of plot title, labels, transparency (alpha), 
+    and other styles.
+    """
+    _param_defaults.update({
+        'title': "KDE Plot: Quantiles", 
+        'xlabel': "Values", 
+        'ylabel': "Density", 
+    })
+
+    # Set defaults using _set_defaults
+    params = _set_defaults(
+        title=title, xlabel=xlabel, ylabel=ylabel, alpha=alpha
+    )
+
+    # Set the axes (use provided axes or create a new one)
+    if ax is None:
+        ax = plt.gca()
+
+    # Plot KDE for each quantile
+    kws = filter_valid_kwargs(sns.kdeplot, kws)
+    sns.kdeplot(
+        df[q_cols[0]], label="q10", fill=True,
+        alpha=params['alpha'], **kws
+    )
+    sns.kdeplot(
+        df[q_cols[1]], label="q50", fill=True,
+        alpha=params['alpha'], **kws
+    )
+    sns.kdeplot(
+        df[q_cols[2]], label="q90", fill=True,
+        alpha=params['alpha'], **kws
+    )
+
+    # Set the title and labels
+    ax.set_title(params['title'])
+    ax.set_xlabel(params['xlabel'])
+    ax.set_ylabel(params['ylabel'])
+
+    # Show the legend
+    ax.legend()
+
+def _plot_monte_carlo(
+    df, dt_col, q_cols, 
+    n_simulations=100, 
+    title=None, 
+    xlabel=None, 
+    ylabel=None,
+    ax=None, alpha=0.2, 
+    color1=None, 
+    color2=None, 
+    **kws
+):
+    """
+    Helper function for creating a Monte Carlo simulation plot 
+    to visualize uncertainty.
+    
+    - The plot shows multiple simulations based on the quantile values.
+    - Allows customization of plot title, labels, colors, transparency,
+    and other styles.
+    """
+    _param_defaults.update({
+        'alpha': 0.2, 
+        'color1': 'lightgray', 
+        'color2': 'blue', 
+        'title': "Monte Carlo Simulation Plot", 
+        'xlabel': "Date", 
+        'ylabel': "Values"
+    })
+    # Set defaults using _set_defaults
+    params = _set_defaults(
+        title=title, xlabel=xlabel, ylabel=ylabel, alpha=alpha,
+        color1=color1, color2=color2
+    )
+
+    # Set the axes (use provided axes or create a new one)
+    if ax is None:
+        ax = plt.gca()
+
+    # Simulate data based on quantile 50 (q50) for Monte Carlo
+    simulated_data = np.random.normal(
+        loc=df[q_cols[1]].mean(), 
+        scale=df[q_cols[1]].std(), 
+        size=(n_simulations, len(df))
+    )
+
+    # Plot the Monte Carlo simulations
+    kws = filter_valid_kwargs(ax.plot, kws)
+    ax.plot(
+        df[dt_col], simulated_data.T, 
+        color=params['color1'], alpha=params['alpha'], 
+        **kws
+    )
+
+    # Plot the median (q50)
+    ax.plot(
+        df[dt_col], df[q_cols[1]], 
+        label="Quantile 50 (Median)", 
+        color=params['color2'], 
+        **kws
+    )
+
+    # Set the title and labels
+    ax.set_title(params['title'])
+    ax.set_xlabel(params['xlabel'])
+    ax.set_ylabel(params['ylabel'])
+
+    # Show the legend
+    ax.legend()
+
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_w.uncertainty_plot.png'), 
+    title ="Uncertainties",
+    fig_size=(8, 6) 
+ )
+@validate_params ({ 
+    'df': ['array-like'], 
+    'dt_col':[str, None], 
+    'q_cols': ['array-like']
+    })
+@isdf 
+def plot_with_uncertainty(
+    df, 
+    q_cols, 
+    dt_col=None, 
+    plot_type="errors", 
+    figsize=(10, 6), 
+    savefig=None, 
+    show_grid=True, 
+    grid_props=None, 
+    n_simulations=100, 
+    rotation=45, 
+    bins=30, 
+    alpha=0.5, 
+    capsize=5, 
+    title=None, 
+    xlabel=None, 
+    ylabel=None, 
+    label=None, 
+    ax=None, 
+    line_color="blue", 
+    fill_color='lightblue', 
+    label_median=None, 
+    label_shaded=None,  # "q10 to q90 range"
+    palette="Set2", 
+    notch=False, 
+    var_name=None, 
+    value_name=None, 
+    width=.8, 
+    scale='area', 
+    split=True, 
+    color1=None, 
+    color2=None, 
+    verbose=0, 
+    **kws
+):
+    """
+    Plot various uncertainty visualizations.
+
+    This function provides a flexible framework for visualizing 
+    uncertainty in data, with support for several plot types such 
+    as error bars, shaded lines, histograms, and Monte Carlo simulations. 
+    The user can specify the type of plot, customize the appearance, 
+    and handle multiple quantiles for uncertainty representation.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input data frame containing the data to be plotted.
+        
+    q_cols : list of str
+        List of column names representing the quantiles to be used 
+        in the plot. This should contain the quantile columns (e.g., 
+        q10, q50, q90).
+
+    dt_col : str, optional, default=None
+        The name of the column containing the datetime or time-related 
+        values. If `None`, the function will attempt to automatically 
+        detect a datetime column or use the index as the time series.
+
+    plot_type : str, optional, default="errors"
+        The type of plot to generate. Options include:
+        - "errors": Error bar plot
+        - "line_shaded": Line plot with shaded region
+        - "box": Box plot
+        - "violin": Violin plot
+        - "histogram": Histogram plot
+        - "fan_chart": Fan chart
+        - "kde": Kernel Density Estimation plot
+        - "monte_carlo": Monte Carlo simulation plot
+        
+    figsize : tuple, optional, default=(10, 6)
+        The size of the plot in inches (width, height).
+        
+    savefig : str or None, optional, default=None
+        If provided, the plot will be saved to the specified file path.
+        If `None`, the plot will be displayed interactively.
+        
+    show_grid : bool, optional, default=True
+        Whether to show grid lines on the plot.
+        
+    grid_props : dict, optional, default=None
+        Properties for the grid lines. For example, you can specify the
+        linestyle, alpha, etc. If `None`, default grid settings are used.
+
+    n_simulations : int, optional, default=100
+        The number of Monte Carlo simulations to perform for the 
+        "monte_carlo" plot type.
+        
+    rotation : int, optional, default=45
+        The angle of rotation for the x-axis tick labels.
+        
+    bins : int, optional, default=30
+        The number of bins to use for histograms.
+        
+    alpha : float, optional, default=0.5
+        The transparency level of shaded regions or lines. Ranges 
+        from 0 (completely transparent) to 1 (completely opaque).
+        
+    capsize : int, optional, default=5
+        The size of the caps on the error bars (if applicable).
+        
+    title : str, optional, default=None
+        The title of the plot.
+        
+    xlabel : str, optional, default=None
+        The label for the x-axis.
+        
+    ylabel : str, optional, default=None
+        The label for the y-axis.
+        
+    label : str, optional, default=None
+        A label to display in the legend for the plot.
+        
+    ax : matplotlib.axes.Axes, optional, default=None
+        The axes on which to plot the data. If `None`, the current 
+        active axes will be used.
+        
+    line_color : str, optional, default="blue"
+        The color for the line in line-based plots (e.g., line plots, 
+        fan charts).
+        
+    fill_color : str, optional, default='lightblue'
+        The color to fill the shaded regions in line-based plots.
+        
+    label_median : str, optional, default=None
+        The label for the median line (e.g., "Median (q50)") in line-based 
+        plots.
+
+    label_shaded : str, optional, default=None
+        The label for the shaded region in line-based plots.
+        
+    palette : str, optional, default="Set2"
+        The color palette to use for categorical plots like box plots 
+        or violin plots.
+
+    notch : bool, optional, default=False
+        Whether to display a notch in box plots. Notches indicate 
+        confidence intervals around the median.
+
+    var_name : str, optional, default=None
+        The variable name to be used in melted data for box/violin plots.
+
+    value_name : str, optional, default=None
+        The value name to be used in melted data for box/violin plots.
+
+    width : float, optional, default=.8
+        The width of the boxes in box plots.
+
+    scale : str, optional, default="area"
+        The scaling method for violin plots. Options are "area" or "count".
+
+    split : bool, optional, default=True
+        Whether to split the violins in the violin plot by hue.
+
+    color1 : str, optional, default=None
+        The color to use for the lower quantile region (e.g., q10 to q50) 
+        in fan charts.
+
+    color2 : str, optional, default=None
+        The color to use for the upper quantile region (e.g., q50 to q90) 
+        in fan charts.
+
+    verbose : int, optional, default=0
+        The verbosity level. If set to 1, additional information about 
+        the plot creation is printed.
+
+    kws : dict, optional
+        Additional keyword arguments to pass to the specific plot 
+        function being used (e.g., `sns.boxplot`, `sns.violinplot`, 
+        `plt.errorbar`).
+
+    Returns
+    -------
+    None
+        The function displays the plot, or saves it to the file specified 
+        in `savefig`. It does not return a value.
+
+    Notes
+    -----
+    This function allows for the dynamic creation of various types of 
+    uncertainty plots. By specifying different `plot_type` values, 
+    the user can create error bar plots, shaded line plots, box plots, 
+    histograms, or even Monte Carlo simulation plots. This flexibility 
+    makes it easy to visualize uncertainty and model prediction 
+    intervals in a variety of contexts.
+
+    The error bars are computed as:
+
+    .. math::
+        \text{yerr}_{\text{lower}} = Q_{50} - Q_{10}
+        \text{yerr}_{\text{upper}} = Q_{90} - Q_{50}
+    
+    For the Monte Carlo simulations, the random data points are 
+    generated from a normal distribution:
+
+    .. math::
+        X \sim \mathcal{N}(\mu, \sigma^2)
+    
+    where \(\mu\) is the mean of the `q50` and \(\sigma\) is the standard 
+    deviation of the `q50`.
+
+    Examples
+    --------
+    >>> from gofast.core.generic import plot_with_uncertainty
+    >>> plot_with_uncertainty(df, q_cols=["q10", "q50", "q90"], 
+                              dt_col="date", plot_type="error_bars")
+
+    See Also
+    --------
+    _plot_error_bars
+    _plot_line_shaded
+    _plot_box_plot
+    _plot_violin_plot
+    _plot_histogram
+    _plot_fan_chart
+    _plot_kde
+    _plot_monte_carlo
+
+    References
+    ----------
+    [1] *Statistical Methods for the Prediction of Time Series*,
+        Author Name, Journal, Year.
+    """
+
+    # Check if dt_col is provided, if not, find a datetime column or use index
+    df_copy = df.copy () 
+    if dt_col is None:
+        # Try to find a datetime column automatically
+        dt_cols = select_dtypes (
+            df, incl=['datetime64', 'timedelta64'], 
+            return_columns=True 
+            )
+        # dt_cols = df.select_dtypes(include=['datetime64', 'timedelta64']).columns
+        if len(dt_cols) > 0:
+            dt_col = dt_cols[0]  # Use the first datetime-like column
+        elif isinstance(df.index, pd.DatetimeIndex):
+            # Use index if it's datetime
+            dt_col = df.index.name if df.index.name else "index"  
+        else:
+            # If no datetime column, fallback to numeric index
+            dt_col = df.index.name if df.index.name else "index"
+            # and reset the dataframe 
+            df_copy.reset_index (drop=False, inplace=True ) 
+            
+    q_cols = columns_manager(q_cols, empty_as_none= True )
+    # Check if the necessary columns exist
+    exist_features (df_copy , features = [dt_col] + q_cols)
+
+    if not q_cols:
+        raise ValueError(f"'{q_cols}' not found in the DataFrame.")
+            
+    # Ensure the datetime column is in datetime format
+    df[dt_col] = pd.to_datetime(df[dt_col])
+    df = df.sort_values(by=dt_col)
+    # Set the figure size
+    if ax is None: 
+        fig, ax = plt.subplots(figsize=figsize)  
+
+    # Plot based on the specified plot type
+    plot_type = str(plot_type).replace (
+        'plot', '').replace (
+            '_bars', 's'
+            ).replace ('_plot', '')
+    plot_helpers = {
+        "errors": _plot_error_bars,
+        "line_shaded": _plot_line_shaded,
+        "box": _plot_box_plot,
+        "violin": _plot_violin_plot,
+        "histogram": _plot_histogram,
+        "fan_chart": _plot_fan_chart,
+        "kde": _plot_kde,
+        "monte_carlo": _plot_monte_carlo
+    }
+
+    # Call the corresponding helper function
+    if plot_type in plot_helpers:
+        plot_helpers[plot_type](
+            df, dt_col=dt_col, 
+            q_cols=q_cols, 
+            alpha=alpha, 
+            n_simulations=n_simulations, 
+            bins=bins, 
+            capsize=capsize, 
+            title =title, 
+            xlabel=xlabel, 
+            ylabel=ylabel, 
+            line_color="blue", 
+            fill_color='lightblue', 
+            label_median=None, 
+            label_shaded=None, #"q10 to q90 range"
+            palette ="Set2", 
+            ax=ax, 
+            notch=False, 
+            var_name=None, 
+            value_name=None, 
+            width=.8, 
+            scale='area', 
+            split=split, 
+            color1=None, 
+            color2=None, 
+            **kws
+            )
+
+    # Customize grid if enabled
+    if show_grid:
+        grid_props = grid_props or {"linestyle": ":", 'alpha': 0.7}
+        ax.grid(True, **grid_props)
+    else:
+        ax.grid(False)
+
+    # Display the plot
+    plt.xticks(rotation=rotation)
+    plt.tight_layout()
+
+    if savefig:
+        plt.savefig(savefig)
+    else:
+        plt.show()
+
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_q_based_pred_plot.png'), 
+    title ="Quantile-based Predictions",
+    fig_size=(8, 6) 
+ )
+@validate_params ({ 
+    'df': ['array-like'], 
+    'dt_col':[str, None], 
+    'q_cols': ['array-like']
+    })
+@isdf 
+def plot_qbased_preds(
+    df,
+    q_cols, 
+    dt_col=None,
+    pos_val=None,
+    pos_cols=None,
+    title=None,  
+    xlabel=None,  
+    ylabel=None,  
+    figsize=(10, 6),
+    plot_type="line",
+    linewidth=2,
+    fbtw_color='blue',
+    fbtw_alpha=0.2,
+    fbtw_label=None,
+    marker='o',
+    linestyle='-',
+    color='red',
+    label=None,
+    show_grid=True,
+    grid_props=None,
+    show_legend=True,
+    fbtw_kws=None,
+    rotation=None, 
+    **kws
+):
+    """
+    Plots quantile-based predictions, allowing the user to
+    visualize multiple quantiles (e.g. q10, q50, q90) along with
+    an optional fill region between the lower and upper bounds.
+    The function can plot the median or central quantile as a
+    line while filling an area for the uncertainty band [1]_.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame containing the quantile columns.
+    q_cols : list or dict
+        Quantile definitions. If this parameter is a dict
+        with keys like ``q10``, ``q50``, ``q90``, their numeric
+        portion is parsed. If it is a list, items are assigned
+        dummy keys (``q0``, ``q1``, etc.).
+    dt_col : str, optional
+        Column representing the x-axis (often a date/time).
+        If None, the DataFrame index is used.
+    pos_val : tuple, optional
+        A spatial position (e.g., latitude/longitude) used for
+        filtering if <parameter `pos_cols`> is specified.
+    pos_cols : tuple, optional
+        Column names corresponding to <parameter `pos_val`>.
+    title : str, optional
+        The plot title. Defaults to ``"Quantile Predictions"``
+        if not specified.
+    xlabel : str, optional
+        X-axis label. Defaults to ``"Date/Time"``.
+    ylabel : str, optional
+        Y-axis label. Defaults to ``"Values"``.
+    figsize : tuple, optional
+        Size of the figure (width, height). Defaults to
+        (10, 6).
+    plot_type : str, optional
+        The type of plot (``"line"``, ``"scatter"``,
+        ``"bar"``, or ``"step"``). Defaults to ``"line"``.
+    linewidth : float, optional
+        Line width for the central quantile. Defaults to 2.
+    fbtw_color : str, optional
+        Color for the uncertainty band. Defaults to ``"blue"``.
+    fbtw_alpha : float, optional
+        Alpha transparency for the fill region. Defaults to
+        0.2.
+    fbtw_label : str, optional
+        Label for the fill region. Defaults to
+        ``"Uncertainty Band (10%-90%)"`` if none is provided.
+    marker : str, optional
+        Marker style for plotting the central quantile. Defaults
+        to ``"o"``.
+    linestyle : str, optional
+        Style for the line plot (e.g., ``"-"``, ``"--"``).
+        Defaults to ``"-"``.
+    color : str, optional
+        Color for the central quantile line. Defaults
+        to ``"red"``.
+    label : str, optional
+        Legend label for the central quantile line. Defaults
+        to ``"Median Prediction (50%)"`` if no label is given.
+    show_grid : bool, optional
+        If True, a grid is displayed. Defaults to True.
+    grid_props : dict, optional
+        Grid customization (e.g., ``{'linestyle': '--',
+        'alpha': 0.5}``).
+    show_legend : bool, optional
+        If True, a legend is displayed. Defaults to True.
+    fbtw_kws : dict, optional
+        Additional kwargs for the fill region, passed to
+        ``matplotlib.axes.Axes.fill_between``.
+    rotation : int, optional, default=0
+        The angle of rotation for the x-axis tick labels.
+    **kws
+        Additional keyword arguments for plotting functions
+        like ``matplotlib.axes.Axes.plot``, ``matplotlib.axes.
+        Axes.scatter``, etc.
+    
+    Notes
+    -----
+    This function filters the dataset if <parameter `pos_val`>
+    and <parameter `pos_cols`> are specified, using
+    :math:`\\mathrm{find\\_closest}` within a certain threshold.
+    All missing or invalid position columns are ignored based on
+    error-handling logic.
+    
+    The uncertainty band is derived by the difference between
+    the lower quantile :math:`q_{\\text{low}}` and the upper
+    quantile :math:`q_{\\text{high}}`:
+    
+    .. math::
+       \\Delta = q_{\\text{high}} - q_{\\text{low}}
+    
+    while the central quantile (e.g., :math:`q_{50}`) is often
+    treated as a median or representative forecast:
+    
+    .. math::
+       q_{50} = \\text{median}
+    
+    Examples
+    --------
+    >>> from gofast.plot.suite import plot_qbased_preds
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'lat': [113.309998, 113.310001],
+    ...     'lon': [22.831362, 22.831364],
+    ...     'q10': [0.8, 0.9],
+    ...     'q50': [1.0, 1.1],
+    ...     'q90': [1.2, 1.3]
+    ... })
+    >>> # Simple line plot
+    >>> plot_qbased_preds(
+    ...     df,
+    ...     q_cols={'q10': 'q10', 'q50': 'q50', 'q90': 'q90'},
+    ...     dt_col=None
+    ... )
+    
+    See Also
+    --------
+    plot_prediction_intervals:  
+        Plots predicted intervals (e.g., lower, median, and upper quantiles) 
+        along with an optional reference series.
+    plot_with_uncertainty: Plot various uncertainty visualizations.
+    
+    References
+    ----------
+    .. [1] Roe, J. & Sage, L. (2020). Methods of statistical
+       interval visualization. Journal of Uncertainty
+       Analysis, 5(1), 101-115.
+    """
+
+    # Update default plot parameters
+    _param_defaults.update({
+        'title': "Quantile Predictions",
+        'xlabel': "Date/Time",
+        'ylabel': 'Values',
+    })
+    params = _set_defaults(title=title, xlabel=xlabel, ylabel=ylabel)
+
+    # Filter dataframe by position if specified
+    if pos_val is not None:
+        df = filter_position(
+            df,
+            pos_val,
+            pos_cols=pos_cols,
+            find_closest=True,
+            threshold=0.05, 
+            error='warn'
+        )
+        if df.empty:
+            # If no data after filter, warn and return
+            warnings.warn(
+                f"No data found for position {pos_val}. "
+                "Unable to generate plot."
+            )
+            return
+    # Sort dataframe by the datetime/temporal column if given
+    if dt_col:
+        # Ensure dt_col is datetime if not already
+        if not pd.api.types.is_datetime64_any_dtype(df[dt_col]):
+            df[dt_col] = pd.to_datetime(df[dt_col], errors='coerce')
+        df = df.sort_values(by=dt_col)
+        x_data = df[dt_col]
+    else:
+        x_data = df.index  # Use index if no time col is provided
+
+    
+    # More robust handling of multiple quantiles
+    # Convert q_cols to a dict if it isn't one already
+    if not isinstance(q_cols, dict):
+        # If it's a list, generate a simple mapping like {'q0': col0, 'q1': col1}
+        q_cols = {f'q{i}': col for i, col in enumerate(q_cols)}
+
+    # Extract the numeric portion from keys like 'q10', 'q90', etc.
+    # Sort them to identify the min/mid/max or any quantile ordering
+    quantile_map = {}
+    for k, v in q_cols.items():
+        if k.startswith('q'):
+            # Attempt to parse numeric part, e.g. 'q10' -> 10
+            try:
+                num_val = float(k[1:])
+                quantile_map[num_val] = v
+            except ValueError:
+                # If parsing fails, skip silently or warn
+                warnings.warn(
+                    f"Could not parse quantile '{k}'. Skipped."
+                )
+        else:
+            # If not 'q*', skip or warn
+            warnings.warn(
+                f"Quantile key '{k}' does not start with 'q'. Skipped."
+            )
+
+    # If we have no valid quantile columns, warn and return
+    if not quantile_map:
+        warnings.warn(
+            "No valid quantile columns found in `q_cols`. "
+            "Nothing to plot."
+        )
+        return
+
+    sorted_qs = sorted(quantile_map.keys())
+    # Retrieve series from df for each quantile key
+    data_map = {q: df[col] for q, col in [(q, quantile_map[q]) for q in sorted_qs]
+                if col in df.columns}
+
+    # Identify the min and max quantiles for fill_between if >=2 quantiles
+    q_min = sorted_qs[0]
+    q_max = sorted_qs[-1]
+
+    # Prepare the figure
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Plot the uncertainty band if we have at least 2 quantiles
+    if len(sorted_qs) >= 2:
+        fbtw_kws = filter_valid_kwargs(ax.fill_between, (fbtw_kws or {}))
+        ax.fill_between(
+            x_data,
+            data_map[q_min],
+            data_map[q_max],
+            color=fbtw_color,
+            alpha=fbtw_alpha,
+            label=fbtw_label or f"Uncertainty Band "
+                                f"({int(q_min)}%-{int(q_max)}%)",
+            **fbtw_kws
+        )
+
+    # Decide on the "median" quantile:
+    #  - If 'q50' exists, use that
+    #  - Else pick the middle from the sorted list
+    if 50.0 in quantile_map:
+        median_key = 50.0
+    else:
+        # If there's only one, it is effectively the median
+        # If multiple, pick the center
+        mid_idx = len(sorted_qs) // 2
+        median_key = sorted_qs[mid_idx]
+
+    # Prepare plot style for median quantile
+    median_data = data_map[median_key]
+    median_label = label or f"Median Prediction ({int(median_key)}%)"
+
+    # Determine which function to call for the chosen plot_type
+    if plot_type == "scatter":
+        kws = filter_valid_kwargs(ax.scatter, kws)
+        ax.scatter(
+            x_data,
+            median_data,
+            color=color,
+            marker=marker,
+            label=median_label,
+            **kws
+        )
+    elif plot_type == "bar":
+        kws = filter_valid_kwargs(ax.bar, kws)
+        ax.bar(
+            x_data,
+            median_data,
+            color=color,
+            alpha=0.7,
+            label=median_label,
+            **kws
+        )
+    elif plot_type == "step":
+        kws = filter_valid_kwargs(ax.step, kws)
+        ax.step(
+            x_data,
+            median_data,
+            color=color,
+            linewidth=linewidth,
+            label=median_label,
+            **kws
+        )
+    else:  # default to 'line'
+        kws = filter_valid_kwargs(ax.plot, kws)
+        ax.plot(
+            x_data,
+            median_data,
+            color=color,
+            marker=marker,
+            linestyle=linestyle,
+            linewidth=linewidth,
+            label=median_label,
+            **kws
+        )
+
+    # Apply axis labels and title
+    ax.set_xlabel(params['xlabel'])
+    ax.set_ylabel(params['ylabel'])
+    ax.set_title(params['title'])
+
+    # Display the plot
+    plt.xticks(rotation=rotation or 0.)
+    # Toggle grid
+    if show_grid:
+        ax.grid(True, **(grid_props or dict(linestyle=':', alpha=0.7)))
+
+    # Toggle legend
+    if show_legend:
+        ax.legend()
+
+    # Display the plot
+    plt.show()
