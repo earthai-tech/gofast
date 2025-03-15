@@ -4402,17 +4402,6 @@ def plot_with_uncertainty(
     >>> plot_with_uncertainty(df, q_cols=["q10", "q50", "q90"], 
                               dt_col="date", kind="error_bars")
 
-    See Also
-    --------
-    _plot_error_bars
-    _plot_line_shaded
-    _plot_box_plot
-    _plot_violin_plot
-    _plot_histogram
-    _plot_fan_chart
-    _plot_kde
-    _plot_monte_carlo
-
     References
     ----------
     [1] *Statistical Methods for the Prediction of Time Series*,
