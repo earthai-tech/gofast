@@ -29,7 +29,8 @@ __all__=[
     'generate_mpl_styles',
     'get_colors_and_alphas',
     'hex_to_rgb', 
-    'deprecated_params_plot'
+    'deprecated_params_plot', 
+    'return_fig_or_ax', 
     ]
 
 
