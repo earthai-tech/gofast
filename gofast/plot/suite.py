@@ -8,7 +8,6 @@ visualizing model performance and data analysis.
 """
 from __future__ import annotations 
 
-import re 
 import math
 import copy 
 import warnings
@@ -17,33 +16,25 @@ import numpy as np
 import pandas as pd 
 import seaborn as sns 
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-from scipy.interpolate import griddata
-from scipy.stats import probplot
 
+from scipy.stats import probplot
 from sklearn.metrics import r2_score, mean_squared_error 
 from sklearn.metrics import precision_recall_curve
 
 from ..api.types import Optional, Tuple,  Union, List 
-from ..api.types import Dict, DataFrame
 from ..api.summary import ResultSummary
 from ..compat.pandas import select_dtypes 
 from ..core.array_manager import smart_ts_detector, drop_nan_in 
 from ..core.checks import ( 
     is_iterable, check_params, check_numeric_dtype, 
-    check_features_types, check_spatial_columns,
-    validate_depth, exist_features, 
-)
-from ..core.diagnose_q import ( 
-    validate_q_dict, 
-    validate_quantiles, 
-    build_q_column_names, 
-    detect_quantiles_in
+    check_features_types, exist_features, 
 )
 from ..core.handlers import columns_manager, param_deprecated_message 
-from ..core.io import is_data_readable 
-from ..core.plot_manager import default_params_plot, deprecated_params_plot 
+from ..core.plot_manager import ( 
+    default_params_plot, 
+    deprecated_params_plot, 
+    return_fig_or_ax
+)
 from ..compat.sklearn import ( 
     validate_params,
     StrOptions, 
@@ -52,38 +43,32 @@ from ..compat.sklearn import (
 )
 from ..decorators import isdf
 from ..metrics import get_scorer 
-from ..utils.spatial_utils import filter_position 
 from ..utils.mathext import compute_importances  
 from ..utils.validator import  ( 
-    build_data_if, validate_positive_integer, 
-    is_frame, validate_yy, filter_valid_kwargs
+    build_data_if,
+    is_frame, validate_yy, 
+    filter_valid_kwargs
 )
 from ._config import PlotConfig
 from .utils import _set_defaults, _param_defaults, flex_figsize 
 from .utils import make_plot_colors 
 
 __all__=[
-    "plot_spatial_features", 
-    "plot_categorical_feature", 
-    'plot_sensitivity', 
-    'plot_spatial_distribution', 
-    'plot_dist', 
-    'plot_quantile_distributions', 
-    'plot_uncertainty', 
-    'plot_with_uncertainty',
-    'plot_prediction_intervals',
-    'plot_temporal_trends', 
-    'plot_relationship', 
-    'plot_fit', 
-    'plot_perturbations', 
-    'plot_well', 
-    'plot_factory_ops', 
-    'plot_ranking', 
-    'plot_coverage', 
-    'plot_qdist', 
-    'plot_qbased_preds'
-]
+     'plot_coverage',
+     'plot_distributions',
+     'plot_factory_ops',
+     'plot_fit',
+     'plot_perturbations',
+     'plot_prediction_intervals',
+     'plot_ranking',
+     'plot_relationship',
+     'plot_sensitivity',
+     'plot_temporal_trends',
+     'plot_uncertainty',
+     'plot_with_uncertainty'
+ ]
 
+@return_fig_or_ax(return_type ='ax')
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE("my_coverall_plot.png"), 
     fig_size =(8, 6), 
@@ -91,7 +76,7 @@ __all__=[
     )
 @validate_params ({ 
     'y_true': ['array-like'],
-    'plot_type': [StrOptions({"line", "bar", "pie", "radar"}), None], 
+    'kind': [StrOptions({"line", "bar", "pie", "radar"}), None], 
     })
 @check_params({
         "names": Optional[Union [str, List[str]]], 
@@ -104,7 +89,7 @@ def plot_coverage(
     *y_preds,
     names=None,
     q=None,
-    plot_type='line',
+    kind='line',
     cmap='viridis',
     pie_startangle=140,
     pie_autopct='%1.1f%%',
@@ -166,7 +151,7 @@ def plot_coverage(
         to be a point forecast unless a different approach is
         implemented by the user.
 
-    plot_type : str, optional (default='line')
+    kind : str, optional (default='line')
         Type of plot to use for displaying coverage. Possible
         values are:
         
@@ -276,19 +261,19 @@ def plot_coverage(
     >>> # Bar chart coverage
     >>> plot_coverage(y_true, y_pred_q, q=q,
     ...               names=['QuantModel'],
-    ...               plot_type='bar',
+    ...               kind='bar',
     ...               title='Coverage (Bar)')
     # Single model quantile coverage
     >>> y_pred = np.random.rand(200, 3)
     >>> plot_coverage(y_true, y_pred, q=[0.1, 0.5, 0.9],
-    ...               plot_type='radar', names=['QModel'],
+    ...               kind='radar', names=['QModel'],
     ...               cov_fill=True, cmap='plasma')
     >>> # Multiple models with radar plot
     >>> y_pred_q2 = np.random.rand(100, 3)
     >>> plot_coverage(y_true, y_pred_q, y_pred_q2,
     ...               q=q,
     ...               names=['Model1','Model2'],
-    ...               plot_type='radar',
+    ...               kind='radar',
     ...               title='Coverage (Radar)')
     """
 
@@ -382,14 +367,14 @@ def plot_coverage(
     ]
     x_idx = np.arange(num_models)
     
-    if plot_type in {'bar', 'line', 'pipe'}: 
+    if kind in {'bar', 'line', 'pipe'}: 
         # Initialize the figure.
         if figsize is not None:
             plt.figure(figsize=figsize)
         else:
             plt.figure()
-    # Plot according to the chosen 'plot_type'.
-    if plot_type == 'bar':
+    # Plot according to the chosen 'kind'.
+    if kind == 'bar':
         plt.bar(x_idx, valid_cov, color='blue', alpha=0.7)
         for idx, val in enumerate(coverage_scores):
             if val is not None:
@@ -405,7 +390,7 @@ def plot_coverage(
         plt.ylabel("Coverage")
         plt.xlabel("Models")
 
-    elif plot_type == 'line':
+    elif kind == 'line':
         plt.plot(x_idx, valid_cov, marker='o')
         for idx, val in enumerate(coverage_scores):
             if val is not None:
@@ -421,7 +406,7 @@ def plot_coverage(
         plt.ylabel("Coverage")
         plt.xlabel("Models")
 
-    elif plot_type == 'pie':
+    elif kind == 'pie':
         # Pie chart: each slice represents a model's coverage. By default,
         # the slice size is coverage[i] out of the sum of coverage.
         total_cov = sum(valid_cov)
@@ -445,7 +430,7 @@ def plot_coverage(
             )
             plt.axis('equal')  # Make the pie chart a perfect circle.
 
-    elif plot_type == 'radar':
+    elif kind == 'radar':
         # #Radar chart: place each model's coverage as a radial axis.
 
         N = num_models
@@ -541,13 +526,14 @@ def plot_coverage(
     plt.show()
 
 
+@return_fig_or_ax(return_type ='ax')
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE("my_ranking_plot.png"), 
     fig_size =None, 
     dpi=300
     )
 @validate_params ({ 
-    'plot_type': [StrOptions({"auto", "ranking", "importance"}), None], 
+    'kind': [StrOptions({"auto", "ranking", "importance"}), None], 
     'features': [str, 'array-like', None]
     })
 def plot_ranking(
@@ -557,7 +543,7 @@ def plot_ranking(
     features=None,
     precomputed=False,
     xai_methods=None,
-    plot_type=None,
+    kind=None,
     prefit=True,
     annot=True,
     pkg=None,
@@ -619,7 +605,7 @@ def plot_ranking(
         Custom function for computing feature importances in
         :func:`compute_importances`. If provided, overrides
         the built-in approaches.
-    plot_type : {'ranking', 'importance', 'auto', None}, optional
+    kind : {'ranking', 'importance', 'auto', None}, optional
         - ``'ranking'``: Ensures the function returns a matrix
           of integer ranks.
         - ``'importance'``: Produces floating-point importances.
@@ -680,7 +666,7 @@ def plot_ranking(
     ... })
     >>> y = np.random.randint(0, 2, size=100)
     >>> # Plot a ranking from default models
-    >>> plot_ranking(X, y, plot_type='ranking', figsize=(4,6))
+    >>> plot_ranking(X, y, kind='ranking', figsize=(4,6))
 
     See Also
     --------
@@ -698,8 +684,8 @@ def plot_ranking(
     # or if it needs to be computed using the provided models
     if not precomputed:
         # Decide whether to retrieve ranking or feature importances 
-        # based on the user-specified plot_type
-        return_rank = (plot_type is None or plot_type == 'ranking')
+        # based on the user-specified kind
+        return_rank = (kind is None or kind == 'ranking')
         
         # Call compute_importances from gofast mathext utilities
         df_result = compute_importances(
@@ -725,7 +711,7 @@ def plot_ranking(
         # If data is precomputed, we interpret X directly
         # If data_kind='auto', guess by dtype: integer => ranking, float => importances
         # If data_kind is explicitly 'ranking' or 'importances', use that
-        matrix_kind = plot_type or "auto"
+        matrix_kind = kind or "auto"
         
         # If 'auto', check the dtype to guess if ranking or importances
         if matrix_kind == 'auto':
@@ -787,7 +773,7 @@ def plot_ranking(
         figsize = flex_figsize(
             matrix_to_plot, 
             figsize=figsize, 
-            base= (3, 12) if plot_type=='ranking' else (4, 12), 
+            base= (3, 12) if kind=='ranking' else (4, 12), 
             min_base=(3, 7)
             
             )
@@ -828,6 +814,7 @@ def plot_ranking(
     plt.show()
 
 
+@return_fig_or_ax(return_type ='ax')
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE("my_factory_ops_plot.png"), 
     fig_size =(10, 8), 
@@ -1127,649 +1114,8 @@ def plot_factory_ops(
     plt.show()
 
 
-@default_params_plot(
-    savefig=PlotConfig.AUTOSAVE('my_well_plot.png'), 
-    fig_size=None 
- )
-@validate_params ({ 
-    'df': ['array-like'], 
-    'cols': ['array-like', None], 
-    'depth_arr': ['array-like', None], 
-    'ref_arr' : ['array-like', None], 
-    'pred_df': ['array-like', None], 
-    'error': [StrOptions({ 'raise', 'warn', 'ignore'})], 
-    'numeric_only': [bool], 
-    })
 
-@isdf 
-@param_deprecated_message(
-    warning_category=UserWarning, 
-    conditions_params_mappings=[
-        {
-            'param': 'depth_kind',
-            'condition': lambda v: v not in { None, 'log'},
-            'message': ( 
-                "Current version only supports ``depth_kind='log'``."
-                " Resetting depth_kind to None"
-                ),
-            'default': None
-        }, 
-        { 
-            'param': 'titles',
-            'condition': lambda v: v is not None,
-            'message': ( 
-                "Title for each subplot is unused."
-                " Track names overshadow it."
-                ),
-            'default': None
-            
-        }
-    ]
-)
-@check_params ({ 
-    'ref_col': str, 
-    'combined_cols':Optional[Dict[str, List[str]]], 
-    'kind_mapping': Optional[Dict[str, str]], 
-    })
-def plot_well(
-    df,
-    depth_arr=None,
-    ref_arr=None,
-    pred_df=None,
-    ref_col=None,
-    cols=None,
-    pred_cols=None,
-    kind_mapping=None,
-    depth_kind=None,
-    combined_cols=None,
-    agg_plot=False, 
-    ignore_index=False,
-    index_as_depth=True,
-    error='warn',
-    titles=None,
-    show_grid=True,
-    grid_alpha=0.7,
-    grid_ls='--',
-    sharey=True,
-    fig_size=None,
-    savefig=None,
-    minorticks_on=True,
-    subplot_kws=None
-):
-    r"""
-    Plot well logs from a main DataFrame and optional prediction
-    DataFrame with a shared or separate depth axis. The depth can be
-    provided explicitly via ``depth_arr`` or derived from `df` index
-    if `index_as_depth` is True. This function relies on
-    `validate_depth` and can optionally leverage
-    `arrange_tracks_for_plotting` to manage columns.
-
-    The well logs are typically arranged as vertical tracks, each
-    sharing the same depth axis. This aids in comparing multiple
-    logs or predictions across the same interval. If `agg_plot`
-    is True, the tracks from both data sources are concatenated
-    horizontally with no spacing and only the first track displays
-    the depth axis. Otherwise, separate sets of tracks can be
-    displayed with configurable space in between.
-
-    .. math::
-       y = \alpha x + \beta
-
-    Here, :math:`y` is the log response, and :math:`x` is the
-    measured index (e.g., depth). The constants :math:`\alpha` and
-    :math:`\beta` represent scaling factors in typical well-log
-    transformations [1]_.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Main DataFrame containing well-log columns. If `cols` is
-        provided, only those columns in ``df`` are plotted.
-    depth_arr : array-like or pandas.Series, optional
-        Depth values aligned to ``df``. If None and
-        `index_as_depth` is True, the function uses `df`
-        index as depth. Otherwise a simple 0..N range is used.
-    ref_arr : array-like or pandas.Series, optional
-        Reference or ground truth values aligned with
-        predictions in ``pred_df``.
-    pred_df : pandas.DataFrame or pandas.Series, optional
-        Prediction data (e.g., model outputs) to be plotted
-        alongside `df`. If `agg_plot` is True, it is
-        appended to df tracks.
-    ref_col : str, optional
-        Column name in the reference DataFrame if passing
-        ``ref_arr`` as a multi-column object. Specifies which
-        column to plot as reference.
-    cols : list of str, optional
-        Subset of columns from `df` to plot. If None,
-        all columns from `df` are considered.
-    pred_cols : list of str, optional
-        Subset or rename columns from ``pred_df``. If
-        ``pred_df`` is a single Series and exactly one
-        name is given, the Series is renamed accordingly.
-    kind_mapping : dict, optional
-        A mapping dict of columns or track names to their
-        plotting type (e.g. `{'Resistivity': 'log'}`). If a
-        track is marked 'log', it is plotted using a semilogx.
-    depth_kind : {'log', None}, optional
-        If `'log'`, use log-scaling on the depth axis.
-    combined_cols : dict or list of str, optional
-        Group columns in `df` as combined tracks. A dict like
-        ``{'Track1': ['GR','RHOB']}`` merges the columns in
-        one subplot. A list merges them under a generated name.
-    agg_plot : bool, optional
-        If True, merges `df` and ``pred_df`` tracks into one
-        continuous set of subplots. If False, plots them
-        separately with a configurable gap in between.
-    ignore_index : bool, optional
-        Whether to reset index for `df`, ``pred_df``, and
-        others prior to plotting. If True, indices become
-        0..N-1.
-    index_as_depth : bool, optional
-        Whether to treat `df` index as depth if no
-        ``depth_arr`` is given.
-    error : {'warn', 'raise', 'ignore'}, optional
-        Error policy for mismatches or non-monotonic depth.
-    titles : list of str, optional
-        Titles for each subplot (unused if overshadowed by
-        track names).
-    show_grid : bool, default True
-        Toggles the grid overlay on each track.
-    grid_alpha : float, default 0.7
-        Transparency factor for the gridlines.
-    grid_ls : str, default '--'
-        Line style for the grid.
-    sharey : bool, default True
-        Whether y-axes (depth axes) are shared among subplots.
-        Typically True for well logs.
-    fig_size : tuple, optional
-        Size of the figure (width, height). If None, a
-        reasonable default is chosen.
-    savefig : str, optional
-        If provided, path to save the resulting figure.
-    minorticks_on : bool, default True
-        Whether to enable minor ticks for added depth
-        readability.
-    subplot_kws : dict, optional
-        Additional keyword arguments passed to
-        ``plt.subplots`` or GridSpec.
-
-    Examples
-    --------
-    >>> from gofast.plot.suite import plot_well
-    >>> import pandas as pd
-    >>> # Suppose df is a DataFrame with columns: GR, RHOB, NPHI
-    >>> df = pd.DataFrame({
-    ...     'GR':   [50, 60, 70],
-    ...     'RHOB': [2.3, 2.4, 2.35],
-    ...     'NPHI': [0.25, 0.22, 0.20]
-    ... })
-    >>> # Plot these logs with depth as df.index:
-    >>> plot_well(df, index_as_depth=True, agg_plot=True)
-
-    Notes
-    -----
-    In the mathematical sense, if :math:`D` is the depth axis
-    and :math:`L_i` are the log values, then:
-
-    .. math::
-       \{(D, L_1), (D, L_2), \dots\} \;\in\; \mathbb{R}^2.
-
-    The function overlays them in vertical subplots
-    for quick visual correlation.
-
-    See Also
-    --------
-    `arrange_tracks_for_plotting` :
-        Organizes (track_name, columns) tuples for df and
-        pred_df.  
-    `validate_depth` :
-        Aligns DataFrames and checks monotonic depth.
-
-    References
-    ----------
-    .. [1] Slatt, R.M. "Stratigraphic reservoir characterization
-       for petroleum geologists, geophysicists, and engineers",
-       2nd Edition, Elsevier, 2013.
-    """
-
-    def arrange_tracks_for_plotting(
-            df_tracks, pred_tracks, agg_plot=False):
-        # If agg_plot is True, combine both sets of tracks into a single list.
-        if agg_plot:
-            return df_tracks + pred_tracks
-        else:
-            # Otherwise, return them separately so the 
-            # caller can handle them independently.
-            return df_tracks, pred_tracks
-    
-    # If subplot_kws is None, define an empty dict; 
-    # we will handle spacing logic ourselves via GridSpec
-    # in this implementation.
-    if subplot_kws is None:
-        subplot_kws = {}
-
-    # Validate depth and align data (not shown; assume
-    # 'validate_depth' is externally defined).
-    df, pred_df, ref_arr, depth_arr = validate_depth(
-        df                  = df,
-        pred_df             = pred_df,
-        reference           = ref_arr,
-        ref_col             = ref_col,
-        depth               = depth_arr,
-        new_name            = 'Depth',
-        rename_depth        = False,
-        reset_index         = ignore_index,
-        check_monotonic     = True,
-        index_as_depth      = index_as_depth,
-        allow_index_mismatch= False,
-        error               = error,
-        as_series           = True,
-        check_size          = False
-    )
-
-    # If pred_cols is specified, subset or rename pred_df if needed.
-    if pred_cols is not None:
-        pred_cols = is_iterable(
-            pred_cols, 
-            exclude_string=True, 
-            transform=True
-    )
-
-    if isinstance(pred_df, pd.Series):
-        if pred_cols and len(pred_cols) == 1:
-            pred_df.name = pred_cols[0]
-        else:
-            if error == 'warn' and pred_cols and len(pred_cols) > 1:
-                warnings.warn(
-                    "Multiple pred_cols given, but pred_df is a single Series."
-                    " Ignoring rename."
-                )
-    elif isinstance(pred_df, pd.DataFrame):
-        if pred_cols is not None:
-            pred_df = pred_df[pred_cols]
-
-    # If cols is given, subset df columns accordingly.
-    if cols is not None:
-        df = df[list(cols)]
-
-    # Build a dict grouping columns if combined_cols is used.
-    track_dict = {}
-    used_cols  = set()
-
-    if combined_cols is not None:
-        if isinstance(combined_cols, dict):
-            for track_name, column_list in combined_cols.items():
-                track_dict[track_name] = column_list
-                used_cols.update(column_list)
-        elif isinstance(combined_cols, list):
-            track_name = '-'.join(combined_cols)
-            track_dict[track_name] = combined_cols
-            used_cols.update(combined_cols)
-
-    # Columns in df that aren't in combined_cols become individual tracks.
-    for c in df.columns:
-        if c not in used_cols:
-            track_dict[c] = [c]
-
-    # Convert to list of (track_name, [columns]) for df.
-    df_tracks = list(track_dict.items())
-
-    # Build a list of (track_name, [columns]) for pred_df if provided.
-    pred_tracks = []
-    if pred_df is not None:
-        if isinstance(pred_df, pd.DataFrame):
-            for col_name in pred_df.columns:
-                pred_tracks.append((col_name, [col_name]))
-        elif isinstance(pred_df, pd.Series):
-            pred_tracks.append((pred_df.name, [pred_df.name]))
-
-    # Use helper to arrange df and pred tracks based on agg_plot.
-    arranged = arrange_tracks_for_plotting(
-        df_tracks   = df_tracks,
-        pred_tracks = pred_tracks,
-        agg_plot    = agg_plot
-    )
-
-    # If agg_plot is True, we get a single list of tracks (df+pred). 
-    # If False, we get a tuple (df_tracks, pred_tracks).
-    if agg_plot:
-        all_tracks = arranged
-        # No spacing between columns when aggregated.
-        # We rely on a single row with wspace=0.0 for all subplots.
-        if "wspace" not in subplot_kws:
-            subplot_kws["wspace"] = 0.0
-        df_total_tracks = len(all_tracks)
-
-        # We'll handle depth labeling by only showing y-label on the 
-        # first track. Mask the y-label on subsequent columns.
-
-        if fig_size is None:
-            fig_size = (3 * df_total_tracks, 10)
-
-        fig = plt.figure(figsize=fig_size)
-        gs  = GridSpec(nrows=1, 
-                       ncols=df_total_tracks,
-                       figure=fig,
-                       **subplot_kws)
-
-        axes = []
-        for i in range(df_total_tracks):
-            ax = fig.add_subplot(gs[0, i])
-            axes.append(ax)
-
-        # Now we have one row of subplots. 
-        # We'll plot them in a single pass below.
-        ax_list = axes
-
-    else:
-        df_tracks_only, pred_tracks_only = arranged
-        # We want some spacing between df and pred subplots. 
-        # For df alone, we might have wspace=0 between its columns,
-        # and for pred alone, also wspace=0, 
-        # but a bigger gap between the last df column and first pred column.
-        # We'll implement that using gridspec with two sub-grids:
-
-        df_total_tracks   = len(df_tracks_only)
-        pred_total_tracks = len(pred_tracks_only)
-        # We'll define a figure with df_total_tracks + pred_total_tracks 
-        # subplots in one row, but a gap (e.g. wspace=0.3) specifically 
-        # between the two sets.
-
-        if fig_size is None:
-            fig_size = (3 * (df_total_tracks + pred_total_tracks), 10)
-
-        fig = plt.figure(figsize=fig_size)
-
-        # We'll manually allocate the columns:
-        #   0..(df_total_tracks-1) for df
-        #   then a gap
-        #   then pred_total_tracks columns for pred
-        # We'll use the width ratios trick to insert some space.
-        # Another approach is two separate subplots calls, 
-        # but let's do it in one figure:
-
-        # Example approach:
-        # total_ncols = df_total_tracks + pred_total_tracks
-        # We define a GridSpec with that many columns. We'll set wspace=0 
-        # for everything.
-        # Then we force a bigger "gap" column or so. But let's do it simpler:
-        # We'll define 2 sub-grids: one for df with wspace=0, 
-        # another for pred with wspace=0, 
-        # plus a big space in between them by adjusting figure margins
-        # or using a big hspace/wspace.
-
-        # We'll do 2 columns in the top-level GridSpec: one for df, one for pred.
-        # Then each sub-GridSpec has as many columns as needed for df or pred.
-        # In between them, we define wspace=some bigger number, e.g. 0.3 or 0.4.
-
-        # Top-level GridSpec
-        top_gs = GridSpec(
-            nrows=1,
-            ncols=2,
-            figure=fig,
-            width_ratios=[df_total_tracks, pred_total_tracks],
-            wspace=0.3  # Space between the two groups
-        )
-        
-        # Nested GridSpec for df
-        gs_df = GridSpecFromSubplotSpec(
-            nrows=1,
-            ncols=df_total_tracks,
-            subplot_spec=top_gs[0, 0],  # Use top-level GridSpec as base
-            wspace=0.0  # No space among df columns
-        )
-        
-        # Nested GridSpec for pred
-        gs_pred = GridSpecFromSubplotSpec(
-            nrows=1,
-            ncols=pred_total_tracks,
-            subplot_spec=top_gs[0, 1],  # Use top-level GridSpec as base
-            wspace=0.0  # No space among pred columns
-        )
-
-        # We'll gather the axes in an array so we can handle
-        # them in a single pass if we want:
-        ax_list = []
-
-        # Create subplots for df tracks
-        df_axes = []
-        for i in range(df_total_tracks):
-            ax = fig.add_subplot(gs_df[0, i])
-            df_axes.append(ax)
-        # Create subplots for pred tracks
-        pred_axes = []
-        for j in range(pred_total_tracks):
-            ax = fig.add_subplot(gs_pred[0, j])
-            pred_axes.append(ax)
-
-        ax_list = df_axes + pred_axes
-
-    # Helper function to set a log scale on depth 
-    # if requested, then invert axis.
-    # since plot_track firstly invert y so no need 
-    # to reinvert y again. 
-    def maybe_set_depth_scale(ax_, dkind, show_ylabel):
-        if dkind == 'log':
-            ax_.set_yscale('log')
-        # if show_ylabel:
-        #     ax.set_ylabel("Depth")
-        # else:
-        #     # Hide the y-label if we don't want to see it on this subplot.
-        #     ax.set_yticklabels([])  # Hide y-tick labels
-        #     ax.set_ylabel("")
-            
-        # ax_.invert_yaxis () : No Need.
-            
-    # Function to plot columns in a single track. 
-    # We optionally overlay reference data
-    # in red for pred tracks.
-    def plot_track(
-        ax,
-        track_name,
-        cols_in_track,
-        data_source,
-        depth_values,
-        kmapping,
-        dkind,
-        do_grid,
-        show_ylabel,
-        ref_data=None
-    ):
-        color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-
-        for idx_col, col_name in enumerate(cols_in_track):
-            if col_name not in data_source.columns:
-                continue
-
-            x_vals = data_source[col_name].values
-            col_kind = None
-            if kmapping and (col_name in kmapping):
-                col_kind = kmapping[col_name]
-            else:
-                # If the combined_cols dict has a single "track_name" = 'Resistivity'
-                # and we put 'log' in kind_mapping for 'Resistivity', we might want
-                # to adopt that for all columns in that track. We'll do a fallback:
-                if kmapping and (track_name in kmapping):
-                    col_kind = kmapping.get(track_name)
-
-            line_color = color_cycle[idx_col % len(color_cycle)]
-            if col_kind == 'log':
-                ax.semilogx(x_vals, depth_values, color=line_color, label=col_name)
-            else:
-                ax.plot(x_vals, depth_values, color=line_color, label=col_name)
-
-        if ref_data is not None:
-            ax.plot(
-                ref_data.values, depth_values, color='red', 
-                label= ref_data.name if isinstance(
-                    ref_data,pd.Series) else 'Reference'
-                )
-
-        ax.set_title(track_name)
-        ax.set_xlabel("Value")
-        if show_ylabel:
-            ax.set_ylabel("Depth")
-        else:
-            # Hide the y-label if we don't want to see it on this subplot.
-            ax.set_yticklabels([])  # Hide y-tick labels
-            ax.set_ylabel("")
-        ax.invert_yaxis()
-
-        if do_grid:
-            ax.grid(True, linestyle=grid_ls, alpha=grid_alpha)
-        ax.legend()
-
-        if minorticks_on:
-            ax.grid(True, which='minor', linestyle=':', alpha=0.5)  
-            ax.minorticks_on()
-
-    # If agg_plot is True, we have all_tracks in a single list. 
-    # We'll mask depth labeling except for the first track.
-    if agg_plot:
-        for i, (track_name, columns_in_track) in enumerate(all_tracks):
-            current_ax = ax_list[i]
-
-            # Decide if the columns belong to pred_df or df
-            if pred_df is not None:
-                if (isinstance(pred_df, pd.DataFrame)
-                    and columns_in_track[0] in pred_df.columns):
-                    data_source = pred_df
-                elif (isinstance(pred_df, pd.Series)
-                      and columns_in_track[0] == pred_df.name):
-                    data_source = pd.DataFrame(pred_df)
-                else:
-                    data_source = df
-            else:
-                data_source = df
-
-            # Determine depth array
-            if depth_arr is not None:
-                depth_vals = depth_arr.values if isinstance(
-                    depth_arr, pd.Series) else depth_arr
-            else:
-                depth_vals = np.arange(len(data_source))
-
-            # Check if we overlay ref_arr
-            if (data_source is not df) and (ref_arr is not None):
-                reference_to_plot = ref_arr
-            else:
-                reference_to_plot = None
-
-            # Only the first column has the y-label for depth 
-            show_ylabel = (i == 0)
-
-            plot_track(
-                ax           = current_ax,
-                track_name   = track_name,
-                cols_in_track= columns_in_track,
-                data_source  = data_source,
-                depth_values = depth_vals,
-                kmapping     = kind_mapping,
-                dkind        = depth_kind,
-                do_grid      = show_grid,
-                show_ylabel  = show_ylabel,
-                ref_data     = reference_to_plot
-            )
-
-            maybe_set_depth_scale(current_ax, depth_kind, show_ylabel )
-
-    else:
-        # agg_plot is False, so we have two sets of tracks: df_tracks_only,
-        # pred_tracks_only.
-        # We'll plot df first, then pred, each in separate sub-GridSpec. 
-        # The first column in df has the depth label, likewise the first
-        # column in pred has it.
-        # No space among df columns or among pred columns, but a bigger
-        # space between the two sets.
-        
-        df_tracks_only, pred_tracks_only = arranged
-        # Axes = df_axes + pred_axes in that order
-        df_axes   = ax_list[:len(df_tracks_only)]
-        pred_axes = ax_list[len(df_tracks_only):]
-
-        # Plot df tracks
-        for i, (track_name, columns_in_track) in enumerate(df_tracks_only):
-            current_ax = df_axes[i]
-
-            if depth_arr is not None:
-                depth_vals = depth_arr.values if isinstance(
-                    depth_arr, pd.Series) else depth_arr
-            else:
-                depth_vals = np.arange(len(df))
-
-            # For df, we do not overlay reference data
-            reference_to_plot = None
-
-            # Only first column of df has depth label
-            show_ylabel = (i == 0)
-
-            plot_track(
-                ax           = current_ax,
-                track_name   = track_name,
-                cols_in_track= columns_in_track,
-                data_source  = df,
-                depth_values = depth_vals,
-                kmapping     = kind_mapping,
-                dkind        = depth_kind,
-                do_grid      = show_grid,
-                show_ylabel  = show_ylabel,
-                ref_data     = reference_to_plot
-            )
-            maybe_set_depth_scale(current_ax, depth_kind, show_ylabel)
-
-        # Plot pred tracks
-        if pred_tracks_only:
-            for j, (track_name, columns_in_track) in enumerate(pred_tracks_only):
-                current_ax = pred_axes[j]
-
-                if pred_df is not None:
-                    if (isinstance(pred_df, pd.DataFrame)
-                        and columns_in_track[0] in pred_df.columns):
-                        data_source = pred_df
-                    elif (isinstance(pred_df, pd.Series)
-                          and columns_in_track[0] == pred_df.name):
-                        data_source = pd.DataFrame(pred_df)
-                    else:
-                        data_source = df
-                else:
-                    data_source = df
-
-                if depth_arr is not None:
-                    depth_vals = depth_arr.values if isinstance(
-                        depth_arr, pd.Series) else depth_arr
-                else:
-                    depth_vals = np.arange(len(data_source))
-
-                # If track is from pred_df, we might overlay ref_arr
-                if (data_source is not df) and (ref_arr is not None):
-                    reference_to_plot = ref_arr
-                else:
-                    reference_to_plot = None
-
-                # Only first column of pred has the depth label
-                show_ylabel = (j == 0)
-
-                plot_track(
-                    ax            = current_ax,
-                    track_name    = track_name,
-                    cols_in_track = columns_in_track,
-                    data_source   = data_source,
-                    depth_values  = depth_vals,
-                    kmapping      = kind_mapping,
-                    dkind         = depth_kind,
-                    do_grid       = show_grid,
-                    show_ylabel   = show_ylabel,
-                    ref_data      = reference_to_plot
-                )
-                maybe_set_depth_scale(current_ax, depth_kind, show_ylabel)
-
-    # Final layout and optional save
-    plt.tight_layout()
-    if savefig:
-        plt.savefig(savefig)
-    plt.show()
-
+@return_fig_or_ax
 def plot_perturbations(
     X,
     y,
@@ -1777,7 +1123,7 @@ def plot_perturbations(
     perturbations=0.05,
     max_iter=10,
     metric='miv',
-    plot_type='bar',
+    kind='bar',
     percent=False,
     relative=False,
     normalize=False, 
@@ -1841,7 +1187,7 @@ def plot_perturbations(
         The metric to compute. Currently, only `'miv'` or `'m.i.v.'`
         are accepted. Raises an error if another metric is given.
     
-    plot_type : {'bar', 'barh', 'pie', 'scatter'}, default='bar'
+    kind : {'bar', 'barh', 'pie', 'scatter'}, default='bar'
         The style of the final subplots. Each subplot shows the feature
         importance distribution for a specific perturbation magnitude:
         
@@ -1921,7 +1267,7 @@ def plot_perturbations(
         - If an unsupported `metric` is requested.
         - If `perturbations` cannot be interpreted as numeric
           values.
-        - If `plot_type` is not among the supported options.
+        - If `kind` is not among the supported options.
 
     Examples
     --------
@@ -1937,7 +1283,7 @@ def plot_perturbations(
     ...     X=X_df,
     ...     y=y_arr,
     ...     perturbations=[0.1, 0.2, 0.3],
-    ...     plot_type='bar',
+    ...     kind='bar',
     ...     percent=True,
     ...     rotate_labels='both',
     ...     rotate=45
@@ -1983,7 +1329,7 @@ def plot_perturbations(
     # in a list of dictionaries: each dict maps feature_name -> value.
     collected_results = []
     for idx, pert in enumerate(pert_list):
-        # Call `miv_score` with `plot_type=None` to prevent
+        # Call `miv_score` with `kind=None` to prevent
         # it from producing an immediate plot. We only want
         # its numerical results. We pass `relative` and
         # other relevant parameters as needed.
@@ -1993,7 +1339,7 @@ def plot_perturbations(
             model=model,
             perturbation=pert,
             max_iter=max_iter,
-            plot_type=None,       # block any plotting
+            kind=None,       # block any plotting
             percent=False,        # keep raw numeric values, handle 'percent' here
             relative=relative,
             show_grid=False,      # not relevant here
@@ -2136,22 +1482,22 @@ def plot_perturbations(
 
         # If user selected 'pie' or 'scatter', do those. 
         # If 'bar' or 'barh', do as above in `_plot_bars`.
-        if plot_type in ['bar', 'barh']:
+        if kind in ['bar', 'barh']:
             _plot_bars(
                 ax=ax,
                 features=features,
                 importances=final_imports,
-                plot_t=plot_type,
+                plot_t=kind,
                 pcent=percent,
                 c_map=cmap,
                 in_title=titles_list[i]
             )
-            if show_grid and plot_type in ['bar', 'barh']:
+            if show_grid and kind in ['bar', 'barh']:
                 ax.grid(True, linestyle='--', alpha=0.7)
             elif not show_grid:
                 ax.grid(False)
 
-        elif plot_type == 'pie':
+        elif kind == 'pie':
             # We'll do a pie chart
             patches, texts, autotexts = ax.pie(
                 final_imports,
@@ -2172,7 +1518,7 @@ def plot_perturbations(
             # interpret 'display_values' as for bar chart text,
             # so we won't remove the wedge text automatically.
 
-        elif plot_type == 'scatter':
+        elif kind == 'scatter':
             # We'll do a scatter. For the size param, we might scale the final_imports
             # so they're not too small or too big, but let's keep it simple
             # We'll do something like:
@@ -2251,18 +1597,19 @@ def plot_perturbations(
 
     plt.show()
 
-    
+
+@return_fig_or_ax(return_type ='ax')
 @validate_params ({ 
     "sensitivity_values": ['array-like'], 
     "baseline_prediction": ['array-like', Real, None ], 
-    "plot_type": [StrOptions({'hist', 'bar', 'line', 'boxplot', 'box'})], 
+    "kind": [StrOptions({'hist', 'bar', 'line', 'boxplot', 'box'})], 
     "x_ticks_rotation": [Interval( Integral, 0, None, closed="left")], 
     "y_ticks_rotation": [Interval( Integral, 0, None, closed="left")], 
     })
 def plot_sensitivity(
     sensitivity_df, *,
     baseline=None, 
-    plot_type='line',
+    kind='line',
     baseline_color='r',
     baseline_linewidth=2,
     baseline_linestyle='--',
@@ -2292,7 +1639,7 @@ def plot_sensitivity(
         (e.g., list, numpy array) representing the baseline prediction to be 
         compared with feature sensitivities.
 
-    plot_type : {'line', 'bar', 'hist', 'boxplot'}, optional, default='line'
+    kind : {'line', 'bar', 'hist', 'boxplot'}, optional, default='line'
         The type of plot to generate. Options include:
         - 'line': Line plot to visualize feature sensitivity trends.
         - 'bar': Bar plot for visualizing feature sensitivity comparisons.
@@ -2348,7 +1695,7 @@ def plot_sensitivity(
         a predefined color palette (e.g., 'deep', 'muted', 'bright').
 
     boxplot_showfliers : bool, optional, default=False
-        Whether to display outliers in the boxplot when `plot_type='boxplot'`. 
+        Whether to display outliers in the boxplot when `kind='boxplot'`. 
         Set to False to hide outliers, True to show them.
 
     Returns
@@ -2376,7 +1723,7 @@ def plot_sensitivity(
                                 'Feature 2': [0.05, 0.15, 0.25],
                                 'Feature 3': [0.2, 0.3, 0.4]
                             }), 
-                            plot_type='line')
+                            kind='line')
        
     2. Bar plot with customized appearance:
        >>> plot_sensitivity(baseline=0.5, 
@@ -2385,7 +1732,7 @@ def plot_sensitivity(
                                 'Feature 2': [0.05, 0.15, 0.25],
                                 'Feature 3': [0.2, 0.3, 0.4]
                             }), 
-                            plot_type='bar', baseline_color='g', 
+                            kind='bar', baseline_color='g', 
                             baseline_linestyle='-', figsize=(8, 5))
        
     3. Histogram plot:
@@ -2395,7 +1742,7 @@ def plot_sensitivity(
                                 'Feature 2': [0.05, 0.15, 0.25],
                                 'Feature 3': [0.2, 0.3, 0.4]
                             }), 
-                            plot_type='hist')
+                            kind='hist')
     
     4. Boxplot with outliers:
        >>> plot_sensitivity(baseline=0.5, 
@@ -2404,7 +1751,7 @@ def plot_sensitivity(
                                 'Feature 2': [0.05, 0.15, 0.25],
                                 'Feature 3': [0.2, 0.3, 0.4]
                             }), 
-                            plot_type='boxplot', boxplot_showfliers=True)
+                            kind='boxplot', boxplot_showfliers=True)
     """
     sensitivity_values = copy.deepcopy(sensitivity_df)
     
@@ -2429,7 +1776,7 @@ def plot_sensitivity(
 
     plt.figure(figsize=figsize)
 
-    if plot_type == 'line':
+    if kind == 'line':
         for col in sensitivity_values.columns:
             plt.plot(
                 sensitivity_values.index, 
@@ -2457,7 +1804,7 @@ def plot_sensitivity(
         if legend:
             plt.legend()
 
-    elif plot_type == 'bar':
+    elif kind == 'bar':
         sensitivity_values_mean = sensitivity_values.mean(axis=0)
         plt.bar(
             sensitivity_values_mean.index, 
@@ -2484,7 +1831,7 @@ def plot_sensitivity(
         if legend:
             plt.legend()
 
-    elif plot_type == 'hist':
+    elif kind == 'hist':
         for col in sensitivity_values.columns:
             sns.histplot(
                 sensitivity_values[col], 
@@ -2511,7 +1858,7 @@ def plot_sensitivity(
         if legend:
             plt.legend()
 
-    elif plot_type in ['boxplot', 'box']:
+    elif kind in ['boxplot', 'box']:
         sns.boxplot(
             data=sensitivity_values, 
             showfliers=boxplot_showfliers
@@ -2539,664 +1886,9 @@ def plot_sensitivity(
     plt.tight_layout()
     plt.show()
 
-@is_data_readable 
-@isdf 
-def plot_spatial_features(
-    data,
-    features,
-    dates=None,
-    dt_col="year",
-    x_col='longitude',
-    y_col='latitude',
-    colormaps=None,
-    figsize=None,
-    s=10,
-    marker='o',
-    plot_type='scatter',
-    colorbar_orientation='vertical',
-    cbar_labelsize=10,
-    axis_off=True,
-    titles=None,
-    vmin_vmax=None,
-    **kwargs
-):
-    """
-    Plot spatial distribution of specified features over given dates.
 
-    This function creates a grid of subplots, each displaying the
-    geographical distribution of a specified feature at particular
-    dates or times. It supports multiple plot types including
-    ``'scatter'``, ``'hexbin'``, and ``'contour'``, allowing for
-    extensive customization of plot appearance. The function leverages
-    Matplotlib's plotting capabilities [1]_ to visualize spatial data.
 
-    Parameters
-    ----------
-    data : pandas.DataFrame
-        The input DataFrame containing the data to plot. It must
-        include the specified `features`, `x_col`, `y_col`, and
-        the `dt_col` if `dates` are provided.
-
-    features : list of str
-        List of feature names to plot. Each feature must exist
-        in `data`. A subplot will be created for each feature.
-
-    dates : str or datetime-like or list of str or datetime-like, optional
-        Dates or times to plot. Each date must correspond to an entry
-        in the `dt_col` of `data`. If `None`, the function plots
-        the features without considering dates.
-
-    dt_col : str, default ``'year'``
-        Name of the column in `data` to use for date or time filtering.
-        This column can contain datetime objects, years, or any other
-        temporal representation.
-
-    x_col : str, default ``'longitude'``
-        Name of the column in `data` to use for the x-axis coordinates.
-
-    y_col : str, default ``'latitude'``
-        Name of the column in `data` to use for the y-axis coordinates.
-
-    colormaps : list of str, optional
-        List of colormap names to use for each feature. If not
-        provided, default colormaps are used.
-
-    figsize : tuple of float, optional
-        Figure size in inches, as a tuple ``(width, height)``. If not
-        provided, the figure size is determined based on the number of
-        features and dates.
-
-    s : int, default 10
-        Size of the points in the scatter plot.
-
-    marker : str, default ``'o'``
-        Marker style for scatter plots.
-
-    plot_type : {'scatter', 'hexbin', 'contour'}, default ``'scatter'``
-        Type of plot to create. Supported options are ``'scatter'``,
-        ``'hexbin'``, and ``'contour'``.
-
-    colorbar_orientation : {'vertical', 'horizontal'}, default ``'vertical'``
-        Orientation of the colorbar.
-
-    cbar_labelsize : int, default 10
-        Font size for the colorbar tick labels.
-
-    axis_off : bool, default True
-        If ``True``, axes are turned off. If ``False``, axes are shown.
-
-    titles : dict of str, optional
-        Dictionary of titles for each feature. Keys are feature names,
-        and values are title templates that can include ``{date}``.
-
-    vmin_vmax : dict of tuple, optional
-        Dictionary specifying the color scale (vmin and vmax) for each
-        feature. Keys are feature names, and values are tuples
-        ``(vmin, vmax)``.
-
-    **kwargs
-        Additional keyword arguments passed to the plotting functions
-        (``scatter``, ``hexbin``, or ``contourf``).
-
-    Notes
-    -----
-    The function supports different plot types:
-
-    - For ``plot_type='scatter'``, it creates a scatter plot using
-      ``matplotlib.pyplot.scatter``.
-
-    - For ``plot_type='hexbin'``, it creates a hexbin plot using
-      ``matplotlib.pyplot.hexbin``.
-
-    - For ``plot_type='contour'``, it creates a contour plot by
-      interpolating the data onto a grid using
-      :func:`scipy.interpolate.griddata` and then plotting using
-      ``matplotlib.pyplot.contourf``.
-
-    The color normalization is performed using:
-
-    .. math::
-
-        c_{\text{norm}} = \frac{c - v_{\text{min}}}{v_{\text{max}} - v_{\text{min}}}
-
-    where :math:`c` is the feature value, :math:`v_{\text{min}}` and
-    :math:`v_{\text{max}}` are the minimum and maximum values for the
-    color scale.
-
-    Examples
-    --------
-    >>> from gofast.plot.suite import plot_spatial_features
-    >>> plot_spatial_features(
-    ...     data=df,
-    ...     features=['temperature', 'humidity'],
-    ...     dates=['2023-01-01', '2023-06-01'],
-    ...     dt_col='date',
-    ...     x_col='lon',
-    ...     y_col='lat',
-    ...     colormaps=['coolwarm', 'YlGnBu'],
-    ...     s=15,
-    ...     plot_type='scatter',
-    ...     axis_off=False,
-    ...     titles={'temperature': 'Temp on {date}',
-    ...             'humidity': 'Humidity on {date}'},
-    ...     alpha=0.7
-    ... )
-
-    See Also
-    --------
-    matplotlib.pyplot.scatter : Create a scatter plot.
-    matplotlib.pyplot.hexbin : Make a hexagonal binning plot.
-    matplotlib.pyplot.contourf : Create a filled contour plot.
-    scipy.interpolate.griddata : Interpolate unstructured D-dimensional data.
-
-    References
-    ----------
-    .. [1] Hunter, J. D. (2007). Matplotlib: A 2D graphics environment.
-       *Computing in Science & Engineering*, 9(3), 90-95.
-    """
-
-    # Validate that features exist in data
-    exist_features(data, features)
-    extra_msg = (
-        "If a numeric feature is stored as an 'object' type, "
-        "it should be explicitly converted to a numeric type"
-        " (e.g., using `pd.to_numeric`). For categorical features,"
-        " please use `plot_categorical_feature` instead."
-    )
-    check_features_types(
-        data, features= features, dtype='numeric',
-        extra=extra_msg
-    )
-    # Handle dates parameter
-    if dates is not None:
-        # Convert single value to list
-        if not isinstance(dates, (list, tuple, np.ndarray, pd.Series)):
-            dates = [dates]
-        else:
-            dates = list(dates)
-
-        # Check that 'dt_col' exists
-        if dt_col not in data.columns:
-            raise ValueError(f"Column '{dt_col}' not found in data.")
-
-        # Depending on the type of 'dt_col', process accordingly
-        if np.issubdtype(data[dt_col].dtype, np.datetime64):
-            # If dt_col is datetime, convert dates to datetime
-            data[dt_col] = pd.to_datetime(data[dt_col])
-
-            # Convert dates parameter to datetime
-            dates = [pd.to_datetime(d) for d in dates]
-
-            # Normalize dates to remove time component
-            data_dates = data[dt_col].dt.normalize().unique()
-            dates_normalized = [d.normalize() for d in dates]
-
-            # Check that dates exist in data
-            missing_dates = set(dates_normalized) - set(data_dates)
-            if missing_dates:
-                missing_dates_str = ', '.join(
-                    [d.strftime('%Y-%m-%d') for d in missing_dates]
-                )
-                raise ValueError(f"Dates {missing_dates_str} not found in data.")
-
-            ncols = len(dates)
-        else:
-            # dt_col is not datetime, treat as categorical or numeric
-            data_dates = data[dt_col].unique()
-            missing_dates = set(dates) - set(data_dates)
-            if missing_dates:
-                missing_dates_str = ', '.join(map(str, missing_dates))
-                raise ValueError(f"Dates {missing_dates_str} not found in data.")
-
-            ncols = len(dates)
-    else:
-        ncols = 1
-
-    features = columns_manager(features, empty_as_none =False)
-    nrows = len(features)
- 
-    colormaps = columns_manager(colormaps) 
-    
-    if colormaps is None:
-        colormaps = ['viridis', 'plasma', 'inferno', 'magma', 'cividis']
-
-    colormaps = make_plot_colors (
-        features, features, cmap_only=True, 
-        get_only_names= True 
-    )
-    if figsize is None:
-        figsize = (5 * ncols, 5 * nrows)
-
-    fig, axes = plt.subplots(
-        nrows,
-        ncols,
-        figsize=figsize,
-        squeeze=False
-    )
-
-    for i, feature in enumerate(features):
-        cmap = colormaps[i % len(colormaps)]
-
-        if vmin_vmax and feature in vmin_vmax:
-            vmin, vmax = vmin_vmax[feature]
-        else:
-            vmin = data[feature].min()
-            vmax = data[feature].max()
-
-        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-
-        if dates is not None:
-            for j, date in enumerate(dates):
-                ax = axes[i, j]
-                if np.issubdtype(data[dt_col].dtype, np.datetime64):
-                    # Normalize date to remove time component
-                    date_normalized = pd.to_datetime(date).normalize()
-                    subset = data[
-                        (data[dt_col].dt.normalize() == date_normalized)
-                        & data[feature].notnull()
-                    ]
-                    date_str = date_normalized.strftime('%Y-%m-%d')
-                else:
-                    subset = data[
-                        (data[dt_col] == date)
-                        & data[feature].notnull()
-                    ]
-                    date_str = str(date)
-
-                x = subset[x_col].values
-                y = subset[y_col].values
-                c = subset[feature].values
-
-                if plot_type == 'scatter':
-                    sc = ax.scatter(
-                        x,
-                        y,
-                        c=c,
-                        cmap=cmap,
-                        norm=norm,
-                        s=s,
-                        marker=marker,
-                        **kwargs
-                    )
-                elif plot_type == 'hexbin':
-                    sc = ax.hexbin(
-                        x,
-                        y,
-                        C=c,
-                        gridsize=50,
-                        cmap=cmap,
-                        norm=norm,
-                        **kwargs
-                    )
-                elif plot_type == 'contour':
-                    # Create a grid to interpolate data
-                    xi = np.linspace(x.min(), x.max(), 100)
-                    yi = np.linspace(y.min(), y.max(), 100)
-                    xi, yi = np.meshgrid(xi, yi)
-                    # Interpolate using griddata
-                    zi = griddata((x, y), c, (xi, yi), method='linear')
-                    # Plot contour
-                    sc = ax.contourf(
-                        xi,
-                        yi,
-                        zi,
-                        levels=15,
-                        cmap=cmap,
-                        norm=norm,
-                        **kwargs
-                    )
-                else:
-                    raise ValueError(f"Unsupported plot_type: {plot_type}")
-
-                if titles and feature in titles:
-                    title = titles[feature].format(date=date_str)
-                else:
-                    title = f"{feature} - {date_str}"
-
-                ax.set_title(title)
-                if axis_off:
-                    ax.axis('off')
-
-                if j == ncols - 1:
-                    cbar = fig.colorbar(
-                        sc,
-                        ax=ax,
-                        orientation=colorbar_orientation
-                    )
-                    cbar.ax.tick_params(labelsize=cbar_labelsize)
-        else:
-            ax = axes[i, 0]
-            subset = data[data[feature].notnull()]
-            x = subset[x_col].values
-            y = subset[y_col].values
-            c = subset[feature].values
-
-            if plot_type == 'scatter':
-                sc = ax.scatter(
-                    x,
-                    y,
-                    c=c,
-                    cmap=cmap,
-                    norm=norm,
-                    s=s,
-                    marker=marker,
-                    **kwargs
-                )
-            elif plot_type == 'hexbin':
-                sc = ax.hexbin(
-                    x,
-                    y,
-                    C=c,
-                    gridsize=50,
-                    cmap=cmap,
-                    norm=norm,
-                    **kwargs
-                )
-            elif plot_type == 'contour':
-                # Create a grid to interpolate data
-                xi = np.linspace(x.min(), x.max(), 100)
-                yi = np.linspace(y.min(), y.max(), 100)
-                xi, yi = np.meshgrid(xi, yi)
-                # Interpolate using griddata
-                
-                zi = griddata((x, y), c, (xi, yi), method='linear')
-                # Plot contour
-                sc = ax.contourf(
-                    xi,
-                    yi,
-                    zi,
-                    levels=15,
-                    cmap=cmap,
-                    norm=norm,
-                    **kwargs
-                )
-            else:
-                raise ValueError(f"Unsupported plot_type: {plot_type}")
-
-            if titles and feature in titles:
-                title = titles[feature]
-            else:
-                title = f"{feature}"
-
-            ax.set_title(title)
-            if axis_off:
-                ax.axis('off')
-
-            cbar = fig.colorbar(
-                sc,
-                ax=ax,
-                orientation=colorbar_orientation
-            )
-            cbar.ax.tick_params(labelsize=cbar_labelsize)
-
-    plt.tight_layout()
-    plt.show()
-
-@is_data_readable 
-@isdf 
-def plot_categorical_feature(
-    data,
-    feature,
-    dates=None,
-    dt_col='year',
-    x_col='longitude',
-    y_col='latitude',
-    cmap='tab10',
-    figsize=None,
-    s=10,
-    marker='o',
-    axis_off=True,
-    legend_loc='upper left',
-    titles=None,
-    **kwargs
-):
-    """
-    Plot the geographical distribution of a categorical feature.
-
-    This function creates scatter plots showing the spatial
-    distribution of a categorical feature over geographical
-    coordinates. It supports plotting multiple dates or times,
-    creating subplots for each specified date. The function allows
-    extensive customization of the plot's appearance, including
-    colormaps, point sizes, markers, and more.
-
-    Parameters
-    ----------
-    data : pandas.DataFrame
-        The input DataFrame containing the data to plot. It must
-        include the specified `feature`, `x_col`, `y_col`, and
-        `dt_col` if `dates` are provided.
-
-    feature : str
-        The name of the categorical feature to plot. This feature
-        must exist in `data`.
-
-    dates : scalar, list, or array-like, optional
-        Dates or times to plot. If provided, the function will
-        create subplots for each date specified. If `None`, the
-        feature is plotted without considering dates.
-
-    dt_col : str, default ``'year'``
-        The name of the column in `data` to use for date or time
-        filtering.
-
-    x_col : str, default ``'longitude'``
-        Name of the column in `data` to use for the x-axis
-        coordinates.
-
-    y_col : str, default ``'latitude'``
-        Name of the column in `data` to use for the y-axis
-        coordinates.
-
-    cmap : str, default ``'tab10'``
-        The name of the colormap to use for different categories.
-
-    figsize : tuple, optional
-        Figure size in inches, as a tuple ``(width, height)``. If
-        not provided, the figure size is determined based on the
-        number of dates and default settings.
-
-    s : int, default 10
-        Size of the points in the scatter plot.
-
-    marker : str, default ``'o'``
-        Marker style for scatter plots.
-
-    axis_off : bool, default ``True``
-        If ``True``, axes are turned off. If ``False``, axes are
-        shown.
-
-    legend_loc : str, default ``'upper left'``
-        Location of the legend in the plot. Valid locations are
-        strings such as ``'upper right'``, ``'lower left'``, etc.
-
-    titles : dict or str, optional
-        Titles for the subplots. If a dictionary, keys should
-        correspond to subplot indices or dates, and values are
-        title strings. If a string, it is used as a title template
-        and can include placeholders like ``{date}`` which will be
-        replaced with the actual date.
-
-    **kwargs
-        Additional keyword arguments passed to the plotting
-        function (`matplotlib.pyplot.scatter`).
-
-    Returns
-    -------
-    None
-        The function displays the plot and does not return any
-        value.
-
-    Notes
-    -----
-    The function plots the spatial distribution of a categorical
-    feature over geographical coordinates specified by `x_col` and
-    `y_col`. If `dates` are provided, it filters the data for each
-    date and creates a subplot for each one.
-
-    The colors for each category are determined using the specified
-    `colormap`. The categories are mapped to colors using:
-
-    .. math::
-
-        \\text{color}_i = \\text{colormap}\\left( \\frac{i}{N} \\right)
-
-    where :math:`i` is the category index and :math:`N` is the total
-    number of categories.
-
-    Examples
-    --------
-    >>> from gofast.plot.suite import plot_categorical_feature
-    >>> import pandas as pd
-    >>> import numpy as np
-    >>> # Sample data
-    >>> data = pd.DataFrame({
-    ...     'longitude': np.random.uniform(-10, 10, 100),
-    ...     'latitude': np.random.uniform(-10, 10, 100),
-    ...     'category': np.random.choice(['A', 'B', 'C'], 100),
-    ...     'year': np.random.choice([2018, 2019, 2020], 100)
-    ... })
-    >>> # Plotting without dates
-    >>> plot_categorical_feature(
-    ...     data,
-    ...     feature='category',
-    ...     x_col='longitude',
-    ...     y_col='latitude',
-    ...     s=20,
-    ...     legend_loc='upper right'
-    ... )
-    >>> # Plotting with dates
-    >>> plot_categorical_feature(
-    ...     data,
-    ...     feature='category',
-    ...     dates=[2018, 2019, 2020],
-    ...     dt_col='year',
-    ...     x_col='longitude',
-    ...     y_col='latitude',
-    ...     s=20,
-    ...     legend_loc='upper right',
-    ...     titles='Category Distribution in {date}'
-    ... )
-
-    See Also
-    --------
-    plot_spatial_features : Function to plot spatial distribution of
-        numerical features.
-
-    References
-    ----------
-    .. [1] Hunter, J. D. (2007). Matplotlib: A 2D graphics environment.
-       *Computing in Science & Engineering*, 9(3), 90-95.
-
-    """
-    # Validate that the feature exists in data
-    exist_features(data, features= feature)
-    extra_msg = (
-    "To explicitly convert a feature of type 'object' to 'category', "
-    "use `data[feature].astype('category')`. For numerical features, "
-    "please use `plot_spatial_features` instead."
-    )
-
-    check_features_types(
-        data, features= feature, dtype='category', extra=extra_msg)
-    # Get unique categories
-    categories = data[feature].unique()
-    num_categories = len(categories)
-
-    # Generate colors for each category
-    cmap = plt.get_cmap(cmap, num_categories)
-    colors = [cmap(i) for i in range(num_categories)]
-    category_color_map = dict(zip(categories, colors))
-
-    # Handle dates parameter
-    if dates is not None:
-        if not isinstance(dates, (list, tuple, np.ndarray, pd.Series)):
-            dates = [dates]
-        else:
-            dates = list(dates)
-
-        if dt_col not in data.columns:
-            raise ValueError(f"Column '{dt_col}' not found in data.")
-
-        if np.issubdtype(data[dt_col].dtype, np.datetime64):
-            data[dt_col] = pd.to_datetime(data[dt_col])
-            dates = [pd.to_datetime(d) for d in dates]
-            data_dates = data[dt_col].dt.normalize().unique()
-            dates_normalized = [d.normalize() for d in dates]
-            missing_dates = set(dates_normalized) - set(data_dates)
-            if missing_dates:
-                missing_dates_str = ', '.join(
-                    [d.strftime('%Y-%m-%d') for d in missing_dates]
-                )
-                raise ValueError(f"Dates {missing_dates_str} not found in data.")
-            ncols = len(dates)
-        else:
-            data_dates = data[dt_col].unique()
-            missing_dates = set(dates) - set(data_dates)
-            if missing_dates:
-                missing_dates_str = ', '.join(map(str, missing_dates))
-                raise ValueError(f"Dates {missing_dates_str} not found in data.")
-            ncols = len(dates)
-    else:
-        ncols = 1
-
-    nrows = 1
-
-    if figsize is None:
-        figsize = (5 * ncols, 6)
-
-    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
-    axes = axes.flatten()
-
-    for i in range(ncols):
-        ax = axes[i]
-        if dates is not None:
-            date = dates[i]
-            if np.issubdtype(data[dt_col].dtype, np.datetime64):
-                date_normalized = pd.to_datetime(date).normalize()
-                subset = data[data[dt_col].dt.normalize() == date_normalized]
-                date_str = date_normalized.strftime('%Y-%m-%d')
-            else:
-                subset = data[data[dt_col] == date]
-                date_str = str(date)
-            title = f"{feature} - {date_str}"
-        else:
-            subset = data
-            title = f"Geographical Distribution of '{feature}'"
-
-        for category in categories:
-            cat_subset = subset[subset[feature] == category]
-            x = cat_subset[x_col].values
-            y = cat_subset[y_col].values
-            ax.scatter(
-                x, y,
-                label=category,
-                c=[category_color_map[category]],
-                s=s,
-                marker=marker,
-                **kwargs
-            )
-
-        if titles:
-            if isinstance(titles, dict) and i in titles:
-                ax.set_title(titles[i])
-            elif isinstance(titles, str):
-                ax.set_title(titles)
-            else:
-                ax.set_title(title)
-        else:
-            ax.set_title(title)
-
-        if axis_off:
-            ax.axis('off')
-
-        if i == ncols - 1:
-            # Add legend to the last subplot
-            ax.legend(title=feature, bbox_to_anchor=(1.05, 1), loc=legend_loc)
-
-    plt.tight_layout()
-    plt.show()
-
+@return_fig_or_ax (return_type ='ax')
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_fit_plot.png'),
     fig_size=(8, 6)
@@ -3238,6 +1930,7 @@ def plot_fit(
     residual_trendline=...,       
     trendline_color='orange',      
     show_grid=...,
+    grid_props=None,
     savefig=None,                  
     **kwargs                       
 ) -> plt.Figure:
@@ -3418,7 +2111,7 @@ def plot_fit(
         y_true, y_pred, expected_type="continuous",
         flatten=True
     )
-    
+
     if metrics_position =='auto': 
         metrics_position =(0.85, 0.05) 
     # Create a figure and axis with specified figure size
@@ -3752,7 +2445,11 @@ def plot_fit(
         ax.legend(loc='best', frameon=True)  # Add legend in the best location
         plt.tight_layout()  # Adjust layout to prevent overlap
     
-    ax.grid(show_grid)
+    if show_grid: 
+        ax.grid(True, **(grid_props or {'linestyle': ':', 'alpha': 0.7}))
+    else: 
+        ax.grid(False) 
+        
         
     # Save the plot to the specified path if provided
     if savefig:
@@ -3764,10 +2461,8 @@ def plot_fit(
     
     # Display the plot
     plt.show()
-    
-    # Return the figure object for further manipulation if needed
-    return fig
 
+@return_fig_or_ax(return_type ='ax')
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_relationship_plot.png'),
     fig_size=(8, 8)
@@ -4063,11 +2758,11 @@ def plot_relationship(
     # Show the plot
     plt.show()
 
-
+@return_fig_or_ax(return_type ='ax')
 @validate_params ({ 
     "sensitivity_values": ['array-like'], 
     "features": [str, 'array-like', None ], 
-    "plot_type": [StrOptions({'single', 'pair', 'triple'})], 
+    "kind": [StrOptions({'single', 'pair', 'triple'})], 
     })
 def plot_distributions(
     data: pd.DataFrame,
@@ -4077,7 +2772,7 @@ def plot_distributions(
     hist: bool = True,
     figsize: tuple = (10, 6),
     title: str = "Feature Distributions",
-    plot_type: str = 'single', 
+    kind: str = 'single', 
     **kwargs
 ):
     """
@@ -4115,7 +2810,7 @@ def plot_distributions(
     title : str, optional, default="Feature Distributions"
         Title of the plot.
     
-    plot_type : str, optional, default='single'
+    kind : str, optional, default='single'
         Type of distribution plot to generate:
         - 'single': Univariate distribution (1D plot for each feature).
         - 'pair': Bivariate distribution (2D plot for two features).
@@ -4135,7 +2830,7 @@ def plot_distributions(
     >>> from gofast.datasets import load_hlogs
     >>> data = load_hlogs().frame  # get the frame
     >>> plot_distributions(data, features=['longitude', 'latitude', 'subsidence'],
-                           plot_type='triple')
+                           kind='triple')
     """
 
     # If no specific features provided, select numeric features automatically
@@ -4150,7 +2845,7 @@ def plot_distributions(
         raise ValueError(f"Invalid features: {', '.join(invalid_features)}")
 
     # Univariate Plot (Single feature distribution)
-    if plot_type == 'single':
+    if kind == 'single':
         plt.figure(figsize=figsize)
         for feature in features:
             plt.subplot(len(features), 1, features.index(feature) + 1)
@@ -4161,7 +2856,7 @@ def plot_distributions(
         plt.show()
 
     # Bivariate Plot (Pairwise feature distribution)
-    elif plot_type == 'pair':
+    elif kind == 'pair':
         if len(features) != 2:
             raise ValueError(
                 "For 'pair' plot type, exactly 2 features must be specified.")
@@ -4172,7 +2867,7 @@ def plot_distributions(
         plt.show()
 
     # Trivariate Plot (3D distribution)
-    elif plot_type == 'triple':
+    elif kind == 'triple':
         if len(features) != 3:
             raise ValueError(
                 "For 'triple' plot type, exactly 3 features must be specified.")
@@ -4192,2140 +2887,8 @@ def plot_distributions(
         plt.title(f"{features[0]} vs {features[1]} vs {features[2]} Distribution")
         plt.show()
 
-@isdf 
-def plot_spatial_distribution(
-    df: DataFrame,
-    category_column: str,  
-    continuous_bins: Union[str, List[float]] = 'auto',  
-    categories: Optional[List[str]] = None,  
-    filter_categories: Optional[List[str]] = None,
-    spatial_cols: tuple = ('longitude', 'latitude'), 
-    cmap: str = 'coolwarm',  
-    plot_type: str = 'scatter', 
-    alpha: float = 0.7, 
-    show_grid:bool=True, 
-    axis_off: bool = False,  
-    figsize: tuple = (10, 8)  
-) -> None:
-    """
-    Plot the Spatial Distribution of a Specified Category or Continuous Variable.
 
-    This function visualizes the spatial distribution of geographical data points
-    based on a specified categorical or continuous variable. For continuous data,
-    it categorizes the values into defined bins, allowing for an intuitive
-    representation of data intensity across a geographical area. The visualization
-    can be rendered using scatter plots or hexbin plots, facilitating the analysis
-    of spatial patterns and concentrations.
-
-    The categorization of continuous variables is performed using either user-defined
-    bins or the Freedman-Diaconis rule to determine an optimal bin width:
-    
-    .. math::
-        \text{Bin Width} = 2 \times \frac{\text{IQR}}{n^{1/3}}
-    
-    where :math:`\text{IQR}` is the interquartile range of the data and :math:`n`
-    is the number of observations.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        The input dataframe containing the geographical and categorical or 
-        continuous data. It must include at least the following columns:
-        
-        - `longitude`: Longitude coordinates of the data points.
-        - `latitude`: Latitude coordinates of the data points.
-        - *category_column*: The column specified by `category_column` parameter.
-
-    category_column : str
-        The name of the column in `df` to be used for categorization. This column 
-        can be either categorical or continuous. If categorical, the data will be 
-        used directly. If continuous, the data will be binned into categories 
-        based on `continuous_bins`.
-
-    continuous_bins : Union[str, List[float]], default='auto'
-        Defines the bin edges for categorizing continuous data. 
-        
-        - If set to `'auto'`, the function applies the Freedman-Diaconis rule to 
-          determine optimal bin widths.
-        - If a list of floats is provided, these values are used as the bin edges. 
-          The provided bins must encompass the entire range of the data in 
-          `category_column`.
-        
-        Raises a `ValueError` if the provided bins do not cover the data range.
-    
-    spatial_cols : tuple, optional, default=('longitude', 'latitude')
-            A tuple containing the names of the longitude and latitude columns.
-            Must consist of exactly two elements. The function will validate that
-            these columns exist in the dataframe and are used as the spatial 
-            coordinates for plotting.
-            
-            .. note::
-                Ensure that the specified `spatial_cols` are present in 
-                the dataframe and accurately represent geographical coordinates.
-                
-    categories : Optional[List[str]], default=None
-        A list of labels corresponding to each bin when categorizing continuous 
-        data. 
-        
-        - If `None`, the categories are auto-generated based on the bin ranges.
-        - If provided, the length of `categories` must match the number of bins 
-          minus one.
-        
-        If the number of categories does not match the number of bins, a warning 
-        is issued and categories are auto-generated.
-
-    filter_categories : Optional[List[str]], default=None
-        Specifies which categories to include in the visualization. 
-        
-        - If `None`, all categories are plotted.
-        - If a list is provided, only the specified categories are visualized, and 
-          others are excluded. The legend reflects only the displayed categories.
-        
-        Raises a `ValueError` if none of the `filter_categories` are valid.
-
-    cmap : str, default='coolwarm'
-        The colormap to use for the visualization. This parameter utilizes matplotlib's 
-        colormap names (e.g., `'viridis'`, `'plasma'`, `'inferno'`, `'magma'`, 
-        `'cividis'`, etc.).
-
-    plot_type : str, default='scatter'
-        The type of plot to generate. 
-        
-        - `'scatter'`: Generates a scatter plot.
-        - `'hexbin'`: Generates a hexbin plot, suitable for large datasets.
-        
-        Raises a `ValueError` if an unsupported `plot_type` is provided.
-
-    alpha : float, default=0.7
-        The transparency level for scatter plots. Ranges from 0 (completely 
-        transparent) to 1 (completely opaque).
-        
-    show_grid : bool, default=True
-        If set to `False`, the grid are turned off, providing a cleaner 
-        visualization without grid lines.
-
-    axis_off : bool, default=False
-        If set to `True`, the plot axes are turned off, providing a cleaner 
-        visualization without axis lines and labels.
-
-    figsize : tuple, default=(10, 8)
-        Specifies the size of the plot in inches as `(width, height)`.
-
-    Returns
-    -------
-    None
-        This function does not return any value. It renders the plot directly.
-
-    Raises
-    ------
-    ValueError
-        - If `category_column` does not exist in `df`.
-        - If `category_column` is neither numeric nor categorical.
-        - If `spatial_cols` is not a tuple of two elements or columns 
-          are missing.
-        - If `continuous_bins` is neither `'auto'` nor a list of numbers.
-        - If provided `continuous_bins` do not cover the data range.
-        - If the number of `categories` does not match the number of bins.
-        - If no valid `filter_categories` are provided after filtering.
-
-    Examples
-    --------
-    >>> import pandas as pd
-    >>> import numpy as np
-    >>> from gofast.plot.suite import plot_spatial_distribution
-
-    >>> # Sample DataFrame
-    >>> data = {
-    ...     'longitude': np.random.uniform(-100, -90, 100),
-    ...     'latitude': np.random.uniform(30, 40, 100),
-    ...     'subsidence': np.random.choice(['minimal', 'moderate', 'severe'], 100)
-    ... }
-    >>> df = pd.DataFrame(data)
-    
-    >>> # Plot only 'severe' subsidence
-    >>> plot_spatial_distribution(
-    ...     df=df,
-    ...     category_column='subsidence',
-    ...     categories=['minimal', 'moderate', 'severe'],
-    ...     filter_categories=['severe'],
-    ...     plot_type='scatter'
-    ... )
-    
-    >>> # Plot 'moderate' and 'severe' subsidence
-    >>> plot_spatial_distribution(
-    ...     df=df,
-    ...     category_column='subsidence',
-    ...     categories=['minimal', 'moderate', 'severe'],
-    ...     filter_categories=['moderate', 'severe'],
-    ...     plot_type='scatter'
-    ... )
-    
-    >>> # Plot all categories
-    >>> plot_spatial_distribution(
-    ...     df=df,
-    ...     category_column='subsidence',
-    ...     categories=['minimal', 'moderate', 'severe'],
-    ...     filter_categories=None,
-    ...     plot_type='scatter'
-    ... )
-
-    Notes
-    -----
-    - The function automatically determines whether the `category_column` is 
-      categorical or continuous based on its data type.
-    - When categorizing continuous data, ensure that the provided `continuous_bins` 
-      comprehensively cover the data range to avoid missing data points.
-    - The legend in the plot dynamically adjusts based on the `filter_categories` 
-      parameter, displaying only the relevant categories.
-
-    See Also
-    --------
-    pandas.cut : Function to bin continuous data into discrete intervals.
-    seaborn.scatterplot : Function to create scatter plots.
-    matplotlib.pyplot.hexbin : Function to create hexbin plots.
-    check_spatial_columns : Function to validate spatial columns in the dataframe.
-
-    References
-    ----------
-    .. [1] Freedman, D., & Diaconis, P. (1981). On the histogram as a density estimator:
-       L2 theory. *Probability Theory and Related Fields*, 57(5), 453-476.
-    .. [2] Seaborn: Statistical Data Visualization. https://seaborn.pydata.org/
-    .. [3] Matplotlib: Visualization with Python. https://matplotlib.org/
-    """
-    # make a copy for safety 
-    df =df.copy() 
-    # Check if category_column exists in dataframe
-    if category_column not in df.columns:
-        raise ValueError(
-            f"Column '{category_column}' does not exist in the dataframe."
-        )
-    # Check whether 
-    check_spatial_columns(df , spatial_cols=spatial_cols)
-    
-    # Determine if the category_column is categorical
-    if pd.api.types.is_categorical_dtype(df[category_column]) or \
-       df[category_column].dtype == object:
-        is_categorical = True
-    elif pd.api.types.is_numeric_dtype(df[category_column]):
-        is_categorical = False
-    else:
-        raise ValueError(
-            f"Column '{category_column}' must be either numeric or categorical."
-        )
-
-    if not is_categorical:
-        # Handle continuous data
-        if continuous_bins == 'auto':
-            # Use Freedman-Diaconis rule for bin width
-            q25, q75 = np.percentile(
-                df[category_column].dropna(), [25, 75]
-            )
-            iqr = q75 - q25
-            bin_width = 2 * iqr * len(df) ** (-1 / 3)
-            if bin_width == 0:
-                bin_width = 1  # Fallback to bin width of 1
-            bins = np.arange(
-                df[category_column].min(),
-                df[category_column].max() + bin_width,
-                bin_width
-            )
-            bins = np.round(bins, decimals=2)
-        elif isinstance(continuous_bins, list):
-            bins = sorted(continuous_bins)
-            if (bins[0] > df[category_column].min()) or \
-               (bins[-1] < df[category_column].max()):
-                raise ValueError(
-                    "Provided continuous_bins do not cover the range of the data."
-                )
-        else:
-            raise ValueError(
-                "continuous_bins must be 'auto' or a list of numbers."
-            )
-
-        # Categorize the continuous data based on bins
-        df['category'] = pd.cut(
-            df[category_column],
-            bins=bins,
-            labels=categories[:len(bins) - 1] if categories else None,
-            include_lowest=True,
-            right=False
-        )
-
-        # Handle category labels if not provided
-        if categories is None:
-            df['category'] = df['category'].astype(str)
-        else:
-            if len(categories) != len(bins) - 1:
-                warnings.warn(
-                    "Number of categories does not match number of bins. "
-                    "Categories will be auto-generated.",
-                    UserWarning
-                )
-                df['category'] = df['category'].astype(str)
-    else:
-        # Handle categorical data
-        df['category'] = df[category_column].astype(str)
-        if categories:
-            missing_categories = set(categories) - set(df['category'].unique())
-            if missing_categories:
-                warnings.warn(
-                    f"The following categories are not present in the data and "
-                    f"will be ignored: {missing_categories}",
-                    UserWarning
-                )
-            categories = [
-                cat for cat in categories if cat in df['category'].unique()
-            ]
-            if not categories:
-                raise ValueError(
-                    "No valid categories to plot after filtering."
-                )
-        else:
-            categories = sorted(df['category'].unique())
-
-    # Filter the data if specified filter categories are provided
-    if filter_categories:
-        invalid_filters = set(filter_categories) - set(categories)
-        if invalid_filters:
-            warnings.warn(
-                f"The following filter_categories are not in the available "
-                f"categories and will be ignored: {invalid_filters}",
-                UserWarning
-            )
-        filter_categories = [
-            cat for cat in filter_categories if cat in categories
-        ]
-        if filter_categories:
-            df = df[df['category'].isin(filter_categories)]
-            categories = filter_categories  # Update categories to filtered ones
-        else:
-            raise ValueError(
-                "No valid categories to filter after applying filter_categories."
-            )
-
-    # Plot the spatial distribution using selected plot type
-    plt.figure(figsize=figsize)
-
-    if plot_type == 'scatter':
-        # Scatter plot using longitude, latitude as the axes
-        sns.scatterplot(
-            x='longitude',
-            y='latitude',
-            hue='category',
-            data=df,
-            palette=cmap,
-            alpha=alpha
-        )
-    elif plot_type == 'hexbin':
-        # Hexbin plot for large number of points
-        hb = plt.hexbin(
-            df['longitude'],
-            df['latitude'],
-            gridsize=50,
-            cmap=cmap,
-            mincnt=1
-        )
-        plt.colorbar(hb, label='Count')
-    else:
-        raise ValueError(
-            f"Unsupported plot_type: {plot_type}"
-        )
-
-    # Labels and title
-    plt.title(f"Spatial Distribution of {category_column}")
-    plt.xlabel('Longitude')
-    plt.ylabel('Latitude')
-
-    if plot_type == 'scatter':
-        plt.legend(
-            title='Categories',
-            bbox_to_anchor=(1.05, 1),
-            loc='upper left'
-        )
- 
-    if not show_grid: 
-        plt.grid(False)
-        
-    if axis_off:
-        plt.axis('off')
-    
-    # Show plot
-    plt.tight_layout()
-    plt.show()
-
-
-@default_params_plot(
-    savefig=PlotConfig.AUTOSAVE('my_distribution_plot.png'))
-@validate_params ({ 
-    'df': ['array-like'], 
-    'x_col': [str], 
-    'y_col': [str], 
-    'z_cols': ['array-like', str], 
-    'plot_type': [StrOptions({'scatter', 'hexbin', 'density'})], 
-    'max_cols': [Real]
-    })
-@isdf 
-def plot_dist(
-    df: DataFrame,
-    x_col: str,
-    y_col: str,
-    z_cols: List[str],
-    plot_type: str = 'scatter',
-    axis_off: bool = True,
-    max_cols: int = 3,
-    cmap='viridis', 
-    savefig=None,
-):
-    r"""
-    Plot multiple distribution datasets on a grid of subplots for 
-    comprehensive spatial analysis. This function generates a grid of 
-    subplots illustrating the variation of multiple `z`-axis variables 
-    (``z_cols``) against spatial coordinates defined by `x_col` and 
-    `y_col`. Depending on the chosen `plot_type`, it can create scatter, 
-    hexbin, or density plots. Users can visualize how each `z` variable 
-    behaves over the spatial domain defined by `x` and `y`, allowing 
-    intuitive comparisons and spatial pattern recognition.
-
-    This object aims to project a set of `z` values as a function
-    of `x` and `y`, thereby constructing a distribution surface. 
-    Mathematically, for each variable :math:`z_i` in ``z_cols``, we 
-    consider a mapping:
-
-    .. math::
-       z_i = f(x, y)
-
-    where :math:`f: \mathbb{R}^2 \to \mathbb{R}`. The plotting depends 
-    on the chosen `plot_type`:
-    
-    - ``'scatter'``: Directly plots points in the plane colored by their 
-      corresponding `z` values.
-    - ``'hexbin'``: Aggregates data into hexagonal bins and colors each 
-      bin based on the average `z` value.
-    - ``'density'``: Estimates a continuous density surface using kernel 
-      density estimation, with `z` values acting as weights. This 
-      representation assumes non-negative weights [1]_.
-
-    The function arranges these plots in a grid with a maximum of 
-    ``max_cols`` columns. If the number of `z_cols` exceeds this, 
-    additional rows are added. An optional colorbar provides a unified 
-    scale for interpreting the color encoding of `z` values across all 
-    subplots.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        The input DataFrame containing the data to visualize. Must 
-        include at least `x_col`, `y_col`, and all specified `z_cols`.
-        The DataFrame should contain numeric values for these columns.
-    x_col : str
-        Name of the column representing the x-axis coordinate 
-        (e.g., longitude). This parameter specifies the independent
-        spatial dimension.
-    y_col : str
-        Name of the column representing the y-axis coordinate 
-        (e.g., latitude). Combined with `x_col`, it forms a spatial 
-        plane onto which `z` values are projected.
-    z_cols : list of str
-        A list of column names corresponding to the variables 
-        to be visualized along the `z` dimension. Each `z_col` 
-        represents a different distribution over the `(x, y)` space.
-    plot_type : str, optional
-        The type of plot to generate. Supported types are:
-        
-        - ``'scatter'``: Plots individual data points with colors 
-          indicating `z` values.
-        - ``'hexbin'``: Uses hexagonal binning to visualize data 
-          density and average `z` within each bin.
-        - ``'density'``: Creates a kernel density estimate (KDE) 
-          surface weighted by `z` values. All `z` values must be 
-          non-negative for this method.
-        
-        Defaults to ``'scatter'``.
-    axis_off : bool, optional
-        If True, removes axis lines and labels for a cleaner look. 
-        Default is True.
-    max_cols : int, optional
-        The maximum number of columns in the subplot grid. If the 
-        total number of `z_cols` exceeds `max_cols`, additional 
-        rows are created automatically. Default is 3.
-    cmap: str,  
-       Matplotlib colormap plot. Default is ``'viridis'``. 
-       
-    savefig : str or None, optional
-        If provided, specifies the filename or path where the 
-        resulting figure should be saved. If None, the figure is 
-        displayed interactively.
-
-    Methods
-    -------
-    This object is a standalone function, therefore it does not 
-    provide class methods. No additional callable methods are 
-    exposed aside from the function itself. Users interact 
-    solely through the function parameters described above.
-
-    Notes
-    -----
-    - For `density` plot types, ensure no negative values are present 
-      in the `z_cols`. Negative weights cause errors in kernel 
-      density estimation.
-    - Large datasets might benefit from `hexbin` or `density` plots 
-      to better visualize overall patterns rather than individual 
-      points.
-
-    Examples
-    --------
-    >>> from gofast.plot.suite import plot_dist
-    >>> import pandas as pd
-    >>> df = pd.DataFrame({
-    ...     'longitude': [1,2,3,4],
-    ...     'latitude' : [10,10,10,10],
-    ...     'subsidence_2018': [5,6,7,8],
-    ...     'subsidence_2022': [3,4,2,1]
-    ... })
-    >>> plot_dist(df, x_col='longitude', y_col='latitude',
-    ...           z_cols=['subsidence_2018', 'subsidence_2022'],
-    ...           plot_type='scatter', axis_off=True, max_cols=2)
-
-    See Also
-    --------
-    matplotlib.pyplot.scatter : For basic scatter plot creation.
-    matplotlib.pyplot.hexbin : For hexagonal binning visualization.
-    seaborn.kdeplot : For kernel density estimation plots.
-    gofast.plot.suite.plot_distributions: 
-        For the distribution of numeric columns in the DataFrame.
-
-    References
-    ----------
-    .. [1] Rosenblatt, M. "Remarks on some nonparametric estimates 
-           of a density function." Ann. Math. Statist. 27 (1956), 
-           832-837.
-    """
-
-    # Validate Input Columns
-    exist_features(df, features= [x_col, y_col], name ='Columns `x` and `y`')
-    z_cols = columns_manager(z_cols, empty_as_none= False, )
-    exist_features(df, features=z_cols, name ='Value `z_cols` ')
-    
-    extra_msg = (
-        "If a numeric feature is stored as an 'object' type, "
-        "it should be explicitly converted to a numeric type"
-        " (e.g., using `pd.to_numeric`)."
-    )
-    check_features_types(
-        df, features= [x_col, y_col] + z_cols , dtype='numeric',
-        extra=extra_msg
-    )
-
-    # If using 'density', ensure weights are non-negative
-    if plot_type == 'density':
-        for col in z_cols:
-            if (df[col] < 0).any():
-                raise ValueError(
-                    f"Negative values found in '{col}'. Seaborn kdeplot cannot "
-                    "handle negative weights. Please provide non-negative values "
-                    "or choose a different plot_type."
-                )
-    max_cols = validate_positive_integer(max_cols, 'max_cols')
-    
-    # Determine Subplot Grid Layout
-    num_z = len(z_cols)
-    n_cols = min(max_cols, num_z)
-    n_rows = math.ceil(num_z / max_cols)
-
-    
-    # Create Subplots
-    fig, axes = plt.subplots(
-        n_rows, n_cols,
-        figsize=(5 * n_cols, 4 * n_rows),
-        constrained_layout=True
-    )
-
-    # Ensure axes is a 2D array for consistent indexing
-    if n_rows == 1 and n_cols == 1:
-        axes = [[axes]]
-    elif n_rows == 1:
-        axes = [axes]
-    elif n_cols == 1:
-        axes = [[ax] for ax in axes]
-
-    # Calculate Overall vmin and vmax for Color Normalization
-    overall_min = df[z_cols].min().min()
-    overall_max = df[z_cols].max().max()
-
-
-    # Iterate Over z_cols and Plot
-    for idx, z_col in enumerate(z_cols):
-        row = idx // max_cols
-        col = idx % max_cols
-        ax = axes[row][col]
-
-        if plot_type == 'scatter':
-            # Create a scatter plot
-            ax.scatter(
-                df[x_col],
-                df[y_col],
-                c=df[z_col],
-                cmap=cmap,
-                s=10,
-                alpha=0.7,
-                norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
-            )
-        elif plot_type == 'hexbin':
-            # Create a hexbin plot
-            ax.hexbin(
-                df[x_col],
-                df[y_col],
-                C=df[z_col],
-                gridsize=50,
-                cmap=cmap,
-                reduce_C_function=np.mean,
-                norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
-            )
-        elif plot_type == 'density':
-            # Create a density (kde) plot
-            # seaborn.kdeplot returns a QuadContourSet, not directly used afterward,
-            # but that's fine. We don't need to assign it.
-            sns.kdeplot(
-                x=df[x_col],
-                y=df[y_col],
-                weights=df[z_col],
-                fill=True,
-                cmap=cmap,
-                ax=ax,
-                thresh=0
-            )
-
-        # Set plot title
-        ax.set_title(f'{z_col}', fontsize=12)
-
-        # Optionally turn off axes
-        if axis_off:
-            ax.axis('off')
-
-    # Hide Any Unused Subplots
-    total_plots = n_rows * n_cols
-    if num_z < total_plots:
-        for idx in range(num_z, total_plots):
-            row = idx // max_cols
-            col = idx % max_cols
-            axes[row][col].axis('off')
-
-    # Add a Single Colorbar
-    if plot_type in ['scatter', 'hexbin', 'density']:
-        # Create a ScalarMappable for the colorbar
-        sm = plt.cm.ScalarMappable(
-            cmap=cmap,
-            norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
-        )
-        sm.set_array([])  # Only needed for older Matplotlib versions
-
-        # Flatten the axes array to pass a list of Axes to colorbar
-        all_axes = [ax for row_axes in axes for ax in row_axes]
-
-        # Add colorbar using all axes to properly position it
-        cbar = fig.colorbar(
-            sm,
-            ax=all_axes,
-            orientation='vertical',
-            fraction=0.02,
-            pad=0.04
-        )
-        cbar.set_label('Value', fontsize=12)
-
-    plt.show()
-
-
-@default_params_plot(
-    savefig=PlotConfig.AUTOSAVE('my_q.distributions_plot.png')
-  )
-@validate_params ({ 
-    'df': ['array-like'], 
-    'x_col': [str], 
-    'y_col': [str], 
-    'dt_col': [ str], 
-    'quantiles': ['array-like', None], 
-    'dt_values':['array-like', None], 
-    'value_prefix': [str], 
-    'q_cols': [dict, None], 
-    })
-@isdf 
-def plot_quantile_distributions(
-    df,
-    x_col, 
-    y_col,
-    dt_col, 
-    quantiles=None,
-    dt_values=None,
-    value_prefix='',
-    q_cols=None,
-    cmap='viridis',
-    s=10,
-    alpha=0.8,
-    cbar_orientation='vertical',
-    cbar_fraction=0.02,
-    cbar_pad=0.1,
-    figsize=None,
-    savefig=None,
-    dpi=300,
-    axis_off=True, 
-    reverse=False, 
-):
-    r"""
-    Plot quantile distributions across spatial and temporal domains,
-    visualizing multiple `z`-value distributions defined by quantiles
-    over specific date values. This function arranges the resulting 
-    plots in a grid, with quantiles along one dimension and time/date 
-    values along the other dimension, allowing users to investigate 
-    how distributions change over space and time.
-
-    Mathematically, given spatial coordinates :math:`(x,y)` and a set 
-    of quantiles :math:`Q = \{q_1, q_2, ..., q_m\}` and date values 
-    :math:`D = \{d_1, d_2, ..., d_n\}`, we consider a function 
-    :math:`f(x,y,d,q)` that returns a value for each combination. The 
-    columns of the DataFrame must represent these values. The function 
-    arranges subplots in an :math:`m \times n` grid, where each cell 
-    in the grid corresponds to a specific quantile `q` and a date `d`. 
-    Each subplot displays:
-
-    .. math::
-       z_{q,d}(x,y) = f(x,y; q, d)
-
-    where `z_{q,d}` is extracted from columns based on a naming 
-    convention, or directly provided via ``q_cols``.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        The DataFrame containing spatial and value data. It must 
-        include at least the columns corresponding to `<x_col>`, 
-        `<y_col>`, `<dt_col>`, and either:
-
-        1) Columns named according to the convention 
-           ``<value_prefix>_<date>_q<quantile>``, or
-        2) Explicit mappings in `q_cols`.
-    x_col : str
-        The column name representing the x-axis coordinate 
-        (e.g., longitude).
-    y_col : str
-        The column name representing the y-axis coordinate 
-        (e.g., latitude).
-    dt_col : str
-        The column representing dates/times. This can be integer (e.g., year),
-        or datetime. If it's datetime, values are filtered by year 
-        extracted from that datetime.
-    quantiles : list of float, optional
-        A list of quantiles (e.g., [0.1, 0.5, 0.9]). If None, the function
-        attempts to detect quantiles from columns if ``q_cols`` is also 
-        None. If detection fails, a ValueError is raised.
-    dt_values : list, optional
-        List of date values to plot. If None, the function infers date 
-        values from `df`. If `dt_col` is integer, they are considered 
-        as years. If `dt_col` is datetime, the year part is extracted.
-    value_prefix : str, optional
-        The prefix used in column naming format:
-        ``<value_prefix>_<date>_q<quantile>``. By default empty, but 
-        often something like 'predicted_subsidence'.
-    q_cols : dict or None, optional
-        If provided, explicitly maps quantiles and dates to columns. 
-        Two forms are supported:
-        
-        - ``{quantile: {date_str: column_name}}``
-        - ``{quantile: [list_of_columns_in_same_order_as_dates]}``
-        
-        If None, the function uses the naming convention or detection.
-    cmap : str, optional
-        Colormap name used for color encoding values. Default is 'viridis'.
-    s : int, optional
-        Marker size for scatter plots.
-    alpha : float, optional
-        Marker transparency.
-    cbar_orientation : str, optional
-        Orientation of the colorbar. Default is 'vertical'.
-    cbar_fraction : float, optional
-        Fraction of original axes size occupied by colorbar.
-    cbar_pad : float, optional
-        Padding between colorbar and the edge of the plot.
-    figsize : tuple, optional
-        Figure size (width, height) in inches. If None, chosen 
-        automatically based on the number of rows and columns.
-    savefig : str or None, optional
-        If provided, a path to save the figure as an image. If None, 
-        displays the figure interactively.
-    dpi : int, optional
-        Dots-per-inch for the saved figure. Default is 300.
-    axis_off : bool, optional
-        If True, removes axis ticks and labels for cleaner visualization.
-    reverse : bool, optional
-        Controls the orientation of the quantile distribution plots.
-        By default (`reverse=False`), quantiles are placed along the 
-        rows and dates along the columns:
-
-        .. math::
-           \text{Rows} \rightarrow \text{Quantiles} \\
-           \text{Columns} \rightarrow \text{Dates}
-
-        This results in a grid where each row corresponds to a 
-        quantile, and each column corresponds to a date value.
-
-        When `reverse=True`, the layout is inverted so that quantiles 
-        are arranged along the columns and dates along the rows:
-
-        .. math::
-           \text{Rows} \rightarrow \text{Dates} \\
-           \text{Columns} \rightarrow \text{Quantiles}
-
-        In this scenario, each column corresponds to a quantile and 
-        each row corresponds to a date value. This can be useful when 
-        you want to compare quantiles side-by-side horizontally rather 
-        than vertically.
-
-    Methods
-    -------
-    This object is a standalone function with no associated methods.
-    Users interact only through its parameters.
-
-    Notes
-    -----
-    - If `quantiles` is None and no suitable columns are found, a 
-      ValueError is raised.
-    - If `q_cols` is provided, it overrides automatic detection or 
-      naming conventions.
-    - The filtering step for datetime `dt_col` extracts the year 
-      component. For custom temporal resolutions, users might need 
-      to preprocess the data.
-    - Negative values in the data might be acceptable for scatter 
-      and hexbin plots, but if a density approach is implemented 
-      elsewhere, ensure non-negative weights [1]_.
-
-    Examples
-    --------
-    Consider a DataFrame `df` with columns:
-    'longitude', 'latitude', 'year', and 
-    'predicted_subsidence_2024_q0.1', 
-    'predicted_subsidence_2024_q0.5', 
-    'predicted_subsidence_2024_q0.9', etc.
-    
-    Consider generating a sample DataFrame suitable for testing:
-
-    >>> import pandas as pd
-    >>> import numpy as np
-
-    >>> num_points = 10
-    >>> years = [2024, 2025]
-    >>> quantiles = [0.1, 0.5, 0.9]
-
-    >>> longitudes = np.random.uniform(100.0, 101.0, num_points)
-    >>> latitudes  = np.random.uniform(20.0, 21.0,  num_points)
-
-    >>> # Initialize the DataFrame columns
-    >>> data = {
-    ...    'longitude': longitudes,
-    ...    'latitude': latitudes
-    ... }
-    >>> # Add the 'year' column, repeating for each point
-    >>> data['year'] = np.repeat(years, num_points)  # Repeat years for each point
-    >>> for year in years:
-    ...     for q in quantiles:
-    ...         q_col = f'predicted_subsidence_{year}_q{q}'
-    ...         # Generate predicted subsidence value for each quantile
-    ...         data[q_col] = np.random.uniform(0, 50, num_points) *\
-    ...    (1 + np.random.uniform(-0.1, 0.1))
-
-    >>> df = pd.DataFrame(data)
-    >>> df.head()
-
-    This `df` will have columns like:
-    `'longitude', 'latitude', 'year', 
-    'predicted_subsidence_2024_q0.1', 'predicted_subsidence_2024_q0.5', 
-    'predicted_subsidence_2024_q0.9', 'predicted_subsidence_2025_q0.1', 
-    'predicted_subsidence_2025_q0.5', 'predicted_subsidence_2025_q0.9'`.
-
-
-    >>> from gofast.plot.suite import plot_quantile_distributions
-    >>> # Automatically detect quantiles and dates:
-    >>> plot_quantile_distributions(
-    ...     df,
-    ...     x_col='longitude',
-    ...     y_col='latitude',
-    ...     dt_col='year',
-    ...     value_prefix='predicted_subsidence'
-    ... )
-
-    Or specifying quantiles:
-    >>> plot_quantile_distributions(
-    ...     df,
-    ...     x_col='longitude',
-    ...     y_col='latitude',
-    ...     dt_col='year',
-    ...     quantiles=[0.1, 0.5, 0.9],
-    ...     value_prefix='predicted_subsidence'
-    ... )
-
-    If `q_cols` is provided:
-    >>> q_map = {
-    ...     0.1: ['sub2024_q0.1','sub2025_q0.1'],
-    ...     0.5: ['sub2024_q0.5','sub2025_q0.5'],
-    ...     0.9: ['sub2024_q0.9','sub2025_q0.9']
-    ... }
-    >>> plot_quantile_distributions(
-    ...     df,
-    ...     x_col='longitude',
-    ...     y_col='latitude',
-    ...     dt_col='year',
-    ...     quantiles=[0.1,0.5,0.9],
-    ...     dt_values=[2024,2025],
-    ...     q_cols=q_map
-    ... )
-
-    See Also
-    --------
-    gofast.plot.suite.plot_qdist: More robust quantile plot.
-    matplotlib.pyplot.scatter : Scatter plot generation.
-    matplotlib.pyplot.hexbin : Hexbin plot generation.
-    seaborn.kdeplot : For density visualization.
-
-    References
-    ----------
-    .. [1] Rosenblatt, M. "Remarks on some nonparametric estimates 
-           of a density function." Ann. Math. Statist. 27 (1956), 
-           832-837.
-    """
-    # Infer dt_values if not provided
-    if dt_values is None:
-        if pd.api.types.is_integer_dtype(df[dt_col]):
-            dt_values = sorted(df[dt_col].unique())
-        elif np.issubdtype(df[dt_col].dtype, np.datetime64):
-            dt_values = pd.to_datetime(df[dt_col].unique()).sort_values()
-        else:
-            dt_values = sorted(df[dt_col].unique())
-
-    dt_values_str = _extract_date_values_if_datetime(df, dt_col, dt_values)
-    # If q_cols is None, we rely on quantiles and naming convention
-    # or detect quantiles if quantiles is None.
-    quantiles = columns_manager(quantiles, empty_as_none= True )
-    if q_cols is None:
-        # If quantiles is None, try to detect from columns
-        if quantiles is None:
-            # Attempt detection
-            detected_quantiles = detect_quantiles_in( 
-                df, col_prefix= value_prefix, 
-                dt_value = dt_values_str , 
-                return_types='q_val'
-                )
-            if not detected_quantiles: 
-                # retry 
-                detected_quantiles = _detect_quantiles_from_columns(
-                    df, value_prefix, dt_values_str)
-
-            if detected_quantiles is None:
-                raise ValueError(
-                    "No quantiles detected from columns."
-                    " Please specify quantiles or q_cols."
-                    )
-            quantiles = detected_quantiles
-        # Now we have quantiles, build column names
-   
-        all_cols = _build_column_names(
-            df, value_prefix, quantiles, dt_values_str
-            )
-        if not all_cols: 
-            #retry:
-            all_cols = build_q_column_names(
-                df, quantiles=quantiles, 
-                dt_value=dt_values_str, 
-                strict_match=False, 
-                )
-        if not all_cols:
-            raise ValueError(
-                "No matching columns found with given prefix, date, quantiles.")
-    else:
-        
-        # q_cols provided. Let's assume q_cols is a dict:
-        # {quantile: {date_str: column_name}}
-        # or {quantile: [cols_in_same_order_as_dt_values_str]}
-        # We must extract quantiles from q_cols keys
-        quantiles_from_qcols = validate_q_dict(q_cols)  
-        quantiles_from_qcols = sorted(q_cols.keys())
-        if quantiles is None:
-            quantiles = quantiles_from_qcols
-        else:
-            quantiles = validate_quantiles (quantiles, dtype=np.float64 )
-            # Ensure that quantiles match q_cols keys
-            if set(quantiles) != set(quantiles_from_qcols):
-                raise ValueError(
-                    "Quantiles specified do not match q_cols keys.")
-        
-        # Validate all columns exist
-        all_cols = []
-        for q in quantiles:
-            mapping = q_cols[q]
-            if isinstance(mapping, dict):
-                # expect {date_str: col_name}
-                for d_str in dt_values_str:
-                    if d_str not in mapping:
-                        continue
-                    c = mapping[d_str]
-                    if c not in df.columns:
-                        raise ValueError(f"Column {c} not found in DataFrame.")
-                    all_cols.append(c)
-            else:
-                # assume list parallel to dt_values_str
-                if len(mapping) != len(dt_values_str):
-                    raise ValueError("q_cols mapping length does not match dt_values.")
-                for c in mapping:
-                    if c not in df.columns:
-                        raise ValueError(f"Column {c} not found in DataFrame.")
-                all_cols.extend(mapping)
-
-    # Compute overall min and max for color normalization
-    if not all_cols:
-        raise ValueError("No columns determined for plotting.")
-
-    overall_min = df[all_cols].min().min()
-    overall_max = df[all_cols].max().max()
-
-    if reverse:
-        _plot_reversed(
-            df, x_col, y_col, dt_col, 
-            quantiles, dt_values_str, 
-            q_cols, value_prefix,
-            cmap, s, alpha, axis_off,
-            overall_min, overall_max,
-            cbar_orientation, cbar_fraction, 
-            cbar_pad, figsize, dpi, savefig
-        )
-        return 
-     
-    # Determine subplot grid size
-    n_rows = len(quantiles)
-    n_cols = len(dt_values)
-
-    if figsize is None:
-        figsize = (5 * n_cols, 4 * n_rows)
-
-    fig, axes = plt.subplots(
-        n_rows, n_cols, figsize=figsize,
-        constrained_layout=True
-        )
-
-    # Ensure axes is 2D array
-    if n_rows == 1 and n_cols == 1:
-        axes = np.array([[axes]])
-    elif n_rows == 1:
-        axes = np.array([axes])
-    elif n_cols == 1:
-        axes = axes.reshape(n_rows, 1)
-
-    for i, q in enumerate(quantiles):
-        # Extract columns per quantile and date
-        for j, d in enumerate(dt_values_str):
-            ax = axes[i, j]
-
-            if q_cols is None:
-                col_name = f'{value_prefix}_{d}_q{q}'
-                if col_name not in df.columns:
-                    ax.axis('off')
-                    ax.set_title(f'No data for {d} (q={q})')
-                    continue
-                subset_col = col_name
-            else:
-                mapping = q_cols[q]
-                if isinstance(mapping, dict):
-                    if d not in mapping:
-                        ax.axis('off')
-                        ax.set_title(f'No col mapped for {d} (q={q})')
-                        continue
-                    subset_col = mapping[d]
-                else:
-                    # list scenario
-                    # find index of d in dt_values_str
-                    idx_date = dt_values_str.index(d)
-                    subset_col = mapping[idx_date]
-
-            subset = df[[x_col, y_col, dt_col, subset_col]].dropna()
-
-            # Filter subset based on dt_col and d
-            if np.issubdtype(df[dt_col].dtype, np.datetime64):
-                # convert d to int year
-                year_int = int(d)
-                subset = subset[subset[dt_col].dt.year == year_int]
-            else:
-                # Attempt to convert d to int if possible
-                try:
-                    val = int(d)
-                except ValueError:
-                    val = d
-                subset = subset[subset[dt_col] == val]
-
-            if subset.empty:
-                ax.axis('off')
-                ax.set_title(f'No data after filter for {d} (q={q})')
-                continue
-
-            scatter = ax.scatter(
-                subset[x_col],
-                subset[y_col],
-                c=subset[subset_col],
-                cmap=cmap,
-                s=s,
-                alpha=alpha,
-                norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
-            )
-
-            if np.issubdtype(df[dt_col].dtype, np.datetime64):
-                title_str = f"Quantile={q}, Year={d}"
-            else:
-                title_str = f"Quantile={q}, {dt_col}={d}"
-            ax.set_title(title_str, fontsize=10)
-
-            if axis_off:
-                ax.axis('off')
-
-        # Add colorbar for the last subplot in each row
-        cbar = fig.colorbar(
-            scatter,
-            ax=axes[i, -1],
-            orientation=cbar_orientation,
-            fraction=cbar_fraction,
-            pad=cbar_pad
-        )
-        cbar.set_label('Value', fontsize=10)
-
-    if savefig:
-        fig.savefig(savefig, dpi=dpi)
-
-    plt.show()
-
-def _extract_date_values_if_datetime(df, dt_col, dt_values):
-    """
-    Extract date values as strings suitable for column naming if dt_col 
-    is datetime. If dt_col is datetime, convert them to year strings, 
-    otherwise return them as they are.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        The DataFrame containing the dt_col.
-    dt_col : str
-        The name of the date column in df.
-    dt_values : list
-        A list of date values inferred or provided.
-
-    Returns
-    -------
-    list
-        A list of string representations of the date values.
-    """
-    # Convert datetime if needed
-    # For datetime, dt_values are datetimes; might want to format them
-    # as years or something else depending on the scenario
-    # Extract dt_values as strings if datetime
-    
-    if np.issubdtype(df[dt_col].dtype, np.datetime64):
-        # If datetime, convert each date to its year string
-        return [str(pd.to_datetime(d).year) for d in dt_values]
-    else:
-        # Otherwise just convert to string
-        return [str(d) for d in dt_values]
-
-
-def _build_column_names(df, value_prefix, quantiles, dt_values_str):
-    """
-    Build a list of column names based on a prefix, quantiles, 
-    and date values (as strings), checking which exist in the DataFrame.
-
-    Assumes the naming format: f'{value_prefix}_{date}_q{quantile}'
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        The DataFrame to check for columns.
-    value_prefix : str
-        The prefix used in column naming.
-    quantiles : list
-        A list of quantiles.
-    dt_values_str : list
-        A list of date values as strings.
-
-    Returns
-    -------
-    list
-        A list of column names that exist in df.
-    """
-    # Build column names dynamically or handle scenario where we must 
-    # extract the subset for each date
-    # Suppose the columns are of the form value_prefix_date_qquantile
-    # If this is not the case, user must supply data differently or 
-    # we can handle differently. For now, let's assume columns are named:
-    # f"{value_prefix}_{date}_q{quantile}"
-    # If dt_col is datetime, we might extract year or something else
-    
-    all_cols = []
-    for q in quantiles:
-        for d_str in dt_values_str:
-            col_name = f'{value_prefix}_{d_str}_q{q}'
-            if col_name in df.columns:
-                all_cols.append(col_name)
-    return all_cols
-
-def _detect_quantiles_from_columns(df, value_prefix, dt_values_str):
-    """
-    Attempt to detect quantiles by scanning the DataFrame columns that match
-    the pattern f'{value_prefix}_{date}_q...' for each date in dt_values_str.
-    Extract the quantiles from these column names.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-    value_prefix : str
-        The value prefix expected in column names.
-    dt_values_str : list
-        A list of date strings.
-
-    Returns
-    -------
-    quantiles : list
-        A list of detected quantiles (floats) sorted.
-    """
-    quantile_pattern = re.compile(r'_q([\d\.]+)$')
-    found_quantiles = set()
-
-    # Check columns that start with value_prefix and contain one of the dates
-    # and end with q{quantile}
-    for col in df.columns:
-        # Check if col fits pattern: value_prefix_date_qquantile
-        # First verify value_prefix and date are in it
-        # This is simplistic: we check if any date is in col
-        # and also if it matches the quantile pattern at the end.
-        if col.startswith(value_prefix + "_"):
-            # Extract the part after value_prefix_
-            remainder = col[len(value_prefix)+1:]
-            # remainder should look like date_qquantile
-            # Check if it contains a known date_str
-            for d_str in dt_values_str:
-                if remainder.startswith(d_str + "_q"):
-                    # match qquantile
-                    m = quantile_pattern.search(col)
-                    if m:
-                        q_val = float(m.group(1))
-                        found_quantiles.add(q_val)
-                    break
-
-    if not found_quantiles:
-        return None
-    return sorted(found_quantiles)
-
-def _plot_reversed(
-    df, x_col, y_col, dt_col,
-    quantiles, dt_values_str, q_cols, value_prefix,
-    cmap, s, alpha, axis_off,
-    overall_min, overall_max, cbar_orientation,
-    cbar_fraction, cbar_pad,
-    figsize, dpi, savefig
-):
-    # Reversed mode: quantiles in columns, dates in rows
-    n_rows = len(dt_values_str)
-    n_cols = len(quantiles)
-    if figsize is None:
-        figsize = (5 * n_cols, 4 * n_rows)
-
-    fig, axes = plt.subplots(
-        n_rows, n_cols,
-        figsize=figsize,
-        constrained_layout=True
-    )
-
-    if n_rows == 1 and n_cols == 1:
-        axes = np.array([[axes]])
-    elif n_rows == 1:
-        axes = np.array([axes])
-    elif n_cols == 1:
-        axes = axes.reshape(n_rows, 1)
-
-    for j, d in enumerate(dt_values_str):
-        for i, q in enumerate(quantiles):
-            ax = axes[j, i]
-
-            if q_cols is None:
-                col_name = f'{value_prefix}_{d}_q{q}'
-                if col_name not in df.columns:
-                    ax.axis('off')
-                    ax.set_title(f'No data for {d} (q={q})')
-                    continue
-                subset_col = col_name
-            else:
-                mapping = q_cols[q]
-                if isinstance(mapping, dict):
-                    if d not in mapping:
-                        ax.axis('off')
-                        ax.set_title(f'No col mapped for {d} (q={q})')
-                        continue
-                    subset_col = mapping[d]
-                else:
-                    idx_date = dt_values_str.index(d)
-                    subset_col = mapping[idx_date]
-
-            subset = df[[x_col, y_col, dt_col, subset_col]].dropna()
-
-            # Filter subset based on dt_col and d
-            if np.issubdtype(df[dt_col].dtype, np.datetime64):
-                year_int = int(d)
-                subset = subset[subset[dt_col].dt.year == year_int]
-            else:
-                try:
-                    val = int(d)
-                except ValueError:
-                    val = d
-                subset = subset[subset[dt_col] == val]
-
-            if subset.empty:
-                ax.axis('off')
-                ax.set_title(f'No data after filter for {d} (q={q})')
-                continue
-
-            scatter = ax.scatter(
-                subset[x_col],
-                subset[y_col],
-                c=subset[subset_col],
-                cmap=cmap,
-                s=s,
-                alpha=alpha,
-                norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
-            )
-
-            if np.issubdtype(df[dt_col].dtype, np.datetime64):
-                title_str = f"Quantile={q}, Year={d}"
-            else:
-                title_str = f"Quantile={q}, {dt_col}={d}"
-            ax.set_title(title_str, fontsize=10)
-
-            if axis_off:
-                ax.axis('off')
-
-        # Add colorbar for the last column in each row
-        # Actually, we add one per row:
-            # better to add at the end of each row?
-        # But here symmetrical to normal, we do once per row
-        cbar = fig.colorbar(
-            scatter,
-            ax=axes[j, -1] if n_cols > 1 else axes[j, 0],
-            orientation=cbar_orientation,
-            fraction=cbar_fraction,
-            pad=cbar_pad,
-        )
-        cbar.set_label('Value', fontsize=10)
-
-    if savefig:
-        fig.savefig(savefig, dpi=dpi)
-    plt.show()
-
-
-@default_params_plot(
-    savefig=PlotConfig.AUTOSAVE('my_q.dist_plot.png'), 
-    fig_size=None, 
-  )
-@validate_params ({ 
-    'df': ['array-like'], 
-    'quantiles': ['array-like', None], 
-    'dt_values':['array-like', None], 
-    'value_prefix': [str, None], 
-    'q_cols': [dict, None], 
-    })
-@isdf 
-def plot_qdist(
-    df,
-    x_col,               
-    y_col,               
-    dt_name=None,        
-    quantiles=None,
-    dt_values=None,
-    value_prefix=None,   
-    q_cols=None,
-    cmap='viridis',
-    s=10,
-    alpha=0.8,
-    cbar_orientation='vertical',
-    cbar_fraction=0.02,
-    cbar_pad=0.1,
-    figsize=None,
-    savefig=None,
-    dpi=300,
-    axis_off=True,
-    reverse=False, 
-    show_grid=False, 
-    grid_props=None, 
-):
-    r"""
-    Plot quantile distributions across spatial (x,y) domains and,
-    optionally, temporal or categorical dimensions. This function
-    supports four naming configurations for identifying quantile
-    columns:
-    
-    1. ``<value_prefix>_<dt_value>_q<quantile>``
-    2. ``<dt_value>_q<quantile>``
-    3. ``<value_prefix>_q<quantile>``
-    4. ``q<quantile>``
-    
-    In essence, :func:`plot_qdist` either creates a 2D grid of subplots
-    (when date/time values are detected or explicitly provided) or a
-    1D arrangement of subplots (only quantiles). By default, rows
-    represent quantiles and columns represent date/time steps:
-    
-    .. math::
-       \text{Rows} \rightarrow \text{Quantiles}, \quad
-       \text{Columns} \rightarrow \text{Dates}
-    
-    When ``reverse=True``, the layout is inverted:
-    
-    .. math::
-       \text{Rows} \rightarrow \text{Dates}, \quad
-       \text{Columns} \rightarrow \text{Quantiles}
-    
-    
-    Parameters
-    ----------
-    df: pd.DataFrame
-        The input DataFrame containing at least the coordinates
-        `<x_col>` and `<y_col>`, plus columns that match one of
-        the naming configurations above or a user-supplied mapping
-        in ``q_cols``.
-    
-    x_col : str
-        Name of the column representing the x-coordinate (e.g.,
-        'longitude').
-    
-    y_col : str
-        Name of the column representing the y-coordinate (e.g.,
-        'latitude').
-    
-    dt_name : str, optional
-        If not ``None``, a descriptive label for the date/time
-        dimension (e.g., 'year'). Used solely for subplot titles
-        and labeling. If omitted, the function treats the data as
-        1D in quantiles.
-    
-    quantiles : list of float, optional
-        A user-specified list of quantile values (e.g., ``[0.1,
-        0.5, 0.9]``). If not provided, the function attempts to
-        detect quantiles from DataFrame columns. If detection
-        fails and no mapping is given in ``q_cols``, an error is
-        raised.
-    
-    dt_values : list, optional
-        A list of date/time values or identifiers (e.g., years)
-        for which columns exist in the DataFrame. When present,
-        :func:`plot_qdist` tries to match them against column
-        names. If None, the function infers them from the
-        detected or matched columns.
-    
-    value_prefix : str or None, optional
-        The prefix used in patterns like ``<value_prefix>_2025_q0.5``.
-        If None, the function detects columns without filtering
-        by a prefix.
-    
-    q_cols : dict, optional
-        A direct mapping of quantiles to column names or dictionaries.
-        For a 1D scenario:
-        
-        .. code-block:: python
-    
-           {
-             0.1: "my_col_q0.1",
-             0.5: "my_col_q0.5",
-             0.9: "my_col_q0.9"
-           }
-    
-        For a 2D scenario (quantiles x dt_values):
-    
-        .. code-block:: python
-    
-           {
-             0.1: { "2023": "subs_2023_q0.1", "2024": "subs_2024_q0.1" },
-             0.5: { "2023": "subs_2023_q0.5", "2024": "subs_2024_q0.5" }
-           }
-    
-        This mapping bypasses automatic naming detection. If
-        provided, `<quantiles>` and `<dt_values>` can also be
-        specified for ordering or cross-verification.
-    
-    cmap : str, optional
-        The colormap used for color encoding (default 'viridis').
-    
-    s : int, optional
-        The marker size for scatter plots.
-    
-    alpha : float, optional
-        The marker transparency in [0, 1].
-    
-    cbar_orientation : {'vertical', 'horizontal'}, optional
-        Orientation of the colorbar. Default 'vertical'.
-    
-    cbar_fraction : float, optional
-        Fraction of original axes to allocate for the colorbar.
-    
-    cbar_pad : float, optional
-        Padding between the colorbar and subplot edge.
-    
-    figsize : tuple, optional
-        The figure size in inches, e.g., ``(12, 6)``. If None,
-        a default size is determined by the number of rows and
-        columns.
-    
-    savefig : str, optional
-        Path to save the resulting figure (e.g., 'output.png').
-        If None, the figure is displayed interactively.
-    
-    dpi : int, optional
-        The dots-per-inch resolution for the figure. Default 300.
-    
-    axis_off : bool, optional
-        If True, hides the axes (no ticks or labels).
-    
-    reverse : bool, optional
-        If True, inverts the subplot layout so that columns
-        correspond to quantiles and rows to date/time steps.
-        Otherwise, rows represent quantiles and columns
-        represent date/time values.
-    
-    
-    Examples
-    --------
-    >>> from gofast.plot.suite import plot_qdist
-    >>> import pandas as pd
-    >>> import numpy as np
-    
-    >>> # Example DataFrame with patterns like:
-    >>> #    subsidence_2023_q10
-    >>> #    subsidence_2023_q50
-    >>> #    subsidence_2024_q90
-    >>> n = 100
-    >>> df = pd.DataFrame({
-    ...   'longitude': np.random.uniform(113, 114, n),
-    ...   'latitude':  np.random.uniform(22, 23,  n),
-    ...   'subsidence_2023_q10': np.random.rand(n)*10,
-    ...   'subsidence_2023_q50': np.random.rand(n)*10,
-    ...   'subsidence_2024_q90': np.random.rand(n)*10
-    ... })
-    
-    >>> # Simple call that detects date/time and quantiles:
-    >>> plot_qdist(
-    ...   df,
-    ...   x_col='longitude',
-    ...   y_col='latitude',
-    ...   value_prefix='subsidence'
-    ... )
-    
-    >>> # If no date/time dimension is present, columns might be
-    >>> # e.g., 'subsidence_q10', 'subsidence_q50', 'subsidence_q90',
-    >>> # or just 'q10','q50','q90' for truly single-dimensional data.
-    
-    Notes
-    -----
-    This function processes DataFrame columns that match specific
-    naming patterns to identify date/time indices and quantile
-    levels. If a date dimension is found, the resulting figure
-    forms a 2D grid of subplots arranged by quantile and date.
-    Otherwise, a 1D arrangement (only quantiles) is plotted.
-    The user may override automatic detection by supplying a
-    structured mapping in ``q_cols``.
-    
-    .. math::
-       \mathbf{Plot}:
-       \begin{cases}
-       \text{2D: } \text{rows} \times \text{columns} = 
-       \text{quantiles} \times \text{dates} & 
-       \text{(or reversed if } reverse=True)\\
-       \text{1D: } \text{rows} = \text{quantiles} & 
-       \text{(single column or vice versa)}
-       \end{cases}
-    
-    See Also
-    --------
-    gofast.plot.suite.plot_quantile_distributions: 
-        Another quantiles plot with absolute `dt_col`.
-    matplotlib.pyplot.scatter : Core scatter plotting.
-    matplotlib.pyplot.colorbar : Colorbar configuration.
-    
-    References
-    ----------
-    .. [1] Han, J., Kamber, M., & Pei, J. (2011). *Data Mining:
-           Concepts and Techniques*, 3rd edition. Elsevier.
-    """
-
-    # Function robustly handles four data configurations:
-    #   (1) <value_prefix>_<dt_value>_q<quantile>
-    #   (2) <dt_value>_q<quantile>
-    #   (3) <value_prefix>_q<quantile>
-    #   (4) q<quantile>
-
-    # If a `dt_value` is detected, a 2D grid is plotted 
-    # (dates x quantiles). Otherwise, a 1D grid is plotted 
-    # (just quantiles).
-    
-    # Init grid props 
-    if grid_props is None: 
-        grid_props = {'linestyle': ':', 'alpha': .7}
-
-    # If q_cols is provided, it overrides auto-detection logic
-    if q_cols is not None:
-        _plot_from_qcols(
-            df=df, x_col=x_col, y_col=y_col,
-            dt_name=dt_name, dt_values=dt_values,
-            q_cols=q_cols, cmap=cmap, s=s,
-            alpha=alpha, cbar_orientation=cbar_orientation,
-            cbar_fraction=cbar_fraction, cbar_pad=cbar_pad,
-            figsize=figsize, savefig=savefig, dpi=dpi,
-            axis_off=axis_off, reverse=reverse, 
-            show_grid=show_grid, 
-            grid_props=grid_props
-        )
-        return
-
-    # Auto-detect columns that match the patterns
-    # (1) prefix_dt_qquant  => ^(prefix_)?(\d+)_q([\d.]+)$
-    # (2) dt_qquant         => ^(\d+)_q([\d.]+)$
-    # (3) prefix_qquant     => ^(prefix_)?q([\d.]+)$
-    # (4) qquant            => ^q([\d.]+)$
-    # We'll unify them with a single regex capturing optional prefix,
-    # optional dt_value, and quantile.
-    #   pattern:
-    #   ^(?:([^_]+)_)?     # optional prefix (group 1), with underscore
-    #      (?:(\d+))?_?    # optional dt_value (group 2), with optional underscore
-    #      q([\d.]+)$      # quantile (group 3)
-    #
-    # Note: We allow prefix or dt_value to be absent. One or both might appear.
-
-    pattern = re.compile(
-        r'^(?:([^_]+)_)?(?:(\d+))?_?q([\d\.]+)$'
-    )
-    # We'll store columns in a structure:
-    #   col_info[col_name] = (prefix, dt_val, quant_str)
-    # prefix or dt_val can be None if absent
-    col_info = {}
-    for col in df.columns:
-        m = pattern.match(col)
-        if m:
-            pref, dt_val, q_str = m.groups()
-            # If user provided a specific value_prefix, filter by it
-            if value_prefix is not None and pref is not None:
-                if pref != value_prefix:
-                    continue
-            col_info[col] = (pref, dt_val, float(q_str))
-
-    if not col_info:
-        raise ValueError(
-            "No columns match the recognized patterns. "
-            "No q_cols provided either."
-        )
-
-    # Extract sets of dt_val and quant
-    dt_vals_found = set()
-    quants_found = set()
-    for (pref, dt_val, q_val) in col_info.values():
-        if dt_val is not None:
-            dt_vals_found.add(dt_val)
-        quants_found.add(q_val)
-
-    # If user gave dt_values, we keep only those dt_val in dt_vals_found
-    # If dt_name is None or if dt_vals_found is empty => single dimension
-    # else => 2D
-    if dt_values is not None:
-        dt_values = [str(dv) for dv in dt_values]  # unify with string dt_val
-        dt_vals_found = dt_vals_found.intersection(dt_values)
-
-    dt_vals_found = sorted(dt_vals_found, key=lambda x: int(x)) \
-                    if dt_vals_found else []
-    quants_found = sorted(quants_found)
-
-    # If user provides quantiles, we only keep those
-    if quantiles is not None:
-        qf = set(float(q) for q in quantiles)
-        quants_found = [q for q in quants_found if q in qf]
-    if not quants_found:
-        raise ValueError("No matching quantiles found.")
-
-    # 2D scenario if dt_vals_found has more than 0 elements 
-    # and dt_name is not None.
-    if dt_name and dt_vals_found:
-        _plot_2d(
-            df, x_col, y_col,
-            col_info, dt_name, dt_vals_found,
-            quants_found, value_prefix,
-            cmap, s, alpha,
-            cbar_orientation, cbar_fraction,
-            cbar_pad, figsize, savefig,
-            dpi, axis_off, reverse, 
-            show_grid, grid_props
-        )
-    else:
-        # 1D scenario for quantiles only
-        _plot_1d(
-            df, x_col, y_col,
-            col_info, quants_found,
-            value_prefix, cmap, s, alpha,
-            cbar_orientation, cbar_fraction,
-            cbar_pad, figsize,
-            savefig, dpi, axis_off,
-            reverse,show_grid, 
-            grid_props
-        )
-
-
-def _plot_1d(df, x_col, y_col, col_info, quants_found, 
-             value_prefix, cmap, s, alpha,
-             cbar_orientation, cbar_fraction,
-             cbar_pad, figsize, savefig, dpi,
-             axis_off, reverse, show_grid, grid_props
-             ):
-    # We have only quantile dimension => one row or one column
-
-    # Build col_name => (prefix, dt_val, q_val) reverse lookup
-    # But we only care about q_val here
-    q2col = {}
-    for c, (p, d, q_val) in col_info.items():
-        if q_val in quants_found and (d is None or d == ''):
-            q2col[q_val] = c
-        # If there's a dt_val, it won't be used in 1D scenario
-        if q_val in quants_found and d is not None:
-            # This means there's a dt_val, so skip
-            pass
-
-    # Some columns may not exist if the user data had dt_val but dt_name=None
-    # We'll collect only those that have d is None
-    # If none found, fallback to "any dt_val"? 
-    valid_cols = [q2col[q] for q in quants_found if q in q2col]
-
-    if not valid_cols:
-        # fallback: if all columns have dt_val, we can't do 1D
-        # So let's pick dt_val=some minimal or something
-        any_col = {}
-        for c, (p, d, q_val) in col_info.items():
-            if q_val in quants_found:
-                # We'll store first occurrence
-                if q_val not in any_col:
-                    any_col[q_val] = c
-        if not any_col:
-            raise ValueError("No columns available for 1D scenario.")
-        q2col = any_col
-        valid_cols = [q2col[q] for q in quants_found if q in q2col]
-
-    n = len(quants_found)
-    if reverse:
-        n_rows, n_cols = 1, n
-    else:
-        n_rows, n_cols = n, 1
-
-    if figsize is None:
-        if reverse:
-            figsize = (4 * n_cols, 4)
-        else:
-            figsize = (4, 4 * n_rows)
-
-    fig, axes = plt.subplots(
-        n_rows,
-        n_cols,
-        figsize=figsize,
-        constrained_layout=True
-    )
-    if n_rows == 1 and n_cols == 1:
-        axes = np.array([[axes]])
-    elif n_rows == 1:
-        axes = np.array([axes])
-    elif n_cols == 1:
-        axes = axes.reshape(n_rows, 1)
-
-    # Compute global min/max
-    vals = df[valid_cols].values.ravel()
-    overall_min, overall_max = np.nanmin(vals), np.nanmax(vals)
-
-    for i, q in enumerate(quants_found):
-        if q not in q2col:
-            continue
-        col_name = q2col[q]
-
-        sub = df[[x_col, y_col, col_name]].dropna()
-
-        if reverse:
-            ax = axes[0, i]
-        else:
-            ax = axes[i, 0]
-
-        sc = ax.scatter(
-            sub[x_col],
-            sub[y_col],
-            c=sub[col_name],
-            cmap=cmap,
-            s=s,
-            alpha=alpha,
-            norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
-        )
-        ax.set_title(f"q={q}", fontsize=10)
-        if show_grid: 
-            ax.grid(True, **grid_props)
-        else: 
-            ax.grid (False) 
-            
-        if axis_off:
-            ax.axis('off')
-
-        cbar = fig.colorbar(
-            sc, ax=ax, orientation=cbar_orientation,
-            fraction=cbar_fraction, pad=cbar_pad
-        )
-        cbar.set_label('Value', fontsize=10)
-
-    if savefig:
-        fig.savefig(savefig, dpi=dpi)
-    else:
-        plt.show()
-
-
-def _plot_2d(df, x_col, y_col, col_info, dt_name, dt_vals_found,
-             quants_found, value_prefix, cmap, s, alpha,
-             cbar_orientation, cbar_fraction, cbar_pad,
-             figsize, savefig, dpi, axis_off, reverse, 
-             show_grid, grid_props):
-    """
-    2D scenario: dt_values x quantiles => grid
-    If reverse=False, rows=quantiles, cols=dates
-    If reverse=True, rows=dates, cols=quantiles
-    """
-
-    # Build dict: (dt_val, q_val) -> col_name
-    dtq2col = {}
-    for c, (p, d, q_val) in col_info.items():
-        if d in dt_vals_found and q_val in quants_found:
-            dtq2col[(d, q_val)] = c
-
-    # If user provided dt_values externally, ensure they are strings
-    # sorted. We'll only use the intersection dt_vals_found for plotting
-    dt_vals_found = sorted(dt_vals_found, key=lambda x: int(x)) \
-                    if dt_vals_found else []
-
-    if reverse:
-        # rows=dt, cols=q
-        n_rows = len(dt_vals_found)
-        n_cols = len(quants_found)
-    else:
-        # rows=q, cols=dt
-        n_rows = len(quants_found)
-        n_cols = len(dt_vals_found)
-
-    if figsize is None:
-        figsize = (4 * n_cols, 4 * n_rows)
-
-    fig, axes = plt.subplots(
-        n_rows, n_cols,
-        figsize=figsize,
-        constrained_layout=True
-    )
-
-    if n_rows == 1 and n_cols == 1:
-        axes = np.array([[axes]])
-    elif n_rows == 1:
-        axes = np.array([axes])
-    elif n_cols == 1:
-        axes = axes.reshape(n_rows, 1)
-
-    # Gather all relevant columns
-    used_cols = []
-    for dt_val in dt_vals_found:
-        for q in quants_found:
-            if (dt_val, q) in dtq2col:
-                used_cols.append(dtq2col[(dt_val, q)])
-    used_cols = list(set(used_cols))
-    vals = df[used_cols].values.ravel()
-    overall_min, overall_max = np.nanmin(vals), np.nanmax(vals)
-
-    for r_idx, row_key in enumerate(quants_found if not reverse else dt_vals_found):
-        for c_idx, col_key in enumerate(dt_vals_found if not reverse else quants_found):
-            ax = axes[r_idx, c_idx]
-
-            if not reverse:
-                # row_key=quantile, col_key=dt_val
-                dt_val = col_key
-                q_val = row_key
-            else:
-                dt_val = row_key
-                q_val = col_key
-
-            pair = (dt_val, q_val)
-            if pair not in dtq2col:
-                ax.axis('off')
-                ax.set_title(f"No col for {dt_val}, q={q_val}")
-                continue
-
-            col_name = dtq2col[pair]
-            sub = df[[x_col, y_col, col_name]].dropna()
-
-            sc = ax.scatter(
-                sub[x_col],
-                sub[y_col],
-                c=sub[col_name],
-                cmap=cmap,
-                s=s,
-                alpha=alpha,
-                norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
-            )
-
-            if not reverse:
-                title_str = f"{dt_name}={dt_val}, q={q_val}"
-            else:
-                title_str = f"{dt_name}={row_key}, q={col_key}"
-            ax.set_title(title_str, fontsize=9)
-            
-            if show_grid: 
-                ax.grid(True, **grid_props)
-            else: 
-                ax.grid (False) 
-                
-            if axis_off:
-                ax.axis('off')
-
-            # Add colorbar only for last column in the row (non-reverse)
-            # or last column if reversed? We'll keep it simple:
-            if (not reverse and (c_idx == n_cols - 1)) \
-               or (reverse and (c_idx == n_cols - 1)):
-                cbar = fig.colorbar(
-                    sc, ax=ax, orientation=cbar_orientation,
-                    fraction=cbar_fraction, pad=cbar_pad
-                )
-                cbar.set_label('Value', fontsize=8)
-
-    if savefig:
-        fig.savefig(savefig, dpi=dpi)
-    else:
-        plt.show()
-
-
-def _plot_from_qcols(
-    df, x_col, y_col,
-    dt_name, dt_values, q_cols,
-    cmap, s, alpha,
-    cbar_orientation, cbar_fraction,
-    cbar_pad, figsize,
-    savefig, dpi,
-    axis_off, reverse, 
-    show_grid, grid_props 
-):
-    """
-    If q_cols is provided, interpret it. This can be:
-      - 1D scenario: {q: col_name}
-      - 2D scenario: {q: {date_val: col_name}}
-    or {q: [col_names in same order as dt_values]}
-    """
-    # Distinguish 1D vs 2D by checking if any q maps to a dict or list
-    # If all map to single str -> 1D
-    # If we find at least one dict or list -> 2D
-    is_2d = False
-    for q, mapping in q_cols.items():
-        if isinstance(mapping, (dict, list)):
-            is_2d = True
-            break
-
-    # If 2D but dt_name is None, we can skip dt dimension -> error or fallback
-    if is_2d and not dt_name:
-        raise ValueError(
-            "q_cols indicates a 2D structure, but no dt_name was provided."
-        )
-
-    # If 1D, handle single dimension
-    if not is_2d:
-        # 1D scenario
-        quants = sorted(q_cols.keys())
-        col_names = []
-        for q in quants:
-            if q_cols[q] not in df.columns:
-                raise ValueError(f"Column {q_cols[q]} not found.")
-            col_names.append(q_cols[q])
-
-        # Global min/max
-        vals = df[col_names].values.ravel()
-        overall_min, overall_max = np.nanmin(vals), np.nanmax(vals)
-        n = len(quants)
-        if reverse:
-            n_rows, n_cols = (1, n)
-        else:
-            n_rows, n_cols = (n, 1)
-
-        if figsize is None:
-            if reverse:
-                figsize = (4 * n_cols, 4)
-            else:
-                figsize = (4, 4 * n_rows)
-
-        fig, axes = plt.subplots(
-            n_rows, n_cols, figsize=figsize,
-            constrained_layout=True
-        )
-        if n_rows == 1 and n_cols == 1:
-            axes = np.array([[axes]])
-        elif n_rows == 1:
-            axes = np.array([axes])
-        elif n_cols == 1:
-            axes = axes.reshape(n_rows, 1)
-
-        for i, q in enumerate(quants):
-            col_name = q_cols[q]
-            sub = df[[x_col, y_col, col_name]].dropna()
-
-            ax = axes[0, i] if (reverse) else axes[i, 0]
-
-            sc = ax.scatter(
-                sub[x_col],
-                sub[y_col],
-                c=sub[col_name],
-                cmap=cmap,
-                s=s,
-                alpha=alpha,
-                norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
-            )
-            ax.set_title(f"q={q}", fontsize=9)
-            
-            if show_grid: 
-                ax.grid(True, **grid_props)
-            else: 
-                ax.grid (False) 
-                
-            if axis_off:
-                ax.axis('off')
-
-            cbar = fig.colorbar(
-                sc, ax=ax,
-                orientation=cbar_orientation,
-                fraction=cbar_fraction,
-                pad=cbar_pad
-            )
-            cbar.set_label('Value', fontsize=9)
-
-        if savefig:
-            fig.savefig(savefig, dpi=dpi)
-        else:
-            plt.show()
-        return
-
-    # 2D scenario
-    # Expect {q: {dt_val: col_name}} or {q: [col_names in order of dt_values]}
-    quants = sorted(q_cols.keys())
-    if dt_values is None:
-        # glean dt_values from the dictionary keys if any
-        dt_set = set()
-        for q in quants:
-            mapping = q_cols[q]
-            if isinstance(mapping, dict):
-                dt_set.update(mapping.keys())
-        dt_values = sorted(list(dt_set))
-
-    # Validate columns exist
-    used_cols = []
-    dt_values_str = [str(dv) for dv in dt_values]
-    for q in quants:
-        mapping = q_cols[q]
-        if isinstance(mapping, dict):
-            # dt_val => col_name
-            for d_str in dt_values_str:
-                if d_str in mapping:
-                    c = mapping[d_str]
-                    if c not in df.columns:
-                        raise ValueError(
-                            f"Column '{c}' not found in DataFrame."
-                        )
-                    used_cols.append(c)
-        elif isinstance(mapping, list):
-            if len(mapping) != len(dt_values_str):
-                raise ValueError(
-                    "Length of q_cols[q] does not match dt_values."
-                )
-            for c in mapping:
-                if c not in df.columns:
-                    raise ValueError(f"Column '{c}' not found in DataFrame.")
-            used_cols.extend(mapping)
-
-    vals = df[used_cols].values.ravel()
-    overall_min, overall_max = np.nanmin(vals), np.nanmax(vals)
-
-    if reverse:
-        # rows = dt, cols = q
-        n_rows, n_cols = len(dt_values_str), len(quants)
-    else:
-        # rows = q, cols = dt
-        n_rows, n_cols = len(quants), len(dt_values_str)
-
-    if figsize is None:
-        figsize = (4 * n_cols, 4 * n_rows)
-
-    fig, axes = plt.subplots(
-        n_rows, n_cols,
-        figsize=figsize,
-        constrained_layout=True
-    )
-    if n_rows == 1 and n_cols == 1:
-        axes = np.array([[axes]])
-    elif n_rows == 1:
-        axes = np.array([axes])
-    elif n_cols == 1:
-        axes = axes.reshape(n_rows, 1)
-
-    for r_idx in range(n_rows):
-        for c_idx in range(n_cols):
-            ax = axes[r_idx, c_idx]
-            if not reverse:
-                q = quants[r_idx]
-                d = dt_values_str[c_idx]
-            else:
-                d = dt_values_str[r_idx]
-                q = quants[c_idx]
-
-            mapping = q_cols[q]
-            if isinstance(mapping, dict):
-                if d not in mapping:
-                    ax.axis('off')
-                    ax.set_title(f"No data for {d}, q={q}")
-                    continue
-                col_name = mapping[d]
-            else:
-                # list scenario
-                idx = dt_values_str.index(d)
-                col_name = mapping[idx]
-
-            sub = df[[x_col, y_col, col_name]].dropna()
-
-            sc = ax.scatter(
-                sub[x_col],
-                sub[y_col],
-                c=sub[col_name],
-                cmap=cmap,
-                s=s,
-                alpha=alpha,
-                norm=plt.Normalize(
-                    vmin=overall_min,
-                    vmax=overall_max
-                )
-            )
-            ax.set_title(f"{dt_name}={d}, q={q}", fontsize=8)
-            
-            if show_grid: 
-                ax.grid(True, **grid_props)
-            else: 
-                ax.grid (False) 
-                
-            if axis_off:
-                ax.axis('off')
-
-            # colorbar once per subplot or only last col?
-            # we'll do once per subplot for clarity
-            cbar = fig.colorbar(
-                sc, ax=ax, orientation=cbar_orientation,
-                fraction=cbar_fraction, pad=cbar_pad
-            )
-            cbar.set_label('Value', fontsize=8)
-
-    if savefig:
-        fig.savefig(savefig, dpi=dpi)
-    else:
-        plt.show()
-
-
+@return_fig_or_ax(return_type ='ax')
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_uncertainty_plot.png'), 
     title ="Distribution of Uncertainties",
@@ -6334,7 +2897,7 @@ def _plot_from_qcols(
 @validate_params ({ 
     'df': ['array-like'], 
     'cols': ['array-like', None], 
-    'plot_type': [StrOptions({ 'box', 'violin', 'strip', 'swarm'})], 
+    'kind': [StrOptions({ 'box', 'violin', 'strip', 'swarm'})], 
     'numeric_only': [bool], 
     })
 @isdf 
@@ -6355,7 +2918,7 @@ def _plot_from_qcols(
 def plot_uncertainty(
     df,
     cols=None,
-    plot_type='box',
+    kind='box',
     figsize=None,
     numeric_only=True,
     title=None,
@@ -6394,7 +2957,7 @@ def plot_uncertainty(
         are detected automatically if `<numeric_only>` is True. If 
         `<numeric_only>` is False and no columns are numeric, all 
         columns are chosen.
-    plot_type : str, optional
+    kind : str, optional
         The type of plot to generate. Supported values:
         
         - ``'box'``: Box plot, showing quartiles and outliers.
@@ -6444,7 +3007,7 @@ def plot_uncertainty(
 
     Notes
     -----
-    - By selecting different `<plot_type>` values, users can choose 
+    - By selecting different `<kind>` values, users can choose 
       the representation that best suits their data. Box plots show 
       summary statistics, violin plots add density information, 
       strip and swarm plots display raw data points.
@@ -6465,7 +3028,7 @@ def plot_uncertainty(
     >>> # Automatic numeric detection and box plot:
     >>> plot_uncertainty(df)
     >>> # Use a violin plot and specify columns:
-    >>> plot_uncertainty(df, cols=['A','B'], plot_type='violin')
+    >>> plot_uncertainty(df, cols=['A','B'], kind='violin')
 
     See Also
     --------
@@ -6508,19 +3071,19 @@ def plot_uncertainty(
     plt.figure(figsize=figsize)
 
     # Plot according to type
-    if plot_type == 'box':
+    if kind == 'box':
         kws= filter_valid_kwargs(sns.boxplot, kws)
         sns.boxplot(
             data=plot_data, showfliers=showfliers, 
             palette=palette, 
             **kws)
-    elif plot_type == 'violin':
+    elif kind == 'violin':
         kws= filter_valid_kwargs(sns.violinplot, kws)
         sns.violinplot(data=plot_data, palette=palette, **kws)
-    elif plot_type == 'strip':
+    elif kind == 'strip':
         kws= filter_valid_kwargs(sns.stripplot, kws)
         sns.stripplot(data=plot_data, palette=palette, **kws)
-    elif plot_type == 'swarm':
+    elif kind == 'swarm':
         kws= filter_valid_kwargs(sns.swarmplot, kws)
         sns.swarmplot(data=plot_data, palette=palette, **kws)
    
@@ -6538,6 +3101,7 @@ def plot_uncertainty(
 
     plt.show()
 
+@return_fig_or_ax(return_type ='ax')
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_prediction_intervals_plot.png'), 
     title ="Prediction Intervals",
@@ -6875,6 +3439,7 @@ def plot_prediction_intervals(
     plt.show()
 
 
+@return_fig_or_ax(return_type ='ax')
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_temporal_trends_plot.png'), 
     title ="Temporal Trends",
@@ -7618,6 +4183,7 @@ def _plot_monte_carlo(
     # Show the legend
     ax.legend()
 
+@return_fig_or_ax(return_type ='ax')
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_w.uncertainty_plot.png'), 
     title ="Uncertainties",
@@ -7633,7 +4199,7 @@ def plot_with_uncertainty(
     df, 
     q_cols, 
     dt_col=None, 
-    plot_type="errors", 
+    kind="errors", 
     figsize=(10, 6), 
     savefig=None, 
     show_grid=True, 
@@ -7688,7 +4254,7 @@ def plot_with_uncertainty(
         values. If `None`, the function will attempt to automatically 
         detect a datetime column or use the index as the time series.
 
-    plot_type : str, optional, default="errors"
+    kind : str, optional, default="errors"
         The type of plot to generate. Options include:
         - "errors": Error bar plot
         - "line_shaded": Line plot with shaded region
@@ -7809,7 +4375,7 @@ def plot_with_uncertainty(
     Notes
     -----
     This function allows for the dynamic creation of various types of 
-    uncertainty plots. By specifying different `plot_type` values, 
+    uncertainty plots. By specifying different `kind` values, 
     the user can create error bar plots, shaded line plots, box plots, 
     histograms, or even Monte Carlo simulation plots. This flexibility 
     makes it easy to visualize uncertainty and model prediction 
@@ -7834,7 +4400,7 @@ def plot_with_uncertainty(
     --------
     >>> from gofast.core.generic import plot_with_uncertainty
     >>> plot_with_uncertainty(df, q_cols=["q10", "q50", "q90"], 
-                              dt_col="date", plot_type="error_bars")
+                              dt_col="date", kind="error_bars")
 
     See Also
     --------
@@ -7888,7 +4454,7 @@ def plot_with_uncertainty(
         fig, ax = plt.subplots(figsize=figsize)  
 
     # Plot based on the specified plot type
-    plot_type = str(plot_type).replace (
+    kind = str(kind).replace (
         'plot', '').replace (
             '_bars', 's'
             ).replace ('_plot', '')
@@ -7904,8 +4470,8 @@ def plot_with_uncertainty(
     }
 
     # Call the corresponding helper function
-    if plot_type in plot_helpers:
-        plot_helpers[plot_type](
+    if kind in plot_helpers:
+        plot_helpers[kind](
             df, dt_col=dt_col, 
             q_cols=q_cols, 
             alpha=alpha, 
@@ -7948,341 +4514,3 @@ def plot_with_uncertainty(
     else:
         plt.show()
 
-@default_params_plot(
-    savefig=PlotConfig.AUTOSAVE('my_q_based_pred_plot.png'), 
-    title ="Quantile-based Predictions",
-    fig_size=(8, 6) 
- )
-@validate_params ({ 
-    'df': ['array-like'], 
-    'dt_col':[str, None], 
-    'q_cols': ['array-like']
-    })
-@isdf 
-def plot_qbased_preds(
-    df,
-    q_cols, 
-    dt_col=None,
-    pos_val=None,
-    pos_cols=None,
-    title=None,  
-    xlabel=None,  
-    ylabel=None,  
-    figsize=(10, 6),
-    plot_type="line",
-    linewidth=2,
-    fbtw_color='blue',
-    fbtw_alpha=0.2,
-    fbtw_label=None,
-    marker='o',
-    linestyle='-',
-    color='red',
-    label=None,
-    show_grid=True,
-    grid_props=None,
-    show_legend=True,
-    fbtw_kws=None,
-    rotation=None, 
-    **kws
-):
-    """
-    Plots quantile-based predictions, allowing the user to
-    visualize multiple quantiles (e.g. q10, q50, q90) along with
-    an optional fill region between the lower and upper bounds.
-    The function can plot the median or central quantile as a
-    line while filling an area for the uncertainty band [1]_.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        The DataFrame containing the quantile columns.
-    q_cols : list or dict
-        Quantile definitions. If this parameter is a dict
-        with keys like ``q10``, ``q50``, ``q90``, their numeric
-        portion is parsed. If it is a list, items are assigned
-        dummy keys (``q0``, ``q1``, etc.).
-    dt_col : str, optional
-        Column representing the x-axis (often a date/time).
-        If None, the DataFrame index is used.
-    pos_val : tuple, optional
-        A spatial position (e.g., latitude/longitude) used for
-        filtering if <parameter `pos_cols`> is specified.
-    pos_cols : tuple, optional
-        Column names corresponding to <parameter `pos_val`>.
-    title : str, optional
-        The plot title. Defaults to ``"Quantile Predictions"``
-        if not specified.
-    xlabel : str, optional
-        X-axis label. Defaults to ``"Date/Time"``.
-    ylabel : str, optional
-        Y-axis label. Defaults to ``"Values"``.
-    figsize : tuple, optional
-        Size of the figure (width, height). Defaults to
-        (10, 6).
-    plot_type : str, optional
-        The type of plot (``"line"``, ``"scatter"``,
-        ``"bar"``, or ``"step"``). Defaults to ``"line"``.
-    linewidth : float, optional
-        Line width for the central quantile. Defaults to 2.
-    fbtw_color : str, optional
-        Color for the uncertainty band. Defaults to ``"blue"``.
-    fbtw_alpha : float, optional
-        Alpha transparency for the fill region. Defaults to
-        0.2.
-    fbtw_label : str, optional
-        Label for the fill region. Defaults to
-        ``"Uncertainty Band (10%-90%)"`` if none is provided.
-    marker : str, optional
-        Marker style for plotting the central quantile. Defaults
-        to ``"o"``.
-    linestyle : str, optional
-        Style for the line plot (e.g., ``"-"``, ``"--"``).
-        Defaults to ``"-"``.
-    color : str, optional
-        Color for the central quantile line. Defaults
-        to ``"red"``.
-    label : str, optional
-        Legend label for the central quantile line. Defaults
-        to ``"Median Prediction (50%)"`` if no label is given.
-    show_grid : bool, optional
-        If True, a grid is displayed. Defaults to True.
-    grid_props : dict, optional
-        Grid customization (e.g., ``{'linestyle': '--',
-        'alpha': 0.5}``).
-    show_legend : bool, optional
-        If True, a legend is displayed. Defaults to True.
-    fbtw_kws : dict, optional
-        Additional kwargs for the fill region, passed to
-        ``matplotlib.axes.Axes.fill_between``.
-    rotation : int, optional, default=0
-        The angle of rotation for the x-axis tick labels.
-    **kws
-        Additional keyword arguments for plotting functions
-        like ``matplotlib.axes.Axes.plot``, ``matplotlib.axes.
-        Axes.scatter``, etc.
-    
-    Notes
-    -----
-    This function filters the dataset if <parameter `pos_val`>
-    and <parameter `pos_cols`> are specified, using
-    :math:`\\mathrm{find\\_closest}` within a certain threshold.
-    All missing or invalid position columns are ignored based on
-    error-handling logic.
-    
-    The uncertainty band is derived by the difference between
-    the lower quantile :math:`q_{\\text{low}}` and the upper
-    quantile :math:`q_{\\text{high}}`:
-    
-    .. math::
-       \\Delta = q_{\\text{high}} - q_{\\text{low}}
-    
-    while the central quantile (e.g., :math:`q_{50}`) is often
-    treated as a median or representative forecast:
-    
-    .. math::
-       q_{50} = \\text{median}
-    
-    Examples
-    --------
-    >>> from gofast.plot.suite import plot_qbased_preds
-    >>> import pandas as pd
-    >>> df = pd.DataFrame({
-    ...     'lat': [113.309998, 113.310001],
-    ...     'lon': [22.831362, 22.831364],
-    ...     'q10': [0.8, 0.9],
-    ...     'q50': [1.0, 1.1],
-    ...     'q90': [1.2, 1.3]
-    ... })
-    >>> # Simple line plot
-    >>> plot_qbased_preds(
-    ...     df,
-    ...     q_cols={'q10': 'q10', 'q50': 'q50', 'q90': 'q90'},
-    ...     dt_col=None
-    ... )
-    
-    See Also
-    --------
-    plot_prediction_intervals:  
-        Plots predicted intervals (e.g., lower, median, and upper quantiles) 
-        along with an optional reference series.
-    plot_with_uncertainty: Plot various uncertainty visualizations.
-    
-    References
-    ----------
-    .. [1] Roe, J. & Sage, L. (2020). Methods of statistical
-       interval visualization. Journal of Uncertainty
-       Analysis, 5(1), 101-115.
-    """
-
-    # Update default plot parameters
-    _param_defaults.update({
-        'title': "Quantile Predictions",
-        'xlabel': "Date/Time",
-        'ylabel': 'Values',
-    })
-    params = _set_defaults(title=title, xlabel=xlabel, ylabel=ylabel)
-
-    # Filter dataframe by position if specified
-    if pos_val is not None:
-        df = filter_position(
-            df,
-            pos_val,
-            pos_cols=pos_cols,
-            find_closest=True,
-            threshold=0.05, 
-            error='warn'
-        )
-        if df.empty:
-            # If no data after filter, warn and return
-            warnings.warn(
-                f"No data found for position {pos_val}. "
-                "Unable to generate plot."
-            )
-            return
-    # Sort dataframe by the datetime/temporal column if given
-    if dt_col:
-        # Ensure dt_col is datetime if not already
-        if not pd.api.types.is_datetime64_any_dtype(df[dt_col]):
-            df[dt_col] = pd.to_datetime(df[dt_col], errors='coerce')
-        df = df.sort_values(by=dt_col)
-        x_data = df[dt_col]
-    else:
-        x_data = df.index  # Use index if no time col is provided
-
-    
-    # More robust handling of multiple quantiles
-    # Convert q_cols to a dict if it isn't one already
-    if not isinstance(q_cols, dict):
-        # If it's a list, generate a simple mapping like {'q0': col0, 'q1': col1}
-        q_cols = {f'q{i}': col for i, col in enumerate(q_cols)}
-
-    # Extract the numeric portion from keys like 'q10', 'q90', etc.
-    # Sort them to identify the min/mid/max or any quantile ordering
-    quantile_map = {}
-    for k, v in q_cols.items():
-        if k.startswith('q'):
-            # Attempt to parse numeric part, e.g. 'q10' -> 10
-            try:
-                num_val = float(k[1:])
-                quantile_map[num_val] = v
-            except ValueError:
-                # If parsing fails, skip silently or warn
-                warnings.warn(
-                    f"Could not parse quantile '{k}'. Skipped."
-                )
-        else:
-            # If not 'q*', skip or warn
-            warnings.warn(
-                f"Quantile key '{k}' does not start with 'q'. Skipped."
-            )
-
-    # If we have no valid quantile columns, warn and return
-    if not quantile_map:
-        warnings.warn(
-            "No valid quantile columns found in `q_cols`. "
-            "Nothing to plot."
-        )
-        return
-
-    sorted_qs = sorted(quantile_map.keys())
-    # Retrieve series from df for each quantile key
-    data_map = {q: df[col] for q, col in [(q, quantile_map[q]) for q in sorted_qs]
-                if col in df.columns}
-
-    # Identify the min and max quantiles for fill_between if >=2 quantiles
-    q_min = sorted_qs[0]
-    q_max = sorted_qs[-1]
-
-    # Prepare the figure
-    fig, ax = plt.subplots(figsize=figsize)
-
-    # Plot the uncertainty band if we have at least 2 quantiles
-    if len(sorted_qs) >= 2:
-        fbtw_kws = filter_valid_kwargs(ax.fill_between, (fbtw_kws or {}))
-        ax.fill_between(
-            x_data,
-            data_map[q_min],
-            data_map[q_max],
-            color=fbtw_color,
-            alpha=fbtw_alpha,
-            label=fbtw_label or f"Uncertainty Band "
-                                f"({int(q_min)}%-{int(q_max)}%)",
-            **fbtw_kws
-        )
-
-    # Decide on the "median" quantile:
-    #  - If 'q50' exists, use that
-    #  - Else pick the middle from the sorted list
-    if 50.0 in quantile_map:
-        median_key = 50.0
-    else:
-        # If there's only one, it is effectively the median
-        # If multiple, pick the center
-        mid_idx = len(sorted_qs) // 2
-        median_key = sorted_qs[mid_idx]
-
-    # Prepare plot style for median quantile
-    median_data = data_map[median_key]
-    median_label = label or f"Median Prediction ({int(median_key)}%)"
-
-    # Determine which function to call for the chosen plot_type
-    if plot_type == "scatter":
-        kws = filter_valid_kwargs(ax.scatter, kws)
-        ax.scatter(
-            x_data,
-            median_data,
-            color=color,
-            marker=marker,
-            label=median_label,
-            **kws
-        )
-    elif plot_type == "bar":
-        kws = filter_valid_kwargs(ax.bar, kws)
-        ax.bar(
-            x_data,
-            median_data,
-            color=color,
-            alpha=0.7,
-            label=median_label,
-            **kws
-        )
-    elif plot_type == "step":
-        kws = filter_valid_kwargs(ax.step, kws)
-        ax.step(
-            x_data,
-            median_data,
-            color=color,
-            linewidth=linewidth,
-            label=median_label,
-            **kws
-        )
-    else:  # default to 'line'
-        kws = filter_valid_kwargs(ax.plot, kws)
-        ax.plot(
-            x_data,
-            median_data,
-            color=color,
-            marker=marker,
-            linestyle=linestyle,
-            linewidth=linewidth,
-            label=median_label,
-            **kws
-        )
-
-    # Apply axis labels and title
-    ax.set_xlabel(params['xlabel'])
-    ax.set_ylabel(params['ylabel'])
-    ax.set_title(params['title'])
-
-    # Display the plot
-    plt.xticks(rotation=rotation or 0.)
-    # Toggle grid
-    if show_grid:
-        ax.grid(True, **(grid_props or dict(linestyle=':', alpha=0.7)))
-
-    # Toggle legend
-    if show_legend:
-        ax.legend()
-
-    # Display the plot
-    plt.show()

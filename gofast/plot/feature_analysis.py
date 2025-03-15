@@ -74,7 +74,7 @@ def plot_feature_importances(
     models=None,          
     precomputed=True,
     mode='indiv',         
-    plot_type="bar",      
+    kind="bar",      
     orient='h',           
     cmap=None,            
     normalize=True,
@@ -145,7 +145,7 @@ def plot_feature_importances(
         Other plot types in merge mode might revert
         automatically to ``'indiv'``.
 
-    plot_type : {'bar', 'line', 'donut', 'radar'}, default='bar'
+    kind : {'bar', 'line', 'donut', 'radar'}, default='bar'
         The style of plot. A bar chart is typical for
         importance, but line, donut, or radar charts
         are also possible.
@@ -251,7 +251,7 @@ def plot_feature_importances(
     ...     importance_df,
     ...     precomputed=True,
     ...     mode='indiv',
-    ...     plot_type='bar'
+    ...     kind='bar'
     ... )
 
     >>> # If not precomputed, pass raw data and a model
@@ -298,9 +298,9 @@ def plot_feature_importances(
     n_models = len(importance_df.columns)
 
     # Warn if 'merge' mode with unsupported plot types
-    if (mode == 'merge') and (plot_type in ['line', 'donut', 'radar']):
+    if (mode == 'merge') and (kind in ['line', 'donut', 'radar']):
         warnings.warn(
-            f"plot_type '{plot_type}' is not available in merge mode. "
+            f"kind '{kind}' is not available in merge mode. "
             f"Falling back to individual plots."
         )
         mode = 'indiv'
@@ -343,9 +343,9 @@ def plot_feature_importances(
     fig, axes = plt.subplots(
         nrows=nrows, ncols=ncols, 
         figsize=fig_size, 
-        constrained_layout=True if plot_type=='donut' else False, 
+        constrained_layout=True if kind=='donut' else False, 
         )
-    # if plot_type =='donut': 
+    # if kind =='donut': 
     #     plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
 
 
@@ -390,7 +390,7 @@ def plot_feature_importances(
             ax = axes[idx]
             colors = get_colors(len(vals), cmap)
              
-            if plot_type == "bar":
+            if kind == "bar":
                 # Horizontal bar plot
                 if orient=="v":
                     
@@ -398,11 +398,11 @@ def plot_feature_importances(
                 else: 
                     ax.barh(vals.index, vals, color=colors)
 
-            elif plot_type == "line":
+            elif kind == "line":
                 # Line plot with markers
                 ax.plot(vals.index, vals, **line_props)
 
-            elif plot_type == "donut":
+            elif kind == "donut":
                 # Donut chart
                 try:
                     ex = extend_values(
@@ -430,7 +430,7 @@ def plot_feature_importances(
                 ax.add_artist(center_circle)
                 ax.axis('equal')
 
-            elif plot_type == "radar":
+            elif kind == "radar":
                 # Radar chart
                 labels = vals.index.tolist()
                 num_vars = len(labels)
@@ -449,10 +449,10 @@ def plot_feature_importances(
                 ax.set_yticklabels([])
 
             else:
-                raise ValueError(f"Unsupported plot_type: {plot_type}")
+                raise ValueError(f"Unsupported kind: {kind}")
 
             # Title, labels, annotations
-            if plot_type in ["bar", "line"]:
+            if kind in ["bar", "line"]:
                 ax.set_title(f"{col}")
                 
                 if orient=="v":
@@ -479,7 +479,7 @@ def plot_feature_importances(
                     
                 if annot:
                     max_val = vals.max()
-                    if plot_type == "bar":
+                    if kind == "bar":
                         if orient=="v": 
                             # Annotate each horizontal bar at (i, val)
                             for i, val in enumerate(vals):
@@ -504,7 +504,7 @@ def plot_feature_importances(
                                     )
                                 
     
-                    elif plot_type == "line":
+                    elif kind == "line":
                         for i, val in enumerate(vals):
                             lbl_val = f"{val:{fmt}}"
                             if in_percent:
@@ -528,7 +528,7 @@ def plot_feature_importances(
         
         # Merge mode => grouped bar chart
         ax = axes[0]
-        if plot_type == "bar":
+        if kind == "bar":
             x = np.arange(len(importance_df.index))
             total_width = 0.8
             width = total_width / n_models
@@ -612,7 +612,7 @@ def plot_feature_importances(
                 ax.set_yticklabels(vals.index)
         
         else:
-            raise ValueError(f"Unsupported merge plot_type: {plot_type}")
+            raise ValueError(f"Unsupported merge kind: {kind}")
         
         ax.set_title(title if title else "Feature Importances")
         
@@ -640,7 +640,7 @@ def plot_feature_importances(
         else:
             ax.grid(False)
 
-    if plot_type !='donut': 
+    if kind !='donut': 
         plt.tight_layout()
     plt.show()
 

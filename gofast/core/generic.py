@@ -7,12 +7,13 @@ Provides common helper functions and for validation,
 comparison, and other generic operations
 """
 import warnings
-from typing import Union 
+from typing import Union
 import numpy as np 
 import pandas as pd 
 
 __all__ =['verify_identical_items', 'vlog', 'detect_dt_format',
           'get_actual_column_name', 'transform_contributions']
+
 
 def verify_identical_items(
     list1, 

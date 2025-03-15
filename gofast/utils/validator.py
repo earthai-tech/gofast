@@ -11,7 +11,7 @@ ensuring proper data types, and handling various validation scenarios.
 """
 
 from functools import wraps
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, Tuple, List, Literal
 from collections.abc import Iterable
 import re
 import inspect 
@@ -24,6 +24,7 @@ from datetime import datetime
 from contextlib import suppress
 
 import numpy as np
+from numpy.typing import ArrayLike
 import pandas as pd
 from numpy.core.numeric import ComplexWarning  
 import scipy.sparse as sp
@@ -77,6 +78,7 @@ __all__=[
      'is_valid_policies',
      'normalize_array',
      'parameter_validator',
+     'process_y_pairs', 
      'to_dtype_str',
      'validate_and_adjust_ranges',
      'validate_batch_size', 
@@ -103,6 +105,179 @@ __all__=[
      'validate_yy'
  ]
  
+
+def process_y_pairs(
+    *ys: 'ArrayLike',
+    error: Literal["raise", "warn", "ignore"] = "warn",
+    solo_return: bool = False,
+    ops: Literal["check_only", "validate"] = "check_only"
+) -> Union[
+    Tuple['ArrayLike', 'ArrayLike'],
+    Tuple[List['ArrayLike'], List['ArrayLike']]
+]:
+    r"""
+    Process and validate paired arrays of ground truth (``y_true``) and 
+    predicted values (``y_pred``) for machine learning evaluation.
+
+    Parameters
+    ----------
+    *ys : ArrayLike
+        Variable-length sequence of array-likes containing alternating 
+        (``y_true``, ``y_pred``) pairs. Must contain even number of inputs.
+    error : {'raise', 'warn', 'ignore'}, default='warn'
+        Handling strategy for validation errors:
+        - ``'raise'``: Immediately raise ValueError
+        - ``'warn'``: Issue UserWarning but continue processing
+        - ``'ignore'``: Silently skip invalid pairs
+    solo_return : bool, default=False
+        When processing single pair, return as individual arrays instead of 
+        length-1 lists.
+    ops : {'check_only', 'validate'}, default='check_only'
+        Processing mode:
+        - ``'check_only'``: Verify pair lengths without modification
+        - ``'validate'``: Clean data (remove NaNs) and validate dtypes
+
+    Returns
+    -------
+    Tuple[List[ArrayLike], List[ArrayLike]] or Tuple[ArrayLike, ArrayLike]
+        Processed pairs as (``y_trues``, ``y_preds``) tuple. Return type 
+        depends on ``solo_return`` and number of valid pairs.
+
+    Raises
+    ------
+    ValueError
+        - If input count is odd and ``error='raise'``
+        - Length mismatch in pairs when ``error='raise'``
+        - Invalid ``error`` or ``ops`` values
+
+    UserWarning
+        - When odd input count and ``error='warn'``
+        - Length mismatches when ``error='warn'``
+
+    Examples
+    --------
+    Basic usage with valid pairs:
+
+    >>> from gofast.utils.validator  import process_y_pairs
+    >>> y_true1 = [1.2, 2.3, 3.4]
+    >>> y_pred1 = [1.1, 2.4, 3.3]
+    >>> y_true2 = [4.5, 5.6]
+    >>> y_pred2 = [4.4, 5.7]
+    >>> process_y_pairs(y_true1, y_pred1, y_true2, y_pred2)
+    ([[1.2, 2.3, 3.4], [4.5, 5.6]], [[1.1, 2.4, 3.3], [4.4, 5.7]])
+
+    Handling mismatched pair with warnings:
+
+    >>> y_bad = [1, 2, 3]
+    >>> p_bad = [1, 2]
+    >>> process_y_pairs(y_bad, p_bad, error='warn')  # doctest: +SKIP
+    UserWarning: Length mismatch in pair 0: 3 vs 2
+    ([], [])
+
+    Full validation pipeline:
+
+    >>> import numpy as np
+    >>> y_clean, p_clean = process_y_pairs(
+    ...     [1, np.nan, 3], [np.nan, 2.1, 3.2],
+    ...     ops='validate', solo_return=True
+    ... )
+    >>> y_clean
+    array([3.])
+    >>> p_clean
+    array([3.2])
+
+    Notes
+    -----
+    Ensures input pairs meet requirements for downstream analysis through:
+    
+    .. math::
+        \forall i \in \{0,2,4,...\},\ (y_{true}^i, y_{pred}^i) \rightarrow 
+        (\tilde{y}_{true}^i, \tilde{y}_{true}^i)\ \text{where}
+        
+        \text{len}(\tilde{y}_{true}^i) = \text{len}(\tilde{y}_{pred}^i)
+        
+        \text{and}\ \tilde{y}_{true}^i \in \mathbb{R}^{n},\ 
+        \tilde{y}_{pred}^i \in \mathbb{R}^{n}
+        
+    1. Uses ``drop_nan_in`` for NaN removal and index resetting during 
+       validation
+    2. Applies ``validate_yy`` for dtype consistency checks and array 
+       flattening
+    3. Forward references for ``ArrayLike`` allow flexibility - accepts any 
+       array-like structure (list, numpy array, pandas Series, etc.)
+
+    See Also
+    --------
+    drop_nan_in : Core NaN removal and index resetting function
+    validate_yy : Array validation and dtype consistency checker
+    sklearn.utils.check_consistent_length : Scikit-learn's length validation
+
+    References
+    ----------
+    .. [1] Van Rossum, G. & Drake, F.L. Python Reference Manual. 
+       Amsterdam: CWI (2001)
+    .. [2] Harris, C.R. et al. Array programming with NumPy. Nature 585, 
+       357-362 (2020)
+    """
+    from ..core.array_manager import drop_nan_in 
+    # Validate error handling mode using direct string comparison for 
+    # performance
+    if error not in ("raise", "warn", "ignore"):
+        raise ValueError(
+            f"Invalid error mode '{error}'. Valid options: 'raise', "
+            "'warn', 'ignore'")
+
+    # Check pair parity using bitwise AND for efficient even/odd check
+    if len(ys) % 2 != 0:
+        msg = (f"Received {len(ys)} array-likes - requires even count for "
+               "paired processing")
+        if error == "raise":
+            raise ValueError(msg)
+        elif error == "warn":
+            warnings.warn(msg + ". Truncating to last even pair.", 
+                        UserWarning)
+        ys = ys[:len(ys)//2 * 2]  # Floor division for index calculation
+
+    y_trues, y_preds = [], []
+    for i in range(0, len(ys), 2):  # Process pairs in steps of 2
+        y_true, y_pred = ys[i], ys[i+1]
+
+        if ops == "validate":
+            # Simultaneous NaN removal with index alignment
+            y_true, y_pred = drop_nan_in(y_true, y_pred, error=error)
+            
+            # Type validation and array conversion
+            y_true, y_pred = validate_yy(
+                y_true, y_pred, 
+                expected_type="continuous",
+                flatten="auto"
+            )
+        elif ops == "check_only":
+            # Length check using exception-free comparison
+            if len(y_true) != len(y_pred):
+                msg = (f"Pair {i//2} length mismatch: "
+                       f"{len(y_true)} vs {len(y_pred)}")
+                if error == "raise":
+                    raise ValueError(msg)
+                elif error == "warn":
+                    warnings.warn(msg, UserWarning)
+        else:  # Guard against invalid ops values
+            raise ValueError(f"Invalid operation mode '{ops}'. "
+                             "Choose 'check_only' or 'validate'.")
+           
+        y_trues.append(y_true)
+        y_preds.append(y_pred)
+
+    # Return type handling using boolean short-circuiting
+    # # Extract y_trues and y_preds from processed_pairs
+    # y_trues, y_preds = map(list, zip(*processed_pairs))
+    
+    return (
+        (y_trues[0], y_preds[0]) 
+        if (solo_return and len(y_trues) == 1)
+        else (y_trues, y_preds)
+    )
+
 def check_donut_inputs(
     values=None,
     data=None,

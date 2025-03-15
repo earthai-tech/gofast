@@ -82,23 +82,30 @@ from .ml_viz import (
     plot_residuals_vs_fitted, 
     plot_residuals_vs_leverage, 
     plot_r2, 
+    plot_r2_in, 
     plot_cm, 
     taylor_diagram, 
 
  )
+from .q import ( 
+    plot_qbased_preds,
+    plot_quantile_distributions, 
+    plot_qdist, 
+)
 from .utils import ( 
     boxplot, 
     plot_r_squared, 
     plot_text, 
 ) 
+from .spatial import ( 
+    plot_categorical_feature,
+    plot_dist,
+    plot_spatial_distribution,
+    plot_spatial_features
+)
 from .suite import (
-    plot_spatial_features, 
-    plot_categorical_feature, 
     plot_sensitivity, 
-    plot_spatial_distribution, 
     plot_distributions, 
-    plot_dist, 
-    plot_quantile_distributions, 
     plot_uncertainty, 
     plot_prediction_intervals, 
     plot_temporal_trends, 
@@ -107,10 +114,8 @@ from .suite import (
     plot_factory_ops, 
     plot_ranking, 
     plot_coverage, 
-    plot_qdist, 
     plot_with_uncertainty, 
-    plot_qbased_preds
-    )
+)
 
 __all__= [
     "config", 
@@ -191,6 +196,7 @@ __all__= [
     'plot_residuals_vs_leverage', 
     'plot_residuals_vs_fitted', 
     'plot_r2', 
+    'plot_r2_in', 
     'plot_cm', 
     'taylor_diagram', 
     

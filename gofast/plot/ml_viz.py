@@ -44,13 +44,14 @@ from ..core.array_manager import drop_nan_in, to_arrays
 from ..core.checks import is_iterable, check_params 
 from ..core.handlers import param_deprecated_message, columns_manager 
 from ..core.utils import make_obj_consistent_if
-from ..core.plot_manager import default_params_plot 
+from ..core.plot_manager import default_params_plot, return_fig_or_ax 
 from ..metrics import get_scorer 
 from ..utils.deps_utils import ensure_pkg 
 from ..utils.mathext import get_preds, minmax_scaler 
-from ..utils.validator import _is_cross_validated, validate_yy#, validate_keras_model
+from ..utils.validator import _is_cross_validated, validate_yy
 from ..utils.validator import assert_xy_in, get_estimator_name, check_is_fitted
 from ..utils.validator import check_consistent_length, contains_nested_objects 
+from ..utils.validator import process_y_pairs
 from ..utils.validator import validate_length_range, build_data_if 
 from ._config import PlotConfig 
 from ._d_cms import TDG_DIRECTIONS 
@@ -75,12 +76,14 @@ __all__= [
     'plot_residuals_vs_leverage', 
     'plot_residuals_vs_fitted', 
     'plot_r2', 
+    'plot_r2_in', 
     'plot_cm', 
     'taylor_diagram', 
     'plot_roc', 
     'plot_residuals'
     ]
 
+@return_fig_or_ax (return_type='ax')
 @default_params_plot(
     savefig =PlotConfig.AUTOSAVE('my_taylor_diagram_plot_rad.png'),
     dpi=300, 
@@ -937,7 +940,7 @@ def plot_taylor_diagram_in(
 @validate_params ({
     'reference': ['array-like'], 
     'names': [str, 'array-like', None ], 
-    'kind': [StrOptions({'default', 'half_circle'})], 
+    'acov': [StrOptions({'default', 'half_circle'})], 
     'zero_location': [StrOptions({'N','NE','E','S','SW','W','NW', 'SE'})], 
     'direction': [Integral]
     })
@@ -2532,7 +2535,7 @@ def plot_shap_summary(
     shap_values=None,         
     model=None,               
     columns: Optional[list] = None,  
-    plot_type: str = 'dot',
+    kind: str = 'dot',
     max_display: int = None,
     cbar: bool = True,
     # show: bool = False,
@@ -2603,7 +2606,7 @@ def plot_shap_summary(
         This overrides the default columns from the DataFrame.
         Only relevant if ``X`` is given.
 
-    plot_type : {'dot', 'violin', 'bar', 'compact_dot'}, \
+    kind : {'dot', 'violin', 'bar', 'compact_dot'}, \
                 default='dot'
         The type of summary plot to display. For single-output
         models, typical options include ``'dot'``, ``'violin'``,
@@ -2646,7 +2649,7 @@ def plot_shap_summary(
     layered_violin_max_num_bins : int, default=20
         Maximum number of bins used in the layered violin
         plot. This parameter only applies when 
-        ``plot_type='violin'`` and the layered style is used.
+        ``kind='violin'`` and the layered style is used.
 
     class_names : list, optional
         Names for the output classes in a multi-output or 
@@ -2714,11 +2717,11 @@ def plot_shap_summary(
     >>> X_data, y = make_classification(
     ... n_features=5, random_state=42, return_X_y=True)
     >>> model = RandomForestClassifier().fit(X_data, y) # Any fitted model
-    >>> plot_shap_summary(X_data, model=model, plot_type='violin')
+    >>> plot_shap_summary(X_data, model=model, kind='violin')
  
     >>> 
     >>> # Directly compute SHAP values by providing a model:
-    >>> plot_shap_summary(X=X_data, model=model, plot_type='dot')
+    >>> plot_shap_summary(X=X_data, model=model, kind='dot')
     >>> 
     >>> # Or if SHAP values are precomputed:
     >>> # shap_vals = shap.Explainer(model, X_data)(X_data)
@@ -2828,7 +2831,7 @@ def plot_shap_summary(
     shap.summary_plot(
         shap_values=shap_sorted,
         features=data_sorted,
-        plot_type=plot_type,
+        kind=kind,
         max_display=max_display,
         color_bar=cbar,
         feature_names=feature_names_sorted,
@@ -2866,6 +2869,7 @@ def plot_shap_summary(
     
     plt.show()
     
+@return_fig_or_ax(return_type="ax")
 @ensure_pkg ( 
     "yellowbrick", extra = (
     "The 'yellowbrick' package is required to plot the confusion matrix. "
@@ -3011,8 +3015,7 @@ def plot_confusion_matrix_in(
 
     plt.close () if savefig is not None else plt.show() 
     
-    return cmo 
-
+    return ax 
 
 def plot_cm(
     y_true: np.ndarray,
@@ -3396,7 +3399,348 @@ def plot_cm(
     # 12) Return the figure object so user 
     #     can save or manipulate further if desired.
     return fig
+   
+@return_fig_or_ax
+def plot_r2_in(
+    *ys: ArrayLike,
+    titles: Optional[List[str]] = None,
+    xlabel: Optional[str] = None,
+    ylabel: Optional[str] = None,
+    fig_size: Optional[Tuple[int, int]] = None,
+    scatter_colors: Optional[List[str]] = None,
+    line_colors: Optional[List[str]] = None,
+    line_styles: Optional[List[str]] = None,
+    other_metrics: Optional[List[str]] = None,
+    annotate: bool = True,
+    show_grid: bool = True,
+    grid_props: Dict[str, Any]=None, 
+    max_cols: int = 3,
+    fit_eq: bool = True,
+    fit_line_color: str = 'k',
+    **r2_score_kws: Any
+) -> plt.Figure:
+    r""" 
+    Plot R² diagnostics for multiple (``y_true``, ``y_pred``) pairs with 
+    advanced annotations.
+    
+    This function creates a grid of scatter plots comparing actual vs predicted 
+    values across multiple datasets. Each subplot displays:
+    
+    1. Scatter plot of ``y_true`` vs ``y_pred``
+    2. Perfect fit line (``y = x``)
+    3. Linear regression fit (optional)
+    4. Annotated metrics (R², RMSE, MAE, etc.)
+    
+    Parameters
+    ----------
+    *ys : ArrayLike
+        Alternating sequence of (``y_true``, ``y_pred``) pairs. Requires even 
+        number of inputs. Processed through ``process_y_pairs`` for validation 
+        and NaN removal.
+    titles : list of str, optional
+        Subplot titles corresponding to each pair. Length should match number 
+        of pairs. Default generates "Pair 1", "Pair 2", etc.
+    xlabel : str, optional
+        X-axis label for all subplots. Default: ``'Actual Values'``.
+    ylabel : str, optional
+        Y-axis label for all subplots. Default: ``'Predicted Values'``.
+    fig_size : tuple of (int, int), optional
+        Figure dimensions in inches. Auto-calculated based on grid dimensions 
+        if ``None``.
+    scatter_colors : list of str, optional
+        Colors for scatter points in each subplot. Cycles last color if 
+        insufficient colors provided.
+    line_colors : list of str, optional
+        Colors for perfect fit lines. Default: ``['red'] * n_pairs``.
+    line_styles : list of str, optional
+        Linestyles for perfect fit lines. Default: ``['--'] * n_pairs``.
+    other_metrics : list of str, optional
+        Additional metrics to display. Valid options: ``'rmse'``, ``'mae'``, or 
+        any scikit-learn scorer name.
+    annotate : bool, default=True
+        Whether to display metrics annotations on subplots.
+    show_grid : bool, default=True
+        Toggle grid display in subplots.
+    max_cols : int, default=3
+        Maximum columns in subplot grid. Rows auto-adjusted accordingly.
+    fit_eq : bool, default=True
+        Display linear regression equation for each pair.
+    fit_line_color : str, default='k'
+        Color for regression line when ``line_eq=True``.
+    **r2_score_kws : dict
+        Additional arguments for ``sklearn.metrics.r2_score`` calculation.
+    
+    Returns
+    -------
+    plt.Figure
+        Matplotlib figure object containing all subplots.
+    
+    Raises
+    ------
+    ValueError
+        - If processed pairs return empty after validation
+        - Invalid color/list length mismatches with warnings suppressed
+    
+    Examples
+    --------
+    Basic usage with synthetic data:
+    
+    >>> from gofast.plot.ml_viz import plot_r2_in
+    >>> import numpy as np
+    >>> y_true = np.random.rand(100)
+    >>> y_pred1 = y_true + np.random.normal(0, 0.1, 100)
+    >>> y_pred2 = y_true * 1.1 + np.random.normal(0, 0.2, 100)
+    >>> fig = plot_r2_in(
+    ...     y_true, y_pred1, y_true, y_pred2,
+    ...     titles=['Model A', 'Model B'],
+    ...     other_metrics=['rmse', 'mae'],
+    ...     fit_line_color='navy'
+    ... )
+    >>> fig.savefig('model_comparison.png')
+    
+    Advanced validation scenario:
+    
+    >>> from sklearn.datasets import make_regression
+    >>> X, y = make_regression(n_samples=200, noise=10)
+    >>> train_X, test_X = X[:150], X[150:]
+    >>> train_y, test_y = y[:150], y[150:]
+    >>> # Simulate two different models
+    >>> preds1 = train_X.dot(np.random.randn(train_X.shape[1]))
+    >>> preds2 = test_X.dot(np.random.randn(test_X.shape[1]) * 0.8
+    >>> plot_r2_in(
+    ...     train_y, preds1, test_y, preds2,
+    ...     ops='validate',  # Enable data cleaning
+    ...     fit_eq=False    # Disable regression lines
+    ... )
+    
+    Notes
+    -----
+    1. Underlying data validation uses:
+       - ``process_y_pairs`` for pair alignment and NaN handling
+       - ``r2_score`` for coefficient calculation [1]_
+    2. Regression lines use NumPy's polyfit with degree=1
+    3. For large datasets (>10⁴ points), consider setting ``annotate=False``
+       for better rendering performance
+       
+    .. math::
+        R^2 = 1 - \frac{\sum_{i}(y_i - \hat{y}_i)^2}{\sum_{i}(y_i - \bar{y})^2}
+        
+        \text{MAE} = \frac{1}{n}\sum_{i=1}^n |y_i - \hat{y}_i|
+        
+        \text{RMSE} = \sqrt{\frac{1}{n}\sum_{i=1}^n (y_i - \hat{y}_i)^2}
+    
+    See Also
+    --------
+    process_y_pairs : Core validation and pairing utility
+    plot_residuals : Diagnostic plots for regression residuals
+    sklearn.metrics.r2_score : Scikit-learn's R² implementation
+    
+    References
+    ----------
+    .. [1] Pedregosa et al. Scikit-learn: Machine Learning in Python. JMLR 12, 
+       pp. 2825-2830, 2011.
+    .. [2] Hunter, J. D. Matplotlib: A 2D Graphics Environment. Computing in 
+       Science & Engineering 9.3 (2007): 90-95.
+    """
+    # Validate input lengths
+    y_trues, y_preds = process_y_pairs(
+        *ys, 
+        ops="validate", 
+        error='warn', 
+        
+        )
+    if len(y_trues) == 0 or len(y_trues)==0:
+        raise ValueError("No valid data pairs to plot.")
+        
+    # Determine how many pairs of (y_true, y_pred) to plot
+    n_pairs = min(len(y_trues), len(y_preds))
 
+    # Prepare subplots arrangement based on max_cols
+    ncols = min(max_cols, n_pairs) if n_pairs > 0 else 1
+    nrows = int(np.ceil(n_pairs / ncols)) if n_pairs > 0 else 1
+
+    # Convert titles to a list if provided
+    if titles is not None:
+        # Ensure it's iterable if not already
+        titles = is_iterable(
+            titles, exclude_string=True, 
+            transform=True
+            )
+
+    # Build default scatter colors if needed
+    if scatter_colors is None:
+        scatter_colors = ['blue'] * n_pairs
+    else:
+        # Ensure scatter_colors is at 
+        # least as long as the number of pairs
+        scatter_colors = is_iterable(
+            scatter_colors, exclude_string=True, 
+            transform=True
+            )
+        if len(scatter_colors) < n_pairs:
+            scatter_colors += [scatter_colors[-1]] * (
+                n_pairs - len(scatter_colors))
+
+    # Build default line colors if needed
+    if line_colors is None:
+        line_colors = ['red'] * n_pairs
+    else:
+        line_colors = is_iterable(
+            line_colors, 
+            exclude_string=True, 
+            transform=True
+            )
+        if len(line_colors) < n_pairs:
+            line_colors += [line_colors[-1]] * (
+                n_pairs - len(line_colors))
+
+    # Build default line styles if needed
+    if line_styles is None:
+        line_styles = ['--'] * n_pairs
+    else:
+        line_styles = is_iterable(
+            line_styles, exclude_string=True, 
+            transform=True
+            )
+        if len(line_styles) < n_pairs:
+            line_styles += [line_styles[-1]] * (
+                n_pairs - len(line_styles))
+
+    # Determine figure size if none given
+    if fig_size is None:
+        base_width = 5
+        base_height = 4
+        fig_width = base_width * ncols
+        fig_height = base_height * nrows
+        fig_size = (fig_width, fig_height)
+
+    # Create subplots
+    fig, axes = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=fig_size,
+        squeeze=False
+    )
+    axes_flat = axes.flatten()
+
+    # Initialize empty lists for metrics
+    metrics_values = []
+    valid_metrics = []
+
+    for idx in range(n_pairs):
+        # Access the current y_true and y_pred
+        y_true = y_trues[idx]
+        y_pred = y_preds[idx]
+
+        # Current axis
+        ax = axes_flat[idx]
+
+        # Compute r2
+        r_squared = r2_score(y_true, y_pred, **r2_score_kws)
+
+        # Compute other metrics if requested
+        if other_metrics is not None:
+            for metric in other_metrics:
+                try:
+                    value = get_scorer(metric)(y_true, y_pred)
+                except Exception as e:
+                    warnings.warn(str(e))
+                    continue
+                metrics_values.append(value)
+                valid_metrics.append(metric)
+
+        # Scatter plot
+        ax.scatter(y_true, y_pred, color=scatter_colors[idx],
+                   label='Predictions vs Actual data')
+
+        # Draw the perfect fit line
+        perfect_min = min(y_true.min(), y_pred.min())
+        perfect_max = max(y_true.max(), y_pred.max())
+        perfect_line = [perfect_min, perfect_max]
+        ax.plot(perfect_line, perfect_line,
+                color=line_colors[idx],
+                linestyle=line_styles[idx],
+                label='Perfect fit')
+
+
+        # Annotate R^2 and other metrics if needed
+        i_m=0
+        if annotate:
+            ax.text(0.95, 0.05,
+                    f'$R^2 = {r_squared:.2f}$',
+                    fontsize=12,
+                    ha='right',
+                    va='bottom',
+                    transform=ax.transAxes)
+            if other_metrics and valid_metrics:
+                for i_m, metric in enumerate(valid_metrics):
+                    ax.text(0.95, 0.05 + (i_m + 1) * 0.1,
+                            f'${metric} = {metrics_values[i_m]:.2f}$',
+                            transform=ax.transAxes,
+                            fontsize=12,
+                            va='bottom',
+                            ha='right',
+                            color='black')
+                # Reset metrics for next subplot
+                metrics_values = []
+                valid_metrics = []
+                
+        # Optionally compute and annotate the best-fit line equation
+        if fit_eq:
+            # Perform a linear fit
+            slope, intercept = np.polyfit(y_true, y_pred, 1)
+            # Plot it (optional line style - reusing line_colors)
+            ax.plot([perfect_min, perfect_max],
+                    [slope*perfect_min + intercept,
+                     slope*perfect_max + intercept],
+                    color=fit_line_color,
+                    label='Fitted line'
+                    )
+            # Add text with line equation
+            eq_str = f'$y = {slope:.4f}x + {intercept:.4f}$'
+            ax.text(0.95, 0.05  + (i_m + 2) * 0.1, 
+                    eq_str,
+                    transform=ax.transAxes,
+                    fontsize=12,
+                    va='bottom', #'top',
+                    ha='right', # 'left',
+                    color=fit_line_color
+                )
+            
+        # Apply axis labels
+        ax.set_xlabel(xlabel or 'Actual Values')
+        ax.set_ylabel(ylabel or 'Predicted Values')
+
+        # Subplot title if any
+        try:
+            sub_title = titles[idx] if titles else f"Pair {idx+1}"
+            ax.set_title(sub_title)
+        except:
+            ax.set_title(f"Pair {idx+1}")
+
+        # Grid if requested
+        if show_grid: 
+            ax.grid(
+                True , **(grid_props or {'linestyle':':', 'alpha': 0.7}))
+        else: 
+            ax.grid(False) 
+
+        # Legend
+        ax.legend(loc='upper left')
+
+    # Hide unused subplots, if any
+    for idx_unused in range(n_pairs, len(axes_flat)):
+        axes_flat[idx_unused].axis('off')
+
+    # Adjust layout
+    fig.tight_layout()
+
+    # Show and return
+    plt.show()
+    
+    return fig
+
+@return_fig_or_ax
 def plot_r2(
     y_true: ArrayLike, 
     *y_preds: ArrayLike, 
@@ -3410,6 +3754,7 @@ def plot_r2(
     other_metrics: List[str]=None, 
     annotate: bool = True, 
     show_grid: bool = True, 
+    grid_props: Dict[str, Any]=None, 
     max_cols: int = 3,
     **r2_score_kws: Any
 ) -> plt.Figure:
@@ -3712,6 +4057,12 @@ def plot_r2(
             # when title is less than numberpred 
             ax.set_title('Prediction {idx + 1}')
         
+        if show_grid: 
+            ax.grid(
+                True , **(grid_props or {'linestyle':':', 'alpha': 0.7}))
+        else: 
+            ax.grid(False) 
+            
         # Enable grid lines if requested
         ax.grid(show_grid)
         
@@ -3732,10 +4083,9 @@ def plot_r2(
     
     # Return the figure object 
     # for further manipulation if needed
-    return fig
+    return fig 
 
-
-
+@return_fig_or_ax
 @param_deprecated_message(
     conditions_params_mappings=[
         {
@@ -3872,7 +4222,7 @@ def plot_confusion_matrices (
         
     plt.close () if savefig is not None else plt.show() 
     
-
+@return_fig_or_ax (return_type='ax')
 def plot_confusion_matrix(
     y_true: Union[ArrayLike, Series],
     y_pred: Union[ArrayLike, Series],
@@ -4010,9 +4360,8 @@ def plot_confusion_matrix(
     ax.set_ylabel(ylabel or 'Predicted Labels')
     ax.set_title(title or 'Confusion Matrix')
     plt.show()
-
-    return mat
-
+    
+@return_fig_or_ax(return_type ='ax')
 def plot_actual_vs_predicted(
     y_true: ArrayLike, 
     y_pred: ArrayLike, 
@@ -4207,6 +4556,7 @@ def plot_actual_vs_predicted(
 
     return ax
 
+@return_fig_or_ax (return_type='ax')
 def plot_regression_diagnostics(
     x: ArrayLike,
     *ys: List[ArrayLike],
@@ -4817,7 +5167,7 @@ def plot_roc(
     )
 @validate_params ({ 
     'y_true': ['array-like'], 
-    'plot_type': [StrOptions({'scatter', 'hist', 'qq'})]
+    'kind': [StrOptions({'scatter', 'hist', 'qq'})]
     })
 @check_params({
         "names": Optional[Union [str, List[str]]], 
@@ -4835,7 +5185,7 @@ def plot_residuals(
     y_true,
     *y_preds,
     names=None,
-    plot_type='scatter',
+    kind='scatter',
     bins=30,
     smooth=False,
     zero_line=True,
@@ -4872,7 +5222,7 @@ def plot_residuals(
         Model identifiers. Generates ``'Model_1'``, ``'Model_2'``, etc.,
         if not provided. Length extended to match number of predictions.
         
-    plot_type : {'scatter', 'hist', 'qq'}, default='scatter'
+    kind : {'scatter', 'hist', 'qq'}, default='scatter'
         Diagnostic visualization type:
             - ``'scatter'``: Residuals vs predicted values (checks 
               homoscedasticity)
@@ -4917,7 +5267,7 @@ def plot_residuals(
     >>> import numpy as np
     >>> y_true = np.random.normal(0, 1, 100)
     >>> y_pred = y_true + np.random.normal(0, 0.2, 100)
-    >>> plot_residuals(y_true, y_pred, plot_type='qq',
+    >>> plot_residuals(y_true, y_pred, kind='qq',
     ...                title='Normality Check')
 
     Notes
@@ -4984,7 +5334,7 @@ def plot_residuals(
     ]
 
     # Visualization logic
-    if plot_type == 'scatter':
+    if kind == 'scatter':
         for resid, name, color in zip(residuals_list, names, colors):
             if resid.ndim > 1:
                 resid = resid.flatten()
@@ -5001,7 +5351,7 @@ def plot_residuals(
         plt.xlabel('Predicted Values')
         plt.ylabel('Residuals')
         
-    elif plot_type == 'hist':
+    elif kind == 'hist':
         for resid, name, color in zip(residuals_list, names, colors):
             if resid.ndim > 1:
                 resid = resid.flatten()
@@ -5011,7 +5361,7 @@ def plot_residuals(
         plt.xlabel('Residuals')
         plt.ylabel('Density')
         
-    elif plot_type == 'qq':
+    elif kind == 'qq':
         for resid, name, color in zip(residuals_list, names, colors):
             probplot(
                resid, 
@@ -5027,14 +5377,14 @@ def plot_residuals(
         plt.title('Q-Q Plot vs Normal Distribution')
 
     # Zero reference line
-    if zero_line and plot_type != 'qq':
+    if zero_line and kind != 'qq':
         plt.axhline(0, color='black', linestyle='--', 
                    linewidth=1, alpha=0.7)
         
     # Final formatting
     if title:
         plt.title(title)
-    if plot_type != 'qq':
+    if kind != 'qq':
         plt.legend()
         
     plt.grid(show_grid)

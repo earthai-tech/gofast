@@ -14,6 +14,8 @@ import inspect
 from functools import wraps 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.figure import Figure
+from matplotlib.axes import Axes
 
 from ..compat.scipy import ensure_scipy_compatibility
 
@@ -31,6 +33,154 @@ __all__=[
     ]
 
 
+def return_fig_or_ax(func=None, *, return_type='fig'):
+    """A decorator factory to standardize return types
+    of plot functions.
+
+    This decorator enables flexible control over whether 
+    matplotlib Figure or Axes objects are returned from 
+    plotting functions, ensuring API consistency across 
+    visualization utilities.
+    
+    Parameters
+    ----------
+    func : callable, optional
+        Target function to decorate. Automatically passed 
+        when decorator is used without parentheses.
+    return_type : {'fig', 'ax'}, default='fig'
+        Specifies return object type. 'fig' returns Figure 
+        instances, 'ax' returns 
+        Axes instances.
+    
+    Returns
+    -------
+    callable
+        Decorated function returning Figure/Axes per 
+        ``return_type`` specification.
+    
+    Raises
+    ------
+    ValueError
+        If invalid ``return_type`` is specified.
+    
+    Notes
+    -------
+    Given a plotting function :math:`f: X \\rightarrow Y`, 
+    the decorator performs:
+    
+    .. math::
+        \\mathcal{D}(f) = \\begin{cases}
+        \\text{Figure} & \\text{if } \\mathtt{return\\_type} = \\text{'fig'} \\\\
+        \\text{Axes} & \\text{if } \\mathtt{return\\_type} = \\text{'ax'}
+        \\end{cases}
+    
+    where :math:`\\mathcal{D}` applies transformation logic
+    based on function output and matplotlib context.
+    
+    1. Functions returning neither Figure nor Axes will 
+       trigger implicit current Figure/Axes detection via `
+       `plt.gcf()`` and ``plt.gca()``.
+    2. For Figure instances without Axes, falls back to 
+       current Axes when ``return_type='ax'``.
+    3. Prioritizes objects in return order for iterable outputs.
+    
+    Examples
+    --------
+    Basic usage without parameters:
+    
+    >>> from gofast.plot.core.plot_manager import return_fig_or_ax
+    >>> @return_fig_or_ax
+    ... def plot_data(data):
+    ...     fig, ax = plt.subplots()
+    ...     ax.plot(data)
+    ...     return fig
+    
+    Explicit return type specification:
+    
+    >>> @return_fig_or_ax(return_type='ax')
+    ... def scatter_plot(data):
+    ...     _, ax = plt.subplots()
+    ...     ax.scatter(data[:,0], data[:,1])
+    ...     return ax
+    
+    Handling functions returning iterables:
+    
+    >>> @return_fig_or_ax(return_type='fig')
+    ... def multi_plot():
+    ...     fig, (ax1, ax2) = plt.subplots(ncols=2)
+    ...     return fig, ax1, ax2  # Decorator extracts first Figure
+    
+
+    See Also
+    --------
+    matplotlib.figure.Figure : Base Figure class documentation.
+    matplotlib.axes.Axes : Core Axes object documentation.
+    
+    References
+    ----------
+    .. [1] matplotlib Developers, "Matplotlib: Visualization with Python", 
+       https://matplotlib.org/stable/contents.html
+    """
+
+    valid_return_types = {'fig', 'ax'}
+    if return_type not in valid_return_types:
+       warnings.warn(f"return_type must be 'fig' or 'ax', got {return_type}."
+                     " Fallback to 'fig'.")
+       return_type ='fig' 
+       
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            result = func(*args, **kwargs)
+
+            fig, ax = None, None
+
+            # Check if result is a Figure or Axes
+            if isinstance(result, Figure):
+                fig = result
+            elif isinstance(result, Axes):
+                ax = result
+            else:
+                # Check if result is an iterable (e.g., tuple, list)
+                if isinstance(result, (list, tuple)):
+                    for item in result:
+                        if isinstance(item, Figure):
+                            fig = item
+                            break
+                        elif isinstance(item, Axes):
+                            ax = item
+                            break
+
+            # If no fig/ax found in result, get current from plt
+            if fig is None and ax is None:
+                fig = plt.gcf()
+                # Safe check for axes in current figure
+                ax = plt.gca() if fig.axes else None
+
+            # Determine what to return based on return_type
+            if return_type == 'fig':
+                if fig is not None:
+                    return fig
+                else:
+                    return ax.figure if ax is not None else plt.gcf()
+            else:  # return_type == 'ax'
+                if ax is not None:
+                    return ax
+                else:
+                    if fig is not None:
+                        # Prefer existing axes, else fallback to plt.gca()
+                        return fig.axes[0] if fig.axes else plt.gca()
+                    else:
+                        return plt.gca()
+
+        return wrapper
+
+    # Handle decorator with or without parentheses
+    if func is None:
+        return decorator
+    else:
+        return decorator(func)
+    
 def deprecated_params_plot(func):
     """
     Decorator that handles the deprecated parameters
