@@ -6,20 +6,6 @@
 Contains loss functions used in the `gofast-nn` package for neural 
 network models. The loss functions are designed to be compatible with Keras
 and TensorFlow models. 
-
-Importantly, the module checks for required dependencies like Keras backend 
-and ensures that necessary packages are available.
-
-Functions:
-----------
-- quantile_loss: 
-    Implements the Pinball (Quantile) loss for quantile regression tasks.
-
-Dependencies:
-------------
-- KERAS_DEPS: Handles Keras dependency resolution.
-- KERAS_BACKEND: Configures backend setup for Keras.
-
 """
 import warnings 
 from numbers import Real 
@@ -447,7 +433,8 @@ def quantile_loss(q):
            of quantile regression in financial time series forecasting.
            *Applied Financial Economics*, 18(12), 955-967.
     .. [3] Koenker, R. (2005). Quantile Regression. *Cambridge University
-           Press*.
+           Press* 
+            .
     """
     @register_keras_serializable("gofast.nn.losses", name='quantile_loss')
     def _q_loss(y_true, y_pred):

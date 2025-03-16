@@ -30,8 +30,8 @@ if KERAS_BACKEND:
     Layer = KERAS_DEPS.Layer 
     LayerNormalization = KERAS_DEPS.LayerNormalization 
     MultiHeadAttention = KERAS_DEPS.MultiHeadAttention
-    Model = KERAS_DEPS.Model 
-    Input = KERAS_DEPS.Input
+    Model= KERAS_DEPS.Model 
+    Input=KERAS_DEPS.Input
     Concatenate=KERAS_DEPS.Concatenate 
     Tensor=KERAS_DEPS.Tensor
     register_keras_serializable=KERAS_DEPS.register_keras_serializable
