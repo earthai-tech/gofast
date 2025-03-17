@@ -40,7 +40,7 @@ from pandas.api.types import (
 from sklearn.utils._param_validation import (
     Hidden, make_constraint, _Constraint, 
     InvalidParameterError
-    )
+ )
 from ..api.types import Series, _F, DataFrame 
 from ..api.types import _Sub, ArrayLike 
 

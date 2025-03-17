@@ -495,9 +495,7 @@ def compute_importances(
     if not as_frame:
         return final_df.values 
     
-    
     return final_df
-
 
 @validate_params ({ 
     'y_true': ['array-like', None], 
@@ -622,7 +620,6 @@ def get_preds(
     .. [1] D. Wolpert, "Stacked generalization," Neural Networks,
         vol. 5, issue 2, pp. 241-259, 1992.
     """
-
     # If y_preds is provided, convert it to arrays. 
     # Otherwise, we compute predictions using each model in 'models'.
     if y_preds is not None:
