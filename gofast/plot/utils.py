@@ -2199,6 +2199,7 @@ def _manage_plot_kws(
             kws[key] = dkws.get(key)
     return kws
 
+
 def is_colormap(color_name):
     """
     Check if the given color name is a valid Matplotlib colormap.

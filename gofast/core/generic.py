@@ -7,7 +7,7 @@ Provides common helper functions and for validation,
 comparison, and other generic operations
 """
 import warnings
-from typing import Union
+from typing import Union, Optional
 import numpy as np 
 import pandas as pd 
 
@@ -132,66 +132,106 @@ def verify_identical_items(
             return False
         return True if ops == "check_only" else unique1
 
+
 def vlog(
-    message, 
-    verbose=None, 
-    level: int = 3, 
-    depth: Union[int, str] = "auto", 
-    status=None, 
+    message,
+    verbose=None,
+    level: int = 3,
+    depth: Union[int, str] = "auto",
+    mode:Optional[str]=None,
+    vp: bool=True
 ):
     """
-    Logs messages with appropriate indentation based on verbosity level 
-    and depth.
+    Log or naive messages with optional indentation and
+    bracketed tags.
 
-    If `depth` is set to "auto", default indentation is applied according 
-    to the following mapping:
-    
-      - Level 1 (ERROR): depth = 0
-      - Level 2 (WARNING): depth = 2
-      - Level 3 (INFO): depth = 0
-      - Level 4/5 (DEBUG): depth = 2
-      - Level 6/7 (TRACE): depth = 4
+    This function, `vlog`, allows conditional logging
+    or printing of messages based on a global or passed
+    in <parameter inline> `verbose` level. By default,
+    it behaves differently depending on whether
+    ``mode`` is ``'log'`` or ``'naive'``. When
+    :math:`mode = 'log'`, the message is printed only if
+    :math:`\\text{verbose} \\geq \\text{level}`. Otherwise,
+    for :math:`mode` in [``None``, ``'naive'``], the
+    verbosity threshold leads to various bracketed
+    prefixes (e.g. [INFO], [DEBUG], [TRACE]) unless the
+    message already contains such a prefix.
+
+    .. math::
+       \\text{indentation} = 2 \\times \\text{depth}
+
+    where :math:`\\text{depth}` is either manually
+    specified or auto-derived based on `<parameter inline>`
+    `level` (1 = ERROR, 2 = WARNING, 3 = INFO, 4/5 =
+    DEBUG, 6/7 = TRACE).
 
     Parameters
     ----------
-    message   : str
-        The message to log.
+    message : str
+        The text to be printed or logged.
     verbose : int, optional
-        The verbosity level for the function call. If not provided,
-        it falls back to a global `verbose` variable (if defined).
-        Default is `None`.
-    level     : int, optional
-        The verbosity level of the message. Commonly:
-          1 = ERROR, 2 = WARNING, 3 = INFO, 
-          4-5 = DEBUG, 6-7 = TRACE.
-        Default is 3.
-    depth     : int or str, optional
-        The indentation level. If set to "auto", defaults are applied 
-        based on `level`. Otherwise, an integer specifying the number 
-        of indent levels is used. Default is "auto".
-    status : str, optional
-        Specifies if the message should be logged or not based 
-        on the `verbose` level. If the `status` is 'log',
-        the message is logged only if the  verbosity level is greater 
-        than or equal to the specified `level`. Default is `None`.
-        
+        Overall verbosity threshold. If ``None``, it
+        looks for a global variable named ``verbose``.
+        Default is ``None``.
+    level : int, default=3
+        Severity or importance level of the message.
+        Commonly:
+          * 1 = ERROR
+          * 2 = WARNING
+          * 3 = INFO
+          * 4,5 = DEBUG
+          * 6,7 = TRACE
+    depth : int or str, default="auto"
+        Indentation level used for the printed message.
+        If ``"auto"``, the depth is computed from
+        `<parameter inline> level`.
+    mode : str, optional
+        Determines logging mode. If set to ``'log'``,
+        prints messages only if
+        :math:`\\text{verbose} \\geq \\text{level}`.
+        Otherwise (if ``None`` or ``'naive'``), it
+        follows a custom logic driven by `<parameter
+        inline> verbose`.
+    vp : bool, default=True
+        If ``True``, the function automatically prepends
+        bracketed tags (e.g. [INFO]) unless the message
+        already contains one of [INFO], [DEBUG], [ERROR],
+        [WARNING], or [TRACE].
+
     Returns
     -------
     None
+        This function does not return anything. It either
+        prints the message to stdout or omits it,
+        depending on `<parameter inline> verbose`, `<parameter
+        inline> level`, and ``mode``.
 
     Notes
     -----
-    The indentation is computed as 2 spaces per depth level.
+    This function is helpful for selectively displaying
+    or logging messages in applications that adapt to
+    the user's required verbosity. By default, each
+    level has a specific bracketed tag and an auto
+    indentation depth.
 
-    Example
-    -------
-    >>> from gofast.core.generic import vlog 
-    >>> vlog("This is an error message.", level=1, depth="auto")
-    [ERROR] This is an error message.
-    >>> vlog("This is a debug message.", level=4, depth="auto")
-          [DEBUG] This is a debug message.
+    Examples
+    --------
+    >>> from gofast.core.generic import vlog
+    >>> # Example with mode='log'
+    >>> # This prints only if global or passed-in
+    >>> # verbose >= 4.
+    >>> vlog("Check debugging details.", verbose=3, level=4,
+    ...      mode='log')
+    >>> # Example with mode='naive'
+    >>> # If verbose=2, it displays as [INFO] prefixed.
+    >>> vlog("Loading data...", verbose=2, mode='naive')
+
+    See Also
+    --------
+    globals : Used to retrieve the fallback `verbose`
+        value if not explicitly passed.
+
     """
-    # Mapping of verbosity levels to their labels.
     verbosity_labels = {
         1: "[ERROR]",
         2: "[WARNING]",
@@ -201,8 +241,8 @@ def vlog(
         6: "[TRACE]",
         7: "[TRACE]"
     }
-    
-    # If depth is set to "auto", assign default depth values based on level.
+
+    # When depth="auto", assign indentation based on `level`.
     if depth == "auto":
         if level == 1:
             depth = 0
@@ -217,32 +257,63 @@ def vlog(
         else:
             depth = 0
 
-    # Use a global or outer-scope 'verbose' variable for overall verbosity.
-    # It is assumed that 'verbose' is defined in the calling scope.
+    # Fallback to a global 'verbose' if none given.
+    actual_verbose = verbose if verbose is not None else globals().get('verbose', 0)
 
-    # Use the verbosity parameter if provided, 
-    # otherwise fallback to global verbose.
-    verbose = verbose if verbose is not None else globals().get('verbose', 0)
-    
-    # If status is 'log', check if verbosity 
-    # level allows logging the message.
-    if status == 'log' and verbose >= level:
+    # If mode == 'log', keep original approach:
+    if mode == 'log':
+        if actual_verbose >= level:
+            # Indent and prefix with the label from `level`.
+            indent = " " * (depth * 2)
+            print(f"{indent}{verbosity_labels[level]} {message}")
+        # Nothing else for mode='log' if verbosity is too low.
+        return
+
+    # If mode == 'naive' or None, override with the new rules:
+    if mode in [None, 'naive']:
+        # If actual_verbose < 1, do not print anything.
+        if actual_verbose < 1:
+            return
+
+        # Otherwise, figure out the prefix based on the threshold:
+        # We check if the message already includes [INFO], [DEBUG], [WARNING],
+        # [ERROR], or [TRACE]. If so, skip adding any prefix.
+        prefix_tags = ("[INFO]", "[DEBUG]", "[ERROR]", "[WARNING]", "[TRACE]")
+        already_tagged = any(tag in message for tag in prefix_tags)
+
+        # indent as per the computed `depth`
         indent = " " * (depth * 2)
-        print(f"{indent}{verbosity_labels[level]} {message}")
         
-    # Only print the message if verbosity is non-zero
-    # and verbosity level is enough.
-    elif verbose > 0:
-        indent = " " * (depth * 2)
-        print(f"{indent} {message}")
+        # If >=3 => prefix with [INFO] if vp is True and not already tagged
+        if actual_verbose <=3:
+            if vp and not already_tagged:
+                print(f"{indent}[INFO] {message}")
+            else:
+                print(f"{indent}{message}")
+            return 
 
-  
+        # If 3 < verbose < 5 => prefix with [DEBUG] if vp is True and not already tagged
+        if 3 < actual_verbose < 5:
+            if vp and not already_tagged:
+                print(f"{indent}[DEBUG] {message}")
+            else:
+                print(f"{indent}{message}")
+            return
+
+        # If verbose >= 5 => prefix with [TRACE] if vp is True and not already tagged
+        if actual_verbose >= 5:
+            if vp and not already_tagged:
+                print(f"{indent}[TRACE] {message}")
+            else:
+                print(f"{indent}{message}")
+            return
+
 def get_actual_column_name(
     df: pd.DataFrame, 
     tname: str = None, 
     actual_name: str = None, 
-    error: str = 'raise',  # {'raise', 'warn', 'ignore'}, 
-    default_to=None, # can be default to tname 
+    error: str = 'raise',  
+    default_to=None, 
 ) -> str:
     """
     Determines the actual target column name in the given DataFrame.
@@ -541,10 +612,12 @@ def transform_contributions(
         min_val = min(contributions.values())
         max_val = max(contributions.values())
         
-        # Check if min and max values are the same to avoid division by zero
+        # Check if min and max values are the
+        # same to avoid division by zero
         if min_val == max_val:
             warnings.warn(
-                "All contribution values are the same, cannot normalize; Skipped.",
+                "All contribution values are the same,"
+                " cannot normalize; Skipped.",
                 UserWarning
             )
         else:

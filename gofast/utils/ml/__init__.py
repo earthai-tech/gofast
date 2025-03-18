@@ -37,7 +37,8 @@ from .feature_selection import (
     get_correlated_features,
     select_feature_importances, 
     get_feature_contributions,
-    display_feature_contributions
+    display_feature_contributions, 
+    validate_feature_utility
     )
 from .model_evaluation import ( 
     evaluate_model,
@@ -113,5 +114,6 @@ __all__ = [
     'soft_scaler',
     'stats_from_prediction',
     'stratify_categories',
-    'encode_target', 
+    'encode_target',
+    'validate_feature_utility', 
 ]

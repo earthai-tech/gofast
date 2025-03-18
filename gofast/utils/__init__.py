@@ -186,6 +186,7 @@ MODULE_MAPPING = {
         'dual_merge', 
         'extract_zones_from', 
         'filter_position', 
+        'create_spatial_clusters', 
         ]
 }
 

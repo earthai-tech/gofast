@@ -24,17 +24,20 @@ from gofast.utils.ml.feature_selection import (
     select_feature_importances, 
     get_feature_contributions,
     display_feature_contributions, 
-    select_relevant_features
+    select_relevant_features, 
+    validate_feature_utility
     
     )
 from gofast.utils.base_utils import select_features 
 
 __all__= [ 
-    'bi_selector','select_features', 
+    'bi_selector',
+    'select_features', 
     'get_correlated_features',
     'select_feature_importances', 
     'get_feature_contributions',
     'display_feature_contributions', 
     'select_relevant_features', 
+    'validate_feature_utility', 
     
     ]

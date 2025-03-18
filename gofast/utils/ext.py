@@ -14,19 +14,19 @@ from typing import List, Union, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from ..api.types import ArrayLike, DataFrame  
+from ..api.types import ArrayLike, DataFrame
 from ..compat.pandas import select_dtypes 
-from ..compat.sklearn import validate_params  
+from ..compat.sklearn import validate_params
 from ..core.array_manager import to_series 
 from ..core.checks import assert_ratio, check_numeric_dtype
-from ..core.checks import check_params 
+from ..core.checks import check_params
 from ..core.generic import vlog 
 from ..core.handlers import columns_getter, columns_manager 
 from ..core.io import SaveFile, is_data_readable
 from ..core.utils import error_policy, smart_format 
 from ..decorators import isdf 
 from .validator import parameter_validator, validate_length_range 
-from .validator import get_estimator_name 
+from .validator import  get_estimator_name 
 
 __all__ = [
     "reorder_importances", 
@@ -42,6 +42,21 @@ __all__ = [
     "spread_uncertainty", 
     "reorder_by"
     ]
+
+
+# # 2. Define feature sets for A/B test
+# feature_set_a = ['longitude', 'latitude', 'year', 'GWL', 'rainfall_mm']
+# feature_set_b = ['region', 'year', 'GWL', 'rainfall_mm']
+
+# # 3. Validate utility (e.g., for classification task)
+# results = validate_feature_utility(
+#     df=df,
+#     target_col='subsidence_category',
+#     feature_set_a=feature_set_a,
+#     feature_set_b=feature_set_b,
+#     task='classification'
+# )
+
 
 
 @check_params ({ 
@@ -657,7 +672,7 @@ def to_importances(
             by="mean_importance", ascending=False
             ).drop(columns=["mean_importance"])
     
-    # for consisteny 
+    # for consistency 
     imp = reorder_by (imp, ascending=ascending )
     
     imp = to_series(imp, handle_2d ="passthrough")

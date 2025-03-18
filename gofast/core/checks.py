@@ -3155,7 +3155,8 @@ def exist_features(
         features = [features]
 
     # Validate that 'features' is one of the allowed types
-    features = _assert_all_types(features, (list, tuple, np.ndarray))
+    features = _assert_all_types(
+        features, list, tuple, np.ndarray, pd.Index)
 
     # Get the intersection of features with the dataframe columns
     existing_features = set(features).intersection(df.columns)
@@ -3333,46 +3334,70 @@ def str2columns(
 
 def _assert_all_types(
     obj: object,
-    *expected_objtype: type,
-    objname: str = None,
+    *expected_objtype: Union[Type[Any], Tuple[Type[Any], ...]],
+    objname: Optional[str] = None,
 ) -> object:
     """
-    Quick assertion to check if an object is of an expected type.
+    Robust type checking with enhanced error handling and formatting.
 
     Parameters
     ----------
     obj : object
-        The object whose type is being checked.
-    expected_objtype : type
-        One or more types to check against. If the object's type
-        does not match any of the provided types, a TypeError is raised.
+        Object to validate
+    *expected_objtype : type or tuple of types
+        Acceptable type(s). Can pass multiple types or tuples of types
     objname : str, optional
-        The name of the object being checked, used to customize the
-        error message. If not provided, a generic message is used.
-
-    Raises
-    ------
-    TypeError
-        If the object's type does not match any of the expected types.
+        Custom name for object in error messages
 
     Returns
     -------
     object
-        The original object if its type matches one of the expected types.
+        Original object if validation passes
 
-    Notes
-    -----
-    This function raises a `TypeError` if the object's type does not
-    match the expected type(s). The error message can be customized by
-    providing the `objname` argument.
+    Raises
+    ------
+    TypeError
+        If type validation fails
     """
-    # if np.issubdtype(a1.dtype, np.integer): 
-    if not isinstance(obj, expected_objtype):
-        n = str(objname) + ' expects' if objname is not None else 'Expects'
+    # Flatten nested type specifications
+    expected_types = []
+    for typ in expected_objtype:
+        if isinstance(typ, tuple):
+            expected_types.extend(typ)
+        else:
+            expected_types.append(typ)
+
+    # Convert numpy dtypes to python types
+    py_types = []
+    for t in expected_types:
+        if isinstance(t, type):
+            py_types.append(t)
+        elif isinstance(t, np.dtype):
+            py_types.append(np.dtype(t).type)
+        else:
+            py_types.append(t)
+
+    expected_types = tuple(py_types)
+
+    if not isinstance(obj, expected_types):
+        # Build human-readable type list
+        type_names = []
+        for t in expected_types:
+            try:
+                name = t.__name__
+            except AttributeError:
+                name = str(t)
+            type_names.append(name)
+
+        # Format error message components
+        obj_name = f"'{objname}'" if objname else "Object"
+        plural = "s" if len(expected_types) > 1 else ""
+        expected_str = _smart_format(type_names)
+        actual_type = type(obj).__name__
+
         raise TypeError(
-            f"{n} type{'s' if len(expected_objtype) > 1 else ''} "
-            f"{_smart_format(tuple(o.__name__ for o in expected_objtype))} "
-            f"but {type(obj).__name__!r} is given."
+            f"{obj_name} must be of type{plural} {expected_str}, "
+            f"but got type {actual_type!r}"
         )
 
     return obj

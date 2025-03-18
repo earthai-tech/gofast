@@ -217,3 +217,56 @@ TDG_DIRECTIONS= {
     
 } 
 
+def update_box_kws(*args, **kwargs):
+    """Update boxplot styling parameters through multiple argument types."""
+    # Default boxplot styling parameters
+    default = {
+        'patch_artist': True,
+        'boxprops': {'linewidth': 2, 'facecolor': 'lightblue', 'edgecolor': 'blue'},
+        'medianprops': {'linewidth': 2, 'color': 'red'},
+        'whiskerprops': {'linewidth': 2, 'linestyle': '-', 'color': 'gray'},
+        'capprops': {'linewidth': 2, 'color': 'black'},
+        'flierprops': {'marker': 'o', 'markersize': 8, 
+                       'markerfacecolor': 'orange', 'markeredgecolor': 'red'}
+    }
+    
+    # Deep copy to preserve original defaults
+    box_kws = {k: v.copy() if isinstance(v, dict) else v 
+              for k, v in default.items()}
+
+    # Process string arguments (format: "component__property_value")
+    for arg in args:
+        if not isinstance(arg, str) or '__' not in arg:
+            continue
+            
+        key_part, value_part = arg.split('__', 1)
+        if '_' not in value_part:
+            continue  # Invalid format
+            
+        prop, val = value_part.rsplit('_', 1)
+        target_dict = box_kws.get(key_part)
+
+        try:
+            # Convert value to appropriate type
+            if val.lower() == 'true': 
+                parsed_val = True
+            elif val.lower() == 'false':
+                parsed_val = False
+            else: parsed_val = float(val) if '.' in val else int(val)
+        except:
+            parsed_val = val  # Fallback to string
+            
+        if isinstance(target_dict, dict):
+            target_dict[prop] = parsed_val
+        elif key_part in box_kws:
+            box_kws[key_part] = parsed_val
+
+    # Process keyword arguments (direct updates)
+    for k, v in kwargs.items():
+        if k in box_kws:
+            if isinstance(v, dict) and isinstance(box_kws[k], dict):
+                box_kws[k].update(v)  # Merge dictionaries
+            else:
+                box_kws[k] = v  # Replace value
+
+    return box_kws

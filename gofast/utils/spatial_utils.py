@@ -24,6 +24,11 @@ from scipy.spatial import cKDTree
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
+from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import StandardScaler
 
 from ._arraytools import axis_slice
 from ..api.box import KeyBox
@@ -35,6 +40,7 @@ from ..api.types import (
     Series, 
     Tuple, 
     Union, 
+    List,
     _F, 
     _SP, 
     _T,
@@ -58,7 +64,8 @@ from .validator import (
     _is_arraylike_1d, 
     assert_xy_in, check_y, 
     validate_positive_integer, 
-    validate_length_range 
+    validate_length_range , 
+    filter_valid_kwargs
     )
 
 HAS_TQDM=True 
@@ -98,9 +105,419 @@ __all__ = [
      'batch_spatial_sampling', 
      'make_mxs_labels',
      'extract_zones_from', 
-     'filter_position'
+     'filter_position', 
+     'create_spatial_clusters', 
+     
  ]
 
+@SaveFile 
+@isdf 
+def create_spatial_clusters(
+    df: pd.DataFrame,
+    spatial_cols: Optional[List[str]] = None ,
+    cluster_col: str = 'region',
+    n_clusters: Optional[int] = None,
+    algorithm: str = 'kmeans',
+    view: bool = True,
+    figsize: tuple = (14, 10),
+    s: int=60, 
+    plot_style: str = 'seaborn',
+    cmap: str = 'tab20',
+    show_grid: bool=True, 
+    grid_props: dict =None, 
+    auto_scale: bool = True,
+    savefile: Optional[str]=None, 
+    verbose: int = 1,
+    **kwargs
+) -> pd.DataFrame:
+    """
+    Cluster 2D spatial data in ``df`` using `<algorithm>`
+    and optionally plot the results.
+
+    This function, `<create_spatial_clusters>`, extracts
+    two coordinate columns from `<df>` to form clusters
+    via methods such as 'kmeans', 'dbscan', or 'agglo'
+    (agglomerative). It uses the function
+    `filter_valid_kwargs` (when relevant) to strip out
+    invalid parameters for certain estimators, and
+    writes cluster labels into `<cluster_col>`.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input DataFrame holding spatial coordinates
+        and optional other fields.
+    spatial_cols : list of str, optional
+        Two-column list for x and y coordinates.
+        Defaults to ``['longitude','latitude']`` if
+        None.
+    cluster_col : str, default='region'
+        Name of the column to store the assigned
+        cluster labels.
+    n_clusters : int, optional
+        Number of clusters to form. If not provided
+        for KMeans, it is auto-detected. For DBSCAN
+        or Agglomerative, a warning is issued if not
+        set.
+    algorithm : str, default='kmeans'
+        Choice of clustering algorithm among
+        ``['kmeans','dbscan','agglo']``.
+    view : bool, default=True
+        If True, displays a scatterplot of the final
+        clusters.
+    figsize : tuple, default=(14, 10)
+        Size of the displayed figure for the
+        cluster plot.
+    s : int, default=60
+        Marker size in the scatterplot.
+    plot_style : str, default='seaborn'
+        Matplotlib style used for the plot.
+    cmap : str, default='tab20'
+        Colormap name used to differentiate clusters.
+    show_grid : bool, default=True
+        Toggles grid lines on or off.
+    grid_props : dict, optional
+        Additional keyword arguments controlling
+        the grid style.
+    auto_scale : bool, default=True
+        If True, standardize coordinates before
+        clustering.
+    savefile : str, optional
+        File path to save the data with an additional
+        `<cluster_col>` storing the assigned
+        cluster labels if desired.
+    verbose : int, default=1
+        Controls console logs. Higher values yield
+        more details about scaling and cluster
+        detection.
+    **kwargs
+        Additional keyword arguments passed to the
+        chosen algorithm (filtered by
+        `filter_valid_kwargs` for KMeans, DBSCAN,
+        AgglomerativeClustering ).
+
+    Returns
+    -------
+    pandas.DataFrame
+        A copy of `<df>` with an additional
+        `<cluster_col>` storing the assigned
+        cluster labels.
+
+    Notes
+    -----
+    If `<auto_scale>` is True, it uses a standard
+    scaler to normalize the coordinate columns. The
+    scatterplot is generated using the library
+    seaborn for enhanced styling.
+    
+    By default, for `<algorithm>` = "kmeans", the model
+    attempts to minimize:
+
+    .. math::
+       J = \\sum_{i=1}^{N} \\min_{\\mu_j} \\lVert x_i
+       - \\mu_j \\rVert^2
+
+    where :math:`x_i` are the scaled or raw 2D
+    coordinates in `<df>`. The function can optionally
+    auto-detect ``n_clusters`` using a silhouette and
+    elbow analysis if not provided.
+
+    Examples
+    --------
+    >>> from gofast.utils.spatial_utils import create_spatial_clusters
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     "longitude": [0.1, 0.2, 2.2, 2.3],
+    ...     "latitude": [1.0, 1.1, 2.1, 2.2]
+    ... })
+    >>> # KMeans with auto scale and auto-detect k
+    >>> result = create_spatial_clusters(
+    ...     df=df,
+    ...     algorithm="kmeans",
+    ...     view=True
+    ... )
+    >>> # DBSCAN with custom arguments
+    >>> result_db = create_spatial_clusters(
+    ...     df=df,
+    ...     algorithm="dbscan",
+    ...     eps=0.5,
+    ...     min_samples=2
+    ... )
+
+    See Also
+    --------
+    filter_valid_kwargs : Helps discard unsupported
+        keyword arguments for chosen estimators.
+
+    References
+    ----------
+    .. [1] Pedregosa et al. *Scikit-learn:
+       Machine Learning in Python*, JMLR 12,
+       pp. 2825-2830, 2011.
+    """
+    # # Auto-detect KMeans clusters with ggplot style
+    # df = create_spatial_clusters(df, algorithm='kmeans', plot_style='ggplot')
+
+    # # DBSCAN clustering with custom parameters
+    # df = create_spatial_clusters(df, algorithm='dbscan', eps=0.5, min_samples=15)
+
+    # # Agglomerative clustering with 7 clusters
+    # df = create_spatial_clusters(df, algorithm='agglo', n_clusters=7, cmap='plasma')
+    
+    # Confirm required columns exist in DataFrame
+    # This prevents missing key data issues
+    if spatial_cols is None: 
+        spatial_cols = ['longitude', 'latitude']
+        
+    assert all(col in df.columns for col in spatial_cols), (
+        "Missing spatial columns"
+    )
+    assert len(spatial_cols) == 2, (
+        f"Need exactly 2 spatial columns. Got {len(spatial_cols)}"
+    )
+    assert algorithm in ['kmeans', 'dbscan', 'agglo'], (
+        "Invalid algorithm. Expect one of ['kmeans', 'dbscan', 'agglo']."
+    )
+
+    # Use requested plotting style
+    plt.style.use(plot_style)
+
+    # Copy DataFrame to avoid modification
+    local_df = df.copy()
+
+    # Extract coordinates from the spatial columns
+    coords = local_df[spatial_cols].values
+
+    # Debug info about data shape if verbosity is high
+    if verbose >= 2:
+        print(f"DataFrame shape: {local_df.shape}")
+        print("Initial coords sample:", coords[:5])
+
+    # Scale coordinates to standardize range, if requested
+    if auto_scale:
+        if verbose >= 1:
+            print("Scaling coordinates...")
+        scaler = StandardScaler()
+        coords = scaler.fit_transform(coords)
+
+        # Debug info about scaled coords if verbosity is high
+        if verbose >= 2:
+            print("Scaled coords sample:", coords[:5])
+
+    # Determine an optimal number of clusters if none provided
+    if n_clusters is None:
+        if algorithm == 'kmeans':
+            if verbose >= 1:
+                print("Auto-detecting optimal number of clusters...")
+            n_clusters = _auto_detect_k(
+                coords=coords,
+                verbose=verbose,
+                show_grid=show_grid, 
+                grid_props=grid_props 
+            )
+        else:
+            # Warn if user expects auto-detection with non-kmeans
+            warnings.warn(
+                "Auto-cluster detection only supported for KMeans"
+            )
+
+    # Notify user about the clustering approach
+    if verbose >= 1:
+        print(f"Clustering with {algorithm.upper()}...")
+
+    # Initialize the selected clustering algorithm
+    if algorithm == 'kmeans':
+        kwargs = filter_valid_kwargs(KMeans, kwargs)
+        clusterer = KMeans(
+            n_clusters=n_clusters,
+            random_state=42,
+            **kwargs
+        )
+    elif algorithm == 'dbscan':
+        kwargs = filter_valid_kwargs (DBSCAN, kwargs)
+        clusterer = DBSCAN(**kwargs)
+    else:  # algorithm == 'agglo'
+        kwargs = filter_valid_kwargs (AgglomerativeClustering, kwargs)
+        clusterer = AgglomerativeClustering(
+            n_clusters=n_clusters,
+            **kwargs
+        )
+
+    # Fit the model and predict cluster labels
+    labels = clusterer.fit_predict(coords)
+    local_df[cluster_col] = labels
+
+    # Debug info about clustering output if verbosity is high
+    if verbose >= 2:
+        unique_labels = np.unique(labels)
+        print(f"Unique cluster labels: {unique_labels}")
+
+    # Plot the clusters if requested
+    if view:
+        _plot_clusters(
+            df=local_df,
+            spatial_cols=spatial_cols,
+            cluster_col=cluster_col,
+            figsize=figsize,
+            cmap=cmap,
+            algorithm=algorithm, 
+            s=s, 
+            show_grid=show_grid, 
+            grid_props=grid_props, 
+        )
+
+    # Return the DataFrame with assigned cluster labels
+    return local_df
+
+def _auto_detect_k(
+    coords: np.ndarray,
+    verbose: int,
+    max_k: int = 10, 
+    show_grid: bool=True, 
+    grid_props: dict=None, 
+) -> int:
+    # Evaluate multiple k values using
+    # elbow (distortion) and silhouette scores
+    distortions = []
+    silhouettes = []
+    K_range = range(2, max_k + 1)
+
+    if verbose >= 1:
+        print(f"Evaluating k from 2 to {max_k}...")
+
+    for k in K_range:
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init='auto')
+        kmeans.fit(coords)
+        distortions.append(kmeans.inertia_)
+        silhouettes.append(
+            silhouette_score(coords, kmeans.labels_)
+        )
+
+        # Detailed iteration log if verbosity is high
+        if verbose >= 2:
+            output = "k={0:<5} | Distortion={1:^28} | Silhouette={2:^20}".format(
+                k, f'{distortions[-1]:.3f}', f'{silhouettes[-1]:.3f}')
+            print(output)
+            
+    # Plot elbow and silhouette analyses
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    ax1.plot(K_range, distortions, 'bo-')
+    ax1.set(
+        xlabel='Number of clusters',
+        ylabel='Distortion',
+        title='Elbow Method'
+    )
+
+    ax2.plot(K_range, silhouettes, 'go-')
+    ax2.set(
+        xlabel='Number of clusters',
+        ylabel='Silhouette Score',
+        title='Silhouette Analysis'
+    )
+
+    # Enable gridlines
+    if grid_props is None: 
+        grid_props= {"linestyle": ':', 'alpha': .7}
+        
+    if show_grid: 
+        ax1.grid(show_grid, **grid_props)
+    else: 
+        ax1.grid(show_grid)
+        
+    if show_grid: 
+        ax2.grid(show_grid, **grid_props)
+    else: 
+        ax2.grid(show_grid)
+        
+    plt.tight_layout()
+    plt.show()
+
+    # Use silhouette score peak to suggest optimal k
+    optimal_k = np.argmax(silhouettes) + 2
+    if verbose >= 1:
+        print(f"Suggested optimal k: {optimal_k}")
+
+    return optimal_k
+
+def _plot_clusters(
+    df: pd.DataFrame,
+    spatial_cols: List[str],
+    cluster_col: str,
+    figsize: tuple,
+    cmap: str,
+    s: int, 
+    algorithm: str, 
+    show_grid: bool=True, 
+    grid_props: dict=None, 
+) -> None:
+    # Create a scatterplot to visualize clustered data
+    plt.figure(figsize=figsize)
+
+    ax = sns.scatterplot(
+        x=spatial_cols[0],
+        y=spatial_cols[1],
+        hue=cluster_col,
+        palette=cmap,
+        data=df,
+        s=s,
+        edgecolor='k',
+        linewidth=0.5,
+        alpha=0.8,
+        legend='auto'
+    )
+
+    # Professional labeling and presentation
+    plt.title(
+        f"{algorithm.upper()} Clustering - "
+        f"{df[cluster_col].nunique()} Clusters",
+        fontsize=14, pad=20
+    )
+    plt.xlabel(spatial_cols[0], fontsize=12)
+    plt.ylabel(spatial_cols[1], fontsize=12)
+
+    # Enable gridlines
+    if show_grid: 
+        plt.grid(show_grid, **( grid_props or {"linestyle": ':', 'alpha': .7}))
+    else: 
+        plt.grid(show_grid)
+
+    # Adjust and position legend
+    plt.legend(
+        title='Cluster',
+        bbox_to_anchor=(1.05, 1),
+        loc='upper left'
+    )
+
+    # Annotate cluster labels near their median positions
+    for cluster in df[cluster_col].unique():
+        # Skip noise cluster (-1) for DBSCAN
+        if cluster == -1:
+            continue
+        median_position = df[df[cluster_col] == cluster][
+            spatial_cols
+        ].median()
+        plt.text(
+            median_position[0],
+            median_position[1],
+            str(cluster),
+            fontdict=dict(weight='bold', size=10),
+            bbox=dict(
+                facecolor='white',
+                alpha=0.8,
+                edgecolor='none'
+            )
+        )
+
+    # Hide top/right spines, tighten layout
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.figure.tight_layout()
+
+    # Display the final clustering plot
+    plt.show()
+    
+    
 @validate_params ({ 
     'threshold':[Interval(Real, 0, 1, closed='neither')], 
     'error': [StrOptions({'raise', 'warn', 'ignore'})], 

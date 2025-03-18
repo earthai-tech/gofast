@@ -17,16 +17,22 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from scipy.interpolate import griddata
+from sklearn.cluster import KMeans
 
-from ..api.types import Optional, Union, List 
+from ..api.types import ( 
+    Optional, 
+    Union, 
+    List, 
+    Tuple, 
+    Dict, 
+    Any 
+)
 from ..api.types import DataFrame
-
 from ..core.checks import ( 
     check_features_types, 
     check_spatial_columns,
     exist_features, 
 )
-
 from ..core.handlers import columns_manager
 from ..core.io import is_data_readable 
 from ..core.plot_manager import ( 
@@ -38,16 +44,303 @@ from ..compat.sklearn import (
     StrOptions, 
 )
 from ..decorators import isdf
-from ..utils.validator import validate_positive_integer
+from ..utils.validator import ( 
+    validate_positive_integer,
+    filter_valid_kwargs
+)
 from ._config import PlotConfig
+from ._d_cms import update_box_kws # noqa 
 from .utils import make_plot_colors 
 
 __all__=[
         'plot_categorical_feature',
         'plot_dist',
         'plot_spatial_distribution',
-        'plot_spatial_features'
+        'plot_spatial_features', 
+        'plot_spatial_clusters'
  ]
+
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_spatial_clusters_plot.png'))
+@isdf 
+def plot_spatial_clusters(
+    df: DataFrame,
+    spatial_cols: Optional[Tuple[str, str]] = None,
+    n_clusters: int = 5,
+    method: str = "kmeans",
+    ax: Optional[plt.Axes] = None,
+    title: Optional[str] = None,
+    show_grid: bool = True,
+    grid_props: Optional[Dict[str, Any]] = None,
+    cmap: str = "tab10",
+    plot_centroids: bool = True,
+    legend_position: str = "right",
+    figsize=None,
+    **scatter_kws: Any
+) -> plt.Axes:
+    """
+    Plot spatial clusters on a 2D coordinate system.
+
+    This function applies ``method`` (currently only
+    `'kmeans'`) on the spatial coordinates provided by
+    `spatial_cols` in ``df`` to group samples into
+    ``n_clusters``. It uses `check_spatial_columns` internally
+    to validate columns, and returns a Matplotlib Axes object
+    with scatter points colored by cluster assignment. Decorators
+    `isdf` and `default_params_plot` are applied for streamlined
+    handling of DataFrame inputs and plot configurations.
+
+    Mathematically, when using KMeans, it solves the following
+    objective:
+
+    .. math::
+       J = \\sum_{i=1}^{n} \\min_{\\mu_j} \\lVert x_i - \\mu_j \\rVert^2
+
+    where :math:`x_i` is a coordinate point in :math:`\\mathbb{R}^2`,
+    and :math:`\\mu_j` is the centroid for cluster :math:`j`. The
+    result is a set of clusters that minimizes intra-cluster
+    distance [1]_.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Input pandas DataFrame containing spatial data.
+        Must include the columns specified in
+        `spatial_cols`.
+    spatial_cols : tuple of str, optional
+        Tuple specifying the longitude and latitude
+        columns, by default ``("longitude","latitude")``.
+    n_clusters : int, default=5
+        Number of clusters to form.
+    method : str, default="kmeans"
+        Clustering algorithm name. Currently, only
+        ``"kmeans"`` is supported.
+    ax : matplotlib.axes.Axes, optional
+        Existing Matplotlib Axes on which the clusters
+        are drawn. If ``None``, a new figure and axes
+        are created.
+    title : str, optional
+        Plot title. Defaults to
+        ``"Spatial Clustering (Kmeans, k=<n_clusters>)"``.
+    show_grid : bool, default=True
+        Whether to display a grid on the plot.
+    grid_props : dict, optional
+        Keyword arguments passed to the Axes grid
+        configuration.
+    cmap : str, default="tab10"
+        Name of the Matplotlib colormap used for
+        cluster coloring.
+    plot_centroids : bool, default=True
+        If True, displays the cluster centroids on the
+        scatter plot using a distinctive marker.
+    legend_position : str, default="right"
+        Position of the colorbar for cluster IDs.
+    figsize : tuple, optional
+        Figure size in inches, e.g. ``(8,6)``. Used only
+        if no existing axes is provided.
+    **scatter_kws : Any
+        Additional keyword arguments passed to the
+        underlying Matplotlib scatter function.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        Axes object with the spatial clusters, centroids
+        (if requested), colorbar, and optional grid.
+
+    Notes
+    -----
+    This function is helpful for exploring spatial
+    patterns or checking how your data might cluster
+    geographically. The underlying `'kmeans'` method
+    is powered by scikit-learn's KMeans.
+
+    Examples
+    --------
+    >>> from gofast.plot.spatial import plot_spatial_clusters
+    >>> import pandas as pd
+    >>> # Create a sample DataFrame with columns:
+    >>> # ["longitude","latitude"].
+    >>> data = {
+    ...     "longitude":[0.1,0.2,0.4,2.2,2.3],
+    ...     "latitude":[1.0,1.1,0.9,2.1,2.0]
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> # Example usage:
+    >>> ax = plot_spatial_clusters(
+    ...     df=df,
+    ...     spatial_cols=("longitude","latitude"),
+    ...     n_clusters=2,
+    ...     method="kmeans",
+    ...     plot_centroids=True
+    ... )
+
+    See Also
+    --------
+    check_spatial_columns : Validates that the DataFrame
+        has the necessary spatial columns.
+    isdf : Decorator that ensures the input is a
+        pandas DataFrame.
+    default_params_plot : Decorator for applying
+        default parameters and saving plots.
+
+    References
+    ----------
+    .. [1] Pedregosa et al. *Scikit-learn: Machine Learning
+       in Python*, JMLR 12, pp. 2825-2830, 2011.
+    """
+
+    # Set default spatial columns and validate input
+    spatial_cols = spatial_cols or ("longitude", "latitude")
+    _validate_inputs(df, spatial_cols, method)
+    
+    # Unpack spatial column names
+    lon_col, lat_col = spatial_cols
+    
+    # Create axis if not provided
+    if ax is None: 
+        fig, ax = plt.subplots (figsize = figsize )
+    # ax = ax or plt.gca()
+    
+    # Clean data and handle missing values
+    df_clean, coords = _prepare_data(df, lon_col, lat_col)
+    
+    # Perform clustering
+    cluster_labels, centroids = _perform_clustering(
+        method=method,
+        coords=coords,
+        n_clusters=n_clusters
+    )
+    
+    # Create plot with enhanced styling
+    ax = _create_plot(
+        df=df_clean,
+        ax=ax,
+        lon_col=lon_col,
+        lat_col=lat_col,
+        cluster_labels=cluster_labels,
+        cmap=cmap,
+        centroids=centroids if plot_centroids else None,
+        title=title or f"Spatial Clustering ({method.title()}, k={n_clusters})",
+        show_grid=show_grid,
+        grid_props=grid_props,
+        legend_position=legend_position,
+        **scatter_kws
+    )
+    
+    return ax
+
+def _validate_inputs(
+    df: DataFrame,
+    spatial_cols: Tuple[str, str],
+    method: str
+) -> None:
+    """Validate input data and parameters."""
+    check_spatial_columns(df, spatial_cols)
+
+    if method.lower() != "kmeans":
+        raise NotImplementedError(
+            f"Method '{method}' not supported. "
+            "Currently only 'kmeans' available"
+        )
+
+def _prepare_data(
+    df: DataFrame,
+    lon_col: str,
+    lat_col: str
+) -> Tuple[DataFrame, np.ndarray]:
+    """Clean and prepare spatial data for clustering."""
+    df_clean = df.dropna(subset=[lon_col, lat_col]).copy()
+    if df_clean.empty:
+        raise ValueError(
+            "No valid coordinates remaining after NaN removal"
+        )
+    return df_clean, df_clean[[lon_col, lat_col]].values
+
+def _perform_clustering(
+    method: str,
+    coords: np.ndarray,
+    n_clusters: int
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Execute clustering algorithm and return labels + centroids."""
+    kmeans = KMeans(
+        n_clusters=n_clusters,
+        random_state=42,
+        n_init="auto"
+    ).fit(coords)
+    return kmeans.labels_, kmeans.cluster_centers_
+
+def _create_plot(
+    df: DataFrame,
+    ax: plt.Axes,
+    lon_col: str,
+    lat_col: str,
+    cluster_labels: np.ndarray,
+    cmap: str,
+    centroids: Optional[np.ndarray],
+    title: str,
+    show_grid: bool,
+    grid_props: Optional[Dict[str, Any]],
+    legend_position: str,
+    **scatter_kws: Any
+) -> plt.Axes:
+    """Generate the actual visualization with enhanced styling."""
+    # Configure default plot parameters
+    scatter_params = {
+        "s": 40,
+        "edgecolor": "w",
+        "linewidth": 0.5,
+        "alpha": 0.8,
+        **scatter_kws
+    }
+    
+    # Create scatter plot
+    scatter = ax.scatter(
+        x=df[lon_col],
+        y=df[lat_col],
+        c=cluster_labels,
+        cmap=cmap,
+        **scatter_params
+    )
+    
+    # Add centroids if requested
+    if centroids is not None:
+        ax.scatter(
+            centroids[:, 0],
+            centroids[:, 1],
+            marker="X",
+            s=200,
+            c="red",
+            edgecolor="k",
+            label="Centroids"
+        )
+    
+    # Configure axis labels and title
+    ax.set(
+        xlabel=lon_col,
+        ylabel=lat_col,
+        title=title,
+        aspect="equal"
+    )
+    
+    # Configure grid
+    grid_props = grid_props or {"linestyle": ":", "alpha": 0.5}
+    ax.grid(show_grid, **grid_props)
+    
+    # Add professional colorbar
+    cbar = plt.colorbar(
+        scatter,
+        ax=ax,
+        location=legend_position,
+        shrink=0.8
+    )
+    cbar.set_label("Cluster ID", rotation=270, labelpad=15)
+    
+    # Add subtle background styling
+    sns.despine(ax=ax, offset=5)
+    ax.set_facecolor("#f5f5f5")
+    
+    return ax
 
 @return_fig_or_ax
 @default_params_plot(
@@ -1183,7 +1476,7 @@ def plot_spatial_features(
         colormaps = ['viridis', 'plasma', 'inferno', 'magma', 'cividis']
 
     colormaps = make_plot_colors (
-        features, features, cmap_only=True, 
+        features, colormaps, cmap_only=True, 
         get_only_names= True 
     )
     if figsize is None:
@@ -1230,6 +1523,9 @@ def plot_spatial_features(
                 c = subset[feature].values
 
                 if kind == 'scatter':
+                    kwargs = filter_valid_kwargs(ax.scatter, kwargs)
+                    print("Kwargs",kwargs )
+                    print("colormap", cmap)
                     sc = ax.scatter(
                         x,
                         y,
@@ -1241,6 +1537,7 @@ def plot_spatial_features(
                         **kwargs
                     )
                 elif kind == 'hexbin':
+                    kwargs = filter_valid_kwargs(ax.hexbin, kwargs)
                     sc = ax.hexbin(
                         x,
                         y,
@@ -1251,6 +1548,7 @@ def plot_spatial_features(
                         **kwargs
                     )
                 elif kind == 'contour':
+                    kwargs = filter_valid_kwargs(ax.contourf, kwargs)
                     # Create a grid to interpolate data
                     xi = np.linspace(x.min(), x.max(), 100)
                     yi = np.linspace(y.min(), y.max(), 100)
@@ -1294,6 +1592,7 @@ def plot_spatial_features(
             c = subset[feature].values
 
             if kind == 'scatter':
+                kwargs = filter_valid_kwargs(ax.scatter, kwargs)
                 sc = ax.scatter(
                     x,
                     y,
@@ -1305,6 +1604,7 @@ def plot_spatial_features(
                     **kwargs
                 )
             elif kind == 'hexbin':
+                kwargs = filter_valid_kwargs(ax.hexbin, kwargs)
                 sc = ax.hexbin(
                     x,
                     y,
@@ -1315,6 +1615,7 @@ def plot_spatial_features(
                     **kwargs
                 )
             elif kind == 'contour':
+                kwargs = filter_valid_kwargs(ax.contourf, kwargs)
                 # Create a grid to interpolate data
                 xi = np.linspace(x.min(), x.max(), 100)
                 yi = np.linspace(y.min(), y.max(), 100)
