@@ -270,3 +270,8 @@ def update_box_kws(*args, **kwargs):
                 box_kws[k] = v  # Replace value
 
     return box_kws
+
+#FR0: #CED9EF # (206, 217, 239)
+#FR1: #9EB3DD # (158, 179, 221)
+#FR2: #3B70F2 # (59, 112, 242) #repl rgb(52, 54, 99)
+#FR3: #0A4CEE # (10, 76, 238)

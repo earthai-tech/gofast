@@ -3191,146 +3191,199 @@ def exist_features(
 
     return True
 
-def is_iterable (
-        y, exclude_string= False, transform = False , parse_string =False, 
-)->Union [bool , list]: 
-    """ Asserts iterable object and returns boolean or transform object into
-     an iterable.
-    
-    Function can also transform a non-iterable object to an iterable if 
-    `transform` is set to ``True``.
-    
-    :param y: any, object to be asserted 
-    :param exclude_string: bool, does not consider string as an iterable 
-        object if `y` is passed as a string object. 
-    :param transform: bool, transform  `y` to an iterable objects. But default 
-        puts `y` in a list object. 
-    :param parse_string: bool, parse string and convert the list of string 
-        into iterable object is the `y` is a string object and containg the 
-        word separator character '[#&.*@!_,;\s-]'. Refer to the function 
-        :func:`~gofast.core.checks.str2columns` documentation.
-        
-    :returns: 
-        - bool, or iterable object if `transform` is set to ``True``. 
-        
-    .. note:: 
-        Parameter `parse_string` expects `transform` to be ``True``, otherwise 
-        a ValueError will raise. Note :func:`.is_iterable` is not dedicated 
-        for string parsing. It parses string using the default behaviour of 
-        :func:`.str2columns`. Use the latter for string parsing instead. 
-        
-    :Examples: 
-    >>> from gofast.coreutils.is_iterable 
-    >>> is_iterable ('iterable', exclude_string= True ) 
-    Out[28]: False
-    >>> is_iterable ('iterable', exclude_string= True , transform =True)
-    Out[29]: ['iterable']
-    >>> is_iterable ('iterable', transform =True)
-    Out[30]: 'iterable'
-    >>> is_iterable ('iterable', transform =True, parse_string=True)
-    Out[31]: ['iterable']
-    >>> is_iterable ('iterable', transform =True, exclude_string =True, 
-                     parse_string=True)
-    Out[32]: ['iterable']
-    >>> is_iterable ('parse iterable object', parse_string=True, 
-                     transform =True)
-    Out[40]: ['parse', 'iterable', 'object']
+def is_iterable(
+    y,
+    exclude_string: bool = False,
+    transform: bool = False,
+    parse_string: bool = False
+) -> Union[bool, list]:
     """
-    if (parse_string and not transform) and isinstance (y, str): 
-        raise ValueError ("Cannot parse the given string. Set 'transform' to"
-                          " ``True`` otherwise use the 'str2columns' utils"
-                          " from 'gofast.core.checks' instead.")
-    y = str2columns(y) if isinstance(y, str) and parse_string else y 
-    
-    isiter = False  if exclude_string and isinstance (
-        y, str) else hasattr (y, '__iter__')
-    
-    return ( y if isiter else [ y ] )  if transform else isiter 
+    Asserts whether `<y>` is iterable and optionally transforms
+    `<y>` into a list or parses it as columns if it is a string.
 
-def _smart_format(iter_obj, choice ='and'): 
-    """ Smart format iterable object.
+    If `<exclude_string>` is True and `<y>` is a string, the
+    function returns `False` for the iterability check.
+    If `<transform>` is True, the function returns `<y>` as-is
+    if already iterable or wraps `<y>` in a list. If
+    `<parse_string>` is True (and `<transform>` is also True),
+    a string input is split into columns via `str2columns`.
+
+    Parameters
+    ----------
+    y : any
+        Object to evaluate for iterability or transform
+        into an iterable.
+    exclude_string : bool, default=False
+        If True, treats any string `<y>` as non-iterable.
+    transform : bool, default=False
+        If True, transforms `<y>` into an iterable if
+        not already one. By default, wraps `<y>` into
+        a list.
+    parse_string : bool, default=False
+        If True and `<y>` is a string, attempts to parse
+        using `str2columns`. Requires `<transform>` = True.
+
+    Returns
+    -------
+    bool or list
+        If `<transform>` is False, returns a boolean
+        indicating whether `<y>` is considered iterable.
+        If `<transform>` is True, returns either `<y>` (if
+        it is already iterable) or `[y]`. If `<parse_string>`
+        is also True, a string is split into columns.
+
+    Raises
+    ------
+    ValueError
+        If `<parse_string>` is True but `<transform>` is
+        False while `<y>` is a string.
+
+    Examples
+    --------
+    >>> from gofast.core.checks.is_iterable import is_iterable
+    >>> is_iterable('iterable', exclude_string=True)
+    False
+    >>> is_iterable('iterable', exclude_string=True, transform=True)
+    ['iterable']
+    >>> is_iterable('parse this', parse_string=True, transform=True)
+    ['parse', 'this']
     """
-    str_litteral =''
-    try: 
-        iter(iter_obj) 
-    except:  return f"{iter_obj}"
-    
-    iter_obj = [str(obj) for obj in iter_obj]
-    if len(iter_obj) ==1: 
-        str_litteral= ','.join([f"{i!r}" for i in iter_obj ])
-    elif len(iter_obj)>1: 
-        str_litteral = ','.join([f"{i!r}" for i in iter_obj[:-1]])
-        str_litteral += f" {choice} {iter_obj[-1]!r}"
-    return str_litteral
+    # If user wants to parse string but not transform,
+    # raise error because result wouldn't be an iterable.
+    if parse_string and not transform and isinstance(y, str):
+        raise ValueError(
+            "Cannot parse the given string. Set 'transform' to True "
+            "or use 'str2columns' directly."
+        )
+
+    # If parse_string is True, convert string to columns
+    if isinstance(y, str) and parse_string:
+        y = str2columns(y)
+
+    # Check iterability, but optionally treat string
+    # objects as non-iterable
+    is_iter = not (
+        exclude_string and isinstance(y, str)
+    ) and hasattr(y, '__iter__')
+
+    # If transform is True, return y as-is if it is
+    # iterable, otherwise wrap it in a list.
+    if transform:
+        return y if is_iter else [y]
+
+    # Otherwise, just return boolean indicating
+    # iterability
+    return is_iter
+
+
+def _smart_format(
+    iter_obj,
+    choice: str = 'and'
+) -> str:
+    """
+    Smartly format an iterable object into a readable
+    string with a specific connector (e.g. `'and'`).
+
+    Parameters
+    ----------
+    iter_obj : iterable
+        The iterable to format. If it is not truly
+        iterable, it is returned as a string
+        representation.
+    choice : str, default='and'
+        The connector word between the second last
+        and last items (e.g. `'and'`, `'or'`).
+
+    Returns
+    -------
+    str
+        A user-friendly string representation of
+        `<iter_obj>`, e.g. '"foo", "bar" and "baz"'.
+
+    Examples
+    --------
+    >>> _smart_format(['apple', 'banana', 'cherry'])
+    '"apple","banana" and "cherry"'
+    >>> _smart_format(['apple'])
+    '"apple"'
+    >>> _smart_format('banana')
+    'banana'
+    """
+    # Attempt to ensure it's iterable
+    try:
+        _ = iter(iter_obj)
+    except: # TypeError >
+        return f"{iter_obj}"
+
+    # Convert each element to string
+    items = [str(obj) for obj in iter_obj]
+    if not items:
+        return ""
+
+    if len(items) == 1:
+        return ','.join([f"{i!r}" for i in items])
+
+    # Multiple items: join all but last with commas,
+    # then add the connector word and final item
+    body = ','.join([f"{i!r}" for i in items[:-1]])
+    return f"{body} {choice} {items[-1]!r}"
 
 def str2columns(
-    text: str, 
-    regex: Optional[re.Pattern] = None, 
-    pattern: Optional [str]= None
+    text: str,
+    regex: Optional[re.Pattern] = None,
+    pattern: Optional[str] = None
 ) -> List[str]:
     """
-    Splits the input text into column names by removing non-alphanumeric 
-    characters and using a regular expression pattern. The function 
-    splits the string into individual words or attribute names based on 
-    the provided regular expression or the default pattern.
+    Split the input string `<text>` into words or
+    column names using a regular expression.
 
-    This function is useful for extracting meaningful words or column 
-    names from text that contains delimiters like spaces, punctuation, 
-    or special characters.
+    By default, if both `<regex>` and `<pattern>` are
+    None, returns `[text]`. If `<pattern>` is given,
+    compiles it into a regex to split `<text>`. If
+    `<regex>` is provided, uses it directly.
 
     Parameters
     ----------
     text : str
-        The input string containing the column names or words to retrieve. 
-        This is the text that will be split into individual components 
-        (attributes).
-    
+        The string to split into words/columns.
     regex : re.Pattern, optional
-        A custom compiled regular expression object used to split the 
-        `text`. If not provided, the default pattern will be used. 
-        The default pattern is:
-        
-        >>> re.compile(r'[#&.*@!_,;\s-]\s*', flags=re.IGNORECASE)
-
-    pattern : str, optional, default=r'[#&.*@!_,;\s-]\s*'
-        A string representing the regular expression pattern used to 
-        split the `text`. This pattern defines the non-alphanumeric 
-        markers and whitespace characters (including spaces, punctuation, 
-        and operators) that will be treated as delimiters. If `regex` is 
-        not provided, this pattern is used by default.
-
+        Precompiled regular expression used for
+        splitting the text. If provided, overrides
+        `<pattern>`.
+    pattern : str, optional
+        Regex pattern to compile if `<regex>` is not
+        given. Defaults to
+        ``r'[#&.*@!_,;\s-]\s*'`` if only `pattern`
+        is used.
     Returns
     -------
     List[str]
-        A list of attribute names (words) extracted from the `text`. The 
-        text is split using the specified regular expression or the 
-        default pattern.
+        List of tokens from `<text>`, split
+        according to the pattern or `<regex>`.
 
     Examples
     --------
     >>> from gofast.core.checks import str2columns
-    >>> text = ('this.is the text to split. It is an example of splitting '
-    >>>         'str to text.')
+    >>> text = "this.is an-example"
     >>> str2columns(text)
-    ['this', 'is', 'the', 'text', 'to', 'split', 'It', 'is', 'an:', 
-    'example', 'of', 'splitting', 'str', 'to', 'text']
+    ['this','is','an','example']
     """
-    # If the user provided neither a pattern nor 
-    # a regex, just return the text as is.
+    # If no regex or pattern is provided,
+    # just wrap the entire text in a list
     if regex is None and pattern is None:
         return [text]
 
-    # If a regex is provided, use it directly. 
-    # Otherwise, compile the pattern.
+    # If the user provided a compiled regex,
+    # we use it directly
     if regex is not None:
         splitter = regex
     else:
+        # Otherwise compile from <pattern>
         splitter = re.compile(pattern, flags=re.IGNORECASE)
 
-    # Perform the split, then filter out empty strings
+    # Split and filter out empty parts
     parts = splitter.split(text)
-    parts = list(filter(None, parts))
-    return parts
+    return list(filter(None, parts))
 
 def _assert_all_types(
     obj: object,

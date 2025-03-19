@@ -19,7 +19,9 @@ from .charts import (
     donut_chart_in, 
     chord_diagram, 
     multi_level_donut,
-    two_ring_donuts
+    two_ring_donuts, 
+    plot_contrib, 
+    plot_radial_groups, 
     )
 
 from .cluster import ( 
@@ -117,6 +119,8 @@ from .suite import (
     plot_with_uncertainty, 
 )
 
+from .testing import plot_ab_test 
+
 __all__= [
     "config", 
     
@@ -135,6 +139,8 @@ __all__= [
     "chord_diagram", 
     "multi_level_donut", 
     "two_ring_donuts",
+    "plot_contrib", 
+    'plot_radial_groups', 
     
     'plot_silhouette',
     'plot_silhouette_in',
@@ -221,6 +227,8 @@ __all__= [
     'plot_qdist', 
     'plot_with_uncertainty', 
     'plot_qbased_preds'
+    
+    'plot_ab_test'
                
     ]
 

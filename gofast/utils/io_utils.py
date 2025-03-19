@@ -27,6 +27,7 @@ import yaml
 import h5py 
 import tarfile
 from pathlib import Path
+from pprint import pformat
 from typing import Optional, Union, Any, Tuple , List, Dict, Text 
 
 from six.moves import urllib 
@@ -48,7 +49,8 @@ from ..core.utils import is_iterable, smart_format
 from ..decorators import RunReturn, smartFitRun
 from .validator import check_is_runned, is_frame
 from ._dependency import import_optional_dependency
- 
+
+
 logger = gofastlog().get_gofast_logger(__name__) 
 
 __all__ = [
@@ -82,7 +84,8 @@ __all__ = [
     'store_or_write_hdf5',
     'to_hdf5',
     'zip_extractor', 
-    'fetch_joblib_data'
+    'fetch_joblib_data', 
+    'to_txt'
  ]
 
 @smartFitRun 
@@ -3139,3 +3142,252 @@ def get_valid_key(input_key, default_key, substitute_key_dict=None,
                             deep_search=deep_search,regex = regex  )
     
     return input_key
+
+
+def to_txt(
+    d,
+    filename=None,
+    format='txt',
+    indent=2,
+    width=80,
+    depth=None,
+    compat=False,
+    include_header=True,
+    mode='w',
+    encoding='utf-8',
+    overwrite=True,
+    header=None,
+    footer=None,
+    serializer=None,
+    verbose=1,
+    **kwargs
+):
+    """
+    Export data objects to a text or JSON file with
+    optional custom formatting.
+
+    The function, `<to_txt>`, handles writing `<d>`
+    (a string, dict, list, or general object) to a
+    file named `<filename>`. When no filename is
+    given, it automatically generates one based on
+    the current date/time. If `<format>` is `"json"`
+    and `<d>` is valid for JSON serialization,
+    it attempts a JSON export. Otherwise, it falls
+    back to text mode, leveraging Python's built-in
+    `pformat` and an optional `<serializer>` for
+    advanced transformations.
+
+    .. math::
+       \\text{FileName}_{timestamp} \\rightarrow \\text{output}
+
+    where :math:`\\text{FileName}_{timestamp}` is an
+    auto-generated name like `output_20230101_123456.txt`
+    if `<filename>` is not provided.
+
+    Parameters
+    ----------
+    d : object
+        Data to write. Can be any Python object
+        supported by `pformat`, or a dict if
+        `<format>` is `'json'`.
+    filename : str, optional
+        Full path (or name) of the output file. If
+        None, a time-stamped name is produced,
+        prefixed with `'output_'`.
+    format : str, default='txt'
+        File format, either ``"txt"`` or ``"json"``.
+        If it fails to serialize as JSON, the
+        process reverts to text.
+    indent : int, default=2
+        Indentation level for pretty-printing text
+        or JSON.
+    width : int, default=80
+        Wrap width for formatted text lines.
+    depth : int, optional
+        Maximum depth to which nested structures
+        are expanded. If None, no limit is applied.
+    compat : bool, default=False
+        If True, instructs `pformat` to produce
+        more compact text. Not used when exporting
+        JSON.
+    include_header : bool, default=True
+        Whether to include a decorative header
+        (with timestamp) at the top of the file in
+        text mode.
+    mode : str, default='w'
+        File writing mode. Typically `'w'` for
+        overwrite, `'a'` for append.
+    encoding : str, default='utf-8'
+        Text encoding used when opening the file.
+    overwrite : bool, default=True
+        If False, raises an error if the file
+        already exists.
+    header : str, optional
+        Custom header text (if `<include_header>`
+        is True). Overwrites the default header
+        if given.
+    footer : str, optional
+        Custom footer text appended at the end of
+        the file, if `<include_header>` is True.
+    serializer : callable, optional
+        A function that transforms `<d>` before
+        printing. If it fails, `<d>` remains
+        unchanged.
+    verbose : int, default=1
+        Verbosity level for logging. Higher
+        values yield more console messages
+        (e.g., file stats at `<verbose>`>=3).
+    **kwargs
+        Additional parameters passed to the JSON
+        serializer (`json.dump`) or `pformat`.
+
+    Returns
+    -------
+    str
+        The final filename used to store the
+        output (potentially auto-generated).
+
+    Notes
+    -----
+    If `<format>` is `"json"`, the function tries
+    `json.dump` with a few standard parameters.
+    If an exception occurs, it reverts to text
+    export. The `<serializer>` argument allows
+    custom transformations, such as flattening
+    nested dicts or converting objects to JSON-
+    serializable representations [1]_.
+
+    Examples
+    --------
+    >>> from gofast.utils.io_utils import to_txt
+    >>> my_data = {"name":"Alice","age":30}
+    >>> # Basic text export
+    >>> txt_file = to_txt(my_data, verbose=2)
+    >>> # Enforce JSON format
+    >>> json_file = to_txt(my_data, format='json', indent=4)
+
+    See Also
+    --------
+    pformat : Pretty-print complex Python data
+        structures.
+
+    References
+    ----------
+    .. [1] van Rossum, Guido, *Python's standard
+       library "json" module*, Python Docs.
+    """
+    # Generate filename with timestamp if not provided
+    if filename is None:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        ext = 'json' if format == 'json' else 'txt'
+        filename = f"output_{timestamp}.{ext}"
+    
+    # Check file existence if overwrite disabled
+    if not overwrite and os.path.exists(filename):
+        raise FileExistsError(f"File '{filename}' exists. Set overwrite=True to override.")
+
+    original_format = format.lower()
+    success = False
+    file_created = False
+
+    # Attempt JSON export if requested
+    if original_format == 'json':
+        try:
+            json_kwargs = {'indent': indent, 'ensure_ascii': False}
+            json_kwargs.update(kwargs)
+            with open(filename, 'w', encoding=encoding) as f:
+                json.dump(d, f, **json_kwargs)
+            success = True
+            file_created = True
+            if verbose >= 1:
+                print(f"JSON export successful: {filename}")
+        except Exception as e:
+            if verbose >= 1:
+                print(f"JSON export failed ({e}), falling back to TXT")
+            filename = os.path.splitext(filename)[0] + '.txt'
+            format = 'txt'
+
+    # TXT export fallback
+    if not success:
+        # Apply serializer if provided
+        processed_data = d
+        if serializer:
+            try:
+                processed_data = serializer(d)
+            except Exception as e:
+                if verbose >= 2:
+                    print(f"Serializer error: {e}, using original data")
+
+        # Generate formatted content
+        if isinstance(processed_data, str):
+            content = processed_data
+        else:
+            content = pformat(
+                processed_data,
+                indent=indent,
+                width=width,
+                depth=depth,
+                compact=compat
+            )
+
+        # Add header/footer
+        header_section = ""
+        if include_header:
+            header_section = header if header else (
+                "\n" + "=" * 60 + "\n"
+                f"DATA EXPORT | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                "=" * 60 + "\n\n"
+            )
+        
+        footer_section = footer if footer else (
+            "\n\n" + "=" * 60 + "\n" if include_header else ""
+        )
+
+        content = f"{header_section}{content}{footer_section}"
+
+        # Write to file
+        with open(filename, mode, encoding=encoding) as f:
+            f.write(content)
+        file_created = True
+
+    # Verbose reporting
+    if verbose >= 1 and file_created:
+        print(f"Created '{filename}' ({format.upper()})")
+        if verbose >= 3:
+            try:
+                size = os.path.getsize(filename)
+                print(f"Dimensions: {size} bytes | {len(content.splitlines())} lines")
+                print(f"Encoding: {encoding} | Mode: {mode}")
+            except Exception as e:
+                if verbose >= 4:
+                    print(f"Metadata error: {e}")
+
+    return filename
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

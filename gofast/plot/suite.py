@@ -1113,8 +1113,6 @@ def plot_factory_ops(
     plt.tight_layout()
     plt.show()
 
-
-
 @return_fig_or_ax
 def plot_perturbations(
     X,

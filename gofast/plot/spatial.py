@@ -75,6 +75,7 @@ def plot_spatial_clusters(
     cmap: str = "tab10",
     plot_centroids: bool = True,
     legend_position: str = "right",
+    export_result: bool=False, 
     figsize=None,
     **scatter_kws: Any
 ) -> plt.Axes:
@@ -227,7 +228,7 @@ def plot_spatial_clusters(
         legend_position=legend_position,
         **scatter_kws
     )
-    
+
     return ax
 
 def _validate_inputs(

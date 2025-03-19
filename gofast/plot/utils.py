@@ -2383,6 +2383,112 @@ def flex_figsize(
 
     return figsize
 
+def select_hex_colors(
+    n: int,
+    shuffle: bool = False,
+    seed: int = None
+) -> list:
+    """
+    Select a list of hex color codes, optionally shuffling,
+    expanding, or cycling to meet the requested size.
+
+    This function, `<select_hex_colors>`, uses a predefined
+    set of color strings in hex format. If `<shuffle>` is
+    True, it randomizes their order. Additionally, if you
+    provide `<seed>`, the random generator is seeded for
+    reproducible color sequences. Whenever `<n>` exceeds
+    the original size, the list is cycled.
+
+    Mathematically, if :math:`n > \\lvert C \\rvert`, then
+    the resulting list :math:`S` is constructed by:
+
+    .. math::
+       S = (C \\times k)[:n]
+
+    where :math:`C` is the base color list, and
+    :math:`k = \\lfloor \\frac{n}{|C|}\\rfloor + 1`.
+
+    Parameters
+    ----------
+    n : int
+        Number of colors to select.
+    shuffle : bool, default=False
+        Whether to randomize the color list before
+        picking the first `<n>` elements.
+    seed : int, optional
+        If specified, seeds the random generator
+        for consistent results across multiple calls.
+
+    Returns
+    -------
+    list
+        A list of `<n>` color codes in hex format.
+
+    Notes
+    -----
+    This function first checks if `<shuffle>` is True.
+    If so, it uses `random.shuffle` on a copy of the
+    base colors. If `<seed>` is provided, the function
+    calls `random.seed` with `<seed>` to fix the
+    randomization process. If `<n>` surpasses the base
+    list size, the colors are repeated (cycled) until
+    the resulting list meets `<n>`.
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import select_hex_colors
+    >>> # 1) Default usage, no shuffling
+    >>> select_hex_colors(5)
+    ['#2ecc71', '#3498db', '#e74c3c', '#9b59b6', '#f1c40f']
+
+    >>> # 2) Shuffle with no explicit seed
+    >>> select_hex_colors(5, shuffle=True)
+    ['#16a085', '#c0392b', '#2980b9', '#34495e', '#8e44ad']
+
+    >>> # 3) Shuffle with a reproducible seed
+    >>> select_hex_colors(5, shuffle=True, seed=42)
+    ['#d35400', '#2ecc71', '#9EB3DD', '#3B70F2', '#2c3e50']
+
+    See Also
+    --------
+    random.shuffle : Used for randomizing the base
+        list of color codes.
+    random.seed : Allows reproducible random
+        sequences by setting a fixed seed.
+
+    References
+    ----------
+    .. [1] Brewer, Cynthia A. *Color Use Guidelines
+       for Data Representation*, 1994.
+    """
+    # Predefined list of hex colors
+    colors = [
+        '#2ecc71', '#3498db', '#e74c3c', '#9b59b6', '#f1c40f',
+        '#1abc9c', '#34495e', '#16a085', '#27ae60', '#2980b9',
+        '#8e44ad', '#2c3e50', '#f39c12', '#d35400', '#c0392b',
+        '#bdc3c7', '#7f8c8d', '#CED9EF', '#9EB3DD', '#3B70F2', 
+        '#0A4CEE'
+    ]
+    
+    # Seed the random number generator if a seed is provided
+    if seed is not None:
+        random.seed(seed)
+    
+    # If shuffle is True, shuffle a copy of the colors list
+    if shuffle:
+        temp_colors = colors.copy()
+        random.shuffle(temp_colors)
+        colors = temp_colors
+
+    # If more colors are requested than available, cycle the list until reaching n
+    if n > len(colors):
+        times = (n // len(colors)) + 1
+        colors = (colors * times)[:n]
+    else:
+        colors = colors[:n]
+    
+    return colors
+
 
 def _set_defaults(**kwargs):
     """

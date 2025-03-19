@@ -34,6 +34,7 @@ from ...core.utils import type_of_target
 from ...decorators import Dataify
 from ..base_utils import select_features, extract_target
 from ..deps_utils import ensure_pkg
+from ..io_utils import to_txt 
 from ..validator import ( 
     build_data_if, validate_data_types, check_consistent_length, 
     get_estimator_name, filter_valid_kwargs
@@ -65,6 +66,8 @@ def validate_feature_utility(
     task: str = 'auto',
     n_folds: int = 5,
     view: bool = False,
+    save_result: bool=False, 
+    filename:Optional[str]=None, 
     box_kws=None,
     figsize=None,
     verbose: int = 1
@@ -111,6 +114,10 @@ def validate_feature_utility(
     view : bool, default=False
         If True, draws boxplots showing the distribution of
         cross-validation scores for each feature set.
+    save_result: bool, False 
+        Export the result into a txt file. 
+    filename: str, optional 
+       Name of the file to export. 
     box_kws : dict, optional
         Dictionary of keyword arguments passed to the
         seaborn boxplot function.
@@ -342,7 +349,10 @@ def validate_feature_utility(
             task=task, 
             verbose=verbose  
         ) 
- 
+        
+    if save_result: 
+        to_txt(result, filename) 
+        
     # Return dictionary with comparison metrics
     return result
 

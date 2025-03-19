@@ -7,6 +7,7 @@ It includes tools for plotting pie charts and creating radar
 charts to visually represent data in an informative way.
 """
 
+import warnings
 import math
 import numpy as np 
 import pandas as pd 
@@ -18,24 +19,592 @@ from ..api.types import ArrayLike, DataFrame
 from ..api.types import List, Tuple, Optional, Union 
 from ..core.checks import ( 
     is_iterable, 
-    exist_features, 
+    exist_features,
+    check_numeric_dtype
 )
 from ..core.handlers import extend_values, columns_manager 
 from ..core.io import is_data_readable, to_frame_if 
 from ..decorators import Dataify 
+from ..utils.deps_utils import is_module_installed
 from ..utils.validator import ( 
     is_frame, 
     parameter_validator, 
     check_donut_inputs
 )
-from .utils import make_plot_colors
+from .utils import make_plot_colors, select_hex_colors 
 
 __all__=[
     "pie_charts", "radar_chart", "radar_chart_in", "donut_chart", 
     "plot_donut_charts", "donut_chart_in", "chord_diagram", 
-    "multi_level_donut", "two_ring_donuts"
+    "multi_level_donut", "two_ring_donuts", "plot_contrib", 
+    'plot_radial_groups', 
     ]
 
+
+@Dataify(prefix='feature_') 
+def plot_contrib(
+    df: pd.DataFrame,
+    selected_features: list = None,
+    data_kind: str = 'model',
+    target: str = None,
+    title: str = None,
+    colors: list = None,
+    figsize: tuple = (10, 7),
+    explode: tuple = None,
+    autopct: str = '%1.1f%%',
+    pctdistance: float = 0.85,
+    textprops: dict = None,
+    vertical_alignment: str = 'center',
+    shadow: bool = True,
+    startangle: int = 140,
+    wedgeprops: dict = None,
+    legend_loc: str = 'upper left',
+    importance_threshold: float = 0.05,
+    model_agg: str = 'mean',
+    annot: bool = True,
+    ax: plt.Axes = None
+) -> plt.Axes:
+    """
+    Visualize feature contributions as a proportional
+    pie chart.
+
+    This function, `<plot_contrib>`, aggregates a given
+    DataFrame `<df>` to display feature importance or
+    contribution in a pie chart. It supports three modes
+    denoted by `<data_kind>`: `'model'`, `'basic'`, or
+    `'grouped'`. For `'model'`, it collects importance
+    scores from selected features and aggregates them
+    (e.g. via mean or median). For `'grouped'`, it
+    requires a `<target>` column and displays mean
+    contributions across groups. For `'basic'`, it
+    simply computes an average per feature. The chart
+    slices are sized according to:
+
+    .. math::
+       \\text{Proportion}_i = \\frac{v_i}{
+       \\sum_j v_j}
+
+    where :math:`v_i` is the value for slice :math:`i`,
+    and the sum runs over all slices. By default, only
+    slices exceeding `<importance_threshold>` are shown.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input data from which features are computed.
+    selected_features : list, optional
+        List of feature names to include in the chart.
+        If None, depends on `<data_kind>` to select
+        columns or rows.
+    data_kind : str, default='model'
+        Mode that determines how data is aggregated:
+        `'model'`, `'basic'`, or `'grouped'`.
+    target : str, optional
+        Required if `<data_kind>` is `'grouped'`.
+        Column name used to group the DataFrame for
+        calculating mean contributions.
+    title : str, optional
+        Title displayed above the chart.
+    colors : list, optional
+        Custom sequence of colors for the pie slices.
+    figsize : tuple, default=(10, 7)
+        Size of the Matplotlib figure in inches.
+    explode : tuple, optional
+        Offsets slices from the center by a fraction
+        of the radius. E.g., `(0.05, 0, 0, ...)`.
+    autopct : str, default='%1.1f%%'
+        Format of numeric labels for each slice (if
+        `<annot>` is True).
+    pctdistance : float, default=0.85
+        Radius fraction at which to place numeric
+        labels.
+    textprops : dict, optional
+        Properties for slice text, e.g. font size or
+        color.
+    vertical_alignment : str, default='center'
+        Aligns the legend or slice labels if `<annot>`
+        is False.
+    shadow : bool, default=True
+        If True, renders a shadow under the pie chart.
+    startangle : int, default=140
+        Starting rotation for the first slice, in
+        degrees.
+    wedgeprops : dict, optional
+        Properties for the wedge objects, e.g. edge
+        width or transparency.
+    legend_loc : str, default='upper left'
+        Position for the legend when text labels are
+        not centered on slices.
+    importance_threshold : float, default=0.05
+        Minimum fraction for a slice to be displayed.
+        Slices below this threshold are omitted.
+    model_agg : str, default='mean'
+        If `'model'`, uses `'mean'` or `'median'` to
+        summarize multiple importance values from
+        each feature row.
+    annot : bool, default=True
+        If True, displays slice labels and numeric
+        values on the chart.
+    ax : matplotlib.axes.Axes, optional
+        Existing axes on which to draw the pie chart.
+        If None, a new figure and axes are created.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        Axes object containing the final pie chart.
+
+    Notes
+    -----
+    If `<data_kind>` is `'model'`, the function
+    assumes rows represent different importance
+    estimations for each feature. If `<data_kind>`
+    is `'grouped'`, the function aggregates data
+    by `<target>`, then across `<selected_features>`,
+    returning a single mean for each feature. For
+    `'basic'`, it directly computes an average
+    over each feature’s values in `<df>`.
+
+    Examples
+    --------
+    >>> from gofast.plot.charts import plot_contrib
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'feat1': [0.1, 0.3, 0.2],
+    ...     'feat2': [0.2, 0.2, 0.2],
+    ...     'feat3': [0.7, 0.5, 0.6]
+    ... })
+    >>> # Model-like usage: each row is an importance set
+    >>> plot_contrib(
+    ...     df=df,
+    ...     data_kind='model',
+    ...     selected_features=['feat1','feat2','feat3'],
+    ...     title="Feature Importance"
+    ... )
+
+    See Also
+    --------
+    pandas.DataFrame.mean : Used to compute averages
+        when `'basic'` or `'model_agg'='mean'`.
+    matplotlib.pyplot.pie : Creates the pie chart
+        from numerical slices.
+
+    References
+    ----------
+    .. [1] Cleveland, William S. *Visualizing Data*,
+       Hobart Press, 1993.
+    """
+    # Validate data_kind choice
+    data_kind = data_kind.lower()
+    valid_modes = ['model', 'basic', 'grouped']
+    if data_kind not in valid_modes:
+        raise ValueError(
+            f"Invalid data_kind: {data_kind}. "
+            f"Choose from {valid_modes}"
+        )
+
+    # Setup default visual properties
+    textprops = textprops or {
+        'fontsize': 12,
+        'color': 'black',
+        'ha': 'center'
+    }
+    wedgeprops = wedgeprops or {
+        'edgecolor': 'white',
+        'linewidth': 2,
+        'alpha': 0.9
+    }
+
+    # Compute feature importance
+    if data_kind == 'model':
+        features = selected_features or df.index.tolist()
+        agg_func = df.mean if model_agg == 'mean' else df.median
+        importances = agg_func(axis=1)
+    elif data_kind == 'grouped':
+        if not target:
+            raise ValueError(
+                "Target column required for grouped analysis"
+            )
+        group_feats = selected_features or df.columns.tolist()
+        importances = df.groupby(target)[
+            group_feats
+        ].mean().mean()
+    else:  # data_kind == 'basic'
+        features = selected_features or df.columns.tolist()
+        importances = df[features].mean()
+
+    check_numeric_dtype(
+        importances, param_names ={"X": "Importances df"}
+        )
+    # Filter low-importance items
+    filtered = importances[
+        importances >= importance_threshold
+    ]
+    if filtered.empty:
+        raise ValueError(
+            "No features exceed importance threshold"
+        )
+
+    # Identify labels & compute proportional sizes
+    labels = (
+        filtered.index if data_kind == 'model'
+        else filtered.keys()
+    )
+    sizes = filtered.values / filtered.sum()
+
+    # Setup axis or create a new one
+    ax = ax or plt.subplots(figsize=figsize)[1]
+
+    # Default color mapping & explode effect
+    colors = colors or plt.cm.tab20.colors[: len(labels)]
+    explode = explode or (0.05,) * len(labels)
+    title = title or (
+        f"Feature Contributions: "
+        f"{data_kind.title()} Analysis"
+    )
+
+    # Build pie chart
+    wedges, *_ = ax.pie(
+        sizes,
+        labels=labels if annot else None,
+        colors=colors,
+        explode=explode,
+        shadow=shadow,
+        startangle=startangle,
+        autopct=autopct if annot else None,
+        pctdistance=pctdistance,
+        textprops=textprops,
+        wedgeprops=wedgeprops
+    )
+
+    # Apply final style & constraints
+    ax.set_title(
+        title,
+        fontsize=14,
+        fontweight='semibold',
+        pad=15
+    )
+    ax.axis('equal')
+
+    # Show legend if needed
+    if not annot or vertical_alignment != 'center':
+        ax.legend(
+            wedges,
+            [
+                f"{l}\n({s:.1%})"
+                for l, s in zip(labels, sizes)
+            ],
+            title="Feature Breakdown",
+            loc=legend_loc,
+            bbox_to_anchor=(0.85, 0.85),
+            borderaxespad=0.,
+            frameon=False
+        )
+
+    return ax
+
+@Dataify(prefix='feature_')
+def plot_radial_groups(
+    df: pd.DataFrame,
+    path_cols: list,
+    value_col: str,
+    title: str = None,
+    color_col: str = None,
+    max_depth: int = -1,
+    width: int = 800,
+    height: int = 800,
+    colors: Optional[List[str]]=None,
+    outer_radius: float = 1.0,
+    ring_width: float = 0.3,
+    savefig=None
+):
+    """
+    Visualize hierarchical data in a radial chart.
+
+    This function, `<plot_radial_groups>`, first tries to
+    create an interactive Plotly sunburst if the Plotly
+    library is installed. It uses `<path_cols>` to define
+    the hierarchy and `<value_col>` for the numeric sizes.
+    If Plotly is unavailable, it falls back to a Matplotlib
+    concentric-ring diagram. For two-level hierarchies,
+    each top-level category is shown as a ring segment,
+    with subcategories inside.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input data, containing columns that match
+        the strings in `<path_cols>` and `<value_col>`.
+    path_cols : list
+        Ordered list of columns describing the hierarchy
+        from outer to inner levels.
+    value_col : str
+        Name of the numeric column used to determine
+        segment sizes.
+    title : str, default="Radial Category Plot"
+        Chart title displayed at the top of the figure.
+    color_col : str, optional
+        If provided, color shading is determined by
+        ``<color_col>`` in the sunburst diagram. Defaults
+        to `<value_col>` if not specified.
+    max_depth : int, default=-1
+        Maximum path depth for the Plotly sunburst.
+        If -1, displays all levels found in `<path_cols>`.
+    width : int, default=800
+        Width of the figure in pixels.
+    height : int, default=800
+        Height of the figure in pixels.
+    savefig : str or None, optional
+        File path to save the resulting figure. If None,
+        it only displays on screen.
+
+    Returns
+    -------
+    None
+        Shows the plot (either Plotly or Matplotlib)
+        in the running environment.
+
+    Notes
+    -----
+    If Plotly is installed, the function attempts to
+    build an interactive sunburst. Otherwise, it
+    uses Matplotlib to produce concentric wedges for
+    the first two levels. In multi-level data, only
+    two levels are rendered by the fallback logic.
+    
+    Mathematically, each segment angle :math:`\\theta`
+    is computed as:
+
+    .. math::
+       \\theta = 2 \\pi \\times
+       \\frac{\\text{segment value}}{
+       \\sum{\\text{all segment values}}}
+
+    This ensures all angles sum to :math:`2 \\pi`.
+
+    Examples
+    --------
+    >>> from gofast.plot.charts import plot_radial_groups
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     "Continent": ["America","America","Europe","Europe"],
+    ...     "Country":   ["USA","Canada","France","Germany"],
+    ...     "Population": [330, 38, 67, 83]
+    ... })
+    >>> # Example when Plotly is available:
+    >>> plot_radial_groups(
+    ...     df=df,
+    ...     path_cols=["Continent","Country"],
+    ...     value_col="Population",
+    ...     title="Population Distribution"
+    ... )
+    >>> # If Plotly is not installed, the fallback
+    ... # Matplotlib chart is shown with two rings.
+
+    See Also
+    --------
+    pandas.DataFrame.groupby : Used for aggregating
+        hierarchical data.
+    matplotlib.pyplot.bar : Underlies the radial bars
+        in the fallback approach.
+
+    References
+    ----------
+    .. [1] Plotly.py documentation: https://plotly.com/python/
+       (for interactive sunburst charts)
+    """
+    title = title or  "Radial Category Plot"
+    # Determine which column is used for coloring
+    color_col = color_col or value_col
+
+    # Dynamically check if plotly is installed
+    
+    has_plotly = is_module_installed('plotly')
+
+    # If plotly is available, build an
+    # interactive sunburst chart
+    if has_plotly:
+        try: 
+            import plotly.express as px
+    
+            # Construct the sunburst figure
+            fig = px.sunburst(
+                data_frame = df,
+                path       = path_cols,
+                values     = value_col,
+                color      = color_col,
+                maxdepth   = max_depth,
+                width      = width,
+                height     = height,
+                title      = title
+            )
+    
+            # Tweak layout margins and text
+            fig.update_layout(
+                margin      = dict(l=50, r=50, t=80, b=50),
+                uniformtext = dict(minsize=10, mode='show')
+            )
+    
+            # Display the final plot
+            fig.show()
+    
+            # Optionally save figure, if requested
+            if savefig:
+                fig.write_image(savefig)
+                
+        except Exception as e: 
+            warnings.warn(
+                f"Plotly fails to visualize radial groups due to {e}."
+                " Fallback to matplotlib plot.")
+        
+        else : 
+            return 
+        
+    # else: 
+        
+    # Fallback approach using Matplotlib if plotly is not installed.
+    # (the first two columns in `path_cols`) and visualizes them
+    # as concentric rings in a radial chart.
+
+    # Summarize data by the first two hierarchy levels
+    # (If there's only one level, it still works, but
+    # the second ring will be empty.)
+    if len(path_cols) < 2:
+        raise ValueError(
+            "For multi-level radial, provide at least"
+            " two columns in path_cols.")
+    
+    grouped = df.groupby(path_cols)[value_col].sum().reset_index()
+    top_level_name = path_cols[0]
+    sub_level_name = path_cols[1]
+    
+    # Aggregate sums at the top level
+    top_agg = grouped.groupby(top_level_name)[value_col].sum().reset_index()
+    top_labels = top_agg[top_level_name].values
+    top_sizes  = top_agg[value_col].values
+    top_total  = top_sizes.sum()
+    
+    # We'll map each top-level category to its sub-level
+    # data for the outer ring
+    sub_data = {}
+    for cat in top_labels:
+        cat_group = grouped[grouped[top_level_name] == cat]
+        sub_labels = cat_group[sub_level_name].values
+        sub_sizes  = cat_group[value_col].values
+        sub_data[cat] = (sub_labels, sub_sizes)
+    
+    # Prepare figure and polar axis
+    fig, ax = plt.subplots(
+        figsize=(width/100, height/100),
+        subplot_kw=dict(polar=True)
+    )
+    
+    # We track the start angle for top-level wedges
+    current_angle = 0.0
+    if colors =='tab20': 
+        colors = plt.cm.tab20.colors
+    else: 
+        colors = colors or  select_hex_colors(len(top_labels))
+        
+    # for consistency.
+    colors = make_plot_colors(top_labels, colors, seed=42  )
+    
+    ax.set_theta_direction(-1)
+    ax.set_theta_offset(np.pi / 2.0)
+    
+    # Outer radius for the top-level ring, inner radius for sub-level ring
+    # outer_radius = 1.0
+    # ring_width   = 0.3
+    inner_radius = outer_radius - ring_width
+    
+    # Plot the top-level ring
+    for i, (lbl, val) in enumerate(zip(top_labels, top_sizes)):
+        frac = val / top_total
+        theta_length = frac * 2 * np.pi
+    
+        # Draw the top-level wedge
+        ax.bar(
+            x=current_angle,
+            height=ring_width,
+            width=theta_length,
+            bottom=inner_radius,
+            color=colors[i % len(colors)],
+            edgecolor="white",
+            linewidth=1.5,
+            alpha=0.9,
+            align="edge"
+        )
+    
+        # Label the wedge near its midpoint
+        mid_angle_deg = (current_angle + theta_length/2) * 180 / np.pi
+        ax.text(
+            current_angle + theta_length/2,
+            inner_radius + ring_width/2,
+            f"{lbl}\n({val})",
+            rotation=-mid_angle_deg,
+            ha="center",
+            va="center"
+        )
+    
+        # Now plot sub-level wedges for this top-level category
+        # inside that arc
+        sub_labels, sub_sizes = sub_data[lbl]
+        # sub_sum = sub_sizes.sum()
+        sub_angle_start = current_angle
+    
+        for j, (s_lbl, s_val) in enumerate(
+                zip(sub_labels, sub_sizes)):
+            s_frac = s_val / top_total  # fraction of grand total
+            s_theta_length = s_frac * 2 * np.pi
+            if s_theta_length < 1e-5:
+                continue
+    
+            # Draw sub-level wedge in the inner ring
+            ax.bar(
+                x=sub_angle_start,
+                height=inner_radius,  # fill from center out
+                width=s_theta_length,
+                bottom=0,
+                color=colors[(i+j) % len(colors)],
+                edgecolor="white",
+                linewidth=1,
+                alpha=0.85,
+                align="edge"
+            )
+    
+            sub_mid_angle_deg = (
+                sub_angle_start + s_theta_length/2) * 180 / np.pi
+            ax.text(
+                sub_angle_start + s_theta_length/2,
+                inner_radius/2,
+                f"{s_lbl}\n({s_val})",
+                rotation=-sub_mid_angle_deg,
+                ha="center",
+                va="center",
+                fontsize=9
+            )
+    
+            sub_angle_start += s_theta_length
+    
+        # Advance the top-level angle for the next wedge
+        current_angle += theta_length
+    
+    # Remove spines/ticks, set aspect
+    ax.set_yticklabels([])
+    ax.set_xticklabels([])
+    ax.spines["polar"].set_visible(False)
+    ax.set_title(
+        title,
+        y=1.08,
+        fontsize=14,
+        fontweight="bold"
+    )
+    plt.tight_layout()
+    plt.show()
+    
+    # Optionally save the figure
+    if savefig:
+        fig.savefig(savefig, dpi=120)
 
 @is_data_readable 
 @Dataify(fail_silently=True)

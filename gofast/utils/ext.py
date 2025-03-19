@@ -44,21 +44,6 @@ __all__ = [
     ]
 
 
-# # 2. Define feature sets for A/B test
-# feature_set_a = ['longitude', 'latitude', 'year', 'GWL', 'rainfall_mm']
-# feature_set_b = ['region', 'year', 'GWL', 'rainfall_mm']
-
-# # 3. Validate utility (e.g., for classification task)
-# results = validate_feature_utility(
-#     df=df,
-#     target_col='subsidence_category',
-#     feature_set_a=feature_set_a,
-#     feature_set_b=feature_set_b,
-#     task='classification'
-# )
-
-
-
 @check_params ({ 
     "expr": Union[str, List[str]], 
     "op_cols": Optional[Union [str, List[str]]]
