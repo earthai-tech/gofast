@@ -1,15 +1,21 @@
 # -*- coding: utf-8 -*-
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
 
+"""
+Provides functions to conduct and visualize various
+statistical tests.
+"""
 
+from typing import Union, Tuple, Dict, Iterable, Optional 
 import numpy as np
 import pandas as pd
+from matplotlib import rcParams
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats
 from scipy.stats import chi2_contingency, f_oneway
 
-from matplotlib import rcParams
-from typing import Union, Tuple, Dict, Iterable, Optional 
 from ..api.summary import ResultSummary 
 from ..decorators import isdf 
 from ..compat.sklearn import  validate_params, StrOptions 
@@ -19,22 +25,7 @@ from ..core.plot_manager import default_params_plot
 from ..utils.validator import filter_valid_kwargs
 from ._config import PlotConfig
 
-# I have already analysis the data and feature importances and select the importances 
-# features, which other pie chart plot can we do with the selected features as new analysis. 
-# propose nice, chart for visulaizations and add more parameters for flexixility 
-# let maje the plot functions accept dataframe with the selected features 
-
-# the plo
-
-# professionnaly write this function so :
-#     Use parameters vertical alignment which is more professionals 
-# come back to a new line if the code is long using the best vertical alignement as well as the comments.
-# beatifully write the function and break the code using vertical alignment and 
-# parenthesis to come back to new line make it more beautiful. comment the codes professionnally. 
-# also come back to new line after 63 characters 
-# skip the documentation for brievity, comment the code only ; 
-
-__all__=['plot_ab_test']
+__all__=['plot_ab_test'] 
 
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_ab_test_plot.png')
@@ -739,7 +730,7 @@ def bootstrap_test(
     obs_diff = np.mean(a) - np.mean(b)
 
     # Combine data for reference if needed
-    combined = np.concatenate([a, b])
+    # combined = np.concatenate([a, b])
 
     # Perform the bootstrap procedure
     for _ in range(n_samples):

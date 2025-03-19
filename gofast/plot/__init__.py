@@ -226,7 +226,7 @@ __all__= [
     'plot_coverage', 
     'plot_qdist', 
     'plot_with_uncertainty', 
-    'plot_qbased_preds'
+    'plot_qbased_preds',
     
     'plot_ab_test'
                
