@@ -2284,18 +2284,6 @@ def spread_coverage(
     
     return pred_q10, pred_q50, pred_q90
 
-# def _parse_used_columns(df, expression):
-#     """
-#     Parse and return the list of columns in ``df`` used within
-#     a single expression string.
-#     """
-#     used_cols = []
-#     for col in df.columns:
-#         pattern = r"\b" + re.escape(col) + r"\b"
-#         if re.search(pattern, expression):
-#             used_cols.append(col)
-#     return used_cols
-
 @isdf
 def parse_used_columns(
     df,
@@ -2783,8 +2771,6 @@ def spread_uncertainty(
        Analysis (3rd ed.). Wiley.
     """
 
-
-    
     # Handle default uncertainities
     sigma_vals= columns_manager(sigma_vals, empty_as_none=True)
     if sigma_vals is None:

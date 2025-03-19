@@ -2583,7 +2583,7 @@ def features_in(
     results = []
 
     for dataset in data:
-        results.append(validate_feature(dataset, features, verbose=error))
+        results.append(validate_feature(dataset, features, error=error))
 
     return results
 
