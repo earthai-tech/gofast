@@ -91,7 +91,7 @@ _shared_doc_kwargs= {
         " is to be computed. Each feature name should correspond to a column"
         " in `X`. If `None`, all features will be used."
         ), 
-    "kind_desc": ( 
+    "plot_type_desc": ( 
         "The type of plot to generate for the sensitivity results. If `None`,"
         " no plot is generated. Available plot styles include:"
         "- `'hist'`: A histogram of relative sensitivities with a KDE."
@@ -116,8 +116,8 @@ X : array-like, shape (n_samples, n_features)
     %(X_desc)s
 feature_names : str or list of str, Optional
     %(feature_names_desc)s
-kind : {'hist', 'line', 'bar', 'scatter', 'boxplot', 'box'}, optional
-    %(kind_desc)s
+plot_type : {'hist', 'line', 'bar', 'scatter', 'boxplot', 'box'}, optional
+    %(plot_type_desc)s
 interpret : bool, default=False
     %(interpret_desc)s
 """
@@ -130,17 +130,18 @@ interpret : bool, default=False
     "y": ['array-like'], 
     "feature_names": ['array-like', None],
     "perturbation": [Interval(Real, 0, 1, closed='both')],
-    "kind": [
+    "plot_type": [
         StrOptions({'barh', 'bar', 'pie', 'scatter'}), None],
     "max_iter": [Interval(Integral, 1, None, closed='left')]
 })
+# kind
 def miv_score(
     X, 
     y, 
     model=None, 
     perturbation=0.05, 
     max_iter=10, 
-    kind='bar',  
+    plot_type='bar',  
     percent=False,    
     relative=False, 
     normalize=False, 
@@ -199,7 +200,7 @@ def miv_score(
         provide a more stable estimate of the MIV but increase computational
         cost.
 
-    kind : {'bar', 'barh', 'pie', 'scatter'}, optional
+    plot_type : {'bar', 'barh', 'pie', 'scatter'}, optional
         The type of plot to visualize the MIV feature contributions.
         - ``'bar'``: Vertical bar plot.
         - ``'barh'``: Horizontal bar plot.
@@ -255,7 +256,7 @@ def miv_score(
     ValueError
         - If model fitting fails due to incompatible data or estimator issues.
         - If predictions fail during perturbation.
-        - If an unsupported ``kind`` is provided.
+        - If an unsupported ``plot_type`` is provided.
 
     Examples
     --------
@@ -268,7 +269,7 @@ def miv_score(
     >>> miv_results = miv_score(
     ...     X=X_iris, 
     ...     y=y_iris, 
-    ...     kind='bar', 
+    ...     plot_type='bar', 
     ...     percent=True,     # Display MIV in percentage
     ...     relative=True,    # Compute MIV relative to original predictions
     ... )
@@ -425,7 +426,7 @@ def miv_score(
     )
     
     # Visualization
-    if kind:
+    if plot_type:
         plt.figure(figsize=fig_size)
         
         # Sort features by MIV in descending order for better visualization
@@ -433,11 +434,11 @@ def miv_score(
         features, importances = zip(*sorted_features)
         
         # fix only these two plots as well as their plt.text anot. 
-        if kind in [ 'bar', 'barh']:
+        if plot_type in [ 'bar', 'barh']:
             _plot_feature_importance(
-                importances, features, kind=kind, 
+                importances, features, plot_type=plot_type, 
                 percent=percent, cmap= cmap)
-        elif kind == 'pie':
+        elif plot_type == 'pie':
             plt.pie(importances, labels=features, 
                     autopct=lambda p: f'{p:.1f}%' if percent else f'{p:.3f}', 
                     startangle=140, colors=sns.color_palette(
@@ -446,7 +447,7 @@ def miv_score(
             # Equal aspect ratio ensures that pie is drawn as a circle.
             plt.axis('equal')  
         
-        elif kind == 'scatter':
+        elif plot_type == 'scatter':
             sns.scatterplot(x=list(importances), y=list(
                 features), size=list(importances), 
                             legend=False, palette=cmap
@@ -462,7 +463,7 @@ def miv_score(
         
         else:
             warnings.warn(
-                f"Unsupported kind '{kind}'. Supported types"
+                f"Unsupported plot_type '{plot_type}'. Supported types"
                 " are 'bar', 'barh', 'pie', 'scatter'."
                 " Defaulting to 'bar'.", UserWarning
                 )
@@ -477,7 +478,7 @@ def miv_score(
                     value, index, f'{value:.2f}{"%" if percent else ""}', va='center')
         
         # Show grid if required
-        if kind in ['bar', 'barh', 'scatter']:
+        if plot_type in ['bar', 'barh', 'scatter']:
             if show_grid: 
                 plt.grid(True, linestyle='--', alpha=0.7)
             else : 
@@ -497,11 +498,11 @@ def miv_score(
     return metric_summary
 
 def _plot_feature_importance(
-        importances, features, kind='bar', 
+        importances, features, plot_type='bar', 
         percent=False, cmap='Blues'
         ):
     # Bar Plot (Vertical)
-    if kind == 'bar':
+    if plot_type == 'bar':
         sns.barplot(x=list(features), y=list(importances), palette=cmap)  
         plt.title('Mean Impact Value (MIV) - Feature Contributions')
         plt.xlabel('Feature')  # x-axis should be the features
@@ -514,7 +515,7 @@ def _plot_feature_importance(
                      va='bottom', ha='center')  # Place text above bars
 
     # Horizontal Bar Plot (No changes needed)
-    elif kind == 'barh':
+    elif plot_type == 'barh':
         sns.barplot(x=list(importances), y=list(features), palette=cmap, 
                     orient='h')  # x = MIV, y = features
         plt.title('Mean Impact Value (MIV) - Feature Contributions')
@@ -697,7 +698,7 @@ def coverage_score(
     "X": ['array-like'],
     "feature_names": ['array-like', None],
     "perturbation": [Interval(Real, 0, 1, closed='both')],
-    "kind": [
+    "plot_type": [
         StrOptions({'hist', 'bar', 'line', 'boxplot', 'box'}), None],
     "interpret": [bool]
    }, 
@@ -766,7 +767,7 @@ Examples
 >>> 
 >>> sensitivity_df = relative_sensitivity_score(
 ...     dtb_model, X, feature_names=['feature_0', 'feature_14'],
-...     perturbation=0.05, kind='line', interpret=True
+...     perturbation=0.05, plot_type='line', interpret=True
 ... )
 >>> print(sensitivity_df)
     Feature  RS (Relative Sensitivity)
@@ -791,7 +792,7 @@ def relative_sensitivity_score(
     model, X, *, 
     perturbation=0.1,
     feature_names=None,  
-    kind=None, 
+    plot_type=None, 
     interpret=False, 
 ):
     """
@@ -883,12 +884,12 @@ def relative_sensitivity_score(
         ).add_results(rs_result)
     
     # Plot results if requested
-    if kind is not None:
+    if plot_type is not None:
         from .plot.suite import plot_sensitivity 
         plot_sensitivity(
             sensitivity_values, 
             baseline= baseline_predictions, 
-            kind = kind, 
+            plot_type = plot_type, 
             title = "Sensitivity Analysis: Relative Sensitivity by Feature", 
             xlabel="Feature", 
             ylabel="Relative Sensitivity (RS)", 
@@ -928,7 +929,7 @@ Example
 >>> 
 >>> sensitivity_df = relative_sensitivity_scores(
 ...     dtb_model, X, feature_names=['feature_11', 'feature_15'],
-...     perturbations=[0.5, 0.8, 0.7], kind='line', interpret=True
+...     perturbations=[0.5, 0.8, 0.7], plot_type='line', interpret=True
 ... )
 >>> print(sensitivity_df)
 
@@ -949,7 +950,7 @@ def relative_sensitivity_scores(
     model, X, *, 
     perturbations=None, 
     feature_names=None,  
-    kind=None, 
+    plot_type=None, 
     interpret=False, 
 ): 
     """
@@ -973,7 +974,7 @@ def relative_sensitivity_scores(
             X=X, 
             feature_names=feature_names, 
             perturbation=perturbations[0], 
-            kind=kind,  
+            plot_type=plot_type,  
             interpret=interpret  
         )
     
@@ -990,7 +991,7 @@ def relative_sensitivity_scores(
             X=X, 
             feature_names=feature_names, 
             perturbation=perturbation, 
-            kind=None,  # No need for plot in this function
+            plot_type=None,  # No need for plot in this function
             interpret=False  # No need for interpretation 
         )
 
@@ -1039,17 +1040,17 @@ def relative_sensitivity_scores(
     ).add_results(sensitivities)  
 
     # Plot results if requested
-    if kind is not None:
+    if plot_type is not None:
         from .plot.utils import plot_sensitivity 
         
         plot_sensitivity(
             sensitivities_values, 
             baseline=baseline_predictions, 
-            kind=kind, 
+            plot_type=plot_type, 
             title="Sensitivity Analysis: Relative Sensitivity by Feature", 
-            xlabel= 'Sensitivity Value' if kind =='hist' else (
-                "Pertubations" if kind in ("line", ) else "Features"), 
-            ylabel ="Frequency" if kind in (
+            xlabel= 'Sensitivity Value' if plot_type =='hist' else (
+                "Pertubations" if plot_type in ("line", ) else "Features"), 
+            ylabel ="Frequency" if plot_type in (
                 'hist', ) else "Relative Sensitivity (RS)" , 
             x_ticks_rotation=90, 
             boxplot_showfliers=True
@@ -1202,7 +1203,7 @@ def prediction_stability_score(
 @validate_params ({ 
     "y_train": ['array-like'], 
     "y_test": ['array-like', None], 
-    "kind": [StrOptions({"hist", "box", "hist-box"}), None], 
+    "plot_type": [StrOptions({"hist", "box", "hist-box"}), None], 
     "scaling_threshold": [Interval(Real, 0, 1, closed ='both')], 
     "figsize": [tuple, list], 
     "bins": [Interval(Integral, 1, None, closed="left")], 
@@ -1216,7 +1217,7 @@ def prediction_stability_score(
 def analyze_target(
     y_train,
     y_test=None,
-    kind=None,
+    plot_type=None,
     scaling_threshold=1.0,
     figsize=(14, 6),
     bins=30,
@@ -1235,7 +1236,7 @@ def analyze_target(
         The training target variable.
     y_test: array-like, optional
         The test target variable. Default is ``None``.
-    kind : str, optional
+    plot_type : str, optional
         Type of plot to display. Options are ``'hist'``, ``'box'``, or
         ``'hist-box'``. If set to ``None``, no plot is displayed. Default
         is ``None``.
@@ -1279,7 +1280,7 @@ def analyze_target(
     --------
     >>> from gofast.metrics_special import analyze_target
     >>> y_train = [1, 2, 3, 4, 5]
-    >>> stats = analyze_target(y_train, kind='hist-box')
+    >>> stats = analyze_target(y_train, plot_type='hist-box')
 
     See Also
     --------
@@ -1306,9 +1307,9 @@ def analyze_target(
     }
 
     # Plotting if plot_style is specified
-    if kind is not None:
+    if plot_type is not None:
         sns.set(font_scale=font_scale)
-        if kind == 'hist':
+        if plot_type == 'hist':
             # Histogram plot
             plt.figure(figsize=figsize)
             sns.histplot(y, bins=bins, kde=kde, color=color)
@@ -1316,14 +1317,14 @@ def analyze_target(
             plt.xlabel('Target Value')
             plt.ylabel('Frequency')
             plt.show()
-        elif kind == 'box':
+        elif plot_type == 'box':
             # Boxplot
             plt.figure(figsize=figsize)
             sns.boxplot(x=y, color=color)
             plt.title('Boxplot of Target Variable')
             plt.xlabel('Target Value')
             plt.show()
-        elif kind == 'hist-box':
+        elif plot_type == 'hist-box':
             # Histogram and boxplot side by side
             plt.figure(figsize=figsize)
             plt.subplot(1, 2, 1)

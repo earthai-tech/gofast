@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import copy
 import warnings 
-from typing import List, Union, Optional, Tuple 
+from typing import Any, Dict, List, Union, Optional, Tuple 
 import numpy as np
 import pandas as pd
 
@@ -19,12 +19,12 @@ from ..compat.pandas import select_dtypes
 from ..compat.sklearn import validate_params
 from ..core.array_manager import to_series 
 from ..core.checks import assert_ratio, check_numeric_dtype
-from ..core.checks import check_params
+from ..core.checks import check_params, exist_features
 from ..core.generic import vlog 
 from ..core.handlers import columns_getter, columns_manager 
 from ..core.io import SaveFile, is_data_readable
 from ..core.utils import error_policy, smart_format 
-from ..decorators import isdf 
+from ..decorators import isdf, Dataify 
 from .validator import parameter_validator, validate_length_range 
 from .validator import  get_estimator_name 
 
@@ -43,6 +43,118 @@ __all__ = [
     "reorder_by"
     ]
 
+@Dataify(enforce_df=False)
+def normalize_categorical_column(
+    df: Union[pd.DataFrame, pd.Series],
+    feature: Optional[str] = None,      # Required if df is a DataFrame.
+    mapping: Optional[Union[Dict[Any, float], List[Any]]] = None,
+    method: str = 'minmax',
+    new_name: Optional[str] = None,      # Name for the new normalized column.
+    target_range: Tuple[float, float] = (0.0, 1.0),
+    fill_missing: Optional[Any] = None,
+    drop_origin: bool = False,           # Drop original column if True.
+    smart_distrib: bool = False,         # Enable smart distribution.
+    spread_factor: float = 0.1,                 # Spread factor for the highest category.
+    verbose: int = 0                     # Verbosity: 0 (silent) to 5 (debug).
+) -> Union[pd.DataFrame, pd.Series]:
+    # Determine the Series to work on.
+    if isinstance(df, pd.DataFrame):
+        if feature is None:
+            raise ValueError(
+                "When passing a DataFrame, the 'feature'"
+                " parameter must be provided"
+            )
+        # Ensure feature exists and get the first column name if list provided.
+        feature = columns_manager(feature, empty_as_none=False)[0]
+        exist_features(df, features=feature)
+        series = df[feature]
+    elif isinstance(df, pd.Series):
+        series = df
+    else:
+        raise TypeError("Input must be a pandas DataFrame or Series")
+    
+    # Create mapping if not provided.
+    if mapping is None:
+        unique_vals = sorted(series.dropna().unique())
+        mapping = {cat: i for i, cat in enumerate(unique_vals)}
+        if verbose >= 3:
+            print("Using default mapping:", mapping)
+    elif isinstance(mapping, list):
+        mapping = {cat: i for i, cat in enumerate(mapping)}
+        if verbose >= 3:
+            print("Converted mapping list to dict:", mapping)
+    elif isinstance(mapping, dict):
+        if verbose >= 3:
+            print("Using provided mapping dictionary")
+    else:
+        raise ValueError("Parameter 'mapping' must be a dict, list, or None")
+    
+    # Map categories to numeric codes.
+    numeric_series = series.map(mapping)
+    
+    # Fill missing values if requested.
+    if fill_missing is not None:
+        numeric_series = numeric_series.fillna(fill_missing)
+        if verbose >= 3:
+            print("Filled missing values with:", fill_missing)
+    
+    # Normalize using minmax scaling.
+    if method == 'minmax':
+        min_val = numeric_series.min(skipna=True)
+        max_val = numeric_series.max(skipna=True)
+        if min_val == max_val:
+            # Avoid division by zero; assign midpoint.
+            mid_val = (target_range[0] + target_range[1]) / 2.0
+            normalized = numeric_series.apply(
+                lambda x: mid_val if pd.notnull(x) else x
+            )
+            if verbose >= 2:
+                print("All values equal; using midpoint:", mid_val)
+        else:
+            normalized = numeric_series.apply(
+                lambda x: (
+                    ((x - min_val) / (max_val - min_val)) *
+                    (target_range[1] - target_range[0]) + target_range[0]
+                ) if pd.notnull(x) else x
+            )
+            if verbose >= 2:
+                print("Normalized using minmax scaling")
+    else:
+        raise ValueError("Only 'minmax' normalization is supported")
+    
+    # Apply smart distribution if enabled.
+    if smart_distrib:
+        # Get sorted unique base values from normalized series.
+        unique_bases = sorted(normalized.dropna().unique())
+        intervals = {}
+        for i, base in enumerate(unique_bases):
+            if i < len(unique_bases) - 1:
+                next_base = unique_bases[i + 1]
+                # Interval from current base to next base.
+                intervals[base] = (base, next_base)
+            else:
+                # For the highest category, extend interval using 'spread'.
+                intervals[base] = (base, base + spread_factor)
+        if verbose >= 2:
+            print("Smart intervals:", intervals)
+        # Replace each value with a random draw from its interval.
+        normalized = normalized.apply(
+            lambda x: np.random.uniform(
+                low=intervals[x][0], high=intervals[x][1]
+            ) if pd.notnull(x) else x
+        )
+    
+    # If input was a DataFrame, assign new column.
+    if isinstance(df, pd.DataFrame):
+        col_name = new_name if new_name is not None else feature + "_norm"
+        df[col_name] = normalized
+        if drop_origin:
+            df.drop(columns=[feature], inplace=True)
+            if verbose >= 2:
+                print("Dropped original column:", feature)
+        return df
+    else:
+        return normalized
 
 @check_params ({ 
     "expr": Union[str, List[str]], 
