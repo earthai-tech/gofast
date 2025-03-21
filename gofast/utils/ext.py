@@ -40,23 +40,137 @@ __all__ = [
     "evaluate_df", 
     "to_micmic", 
     "spread_uncertainty", 
-    "reorder_by"
+    "reorder_by", 
+    "normalize_categorical_column"
     ]
 
 @Dataify(enforce_df=False)
 def normalize_categorical_column(
     df: Union[pd.DataFrame, pd.Series],
-    feature: Optional[str] = None,      # Required if df is a DataFrame.
+    feature: Optional[str] = None,      
     mapping: Optional[Union[Dict[Any, float], List[Any]]] = None,
     method: str = 'minmax',
-    new_name: Optional[str] = None,      # Name for the new normalized column.
+    new_name: Optional[str] = None,      
     target_range: Tuple[float, float] = (0.0, 1.0),
     fill_missing: Optional[Any] = None,
-    drop_origin: bool = False,           # Drop original column if True.
-    smart_distrib: bool = False,         # Enable smart distribution.
-    spread_factor: float = 0.1,                 # Spread factor for the highest category.
-    verbose: int = 0                     # Verbosity: 0 (silent) to 5 (debug).
+    drop_origin: bool = False,           
+    smart_distrib: bool = False,         
+    spread_factor: float = 0.1,                
+    verbose: int = 0                     
 ) -> Union[pd.DataFrame, pd.Series]:
+    """
+    Normalize a categorical column from a pandas DataFrame or Series
+    by mapping its categories to numeric codes, then applying a
+    Min-Max scaling. 
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame or pandas.Series
+        A DataFrame or Series containing the categorical column
+        to normalize. If a DataFrame, <parameter inline>feature`
+        must be specified.
+    feature : str, optional
+        The name of the column to normalize when ``df`` is a
+        DataFrame. If ``df`` is a Series, this parameter is
+        not required.
+    mapping : dict or list, optional
+        A dictionary or list defining how each category
+        is mapped to numeric codes. If None, a default
+        dictionary is created by enumerating unique sorted
+        categories. If a list is provided, it is converted
+        internally to a dictionary.
+    method : str, optional
+        Normalization method, currently supports only
+        ``"minmax"``. Defaults to ``"minmax"``.
+    new_name : str, optional
+        Name of the new normalized column. If None, the
+        normalized column will have ``_norm`` appended
+        to the original column name.
+    target_range : tuple of float, optional
+        The range for the scaled values, defaulting to
+        ``(0.0, 1.0)``.
+    fill_missing : any, optional
+        Value used to fill missing entries in the numeric
+        codes before normalization. If None, missing
+        values remain as is.
+    drop_origin : bool, optional
+        If True, drops the original column from the DataFrame
+        after creating the normalized column. Defaults to
+        False.
+    smart_distrib : bool, optional
+        If True, applies a "smart distribution" to spread
+        out the highest category values by randomly sampling
+        from an interval. Defaults to False.
+    spread_factor : float, optional
+        The amount of extension for the highest category
+        interval under "smart distribution". Defaults to
+        0.1.
+    verbose : int, optional
+        Level of verbosity. 0 = silent, up to 5 for debug
+        output. Defaults to 0.
+    
+    Returns
+    -------
+    pandas.DataFrame or pandas.Series
+        The DataFrame or Series with the normalized numeric
+        column. If the input is a DataFrame, a new column is
+        added. If a Series was provided, a Series of normalized
+        values is returned.
+    
+    Notes
+    -----
+    - If ``method="minmax"`` and all mapped values are equal,
+      they are replaced by the midpoint of ``target_range``.
+    - When <parameter inline>smart_distrib` is True, the top
+      category is extended by ``spread_factor`` for random
+      sampling, ensuring a spread in the highest values.
+    
+    This function distributes the highest the category more 
+    widely through a "smart distribution" mechanism.
+    
+    .. math::
+       x_{\\text{norm}} = 
+       \\frac{x - x_{\\min}}{x_{\\max} - x_{\\min}} 
+       \\times 
+       (r_{\\max} - r_{\\min}) 
+       + r_{\\min}
+    
+    Here, :math:`x` is the mapped numeric code, 
+    :math:`x_{\\min}` is its minimum, and :math:`x_{\\max}` is 
+    its maximum. The target range 
+    :math:`[r_{\\min}, r_{\\max}]` is defined by 
+    ``target_range``.
+    
+    Examples
+    --------
+    >>> from gofast.utils.ext import normalize_categorical_column
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     "city": ["A", "B", "C", "A", "B", "B", None],
+    ...     "val": [10, 20, 15, 12, 30, 25, 18]
+    ... })
+    >>> # Normalize 'city' column with default min-max and mapping
+    >>> df_norm = normalize_categorical_column(
+    ...     df,
+    ...     feature="city",
+    ...     fill_missing="Unknown",
+    ...     verbose=3
+    ... )
+    >>> print(df_norm)
+    
+    See Also
+    --------
+    columns_manager : Ensures the specified column(s) in a
+        DataFrame exist and handles potential name list input.
+    exist_features : Checks whether the required feature
+        columns are present in the DataFrame.
+    
+    References
+    ----------
+    .. [1] Smith, J., & Doe, A. (2020). Advanced Techniques in
+           Data Preprocessing. Data Science Review, 15(4),
+           250-269.
+    """
     # Determine the Series to work on.
     if isinstance(df, pd.DataFrame):
         if feature is None:

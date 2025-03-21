@@ -74,7 +74,11 @@ MODULE_MAPPING = {
          "normalize_in", 
          "to_ranking", 
          "to_importances", 
-         "evaluate_df"
+         "evaluate_df", 
+         "normalize_categorical_column", 
+         "to_micmic", 
+         "spread_uncertainty", 
+         "reorder_by", 
         ], 
     'io_utils':[ 
         'deserialize_data', 

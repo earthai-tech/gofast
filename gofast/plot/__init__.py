@@ -34,6 +34,16 @@ from .cluster import (
     plot_cluster_comparison, 
     plot_voronoi, 
 )
+from .comparison import ( 
+    plot_feature_trend, 
+    plot_density, 
+    plot_prediction_comparison, 
+    plot_error_analysis, 
+    plot_trends, 
+    plot_variability, 
+    plot_factor_contribution, 
+    
+    )
 from .dimensionality import ( 
     plot_unified_pca, 
     plot_pca_components, 
@@ -141,6 +151,14 @@ __all__= [
     "two_ring_donuts",
     "plot_contrib", 
     'plot_radial_groups', 
+    
+    'plot_feature_trend', 
+    'plot_density', 
+    'plot_prediction_comparison', 
+    'plot_error_analysis', 
+    'plot_trends', 
+    'plot_variability', 
+    'plot_factor_contribution', 
     
     'plot_silhouette',
     'plot_silhouette_in',

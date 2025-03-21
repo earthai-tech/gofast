@@ -91,17 +91,6 @@ def plot_spatial_clusters(
     `isdf` and `default_params_plot` are applied for streamlined
     handling of DataFrame inputs and plot configurations.
 
-    Mathematically, when using KMeans, it solves the following
-    objective:
-
-    .. math::
-       J = \\sum_{i=1}^{n} \\min_{\\mu_j} \\lVert x_i - \\mu_j \\rVert^2
-
-    where :math:`x_i` is a coordinate point in :math:`\\mathbb{R}^2`,
-    and :math:`\\mu_j` is the centroid for cluster :math:`j`. The
-    result is a set of clusters that minimizes intra-cluster
-    distance [1]_.
-
     Parameters
     ----------
     df : DataFrame
@@ -155,7 +144,18 @@ def plot_spatial_clusters(
     patterns or checking how your data might cluster
     geographically. The underlying `'kmeans'` method
     is powered by scikit-learn's KMeans.
+    
+    Mathematically, when using KMeans, it solves the following
+    objective:
 
+    .. math::
+       J = \\sum_{i=1}^{n} \\min_{\\mu_j} \\lVert x_i - \\mu_j \\rVert^2
+
+    where :math:`x_i` is a coordinate point in :math:`\\mathbb{R}^2`,
+    and :math:`\\mu_j` is the centroid for cluster :math:`j`. The
+    result is a set of clusters that minimizes intra-cluster
+    distance [1]_.
+    
     Examples
     --------
     >>> from gofast.plot.spatial import plot_spatial_clusters
@@ -364,6 +364,7 @@ def plot_dist(
     axis_off: bool = True,
     max_cols: int = 3,
     cmap='viridis', 
+    s=10, 
     savefig=None,
 ):
     r"""
@@ -440,6 +441,9 @@ def plot_dist(
         rows are created automatically. Default is 3.
     cmap: str,  
        Matplotlib colormap plot. Default is ``'viridis'``. 
+       
+    s : int, default 10
+        Size of the points in the scatter plot.
        
     savefig : str or None, optional
         If provided, specifies the filename or path where the 
@@ -556,7 +560,7 @@ def plot_dist(
                 df[y_col],
                 c=df[z_col],
                 cmap=cmap,
-                s=10,
+                s=s,
                 alpha=0.7,
                 norm=plt.Normalize(vmin=overall_min, vmax=overall_max)
             )
@@ -639,6 +643,7 @@ def plot_spatial_distribution(
     alpha: float = 0.7, 
     show_grid:bool=True, 
     axis_off: bool = False,  
+    grid_props: dict =None, 
     figsize: tuple = (10, 8)  
 ) -> None:
     """
@@ -977,8 +982,13 @@ def plot_spatial_distribution(
             loc='upper left'
         )
  
+    
+    
     if not show_grid: 
         plt.grid(False)
+    else: 
+        grid_props = grid_props  or {"linestyle": ':', 'alpha': 0.7}
+        plt.grid(True, **grid_props)
         
     if axis_off:
         plt.axis('off')

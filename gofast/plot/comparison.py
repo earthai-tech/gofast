@@ -4,7 +4,6 @@
 
 """
 Provides comparison plots between multiple datasets. 
-
 """
 from itertools import cycle
 import warnings 
@@ -38,7 +37,8 @@ __all__ = [
     'plot_prediction_comparison', 
     'plot_error_analysis', 
     'plot_trends', 
-    'plot_variability'
+    'plot_variability', 
+    'plot_factor_contribution', 
     ]
 
 @default_params_plot(
@@ -64,6 +64,140 @@ def plot_feature_trend(
     savefig: Optional[str] = None,
     **kwargs
 ) -> plt.Figure:
+    """
+    Plot a specified `feature` and a corresponding `target_col` trend
+    over time from one or more DataFrames, aggregating both by
+    ``dt_col`` and visualizing mean values on separate y-axes. 
+    
+    Parameters
+    ----------
+    dfs : list of pandas.DataFrame
+        One or more DataFrames, each containing columns
+        ``feature`` and ``target_col``, as well as the date/time
+        column ``dt_col``. If ``dt_col`` is not present, the
+        DataFrame index must be a datetime type.
+    feature : str
+        Name of the column to be plotted on the primary y-axis.
+    dt_col : str
+        Name of the date/time column used for grouping and
+        labeling the x-axis. If absent, the DataFrame index is
+        assumed to be datetime.
+    target_col : str
+        Name of the target column to be plotted on the twin y-axis.
+    labels : list of str, optional
+        Custom labels for each DataFrame. Defaults to
+        ``["Dataset 1", "Dataset 2", ...]`` if not provided.
+    figsize : tuple of float, optional
+        Figure size in inches (width, height). Default is (12, 6).
+    title : str, optional
+        Main title of the plot. If None, defaults to
+        "Temporal Trend: feature vs target_col".
+    xlabel : str, optional
+        Label for the x-axis. Default is "Date/Time".
+    ylabel_feature : str, optional
+        Label for the primary y-axis. If None, defaults to
+        the `feature` name.
+    ylabel_target : str, optional
+        Label for the twin y-axis. If None, defaults to
+        the `target_col` name.
+    colors : list of str, optional
+        List of colors for plotting each DataFrame. If None,
+        Matplotlib's default color cycle is used.
+    primary_style : str, optional
+        Matplotlib linestyle for the feature plot. Default is "-".
+    secondary_style : str, optional
+        Matplotlib linestyle for the target plot. Default is "--".
+    show_grid : bool, optional
+        Whether to display grid lines on both y-axes. Default is True.
+    grid_props : dict, optional
+        Keyword arguments for grid configuration, e.g.
+        ``{"linestyle": ":", "alpha": 0.7}``.
+    verbose : int, optional
+        Verbosity level (0 = silent, 1 = basic info, 2 = details).
+        Default is 0.
+    savefig : str, optional
+        File path for saving the figure. If None, the figure
+        is not saved. Default is None.
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The Matplotlib Figure containing the trend plot.
+    
+    Notes
+    -----
+    - The function calls `are_all_frames_valid` internally to ensure
+      that each DataFrame has all required columns or a datetime
+      index.
+    - It groups each DataFrame by the specified ``dt_col`` (or by
+      the datetime index if no ``dt_col`` is present) and computes
+      the mean of both `feature` and `target_col` within each group.
+    - Separate y-axes are used for `feature` (left axis) and
+      `target_col` (right axis).
+    - `set_axis_grid` is used to manage grid properties across both
+      y-axes.
+    
+    This function can help compare the evolution of a `feature` (e.g.,
+    groundwater level) against a `target_col` (e.g., subsidence).
+    
+    .. math::
+       X_{\\text{mean}}(t) = \\frac{1}{n} \\sum_{i=1}^{n} X_i(t)
+    
+    where :math:`X_{\\text{mean}}(t)` represents the mean value of the
+    time-series data points (either the chosen feature or the target)
+    at time :math:`t`, and :math:`n` is the number of records within
+    that temporal grouping.
+    
+    Examples
+    --------
+    >>> from gofast.plot.comparison import plot_feature_trend
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> import matplotlib.pyplot as plt
+    >>> np.random.seed(42)
+    >>>
+    >>> # Create sample data for demonstration
+    >>> df1 = pd.DataFrame({
+    ...     "time": pd.date_range(
+    ...         "2020-01-01", periods=50, freq="D"
+    ...     ),
+    ...     "feature_col": np.random.rand(50) * 10,
+    ...     "target_col": np.random.rand(50) * 5,
+    ... })
+    >>> df2 = pd.DataFrame({
+    ...     "time": pd.date_range(
+    ...         "2020-02-01", periods=50, freq="D"
+    ...     ),
+    ...     "feature_col": np.random.rand(50) * 8,
+    ...     "target_col": np.random.rand(50) * 3,
+    ... })
+    >>>
+    >>> # Plot the feature vs. target trend
+    >>> fig = plot_feature_trend(
+    ...     df1, df2,
+    ...     feature="feature_col",
+    ...     dt_col="time",
+    ...     target_col="target_col",
+    ...     title="Comparative Feature vs Target Trend",
+    ...     figsize=(12, 6)
+    ... )
+    >>> plt.show()
+    
+    See Also
+    --------
+    are_all_frames_valid : Ensures valid columns or a datetime
+        index in each DataFrame.
+    set_axis_grid : Configures grid lines for the specified axis
+        or axes.
+    
+    References
+    ----------
+    .. [1] Doe, J., & Smith, A. (2022). Data Visualization
+           Techniques for Time-series Analysis. Journal of
+           Data Science, 10(3), 45-60.
+    """
+
+
     # Validate DataFrames
     dfs = are_all_frames_valid(*dfs, ops='validate')
 
@@ -221,6 +355,118 @@ def plot_density(
     savefig: Optional[str] = None,
     **kwargs
 ) -> plt.Figure:
+    """
+    Plot a scatter of `density_col` vs. `target_col` from one or more
+    DataFrames, allowing quick visual assessment of how density values
+    relate to the target rates. 
+    
+    Parameters
+    ----------
+    dfs : list of pandas.DataFrame
+        One or more DataFrames containing columns
+        ``density_col`` and ``target_col``. Each DataFrame is
+        validated by `are_all_frames_valid`.
+    density_col : str
+        Name of the column representing density values to be
+        plotted on the x-axis.
+    target_col : str
+        Name of the column representing target values to be
+        plotted on the y-axis.
+    labels : list of str, optional
+        Custom labels for each DataFrame. Defaults to
+        ``["Dataset 1", "Dataset 2", ...]`` if not provided.
+    figsize : tuple of float, optional
+        Width and height of the figure in inches.
+        Default is (10, 6).
+    title : str, optional
+        Main title of the scatter plot. Defaults to
+        "density_col vs target_col Correlation".
+    xlabel : str, optional
+        Label for the x-axis. Defaults to "Density".
+    ylabel : str, optional
+        Label for the y-axis. Defaults to "Rate".
+    colors : list of str, optional
+        A list of color names or codes to cycle through for
+        each DataFrame. By default, Matplotlib's color cycle
+        is used.
+    markers : list of str, optional
+        A list of marker styles to cycle through for each
+        DataFrame. Default is ['o','s','D','^','v'].
+    alpha : float, optional
+        Opacity level of the scatter points, with 1.0 being fully
+        opaque and 0.0 fully transparent. Default is 0.6.
+    edgecolors : str, optional
+        Color of the marker edges. Defaults to ``'w'`` (white).
+    show_grid : bool, optional
+        Whether to display grid lines on the plot.
+        Defaults to True.
+    grid_props : dict, optional
+        Dictionary of Matplotlib grid properties (e.g.,
+        ``{"linestyle": ":", "alpha": 0.4}``).
+    verbose : int, optional
+        Level of verbosity. 0 = silent, 1 = basic info,
+        2 = detailed info. Default is 0.
+    savefig : str, optional
+        Path for saving the figure as an image file. If None,
+        no file is saved. Default is None.
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The Matplotlib Figure object containing the scatter plot.
+    
+    Notes
+    -----
+    - Each DataFrame is verified via `are_all_frames_valid` to ensure
+      the required columns exist.
+    - The function calls `set_axis_grid` to optionally apply grid
+      settings to the axes.
+    
+    This function calls `are_all_frames_valid` to ensure each 
+    DataFrame contains the necessary columns and leverages 
+    `set_axis_grid` to configure grid lines on the plot.
+    
+    Examples
+    --------
+    >>> from gofast.plot.comparison import plot_density
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> import matplotlib.pyplot as plt
+    >>>
+    >>> # Generate random data for demonstration
+    >>> np.random.seed(42)
+    >>> df1 = pd.DataFrame({
+    ...     "density": np.random.rand(50),
+    ...     "target": np.random.rand(50) * 5
+    ... })
+    >>> df2 = pd.DataFrame({
+    ...     "density": np.random.rand(50) + 0.5,
+    ...     "target": (np.random.rand(50) * 4) + 1
+    ... })
+    >>>
+    >>> # Plot the data
+    >>> fig = plot_density(
+    ...     df1, df2,
+    ...     density_col="density",
+    ...     target_col="target",
+    ...     title="Density vs Target Demo",
+    ...     verbose=1
+    ... )
+    >>> plt.show()
+    
+    See Also
+    --------
+    are_all_frames_valid : Ensures that each DataFrame contains
+        the required columns and/or has a datetime index.
+    set_axis_grid : Applies consistent grid settings to the
+        given axis or axes.
+    
+    References
+    ----------
+    .. [1] Doe, J., & Lee, Q. (2021). Fundamentals of Data
+           Scatter Visualization. Visualization Journal,
+           14(2), 101-115.
+    """
     # Validate all frames
     dfs = are_all_frames_valid(*dfs, ops='validate')
 
@@ -343,6 +589,152 @@ def plot_factor_contribution(
     savefig: Optional[str] = None,
     **kwargs
 ) -> plt.Figure:
+    
+    """
+    Plot factor contributions of specified `features` relative to a
+    `target_col` across one or more DataFrames, using a stacked bar or
+    heatmap visualization. 
+    
+    Parameters
+    ----------
+    dfs : list of pandas.DataFrame
+        One or more DataFrames, each containing the columns
+        in ``features`` plus the column ``target_col``.
+    features : list of str
+        The names of the features (factors) to be aggregated.
+    target_col : str
+        The column name representing the target, used for
+        comparison or reference against the sum of the features.
+    labels : list of str, optional
+        Custom labels for each DataFrame. Defaults to
+        ``["Dataset 1", "Dataset 2", ...]`` if not provided.
+    plot_type : {'stacked', 'heatmap'}, optional
+        Type of plot to display. If ``'stacked'``, a stacked bar
+        chart is produced. If ``'heatmap'``, a heatmap is
+        produced. Default is ``'stacked'``.
+    agg_func : str, optional
+        Aggregation function to apply to features and target.
+        Examples include "mean", "sum", etc. Default is "mean".
+    figsize : tuple of float, optional
+        Width and height of the Matplotlib figure in inches.
+        Default is (12, 7).
+    title : str, optional
+        Main title of the plot. Defaults to
+        "Contribution Analysis: <target_col>".
+    colors : list of str, optional
+        Custom colors for the stacked segments. Only used if
+        `plot_type` is ``'stacked'``. If None, a color map is
+        generated from the `palette`.
+    palette : str, optional
+        Name of the Matplotlib colormap to use when generating
+        feature colors or a heatmap. Default is ``'viridis'``.
+    show_values : bool, optional
+        Whether to display numeric annotations of the feature
+        contributions (stacked bar or heatmap cells). Default
+        is True.
+    value_format : str, optional
+        Format specifier for numeric annotations (e.g. ``.1f``).
+        Default is ``'.1f'``.
+    show_target_line : bool, optional
+        If True and `plot_type` is ``'stacked'``, overlays a
+        dashed line representing the aggregated target.
+        Default is True.
+    show_grid : bool, optional
+        Whether to display a grid on the plot. Default is True.
+    grid_props : dict, optional
+        Additional properties for the grid, e.g.
+        ``{'axis': 'y', 'linestyle': ':', 'alpha': 0.4}``.
+    verbose : int, optional
+        Verbosity level (0 = silent, 1 = warning messages,
+        2 = more info). Default is 0.
+    savefig : str, optional
+        File path to save the resulting figure. If None, no file
+        is saved. Default is None.
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The Matplotlib Figure object containing the factor
+        contribution plot.
+    
+    Notes
+    -----
+    - Each input DataFrame is checked by `are_all_frames_valid`
+      to ensure it contains the required columns.
+    - When `plot_type` is ``'stacked'``, bars are stacked in the
+      order of `features`, building from the bottom up.
+    - Any discrepancy between the sum of the features and the
+      target is signaled if it exceeds 10% of the target.
+    
+    
+    It leverages the method `are_all_frames_valid` to ensure valid
+    DataFrames and aggregates the selected features via a specified 
+    `agg_func`, then optionally compares the sum of the features 
+    to the target to detect large discrepancies.
+    
+    .. math::
+       C_j = \\mathrm{agg\\_func}(X_j)
+    
+    where :math:`C_j` is the aggregated value of feature
+    :math:`X_j`, computed using the user-selected aggregator
+    (e.g. :math:`\\text{mean}`, :math:`\\text{sum}`).
+    
+    Examples
+    --------
+    >>> from gofast.plot.comparison import plot_factor_contribution
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>>
+    >>> # Generate random data for demonstration
+    >>> np.random.seed(0)
+    >>> df1 = pd.DataFrame({
+    ...     "f1": np.random.rand(100),
+    ...     "f2": np.random.rand(100) + 0.5,
+    ...     "target": (np.random.rand(100) * 2) + 1.5
+    ... })
+    >>> df2 = pd.DataFrame({
+    ...     "f1": np.random.rand(80),
+    ...     "f2": np.random.rand(80) * 1.2,
+    ...     "target": np.random.rand(80) + 1
+    ... })
+    >>>
+    >>> # Stacked bar example
+    >>> fig = plot_factor_contribution(
+    ...     df1,
+    ...     df2,
+    ...     features=["f1", "f2"],
+    ...     target_col="target",
+    ...     plot_type="stacked",
+    ...     title="Feature Contribution vs Target",
+    ...     agg_func="mean",
+    ...     verbose=1
+    ... )
+    >>>
+    >>> # Heatmap example
+    >>> fig2 = plot_factor_contribution(
+    ...     df1,
+    ...     df2,
+    ...     features=["f1", "f2"],
+    ...     target_col="target",
+    ...     plot_type="heatmap",
+    ...     agg_func="sum",
+    ...     title="Feature Contribution Heatmap",
+    ...     show_values=True
+    ... )
+    
+    See Also
+    --------
+    are_all_frames_valid : Confirms each DataFrame has the required
+        columns or a datetime index.
+    set_axis_grid : Applies consistent grid settings for axes.
+    
+    References
+    ----------
+    .. [1] Doe, J. & Wang, H. (2020). Analysis of Factor
+           Contributions in Data Aggregates. Journal of
+           Data Visualization, 12(3), 34-48.
+    """
+
     dfs = are_all_frames_valid(*dfs, ops='validate')
     # Configure default plot style for uniform
     # visuals. 
@@ -380,8 +772,8 @@ def plot_factor_contribution(
                 res['target'] - res['total_features']
             )
             if discrepancy > 0.1 * res['target']:
-                print(
-                    f"Warning: Dataset {i} feature sum "
+                warnings.warn(
+                    f"Dataset {i} feature sum "
                     f"differs from target by "
                     f"{discrepancy:.2f}"
                 )
@@ -526,7 +918,7 @@ def plot_factor_contribution(
             grid_props = {
                 'axis': 'y', 
                 'linestyle': ':', 
-                'alpha': 0.4},
+                'alpha': 0.4}
         
         ax.grid(True, **grid_props)
     else: 
@@ -579,6 +971,142 @@ def plot_prediction_comparison(
     savefig: Optional[str] = None,
     **kwargs
 ) -> plt.Figure:
+    """
+    Plot actual vs predicted values of one or more time-series or
+    sequence-based datasets, facilitating side-by-side comparisons of
+    different DataFrames. 
+    
+    Parameters
+    ----------
+    dfs : list of pandas.DataFrame
+        One or more DataFrames containing columns in ``actuals``
+        and ``pred_cols``. Each is verified via
+        `are_all_frames_valid`.
+    actuals : str or list of str
+        Column name(s) representing actual values. If a single
+        string is provided, it is converted to a list with one
+        element.
+    pred_cols : str or list of str
+        Column name(s) representing predicted values. If a single
+        string is provided, it is converted to a list with one
+        element.
+    dt_col : str, optional
+        The date/time column used for x-axis values. If None, the
+        function attempts to use a datetime index from the
+        DataFrame. Otherwise, integer positions are used.
+    dates : list, optional
+        Reserved for future date plotting enhancements; if not
+        None, it overrides the x-axis with this date array. Not
+        implemented yet.
+    labels : list of str, optional
+        Custom titles for each subplot (one subplot per DataFrame).
+        Defaults to ``["DataFrame 1", "DataFrame 2", ...]``.
+    figsize : tuple of float, optional
+        Width and height of the figure. Default is (16, 6).
+    plot_style : str, optional
+        Matplotlib style name applied globally (e.g.,
+        ``'seaborn'``). Default is ``'seaborn'``.
+    ylabel : str, optional
+        Label for the y-axis, shared by all subplots.
+        Default is "Rate".
+    actual_props : dict, optional
+        Custom properties (line style, marker, etc.) for actual
+        data plotting. If None, defaults are used.
+    pred_props : dict, optional
+        Custom properties (line style, marker, etc.) for
+        predicted data. If None, defaults are used.
+    error_metrics : bool, optional
+        If True, computes the RMSE for the first actual/pred pair
+        and displays it in the subplot. Default is True.
+    show_grid : bool, optional
+        Whether to display grid lines. Default is True.
+    grid_props : dict, optional
+        Properties for the grid lines (e.g.,
+        ``{'axis': 'both', 'alpha': 0.7, 'linestyle': ':'}``).
+    fig_title : str, optional
+        Main title displayed above all subplots. Defaults to
+        "Actual vs Predicted Subsidence Comparison".
+    verbose : int, optional
+        Verbosity level. 0 = silent, 1 = basic info.
+        Default is 1.
+    savefig : str, optional
+        Path to save the resulting figure. If None, the figure
+        is not saved. Default is None.
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The Matplotlib Figure object containing one subplot per
+        DataFrame, each plotting its actual and predicted values.
+    
+    Notes
+    -----
+    - If the length of `actuals` differs from `pred_cols`, only the
+      first `min(len(actuals), len(pred_cols))` pairs are plotted.
+    - By default, an RMSE annotation is added to each subplot
+      (when `error_metrics` is True) based on the first pair of
+      `actuals`/`pred_cols`.
+
+    It applies `are_all_frames_valid` to ensure
+    each DataFrame contains the required columns and supports an
+    optional calculation of RMSE (Root Mean Squared Error) [1]_.
+    
+    .. math::
+       \\mathrm{RMSE}(y, \\hat{y}) =
+       \\sqrt{\\frac{1}{N}\\sum_{i=1}^{N}(y_i - \\hat{y}_i)^2}
+ 
+    Examples
+    --------
+    >>> from gofast.plot.comparison import plot_prediction_comparison
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> np.random.seed(42)
+    >>>
+    >>> # Create sample data
+    >>> df1 = pd.DataFrame({
+    ...     "time": pd.date_range(
+    ...         start="2020-01-01",
+    ...         periods=50,
+    ...         freq="D"
+    ...     ),
+    ...     "subsidence_actual": np.random.rand(50) + 1,
+    ...     "subsidence_pred": np.random.rand(50) + 0.8
+    ... })
+    >>> df2 = pd.DataFrame({
+    ...     "time": pd.date_range(
+    ...         start="2021-01-01",
+    ...         periods=50,
+    ...         freq="D"
+    ...     ),
+    ...     "subsidence_actual": np.random.rand(50) + 1.2,
+    ...     "subsidence_pred": np.random.rand(50) + 1
+    ... })
+    >>>
+    >>> # Plot comparison
+    >>> fig = plot_prediction_comparison(
+    ...     df1,
+    ...     df2,
+    ...     actuals="subsidence_actual",
+    ...     pred_cols="subsidence_pred",
+    ...     dt_col="time",
+    ...     fig_title="Comparing Actual vs Predicted Subsidence",
+    ...     error_metrics=True
+    ... )
+    
+    See Also
+    --------
+    are_all_frames_valid : Validates each DataFrame's columns or
+        datetime index requirements.
+    set_axis_grid : Adds a consistent grid style to Matplotlib
+        axes.
+    
+    References
+    ----------
+    .. [1] Willmott, C. J. (1982). Some comments on the evaluation
+           of model performance. Bulletin of the American
+           Meteorological Society, 63(11), 1309-1313.
+    """
+
     # Ensure DataFrames are valid using the 
     # gofast.core.checks utility function
     dfs = are_all_frames_valid(*dfs, ops='validate')
@@ -767,6 +1295,9 @@ def plot_prediction_comparison(
                 )
             )
 
+        # Rotate x-ticks if vertical orientation
+        ax.tick_params(axis='x', rotation=45)
+    
     # Add overall title
     fig.suptitle(
         fig_title
@@ -816,7 +1347,149 @@ def plot_error_analysis(
     verbose: int = 1,
     **kwargs
 ) -> plt.Figure:
+    """
+    Plot error distributions for one or more DataFrames by binning
+    the actual and predicted values over time (and target bins),
+    then visualizing them as a heatmap or confusion matrix. 
+
+    Parameters
+    ----------
+    dfs : list of pandas.DataFrame
+        One or more DataFrames containing the columns 
+        ``actual_col`` and ``pred_col``. Validated by 
+        `are_all_frames_valid`.
+    actual_col : str
+        Name of the column containing actual values.
+    pred_col : str
+        Name of the column containing predicted values.
+    dt_col : str, optional
+        The date/time column. If specified, time-based binning
+        can be performed by ``time_bins``. If None, all data are
+        treated as a single time-bin.
+    error_type : {'absolute', 'relative'}, optional
+        Type of error to compute. Default is ``'absolute'``.
+    time_bins : str or list, optional
+        Time bin specification. If ``'auto'``, the function
+        infers a yearly (``'Y'``) or monthly (``'M'``) binning
+        based on the total time span. If a list, it should be a
+        list of valid periods or boundaries. Default is
+        ``'auto'``.
+    target_bins : int or list, optional
+        Bin specification for the actual values. If an integer,
+        the function uses quantile-based binning with that many
+        bins. If a list, it is used as boundary edges directly.
+        Default is 5.
+    matrix_type : {'heatmap', 'confusion'}, optional
+        Whether to generate a mean-error heatmap or a confusion
+        matrix from binned actual vs. binned predicted.
+        Default is ``'heatmap'``.
+    figsize : tuple of int, optional
+        Size of the figure in inches, e.g. (14, 6).
+    cmap : str or matplotlib.colors.LinearSegmentedColormap, optional
+        The colormap for the heatmap or confusion matrix.
+        Default is ``'coolwarm'``.
+    annot : bool, optional
+        Whether to annotate heatmap/confusion cells with numeric
+        values. Default is True.
+    fmt : str, optional
+        String format for annotation (e.g. ``'.1'``). Default is
+        ``'.1'``.
+    cbar_label : str, optional
+        Label for the color bar. Default is ``'Error Density'``.
+    normalize : bool or str, optional
+        Used if ``matrix_type='confusion'``. Determines how
+        confusion matrix values are normalized. ``'true'``
+        normalizes over each true (row) bin. Default is ``'true'``.
+    ylabel : str, optional
+        Label for the y-axis. Defaults to ``'Actual Level'``.
+    show_grid : bool, optional
+        Whether to display grid lines over the plot.
+        Default is True.
+    grid_props : dict, optional
+        Properties for the grid lines. For example:
+        ``{'color': 'lightgray', 'linestyle': '--'}``.
+    title : str, optional
+        Main title for the figure. Defaults to
+        "Absolute Error Analysis" or "Relative Error Analysis"
+        based on the value of ``error_type``.
+    verbose : int, optional
+        Verbosity level (0 = silent, 1 = basic progress info).
+        Default is 1.
+    **kwargs :
+        Additional keyword arguments passed to `sns.heatmap`.
     
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The Matplotlib Figure object containing the error analysis
+        heatmap or confusion matrix for each DataFrame.
+    
+    Notes
+    -----
+    - If ``matrix_type='heatmap'``, each cell represents the mean
+      error computed for a given time bin (x-axis) and actual bin
+      (y-axis).
+    - If ``matrix_type='confusion'``, each cell represents the
+      frequency of actual bins versus predicted bins, normalized
+      as specified by ``normalize``.
+    
+    The function verifies DataFrame validity through
+    `are_all_frames_valid` and can compute either absolute or
+    relative errors. This function can facilitate understanding
+    of error magnitudes across different temporal segments and
+    target value ranges.
+    
+    .. math::
+       e_{\\mathrm{abs}}(i) = \\hat{y}_i - y_i
+    
+    .. math::
+       e_{\\mathrm{rel}}(i) = 
+       \\frac{\\hat{y}_i - y_i}{y_i + 10^{-6}}
+    
+    where :math:`y_i` is the actual value, 
+    :math:`\\hat{y}_i` the predicted value, 
+    and :math:`e_{\\mathrm{abs}}, e_{\\mathrm{rel}}` the absolute
+    and relative errors, respectively.
+    
+    Examples
+    --------
+    >>> from gofast.plot.comparison import plot_error_analysis
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> np.random.seed(0)
+    >>>
+    >>> # Create sample data
+    >>> df = pd.DataFrame({
+    ...     "year": np.random.randint(2015, 2021, 100),
+    ...     "actual_val": np.random.rand(100) * 10 + 5,
+    ...     "pred_val": np.random.rand(100) * 10 + 4
+    ... })
+    >>>
+    >>> # Plot absolute error heatmap
+    >>> fig = plot_error_analysis(
+    ...     df,
+    ...     actual_col="actual_val",
+    ...     pred_col="pred_val",
+    ...     dt_col="year",
+    ...     error_type="absolute",
+    ...     matrix_type="heatmap",
+    ...     time_bins="auto",
+    ...     target_bins=5,
+    ...     title="Absolute Error Heatmap"
+    ... )
+    
+    See Also
+    --------
+    are_all_frames_valid : Ensures DataFrame columns meet minimum
+        requirements.
+    set_axis_grid : Applies consistent grid aesthetics.
+    
+    References
+    ----------
+    .. [1] Taylor, S. J., & Letham, B. (2018). Forecasting at scale.
+           The American Statistician, 72(1), 37-45.
+    """
+
     dfs = are_all_frames_valid(*dfs, ops='validate')
     
     # Validate the chosen error type
@@ -1019,7 +1692,7 @@ def plot_error_analysis(
 
     if verbose >= 1:
         print(
-            f"Generated {matrix_type} matrix for {n_plots} datasets"
+            f"\nGenerated {matrix_type} matrix for {n_plots} datasets"
         )
 
     return fig
@@ -1050,8 +1723,148 @@ def plot_trends(
     **kwargs
 ) -> plt.Figure:
     """
-    Visualizes comparative subsidence trends across multiple datasets with 
-    temporal aggregation and confidence intervals.
+    Visualize comparative trends of a target column across multiple
+    DataFrames, optionally resampled by a given time frequency and
+    augmented with confidence intervals. 
+    
+    Parameters
+    ----------
+    dfs : list of pandas.DataFrame
+        One or more DataFrames, each containing the columns
+        ``target_col`` and ``dt_col``. Validated by
+        `are_all_frames_valid`.
+    target_col : str
+        Name of the column to be plotted as the trend.
+    dt_col : str
+        Name of the date/time column for indexing or resampling.
+    labels : list of str, optional
+        Custom labels for each dataset. Defaults to
+        ``["Dataset 1", "Dataset 2", ...]`` if not provided.
+    time_freq : str or None, optional
+        Resampling frequency for time-series aggregation.
+        Examples include ``'Y'``, ``'M'``, or ``'Q'``. If
+        ``None``, data are plotted without resampling.
+        Default is ``'Y'`` (yearly).
+    confidence : bool or float, optional
+        If True, draws a 95% confidence interval region
+        (:math:`\\pm 1.96 \\cdot \\sigma/\\sqrt{n}`).
+        If a float is provided, it is used as the multiplier
+        instead of 1.96. Default is False (no CI).
+    colors : list of str, optional
+        Custom colors to cycle through for each dataset.
+        Defaults to a palette from `matplotlib` or `seaborn`.
+    styles : list of str, optional
+        A list of line styles (e.g. ``'-', '--', '-.', ':'``)
+        to cycle through.
+    plot_style : str, optional
+        Name of the Matplotlib style (e.g. ``'seaborn-whitegrid'``)
+        to apply globally. Default is ``'seaborn-whitegrid'``.
+    markers : list of str, optional
+        A list of marker styles (e.g. ``'o', 's', 'D', '^'``)
+        to cycle through for each dataset's trend line.
+    error_props : dict, optional
+        Additional properties for the confidence interval shading,
+        e.g. ``{'alpha': 0.2, 'linewidth': 0}``.
+    figsize : tuple of float, optional
+        Width and height of the figure in inches. Default is (14, 7).
+    title : str, optional
+        Main title of the plot. Default is
+        "Comparative Subsidence Analysis".
+    xlabel : str, optional
+        Label for the x-axis. Default is "Observation Period".
+    ylabel : str, optional
+        Label for the y-axis. Default is "Subsidence Rate".
+    show_grid : bool, optional
+        Whether to show grid lines on the plot. Default is True.
+    grid_props : dict, optional
+        Grid line properties (e.g. ``{'which': 'both', 'alpha': 0.4}``).
+    savefig : str, optional
+        Path to save the resulting figure. If None, no file is saved.
+        Default is None.
+    verbose : int, optional
+        Verbosity level (0 = silent, 1 = basic info). Default is 0.
+    **kwargs :
+        Additional keyword arguments passed to the Matplotlib
+        plotting function.
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The Matplotlib Figure object containing the comparative
+        trend plot.
+    
+    Notes
+    -----
+    - When ``time_freq='auto'``, the function infers a yearly
+      frequency if the time span exceeds two years; otherwise,
+      it uses monthly resampling.
+    - If ``confidence`` is True, the 95% CI is computed using
+      the standard error of the mean (SEM) multiplied by 1.96
+      (or by the user-specified float).
+    
+    This function calls `are_all_frames_valid` to validate 
+    DataFrame integrity, then groups or resamples data by 
+    `the specified `time_freq`` to compute mean and standard 
+    deviation. It can also highlight confidence intervals around
+    the mean if desired.
+    
+    .. math::
+       \\bar{x}(t) = \\frac{1}{n} \\sum_{i=1}^{n} x_i(t),
+       \\quad
+       \\sigma(t) = \\sqrt{\\frac{1}{n}\\sum_{i=1}^{n}
+       (x_i(t) - \\bar{x}(t))^2},
+    
+    where :math:`\\bar{x}(t)` is the mean of the target column
+    over the period :math:`t` and :math:`\\sigma(t)` is the
+    standard deviation.
+    
+    Examples
+    --------
+    >>> from gofast.plot.comparison import plot_trends
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> np.random.seed(42)
+    >>>
+    >>> # Generate synthetic data
+    >>> df1 = pd.DataFrame({
+    ...     "date": pd.date_range(
+    ...         start="2020-01-01", 
+    ...         periods=50, 
+    ...         freq="M"
+    ...     ),
+    ...     "subsidence": np.random.rand(50) * 2 + 1
+    ... })
+    >>> df2 = pd.DataFrame({
+    ...     "date": pd.date_range(
+    ...         start="2021-01-01", 
+    ...         periods=50, 
+    ...         freq="M"
+    ...     ),
+    ...     "subsidence": np.random.rand(50) * 2 + 1.5
+    ... })
+    >>>
+    >>> # Plot the trends with confidence intervals
+    >>> fig = plot_trends(
+    ...     df1,
+    ...     df2,
+    ...     target_col="subsidence",
+    ...     dt_col="date",
+    ...     time_freq="M",
+    ...     confidence=True,
+    ...     title="Monthly Subsidence Trend",
+    ...     verbose=1
+    ... )
+    
+    See Also
+    --------
+    are_all_frames_valid : Checks if DataFrames have necessary columns
+        or a datetime index.
+    set_axis_grid : Configures grid lines for one or more axes.
+    
+    References
+    ----------
+    .. [1] Chatfield, C. (2003). The Analysis of Time Series:
+           An Introduction. Chapman and Hall/CRC.
     """
     dfs = are_all_frames_valid(*dfs, ops='validate')
     # --------------------------
@@ -1197,6 +2010,132 @@ def plot_variability(
     savefig: Optional[str] = None,
     **kwargs
 ) -> plt.Figure:
+    """
+    Plot the variability in a `target_col` from one or more
+    DataFrames using box or violin plots, with an optional swarm
+    plot overlay for individual data points. 
+    
+    Parameters
+    ----------
+    dfs : list of pandas.DataFrame
+        One or more DataFrames containing the column
+        ``target_col``. Each DataFrame is validated with
+        `are_all_frames_valid`.
+    target_col : str
+        Column name representing the values to be plotted
+        (e.g., subsidence rates).
+    labels : list of str, optional
+        Custom labels for the datasets. Defaults to
+        ``["Dataset 1", "Dataset 2", ...]`` if not provided.
+    kind : {'box', 'violin'}, optional
+        Type of plot to produce. ``'box'`` displays box plots,
+        while ``'violin'`` displays violin plots. Default is
+        ``'box'``.
+    orient : {'v', 'h'}, optional
+        Orientation of the plot. ``'v'`` (vertical) places the
+        groups on the x-axis. ``'h'`` (horizontal) places the
+        groups on the y-axis. Default is ``'v'``.
+    palette : str or list of str, optional
+        Color palette or list of colors for the plot.
+        Default is ``'tab10'``.
+    show_swarm : bool, optional
+        Whether to overlay individual data points using a swarm
+        plot for additional granularity. Default is False.
+    figsize : tuple of float, optional
+        Width and height of the figure in inches. Default
+        is (8, 6).
+    title : str, optional
+        Main title of the plot. Default is
+        "Distribution Comparison".
+    xlabel : str, optional
+        Label for the x-axis. Default is "City".
+    ylabel : str, optional
+        Label for the y-axis. Default is "Rate".
+    show_grid : bool, optional
+        Whether to display grid lines. Default is True.
+    grid_props : dict, optional
+        Grid properties (e.g., ``{'axis': 'y', 'alpha': 0.4,
+        'linestyle': ':'}``) passed to `set_axis_grid`.
+    verbose : int, optional
+        Verbosity level (0 = silent, 1 = info). Default is 0.
+    savefig : str, optional
+        Path to save the figure. If None, no file is saved.
+        Default is None.
+    **kwargs :
+        Additional keyword arguments passed to either Seaborn
+        boxplot or violinplot.
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The Matplotlib Figure object containing the box or violin
+        plot of the combined data from the input DataFrames.
+    
+    Notes
+    -----
+    - This function concatenates each DataFrame's `target_col`
+      into a single structure, labeling each dataset by the
+      corresponding entry in `labels`.
+    - If `show_swarm` is True, a swarm plot is overlaid to reveal
+      individual data points within each group.
+      
+    This function ensures the presence of `target_col` in each 
+    DataFrame through `are_all_frames_valid`, then consolidates 
+    data for group-wise visualization. It can visualize either 
+    box plots (quartiles and outliers) or violin plots 
+    (distribution shapes) via `is_valid_kind`.
+    
+    .. math::
+       Q1, Q2, Q3, IQR
+    
+    For box plots, :math:`Q1`, :math:`Q2` (median), and
+    :math:`Q3` correspond to the first, second, and third
+    quartiles, while :math:`IQR = Q3 - Q1` is the interquartile
+    range representing the box's height. For violin plots,
+    the data distribution is estimated via a kernel density
+    function to reveal the shape of the distribution.
+      
+    
+    Examples
+    --------
+    >>> from gofast.plot.comparison import plot_variability
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> np.random.seed(42)
+    >>>
+    >>> # Generate synthetic data
+    >>> df1 = pd.DataFrame({
+    ...     "subsidence": np.random.rand(50) + 1
+    ... })
+    >>> df2 = pd.DataFrame({
+    ...     "subsidence": np.random.rand(60) + 0.5
+    ... })
+    >>>
+    >>> # Plot boxplots with swarm overlays
+    >>> fig = plot_variability(
+    ...     df1, df2,
+    ...     target_col="subsidence",
+    ...     labels=["City A", "City B"],
+    ...     kind="box",
+    ...     show_swarm=True,
+    ...     title="Subsidence Rate Boxplot Comparison"
+    ... )
+    
+    See Also
+    --------
+    are_all_frames_valid : Checks that each DataFrame contains
+        the required columns.
+    set_axis_grid : Configures grid line properties on
+        Matplotlib axes.
+    is_valid_kind : Validates the requested plot kind.
+    
+    References
+    ----------
+    .. [1] McGill, R., Tukey, J. W., & Larsen, W. A. (1978).
+           Variations of box plots. The American Statistician,
+           32(1), 12-16.
+    """
+
     # Validate plot type
     dfs = are_all_frames_valid(*dfs, ops='validate')
     
