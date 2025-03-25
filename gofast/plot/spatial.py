@@ -34,7 +34,7 @@ from ..core.checks import (
     exist_features, 
 )
 from ..core.handlers import columns_manager
-from ..core.io import is_data_readable 
+from ..core.io import is_data_readable, export_data  
 from ..core.plot_manager import ( 
     default_params_plot, 
     return_fig_or_ax
@@ -55,7 +55,7 @@ from .utils import make_plot_colors
 __all__=[
         'plot_categorical_feature',
         'plot_dist',
-        'plot_spatial_distribution',
+        'plot_categories_dist',
         'plot_spatial_features', 
         'plot_spatial_clusters'
  ]
@@ -631,7 +631,7 @@ def plot_dist(
 
 @return_fig_or_ax(return_type ='ax')
 @isdf 
-def plot_spatial_distribution(
+def plot_categories_dist(
     df: DataFrame,
     category_column: str,  
     continuous_bins: Union[str, List[float]] = 'auto',  
@@ -644,6 +644,8 @@ def plot_spatial_distribution(
     show_grid:bool=True, 
     axis_off: bool = False,  
     grid_props: dict =None, 
+    export_categories:bool=False, 
+    savefile: Optional[str]=None, 
     figsize: tuple = (10, 8)  
 ) -> None:
     """
@@ -655,15 +657,6 @@ def plot_spatial_distribution(
     representation of data intensity across a geographical area. The visualization
     can be rendered using scatter plots or hexbin plots, facilitating the analysis
     of spatial patterns and concentrations.
-
-    The categorization of continuous variables is performed using either user-defined
-    bins or the Freedman-Diaconis rule to determine an optimal bin width:
-    
-    .. math::
-        \text{Bin Width} = 2 \times \frac{\text{IQR}}{n^{1/3}}
-    
-    where :math:`\text{IQR}` is the interquartile range of the data and :math:`n`
-    is the number of observations.
 
     Parameters
     ----------
@@ -721,6 +714,20 @@ def plot_spatial_distribution(
           others are excluded. The legend reflects only the displayed categories.
         
         Raises a `ValueError` if none of the `filter_categories` are valid.
+
+    export_categories : bool, optional
+        A boolean flag that indicates whether to export data based on categories.
+        If set to True, the function will check for a 'category' column in
+        the DataFrame. When present, it will filter the data using the 
+        'filter_categories' parameter (if provided) before exporting. 
+        If absent, a warning is issued and the entire dataset is exported.
+        Defaults to False.
+    
+    savefile : Optional[str], optional
+        The file path or name where the exported data will be saved.
+        If provided, the data will be written to this specified location.
+        If None, the function may use a default path or handle the export
+         differently. Defaults to None.
 
     cmap : str, default='coolwarm'
         The colormap to use for the visualization. This parameter utilizes matplotlib's 
@@ -817,6 +824,15 @@ def plot_spatial_distribution(
     - The legend in the plot dynamically adjusts based on the `filter_categories` 
       parameter, displaying only the relevant categories.
 
+    The categorization of continuous variables is performed using either user-defined
+    bins or the Freedman-Diaconis rule to determine an optimal bin width:
+    
+    .. math::
+        \text{Bin Width} = 2 \times \frac{\text{IQR}}{n^{1/3}}
+    
+    where :math:`\text{IQR}` is the interquartile range of the data and :math:`n`
+    is the number of observations.
+    
     See Also
     --------
     pandas.cut : Function to bin continuous data into discrete intervals.
@@ -941,6 +957,28 @@ def plot_spatial_distribution(
             raise ValueError(
                 "No valid categories to filter after applying filter_categories."
             )
+    
+    if export_categories:
+        # Check if the DataFrame contains the 'category' column.
+        if 'category' in df.columns:
+            # If specific categories are provided, 
+            # filter the DataFrame accordingly.
+            if filter_categories:
+                ex_data = df[df['category'].isin(filter_categories)]
+            else:
+                ex_data = df.copy()
+        else:
+            # Warn the user that no category column was found,
+            #so the entire dataset will be exported.
+            warnings.warn(
+                "'category' column not found in the DataFrame."
+                " Exporting the entire dataset.",
+                UserWarning
+            )
+            ex_data = df.copy()
+    
+        # Export the processed data using the specified file paths.
+        export_data(ex_data, file_paths=savefile, overwrite=True, index=False)
 
     # Plot the spatial distribution using selected plot type
     plt.figure(figsize=figsize)

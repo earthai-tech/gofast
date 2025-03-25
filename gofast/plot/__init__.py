@@ -112,7 +112,7 @@ from .utils import (
 from .spatial import ( 
     plot_categorical_feature,
     plot_dist,
-    plot_spatial_distribution,
+    plot_categories_dist,
     plot_spatial_features
 )
 from .suite import (
@@ -129,7 +129,10 @@ from .suite import (
     plot_with_uncertainty, 
 )
 
-from .testing import plot_ab_test 
+from .testing import ( 
+    plot_ab_test , 
+    plot_errors, 
+)
 
 __all__= [
     "config", 
@@ -230,7 +233,7 @@ __all__= [
     "plot_spatial_features", 
     "plot_categorical_feature", 
     "plot_sensitivity", 
-    "plot_spatial_distribution", 
+    "plot_categories_dist", 
     "plot_distributions", 
     "plot_dist", 
     "plot_quantile_distributions" , 
@@ -246,7 +249,8 @@ __all__= [
     'plot_with_uncertainty', 
     'plot_qbased_preds',
     
-    'plot_ab_test'
+    'plot_ab_test', 
+    'plot_errors'
                
     ]
 

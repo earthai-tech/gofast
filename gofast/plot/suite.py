@@ -44,6 +44,7 @@ from ..compat.sklearn import (
 from ..decorators import isdf
 from ..metrics import get_scorer 
 from ..utils.mathext import compute_importances  
+from ..utils.ts_utils import to_dt 
 from ..utils.validator import  ( 
     build_data_if,
     is_frame, validate_yy, 
@@ -3283,10 +3284,16 @@ def plot_prediction_intervals(
         x_data = df.index
     else:
         # If dt_col exists, ensure it's datetime if possible
-        if dt_col not in df.columns:
-            raise ValueError(f"Column '{dt_col}' not found in df.")
-        if not pd.api.types.is_datetime64_any_dtype(df[dt_col]):
-            df[dt_col] = pd.to_datetime(df[dt_col], errors='coerce')
+        df, dt_col = to_dt (
+            df.copy, 
+            dt_col=dt_col, 
+            format='%Y',
+            return_dt_col=True 
+            )
+        # if dt_col not in df.columns:
+        #     raise ValueError(f"Column '{dt_col}' not found in df.")
+        # if not pd.api.types.is_datetime64_any_dtype(df[dt_col]):
+        #     df[dt_col] = pd.to_datetime(df[dt_col], errors='coerce')
         x_data = df[dt_col]
 
     # Handle sample_size
@@ -3323,7 +3330,7 @@ def plot_prediction_intervals(
     # try to identify min/median/max keys automatically.
     if q_cols is not None:
         # Convert list to dict if necessary
-        if isinstance(q_cols, list):
+        if isinstance(q_cols, (list, tuple, pd.Index)):
             # Example: q_cols=['col_low','col_med','col_high']
             # We'll map them in ascending order as best as we can
             q_cols_dict = {}
@@ -4181,6 +4188,7 @@ def _plot_monte_carlo(
     # Show the legend
     ax.legend()
 
+
 @return_fig_or_ax(return_type ='ax')
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_w.uncertainty_plot.png'), 
@@ -4420,22 +4428,22 @@ def plot_with_uncertainty(
         elif isinstance(df.index, pd.DatetimeIndex):
             # Use index if it's datetime
             dt_col = df.index.name if df.index.name else "index"  
+            
         else:
             # If no datetime column, fallback to numeric index
             dt_col = df.index.name if df.index.name else "index"
             # and reset the dataframe 
             df_copy.reset_index (drop=False, inplace=True ) 
-            
+             
     q_cols = columns_manager(q_cols, empty_as_none= True )
     # Check if the necessary columns exist
     exist_features (df_copy , features = [dt_col] + q_cols)
 
     if not q_cols:
         raise ValueError(f"'{q_cols}' not found in the DataFrame.")
-            
-    # Ensure the datetime column is in datetime format
-    df[dt_col] = pd.to_datetime(df[dt_col])
-    df = df.sort_values(by=dt_col)
+    
+    df_copy = to_dt (df_copy, dt_col=dt_col, format='%Y', )
+    df_copy = df_copy.sort_values(by=dt_col)
     # Set the figure size
     if ax is None: 
         fig, ax = plt.subplots(figsize=figsize)  
@@ -4459,7 +4467,7 @@ def plot_with_uncertainty(
     # Call the corresponding helper function
     if kind in plot_helpers:
         plot_helpers[kind](
-            df, dt_col=dt_col, 
+            df_copy, dt_col=dt_col, 
             q_cols=q_cols, 
             alpha=alpha, 
             n_simulations=n_simulations, 
@@ -4468,20 +4476,20 @@ def plot_with_uncertainty(
             title =title, 
             xlabel=xlabel, 
             ylabel=ylabel, 
-            line_color="blue", 
-            fill_color='lightblue', 
-            label_median=None, 
-            label_shaded=None, #"q10 to q90 range"
-            palette ="Set2", 
+            line_color=line_color, 
+            fill_color=fill_color, 
+            label_median=label_median, 
+            label_shaded=label_shaded, #"q10 to q90 range"
+            palette =palette, 
             ax=ax, 
-            notch=False, 
-            var_name=None, 
-            value_name=None, 
-            width=.8, 
-            scale='area', 
+            notch=notch, 
+            var_name=var_name, 
+            value_name=value_name, 
+            width=width, 
+            scale=scale, 
             split=split, 
-            color1=None, 
-            color2=None, 
+            color1=color1, 
+            color2=color2, 
             **kws
             )
 

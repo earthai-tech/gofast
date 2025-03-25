@@ -233,6 +233,7 @@ def plot_qbased_preds(
         # Ensure dt_col is datetime if not already
         if not pd.api.types.is_datetime64_any_dtype(df[dt_col]):
             df[dt_col] = pd.to_datetime(df[dt_col], errors='coerce')
+        #XXX
         df = df.sort_values(by=dt_col)
         x_data = df[dt_col]
     else:

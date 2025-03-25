@@ -1941,7 +1941,7 @@ def to_frame_if(
         except Exception as e: 
             # Raise an error if the input is not a recognized type
             raise ValueError(
-                "Unsupported data type {type(data).__name__!r}. The input"
+                f"Unsupported data type {type(data).__name__!r}. The input"
                 " must be a file path, pandas Series, numpy array, list,"
                 " dict, or pandas DataFrame."
                 ) from e 

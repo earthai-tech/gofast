@@ -6119,7 +6119,7 @@ def check_datetime(
     consider_dt_as : Optional[str] = None,
     accept_dt : bool = True, 
     allow_int: bool=False, # if allow_int, consider integer as dateime column  , for instance  [2024, 2025], 
-    int2dt : bool=False, # if True, then convert the integer to datetime,  
+    int2dt : bool=False, # if True, then convert the integer to datetime,
 ) -> Union[bool, pd.DataFrame]:
     """
     Check or validate datetime columns in a DataFrame and optionally
@@ -6233,6 +6233,7 @@ def check_datetime(
            Techniques," Data Engineering, 2020.
     """
     are_all_frames_valid(df, df_only=True)
+    df_copy = df.copy() 
     # 1. Identify all datetime columns in df.
     if dt_cols is not None: 
         if isinstance(dt_cols, str):
@@ -6240,16 +6241,16 @@ def check_datetime(
 
         if allow_int:
             # If allow_int, treat integer columns as datetime columns
-            int_columns = df[dt_cols].select_dtypes(
+            int_columns = df_copy[dt_cols].select_dtypes(
                 include=['int', 'int32', 'int64']).columns
             dt_cols.extend(int_columns)
             if int2dt:
                 for col in int_columns:
-                    df[col] = pd.to_datetime(
-                        df[col], format='%Y', errors='coerce')
+                    df_copy[col] = pd.to_datetime(
+                        df_copy[col].astype(str), format='%Y',  errors='coerce')
             
     else: 
-        dt_cols = df.select_dtypes(
+        dt_cols = df_copy.select_dtypes(
             include=['datetime', 'datetime64[ns]','datetimetz']).columns.tolist()
 
     # quick check for presence
@@ -6284,42 +6285,42 @@ def check_datetime(
         elif error == 'warn':
             warnings.warn(msg_ops)
         # 'ignore' -> just do nothing
-        return df
+        return df_copy
 
     # ops='validate':
     if not has_dt:
-        # no datetime columns => just return df
-        return df
+        # no datetime columns => just return df_copy
+        return df_copy
 
     # dt exists
     if accept_dt:
         # accept dt columns, but maybe convert if consider_dt_as is set
         if consider_dt_as is None:
             # user wants dt columns as is
-            return df
+            return df_copy
 
         # user wants to convert dt
         for col in dt_cols:
-            df = _convert_datetime_column(
-                df=df,
+            df_copy = _convert_datetime_column(
+                df=df_copy,
                 col=col,
                 consider_dt_as=consider_dt_as,
                 error=error
             )
-        return df
+        return df_copy
     else:
         # accept_dt is False, dt columns are not acceptable
         # if we have consider_dt_as, we can still convert them
         if consider_dt_as is not None:
             # try conversion
             for col in dt_cols:
-                df = _convert_datetime_column(
-                    df=df,
+                df_copy = _convert_datetime_column(
+                    df=df_copy,
                     col=col,
                     consider_dt_as=consider_dt_as,
                     error=error
                 )
-            return df
+            return df_copy
         else:
             # user did not provide consider_dt_as
             # => handle error
@@ -6334,13 +6335,13 @@ def check_datetime(
                     "Datetime columns found and not accepted. "
                     f"Dropping these columns: {dt_cols}."
                 )
-                return df.drop(columns=dt_cols)
+                return df_copy.drop(columns=dt_cols)
             elif error == 'ignore':
                 # silently drop dt columns
-                return df.drop(columns=dt_cols)
+                return df_copy.drop(columns=dt_cols)
 
     # fallback
-    return df
+    return df_copy
 
 def _convert_datetime_column(
     df : pd.DataFrame,

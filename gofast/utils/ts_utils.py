@@ -46,7 +46,7 @@ __all__= [
     'ts_corr_analysis', 'transform_stationarity','ts_split', 
     'ts_outlier_detector', 'create_lag_features', 
     'select_and_reduce_features', 'get_decomposition_method', 
-    'filter_by_period'
+    'filter_by_period', 'to_dt', 
  ]
 
 def filter_by_period(
@@ -248,7 +248,226 @@ def filter_by_period(
     
     return filtered_df
     
+def to_dt(
+    df,
+    dt_col=None,
+    return_dt_col=False,
+    format=None,
+    error='raise',
+    verbose=0,
+    **kwargs
+):
+    r"""
+    Converts a given DataFrame's column or index to datetime
+    format using pandas' ``to_datetime`` functionality. This
+    method `to_dt` handles integer-based columns or index by
+    converting them to string before parsing. It can also
+    return the name of the processed datetime column.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input DataFrame that will be converted.
+
+    dt_col : str, optional
+        The name of the column to convert to datetime. If
+        `dt_col` is None, then the DataFrame index will be
+        converted.
+
+    return_dt_col : bool, default=False
+        If True, returns a tuple of the processed DataFrame
+        and the name of the datetime column (or None if the
+        index was converted). If False, returns only the
+        processed DataFrame.
+
+    format : str, optional
+        The ``strftime`` format to use for parsing the
+        datetime strings. If None, pandas attempts to infer
+        the format automatically.
+
+    error : {'raise', 'warn', 'ignore'}, default 'raise'
+        The strategy to handle parsing errors. If 'raise',
+        an exception is raised. If 'warn', a warning is
+        issued. If 'ignore', the original DataFrame is
+        returned unmodified without raising or warning.
+
+    verbose : int, default=0
+        The verbosity level of log messages:
+        * 0 : No messages.
+        * 1 : Basic messages.
+        * 2 : More detailed messages.
+        * 3 : Most verbose messages.
+
+    **kwargs
+        Additional keyword arguments passed directly to
+        ``pd.to_datetime``.
+
+    Returns
+    -------
+    pd.DataFrame or tuple
+        The processed DataFrame with the specified column or
+        index converted to datetime. If `return_dt_col` is
+        True, a tuple of (processed DataFrame, datetime
+        column name/None) is returned.
+
+    Examples
+    --------
+    >>> from gofast.utils.ts_utils import to_dt
+    >>> import pandas as pd
+
+    >>> data = {
+    ...     'Date': ['2021-01-01', '2021-01-02', '2021-01-03'],
+    ...     'Value': [100, 200, 300]
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> # Convert a column to datetime
+    >>> df_dt = to_dt(df, dt_col='Date')
+    >>> df_dt.info()
+
+    >>> # Convert the index to datetime (example index as strings)
+    >>> df_idx = df.set_index('Date')
+    >>> df_idx_converted = to_dt(df_idx)
+    >>> df_idx_converted.index
+
+    Notes
+    -----
+    Internally, `to_dt` calls ``pd.to_datetime`` to perform
+    the actual conversion. If an integer column or index is
+    supplied, it is first cast to string and then parsed as
+    datetime. This can be useful when timestamps are stored
+    as integer values representing YYYYMMDD or similar
+    formats.
     
+    .. math::
+        \text{Let } X \in \{\text{column, index}\}, \quad
+        X_{\text{dt}} = pd.to\_datetime(X, \ldots)
+
+    Here, :math:`X_{\text{dt}}` is the converted datetime
+    representation. If ``dt_col`` is not provided, the index
+    of the DataFrame is converted.
+
+    See Also
+    --------
+    pandas.to_datetime : Pandas function for converting
+        objects to datetime.
+    pandas.DataFrame.astype : Cast object to a specified dtype.
+
+    References
+    ----------
+    .. [1] Wes McKinney. *Python for Data Analysis: Data
+       Wrangling with Pandas, NumPy, and IPython.* O'Reilly
+       Media, 2nd Edition, 2017.
+    """
+    is_frame(df, df_only= True, objname="Data 'df'")
+    
+    # Create a copy of the original DataFrame to avoid
+    # side effects on the user's data.
+    df_copy  = df.copy()
+    processed_dt_col = None
+
+    try:
+        if dt_col is None:
+            # Process the index if no column is specified.
+            if not pd.api.types.is_datetime64_any_dtype(
+                df_copy.index
+            ):
+                if verbose >= 1:
+                    print("Converting index to datetime.")
+                # If index is integer, convert to string first.
+                if pd.api.types.is_integer_dtype(
+                    df_copy.index
+                ):
+                    if verbose >= 2:
+                        print("Index is integer. Converting "
+                              "to string first.")
+                    index_str = df_copy.index.astype(str)
+                    new_index = pd.to_datetime(
+                        index_str,
+                        format=format,
+                        errors='raise',
+                        **kwargs
+                    )
+                else:
+                    new_index = pd.to_datetime(
+                        df_copy.index,
+                        format=format,
+                        errors='raise',
+                        **kwargs
+                    )
+                df_copy.index = new_index
+                processed_dt_col = None
+                if verbose >= 1:
+                    print("Index converted to datetime.")
+            else:
+                if verbose >= 2:
+                    print("Index is already datetime. "
+                          "No conversion needed.")
+        else:
+            # Process the specified column.
+            if dt_col not in df_copy.columns:
+                raise ValueError(
+                    f"Column '{dt_col}' not found in "
+                    f"DataFrame."
+                )
+            col = df_copy[dt_col]
+            # Convert integer column to string first.
+            if pd.api.types.is_integer_dtype(col):
+                if verbose >= 1:
+                    print(f"Converting integer column "
+                          f"'{dt_col}' to datetime with "
+                          f"format {format}.")
+                col_str = col.astype(str)
+                converted_col = pd.to_datetime(
+                    col_str,
+                    format=format,
+                    errors='raise',
+                    **kwargs
+                )
+            else:
+                if verbose >= 1:
+                    print(f"Converting column '{dt_col}' "
+                          f"to datetime.")
+                converted_col = pd.to_datetime(
+                    col,
+                    format=format,
+                    errors='raise',
+                    **kwargs
+                )
+            df_copy[dt_col] = converted_col
+            processed_dt_col = dt_col
+            if verbose >= 1:
+                print(f"Column '{dt_col}' "
+                      f"converted to datetime.")
+
+    except Exception as e:
+        if error == 'raise':
+            raise
+        elif error == 'warn':
+            warnings.warn(
+                f"DateTime conversion failed: {e}"
+            )
+            # Return original DataFrame if error
+            # occurs in 'warn' mode.
+            return (
+                (df, None) if return_dt_col else df
+            )
+        elif error == 'ignore':
+            # Return original DataFrame if error
+            # occurs in 'ignore' mode.
+            return (
+                (df, None) if return_dt_col else df
+            )
+        else:
+            raise ValueError(
+                "error must be 'raise', 'warn', "
+                "or 'ignore'."
+            )
+
+    if return_dt_col:
+        return df_copy, processed_dt_col
+    else:
+        return df_copy
+
 def ts_validator(
     df,
     dt_col=None,

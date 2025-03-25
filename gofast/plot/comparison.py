@@ -1713,7 +1713,7 @@ def plot_trends(
     markers: List[str] = None,
     error_props: dict = None,
     figsize: tuple = (14, 7),
-    title: str = 'Comparative Subsidence Analysis',
+    title: str = 'Comparative Analysis',
     xlabel: str = 'Observation Period',
     ylabel: str = 'Subsidence Rate',
     show_grid: bool=True, 

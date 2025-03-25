@@ -8,6 +8,7 @@ the core capabilities of the gofast package.
 from __future__ import annotations 
 
 import re
+import itertools
 import copy
 import warnings 
 from typing import Any, Dict, List, Union, Optional, Tuple 
@@ -41,8 +42,317 @@ __all__ = [
     "to_micmic", 
     "spread_uncertainty", 
     "reorder_by", 
-    "normalize_categorical_column"
+    "normalize_categorical_column", 
+    "compute_pairwise_errors", 
     ]
+
+@Dataify(enforce_df=True,)
+def compute_pairwise_errors(
+    df,
+    columns=None,
+    method='abs',
+    verbose=0,
+    pair_strategy='consecutive',
+    keep_origin=True,
+    epsilon=1e-6,
+    custom_error=None,
+    error_prefix='error_',
+    dropna=False,
+    sort_columns=False,
+    **kwargs
+):
+    r"""
+    Computes pairwise errors between specified columns in a
+    DataFrame. This method `compute_pairwise_errors` can
+    operate using different error computation techniques,
+    including absolute error, relative error, or squared
+    error. Users can also supply a custom error function
+    via ``custom_error``.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input DataFrame containing numeric data.
+        Pairwise errors are computed on the columns
+        of this DataFrame.
+
+    columns : list of str, optional
+        The list of column names on which to compute
+        pairwise errors. If `columns` is None, all
+        numeric columns of `df` are used.
+
+    method : {'abs', 'rel', 'squared'}, default='abs'
+        The error computation method. Supported
+        methods are ``abs`` for absolute error,
+        ``rel`` for relative error, and ``squared``
+        for squared error.
+
+    verbose : int, default=0
+        The verbosity level of log messages:
+        * 0 : No messages.
+        * 1 : Basic messages (e.g., selected columns,
+          dropped rows).
+        * 2 : More detailed messages, including pair
+          generation.
+        * 3 : Most verbose messages (reserved for
+          potential future enhancements).
+
+    pair_strategy : {'consecutive', 'all'}, default='consecutive'
+        Determines how column pairs are generated:
+        * ``consecutive`` : Generates pairs of
+          consecutive columns (e.g., (col1,col2),
+          (col2,col3), ...).
+        * ``all`` : Generates all unique pairs of the
+          selected columns.
+
+    keep_origin : bool, default=True
+        If True, retains the original columns in the
+        output DataFrame alongside the newly computed
+        error columns. If False, only the error columns
+        remain.
+
+    epsilon : float, default=1e-6
+        A small constant to avoid division by zero in the
+        relative error calculation.
+
+    custom_error : callable, optional
+        A custom function for computing error between
+        two columns. It must accept two pandas Series as
+        inputs and return a Series of the same shape,
+        representing the error. If provided, this
+        overrides the built-in methods for error
+        computation.
+
+    error_prefix : str, default='error_'
+        A prefix for the names of newly created error
+        columns.
+
+    dropna : bool, default=False
+        If True, rows containing NaN values in the
+        selected columns are dropped before error
+        computation. If False, all rows are retained.
+
+    sort_columns : bool, default=False
+        If True, sorts the selected columns
+        lexicographically before generating pairs.
+        If False, preserves their current order.
+
+    **kwargs
+        Additional keyword arguments for future
+        extensibility.
+
+    Returns
+    -------
+    pd.DataFrame
+        A new DataFrame that contains the computed
+        pairwise error columns. If `keep_origin`
+        is True, both the original and the error
+        columns are present; otherwise, only the
+        error columns remain.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.utils.ext import compute_pairwise_errors
+
+    >>> df = pd.DataFrame({
+    ...     'A': [1.0, 2.0, 3.0],
+    ...     'B': [1.5, 2.5, 2.9],
+    ...     'C': [2.0, 2.0, 2.0]
+    ... })
+    >>> # Compute absolute errors for consecutive pairs: (A,B) and (B,C).
+    >>> result = compute_pairwise_errors(df, 
+    ...                                  columns=['A','B','C'],
+    ...                                  method='abs',
+    ...                                  pair_strategy='consecutive')
+    >>> result
+
+    >>> # Compute relative errors for all pairs and drop original columns.
+    >>> result_rel = compute_pairwise_errors(df,
+    ...                                      columns=['A','B','C'],
+    ...                                      method='rel',
+    ...                                      pair_strategy='all',
+    ...                                      keep_origin=False)
+
+    Notes
+    -----
+    The `compute_pairwise_errors` method is especially
+    useful when you need to quickly evaluate the
+    differences between adjacent (or all) columns in a
+    time series, or in a dataset containing related
+    measurements. By default, it applies an absolute
+    difference, but you can switch to relative or squared
+    differences, or provide your own computation by
+    setting ``custom_error``.
+    
+    .. math::
+        \begin{aligned}
+        &\text{Absolute Error (abs): } 
+        E_{\text{abs}}(x, y) = |\,x - y\,|,\\[8pt]
+        &\text{Relative Error (rel): }
+        E_{\text{rel}}(x, y) 
+            = \frac{x - y}{y + \epsilon},\\[8pt]
+        &\text{Squared Error (squared): }
+        E_{\text{squared}}(x, y) 
+            = (x - y)^2,
+        \end{aligned}
+
+    where :math:`\epsilon` is a small constant to avoid
+    division by zero issues for relative errors.
+
+    See Also
+    --------
+    pandas.DataFrame.dropna : Method to drop rows with
+        missing values.
+    pandas.DataFrame.select_dtypes : Select columns
+        by dtype.
+
+    References
+    ----------
+    .. [1] J. D. Hunter et al., *Computational Tools for
+       Data Analysis*, 2018.
+
+    """
+    # Create a copy of the DataFrame to avoid mutating
+    # the original data.
+    df_copy = df.copy()
+
+    # Determine columns to process.
+    if columns is None:
+        columns = df_copy.select_dtypes(
+            include='number'
+        ).columns.tolist()
+        if verbose >= 1:
+            print(f"Selected columns: {columns}")
+        if not columns:
+            raise ValueError("No numeric columns found "
+                             "in the DataFrame.")
+    else:
+        missing = [
+            col for col in columns
+            if col not in df_copy.columns
+        ]
+        if missing:
+            raise ValueError(f"Columns not found: {missing}")
+
+    # Check for non-numeric columns among selected.
+    non_numeric = df_copy[columns].select_dtypes(
+        exclude='number'
+    ).columns.tolist()
+    if non_numeric:
+        raise ValueError(f"Non-numeric columns "
+                         f"selected: {non_numeric}")
+
+    # Validate custom_error if provided.
+    if custom_error is not None \
+       and not callable(custom_error):
+        raise TypeError("custom_error must be "
+                        "a callable function.")
+
+    # Sort columns if requested.
+    if sort_columns:
+        columns = sorted(columns)
+        if verbose >= 1:
+            print(f"Sorted columns: {columns}")
+
+    # Drop NA rows if requested.
+    if dropna:
+        initial_rows = len(df_copy)
+        df_copy = df_copy.dropna(subset=columns).copy()
+        if verbose >= 1:
+            dropped = initial_rows - len(df_copy)
+            print(f"Dropped {dropped} rows with NaN in "
+                  f"selected columns. Remaining rows: "
+                  f"{len(df_copy)}")
+
+    # Validate pair strategy.
+    valid_strategies = ['consecutive', 'all']
+    if pair_strategy not in valid_strategies:
+        raise ValueError(
+            f"pair_strategy must be one of "
+            f"{valid_strategies}"
+        )
+
+    # Generate column pairs.
+    if pair_strategy == 'consecutive':
+        pairs = list(zip(
+            columns[:-1],
+            columns[1:]
+        ))
+        if verbose >= 2:
+            print(f"Generated consecutive pairs: {pairs}")
+    else:
+        pairs = list(
+            itertools.combinations(columns, 2)
+        )
+        if verbose >= 2:
+            print(f"Generated all pairs: {pairs}")
+
+    # Compute errors for each pair.
+    for col1, col2 in pairs:
+        error_col = f"{error_prefix}{col1}_{col2}"
+        if verbose >= 1:
+            print(f"Computing error between {col1} "
+                  f"and {col2} as {error_col}")
+        try:
+            if custom_error is not None:
+                # Use custom function for error.
+                df_copy[error_col] = custom_error(
+                    df_copy[col1],
+                    df_copy[col2]
+                )
+            else:
+                # Built-in error computations.
+                if method == 'abs':
+                    df_copy[error_col] = (
+                        df_copy[col1]
+                        - df_copy[col2]
+                    ).abs()
+                elif method == 'rel':
+                    denominator = df_copy[col2].copy()
+                    # Avoid zero division by adjusting
+                    # values < epsilon.
+                    signs = np.sign(denominator).replace(0, 1)
+                    mask = denominator.abs() < epsilon
+                    denominator[mask] = (
+                        signs[mask] * epsilon
+                    )
+                    df_copy[error_col] = (
+                        df_copy[col1]
+                        - df_copy[col2]
+                    ) / denominator
+                    if verbose >= 2:
+                        zero_count = mask.sum()
+                        if zero_count > 0:
+                            print(f"Adjusted "
+                                  f"{zero_count} near-zero "
+                                  f"denominators in column "
+                                  f"'{col2}' using "
+                                  f"epsilon={epsilon}")
+                elif method == 'squared':
+                    df_copy[error_col] = (
+                        df_copy[col1]
+                        - df_copy[col2]
+                    ) ** 2
+                else:
+                    raise ValueError(
+                        f"Unsupported method: {method}"
+                    )
+        except Exception as e:
+            if verbose >= 1:
+                print(f"Error computing {error_col}: {e}")
+            raise
+
+    # Drop original columns if requested.
+    if not keep_origin:
+        if verbose >= 1:
+            print(f"Dropping original columns: {columns}")
+        df_copy.drop(
+            columns=columns,
+            inplace=True
+        )
+
+    return df_copy
 
 @Dataify(enforce_df=False)
 def normalize_categorical_column(
@@ -125,7 +435,7 @@ def normalize_categorical_column(
       category is extended by ``spread_factor`` for random
       sampling, ensuring a spread in the highest values.
     
-    This function distributes the highest the category more 
+    The function distributes the highest the category more 
     widely through a "smart distribution" mechanism.
     
     .. math::
@@ -153,7 +463,7 @@ def normalize_categorical_column(
     >>> df_norm = normalize_categorical_column(
     ...     df,
     ...     feature="city",
-    ...     fill_missing="Unknown",
+    ...     fill_missing=13,
     ...     verbose=3
     ... )
     >>> print(df_norm)

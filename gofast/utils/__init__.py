@@ -79,6 +79,7 @@ MODULE_MAPPING = {
          "to_micmic", 
          "spread_uncertainty", 
          "reorder_by", 
+         "compute_pairwise_errors", 
         ], 
     'io_utils':[ 
         'deserialize_data', 

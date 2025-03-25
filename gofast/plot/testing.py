@@ -7,7 +7,14 @@ Provides functions to conduct and visualize various
 statistical tests.
 """
 
-from typing import Union, Tuple, Dict, Iterable, Optional 
+from typing import ( 
+    Union, 
+    Tuple, 
+    Dict, 
+    Iterable, 
+    Optional, 
+    List
+)
 import numpy as np
 import pandas as pd
 from matplotlib import rcParams
@@ -19,13 +26,18 @@ from scipy.stats import chi2_contingency, f_oneway
 from ..api.summary import ResultSummary 
 from ..decorators import isdf 
 from ..compat.sklearn import  validate_params, StrOptions 
-from ..core.checks import exist_features, check_params  
+from ..core.checks import ( 
+    exist_features, 
+    check_params, 
+    check_non_emptiness, 
+    check_spatial_columns
+)
 from ..core.handlers import columns_manager 
 from ..core.plot_manager import default_params_plot 
 from ..utils.validator import filter_valid_kwargs
 from ._config import PlotConfig
 
-__all__=['plot_ab_test'] 
+__all__=['plot_ab_test', 'plot_errors'] 
 
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_ab_test_plot.png')
@@ -930,6 +942,484 @@ def add_significance_marker(
         color='#ea5455'
     )
     
+@check_non_emptiness 
+def plot_errors(
+    df: pd.DataFrame,
+    error_cols: Optional[List[str]] = None,
+    kind: str = 'scatter',
+    figsize: tuple = (12, 8),
+    title: str = 'Error Analysis',
+    spatial_cols: Optional[Tuple[str, str]] = None,
+    subplot_titles: Optional[List[str]] = None,
+    cmap: str = 'viridis',
+    style: str = None,
+    alpha: float = 0.7,
+    log_scale: Optional[str] = None,
+    reference_line: bool = True,
+    max_cols: int = 3,
+    show_stats: bool = True,
+    stats_range: Tuple[float, float] = (0.05, 0.95),
+    heatmap_kwargs: Optional[dict] = None,
+    spatial_kwargs: Optional[dict] = None,
+    ax: Optional[plt.Axes] = None,
+    verbose: int = 0,
+    **kwargs
+) -> plt.Axes:
+    r"""
+    Plots error distributions and optional spatial patterns
+    from a given DataFrame. The method `plot_errors`
+    provides multiple visualization styles, including
+    scatter plots, histograms, box plots, and more, to help
+    you analyze error columns. If spatial coordinates are
+    available, this method can also render geospatial
+    plots for error analysis.
 
+    .. math::
+        E = \{ e_1, e_2, \dots, e_n \}
 
+    Given a set of error values :math:`e_i` in
+    ``error_cols``, this function will produce distinct
+    graphical representations for each error column.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame containing error data as well as
+        optional spatial coordinates. This is the core
+        input from which all plots are generated.
+
+    error_cols : list of str, optional
+        A list of column names representing error values.
+        If `error_cols` is None, columns prefixed with
+        ``error_`` will be automatically detected. These
+        columns determine what errors get plotted.
+
+    kind : {'scatter', 'hist', 'box', 'violin',
+            'heatmap', 'ecdf', 'geo_scatter',
+            'hex', 'kde'}, default='scatter'
+        The type of plot to generate. Non-spatial plot
+        types include `scatter`, `hist`, `box`, `violin`,
+        `heatmap`, and `ecdf`. Spatial plot types include
+        `scatter`, `hex`, and `kde`. See Notes
+        for details on each plot type.
+
+    figsize : tuple of (float, float), default=(12, 8)
+        The size of the figure, expressed as
+        (width, height) in inches.
+
+    title : str, default='Error Analysis'
+        The main title to display above the figure. This
+        title encompasses all subplots when multiple
+        columns or subplots are used.
+
+    spatial_cols : tuple of str, optional
+        A tuple of (``x_col``, ``y_col``) representing the
+        spatial coordinates within the DataFrame. If
+        provided, plots will be rendered in a spatial
+        context such as `geo_scatter` or `geo_hex`.
+
+    subplot_titles : list of str, optional
+        A list of titles for individual subplots when
+        multiple error columns are plotted at once. If
+        None, the function auto-generates titles from
+        `error_cols`.
+
+    cmap : str, default='viridis'
+        The colormap used for representing error values,
+        especially in spatial or heatmap plots.
+
+    style : str, optional
+        The seaborn or matplotlib style to apply. If None,
+        the default plotting style is used.
+
+    alpha : float, default=0.7
+        The transparency level for plotted elements. A
+        value of 1.0 is fully opaque, and 0.0 is fully
+        transparent.
+
+    log_scale : {'x', 'y', 'both'}, optional
+        Applies logarithmic scaling to the specified axis:
+        * `x` : Log-scale the x-axis.
+        * `y` : Log-scale the y-axis.
+        * `both` : Log-scale both axes.
+
+    reference_line : bool, default=True
+        If True, adds a reference line where appropriate.
+        For `scatter` plots, a horizontal line is drawn at
+        y=0 to indicate zero error.
+
+    max_cols : int, default=3
+        The maximum number of subplots in one row when
+        multiple error columns are plotted. Additional
+        subplots will wrap to new rows.
+
+    show_stats : bool, default=True
+        If True, displays distribution statistics on
+        certain plot types (e.g., `hist`). Shows percentile
+        lines based on `stats_range`.
+
+    stats_range : tuple of (float, float), default=(0.05, 0.95)
+        The percentile range used when `show_stats` is True,
+        typically for histogram visualizations. A value of
+        (0.05, 0.95) shows the 5th and 95th percentiles.
+
+    heatmap_kwargs : dict, optional
+        Additional keyword arguments passed directly to
+        ``sns.heatmap`` when the plot type is `heatmap`.
+
+    spatial_kwargs : dict, optional
+        Additional keyword arguments for spatial plot
+        types (e.g., `geo_scatter`), allowing further
+        customization of geospatial overlays.
+
+    ax : matplotlib.axes.Axes, optional
+        An existing axes object on which to draw the plot.
+        If None, a new figure and axes are created for you.
+
+    verbose : int, default=0
+        The verbosity level. If 0, no messages are printed;
+        higher values produce more log statements.
+
+    **kwargs
+        Additional keyword arguments passed to the
+        underlying plot functions (e.g., matplotlib or
+        seaborn calls).
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The matplotlib axes object or objects containing
+        the generated plot(s). If multiple error columns
+        are plotted without providing `ax`, a list of axes
+        objects is returned.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.plot.testing import plot_errors
+    >>> # Example DataFrame with error columns
+    >>> df = pd.DataFrame({
+    ...     'error_col1': [0.1, 0.5, -0.2, 0.0],
+    ...     'error_col2': [1.0, 0.8, 0.9, 1.2],
+    ...     'x_coord': [10, 20, 30, 40],
+    ...     'y_coord': [5,  15, 25, 35]
+    ... })
+    >>> # Simple scatter plot of error distribution
+    >>> ax = plot_errors(df, error_cols=['error_col1'])
+    >>> # Spatial scatter using geo_scatter
+    >>> ax_geo = plot_errors(
+    ...     df,
+    ...     error_cols=['error_col2'],
+    ...     kind='geo_scatter',
+    ...     spatial_cols=('x_coord','y_coord')
+    ... )
+
+    Notes
+    -----
+    The method `plot_errors` integrates with a separate
+    check function `check_spatial_columns` that verifies
+    the presence and types of columns specified by
+    `spatial_cols`. For certain plot types like
+    `geo_scatter`, each error value is mapped to a color
+    scale on a 2D plane.
+
+    The following plot types are supported:
+
+    * `scatter` : Plots each error value vs. index.
+      If `spatial_cols`, Plots errors in 2D space with
+        color-coded scatter.
+    * `hist` : Plots a histogram with optional kernel
+      density estimate for the error distribution.
+    * `box` : Creates a box plot for the error column.
+    * `violin` : Renders a violin plot for distribution
+      shape.
+    * `heatmap` : Shows correlation among errors with
+      a heatmap.
+    * `ecdf` : Plots the empirical cumulative distribution
+      function of errors.
+    * `hex` : Uses hexagonal binning in 2D space.
+    * `kde` : Applies kernel density estimation in
+      2D space.
+
+    See Also
+    --------
+    check_spatial_columns : Verifies that the specified
+        spatial columns exist and are numeric.
+    pandas.DataFrame.plot : Built-in plotting for
+        DataFrames.
+
+    References
+    ----------
+    .. [1] J. D. Hunter. *Matplotlib: A 2D Graphics
+       Environment.* Computing in Science & Engineering,
+       9(3), 2007.
+
+    """
+
+    # Validate input DataFrame
+    if df.empty:
+        raise ValueError("Input DataFrame is empty.")
+
+    # Auto-detect error columns if none provided
+    error_cols = error_cols or [
+        col for col in df.columns
+        if col.startswith('error_')
+    ]
+    
+    if not error_cols:
+        raise ValueError(
+            "No error columns found. Use "
+            "gofast.utils.compute_pairwise_errors first "
+            "or specify `error_cols`."
+        )
+    exist_features(
+        df, features= error_cols, 
+        name="Error columns"
+    )
+    # Validate spatial columns if present
+    if spatial_cols:
+        check_spatial_columns(
+            df,
+            spatial_cols=spatial_cols
+        )
+        if not all(
+            pd.api.types.is_numeric_dtype(df[col])
+            for col in spatial_cols
+        ):
+            raise ValueError(
+                "Spatial columns must be numeric."
+            )
+
+        if kind in {
+                "heatmap", "violin", "box", "ecdf", "hist"}:
+            raise NotImplementedError(
+                "Spatial visualization not available for plot type '{}'.\n"
+                "Please either:\n"
+                "1. Use one of the spatial plot types: 'scatter', 'hex', or 'kde'\n"
+                "2. Remove spatial_cols parameter for non-spatial visualization\n"
+                "3. Use a different error visualization type".format(kind)
+            )
+        
+    # Set plot style if provided
+    sns.set_style(style)
+
+    # Set up grid of subplots if no existing axes
+    if ax is None:
+        if kind=='heatmap': 
+            n_plots=1 
+            n_cols=1 
+            n_rows =1 
+        else: 
+            n_plots = len(error_cols) 
+            n_cols = min(n_plots, max_cols)
+            n_rows = (n_plots - 1) // max_cols + 1
+            
+        fig, axes = plt.subplots(
+            n_rows,
+            n_cols,
+            figsize=figsize,
+            #constrained_layout=True
+        )
+        fig.suptitle(title)
+        axes = (
+            np.array(axes).flatten()
+            if n_plots > 1 else [axes]
+        )
+    else:
+        axes = [ax]
+        fig = ax.figure
+
+    # Configure main plot parameters
+    plot_params = {
+        'alpha': alpha,
+        'cmap': cmap,
+        **kwargs
+    }
+    spatial_params = spatial_kwargs or {}
+    heatmap_params = heatmap_kwargs or {
+        'annot': True,
+        'fmt': '.2f'
+    }
+    
+    if kind == 'heatmap':
+        sns.heatmap(
+            df[error_cols].corr(),
+            ax=axes[0],
+            **heatmap_params
+        )
+        # Avoid overlapping elements
+        plt.tight_layout()
+        return axes[0]
+   
+    # Generate each subplot
+    for idx, (error_col, ax) in enumerate(
+        zip(error_cols, axes)
+    ):
+        try:
+            if spatial_cols:
+                # Spatial plotting
+                x_col, y_col = spatial_cols
+                cvals = df[error_col]
+                
+                # Get global min/max across all error columns
+                global_min = df[error_cols].min().min()
+                global_max = df[error_cols].max().max()
+                
+                # Common color normalization
+                norm = plt.Normalize(vmin=global_min, vmax=global_max)
+                
+                if kind == 'scatter':
+                    sc = ax.scatter(
+                        df[x_col],
+                        df[y_col],
+                        c=cvals,
+                        norm=norm,
+                        **plot_params,
+                        **spatial_params
+                    )
+                    fig.colorbar(
+                        sc, ax=ax,
+                        label=error_col
+                    )
+                elif kind == 'hex':
+                    hb = ax.hexbin(
+                        df[x_col],
+                        df[y_col],
+                        C=cvals,
+                        gridsize=50,
+                        reduce_C_function=np.mean,
+                        norm=norm,
+                        **plot_params,
+                        **spatial_params
+                    )
+                    fig.colorbar(
+                        hb,
+                        ax=ax,
+                        label=error_col
+                    )
+                elif kind == 'kde':
+                    sns.kdeplot(
+                        x=df[x_col],
+                        y=df[y_col],
+                        hue=cvals,
+                        fill=True,
+                        levels=15,
+                        thresh=0.05,
+                        hue_norm=(global_min, global_max),
+                        ax=ax,
+                        **plot_params,
+                        **spatial_params
+                    )
+                    
+                    # Add colorbar for KDE
+                    sm = plt.cm.ScalarMappable(
+                        norm=norm, cmap=plot_params.get('cmap', cmap)
+                        )
+                    sm.set_array([])
+                    fig.colorbar(sm, ax=ax, label='Error Value')
+
+                ax.set_xlabel(x_col)
+                ax.set_ylabel(y_col)
+                ax.set_aspect('equal')
+                
+            else:
+                # Non-spatial visualizations
+                if kind == 'scatter':
+                    sns.scatterplot(
+                        x=df.index,
+                        y=df[error_col],
+                        ax=ax,
+                        **plot_params
+                    )
+                    if reference_line:
+                        ax.axhline(
+                            0, color='r',
+                            linestyle='--',
+                            alpha=0.5
+                        )
+
+                elif kind == 'hist':
+                    sns.histplot(
+                        df[error_col],
+                        kde=True,
+                        ax=ax,
+                        **plot_params
+                    )
+                    if show_stats:
+                        stats = df[error_col].quantile(
+                            list(stats_range)
+                        )
+                        for q, val in stats.items():
+                            ax.axvline(
+                                val,
+                                color='k',
+                                linestyle=':',
+                                label=f'{q*100:.0f}%: '
+                                      f'{val:.2f}'
+                            )
+
+                elif kind == 'box':
+                    sns.boxplot(
+                        x=df[error_col],
+                        ax=ax,
+                        **plot_params
+                    )
+
+                elif kind == 'violin':
+                    sns.violinplot(
+                        x=df[error_col],
+                        ax=ax,
+                        **plot_params
+                    )
+
+                elif kind == 'ecdf':
+                    sns.ecdfplot(
+                        df[error_col],
+                        ax=ax,
+                        **plot_params
+                    )
+
+            # Log scale adjustments
+            if log_scale:
+                scale_dict = {
+                    'x': ax.set_xscale,
+                    'y': ax.set_yscale,
+                    'both': lambda: (
+                        ax.set_xscale('log'),
+                        ax.set_yscale('log')
+                    )
+                }
+                scale_func = scale_dict.get(log_scale)
+                if scale_func:
+                    scale_func()
+
+            # Determine subplot title
+            tlabel = (
+                subplot_titles[idx]
+                if subplot_titles else
+                error_col.replace(
+                    'error_', ''
+                )
+            )
+            ax.set_title(tlabel, fontsize=10)
+
+        except Exception as e:
+            # Handle any plotting error
+            if verbose >= 1:
+                print(
+                    f"Error plotting {error_col}: {str(e)}"
+                )
+            if verbose >= 2:
+                raise
+            ax.set_visible(False)
+
+    # Hide extra axes if not used
+    for ax in axes[len(error_cols):]:
+        ax.set_visible(False)
+
+    # Avoid overlapping elements
+    plt.tight_layout()
+
+    # Return a single Axes if only one, else list
+    return axes if len(axes) > 1 else axes[0]
 
