@@ -22,6 +22,7 @@ from ..api.summary import ResultSummary
 from ..core.array_manager import to_numeric_dtypes, convert_to_structured_format 
 from ..core.array_manager import split_train_test_by_id 
 from ..core.checks import assert_ratio, is_in_if, validate_feature 
+from ..core.io import read_data 
 from ..core.utils import smart_format, format_to_datetime, type_of_target
 from ..utils.io_utils import get_valid_key, key_checker
 from .io import DMODULE, _to_dataframe, csv_data_loader
@@ -1582,7 +1583,7 @@ def _get_subsidence_data (
       DataFrame and list of features and targets. 
    
     """
-    from ..dataops.management import read_data
+
     columns =['easting',
              'northing',
              'longitude',

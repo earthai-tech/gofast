@@ -3,8 +3,8 @@ The Tools sub-package offers a variety of utilities for data handling,
 parameter computation, model estimation, and evaluation. It extends
 mathematical concepts through the module :mod:`~gofast.utils.mathext`. 
 Additionally, machine learning utilities and supplementary functionalities 
-are facilitated by :mod:`~gofast.utils.mlutils` and 
-:mod:`~gofast.utils.datautils`, respectively.
+are facilitated by :mod:`~gofast.utils.ml.utils` and 
+:mod:`~gofast.utils.data_utils`, respectively.
  
 """
 
@@ -65,6 +65,8 @@ MODULE_MAPPING = {
         'group_and_aggregate', 
         'mask_by_reference', 
         'filter_by_isin', 
+        'filter_df', 
+        'generate_comparison', 
     ], 
     "ext":[ 
          'denormalizer',
@@ -138,6 +140,7 @@ MODULE_MAPPING = {
         'compute_coverages',
         'compute_importances', 
         'get_preds', 
+        'get_threshold_from'
     ],
     'ml': [
         'bi_selector', 

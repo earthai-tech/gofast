@@ -42,6 +42,8 @@ from .comparison import (
     plot_trends, 
     plot_variability, 
     plot_factor_contribution, 
+    plot_comparative_bars, 
+    plot_line_graph, 
     
     )
 from .dimensionality import ( 
@@ -113,7 +115,8 @@ from .spatial import (
     plot_categorical_feature,
     plot_dist,
     plot_categories_dist,
-    plot_spatial_features
+    plot_spatial_features, 
+    plot_hotspot_map
 )
 from .suite import (
     plot_sensitivity, 
@@ -162,6 +165,8 @@ __all__= [
     'plot_trends', 
     'plot_variability', 
     'plot_factor_contribution', 
+    'plot_comparative_bars', 
+    'plot_line_graph', 
     
     'plot_silhouette',
     'plot_silhouette_in',
@@ -231,6 +236,7 @@ __all__= [
     "plot_r_squared",
     "plot_text", 
     "plot_spatial_features", 
+    "plot_hotspot_map", 
     "plot_categorical_feature", 
     "plot_sensitivity", 
     "plot_categories_dist", 

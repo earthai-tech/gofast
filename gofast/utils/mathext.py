@@ -20,6 +20,7 @@ from scipy.spatial.distance import pdist, squareform
 from scipy.stats import rankdata, pearsonr, spearmanr, kendalltau
 from scipy.signal import argrelextrema
 
+from sklearn.cluster import KMeans
 from sklearn.metrics import confusion_matrix, roc_curve, roc_auc_score
 from sklearn.utils.multiclass import unique_labels
 from sklearn.preprocessing import label_binarize, LabelEncoder, MinMaxScaler
@@ -64,6 +65,7 @@ from ..core.checks  import  (
     exist_features, 
     is_iterable, 
     check_params, 
+    check_numeric_dtype
 ) 
 from ..core.generic import vlog
 from ..core.handlers import ( 
@@ -146,8 +148,255 @@ __all__=[
      'compute_coverage', 
      'compute_coverages', 
      'get_preds', 
-     'compute_importances'
+     'compute_importances', 
+     'get_threshold_from'
    ]
+
+
+def get_threshold_from(
+    data: Union[np.ndarray, list],
+    method: str = 'adaptive',
+    sensitivity: float  = 1.0,
+    return_metadata: bool   = False,
+    min_samples: int = 10,
+    nan_policy: str = 'omit',
+    epsilon: float = 1e-8,
+    verbose: int = 0,
+) -> Union[float, dict]:
+    r"""
+    Determines an optimal threshold from numeric data
+    based on a chosen `method`. The function
+    `get_threshold_from` accepts various approaches
+    (IQR, percentile, std, MAD, kmeans, or adaptive)
+    and returns a single numeric threshold value. An
+    optional multiplier `sensitivity` can tighten or
+    relax the threshold. Computed statistics and
+    metadata may also be returned.
+
+    Parameters
+    ----------
+    data : array-like of float
+        The array or list of numeric values for which
+        the threshold is computed. All NaN values are
+        handled according to `nan_policy`. Must contain
+        at least `min_samples` non-NaN entries.
+
+    method : {'adaptive', 'iqr', 'percentile', 'std',
+              'mad', 'kmeans'}, default='adaptive'
+        The thresholding method:
+        * ``iqr`` : :math:`Q3 + 1.5 \times IQR`
+        * ``percentile`` : 95th percentile
+        * ``std`` : :math:`\mu + 2 \times \sigma`
+        * ``mad`` : :math:`\text{median} + 3 \times
+          \text{MAD}`
+        * ``kmeans`` : Binary K-Means cluster center
+          averaging
+        * ``adaptive`` : Chooses iqr, std, or percentile
+          based on data skewness
+
+    sensitivity : float, default=1.0
+        A multiplier used to scale the base threshold.
+        Values > 1.0 create a looser threshold, whereas
+        values < 1.0 make it stricter.
+
+    return_metadata : bool, default=False
+        If True, returns a dictionary containing the
+        computed threshold, chosen method, and descriptive
+        statistics. Otherwise, returns only the threshold.
+
+    min_samples : int, default=10
+        The minimum number of valid samples required
+        after NaN handling. Raises ValueError if fewer
+        than this remain.
+
+    nan_policy : {'omit', 'raise', 'propagate'},
+        default='omit'
+        Specifies how to handle NaN values:
+        * ``omit`` : Remove all NaNs before processing
+        * ``raise`` : Raise an error if NaNs are found
+        * ``propagate`` : Keep NaNs (may produce
+          unexpected results)
+
+    epsilon : float, default=1e-8
+        A small constant to avoid division by zero,
+        primarily used when measuring skewness for the
+        `adaptive` method.
+
+    verbose : int, default=0
+        The verbosity level:
+        * 0 : No output
+        * 1..3 : Prints different levels of diagnostic
+          information
+
+    Returns
+    -------
+    float or dict
+        The final threshold value if `return_metadata`
+        is False, otherwise a dictionary containing
+        additional calculation details and statistics.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.utils.mathext import get_threshold_from
+    >>> # Generate random data
+    >>> data = np.random.randn(1000) * 5 + 10
+    >>> # Compute threshold using IQR method
+    >>> thresh_iqr = get_threshold_from(
+    ...     data,
+    ...     method='iqr'
+    ... )
+    >>> # Compute threshold with metadata using adaptive
+    >>> result_info = get_threshold_from(
+    ...     data,
+    ...     method='adaptive',
+    ...     return_metadata=True,
+    ...     verbose=1
+    ... )
+    >>> result_info
+
+    Notes
+    -----
+    The `adaptive` method selects from `'iqr'`,
+    `'std'`, or `'percentile'` based on skewness
+    measured as
+    :math:`|\mu - \text{median}| / (\sigma + \epsilon)`.
+    If skewness is high, it defaults to `'percentile'`,
+    whereas lower variance often favors `'std'` or
+    `'iqr'`.
+    
+    .. math::
+       T = \text{threshold}(X) \times
+           \text{sensitivity}
+
+    where :math:`X` is the array of valid (non-NaN)
+    data points. The final threshold :math:`T` is
+    scaled by :math:`\text{sensitivity}`.
+
+
+    See Also
+    --------
+    numpy.nanpercentile :
+        Compute the qth percentile of data along a
+        specified axis, ignoring NaNs.
+    scipy.stats.iqr :
+        Compute the interquartile range of data.
+
+    References
+    ----------
+    .. [1] Rousseeuw, P.J. and Croux, C. (1993).
+       *Alternatives to the Median Absolute Deviation.*
+       Journal of the American Statistical Association.
+    """
+    # Convert data to numpy array and check numeric dtype
+    data = np.asarray(data)
+    check_numeric_dtype(data, param_names={"X": "Data"})
+
+    # Count original number of samples
+    original_count = len(data)
+
+    # Handle NaNs according to policy
+    if nan_policy == 'omit':
+        data = data[~np.isnan(data)]
+    elif nan_policy == 'raise' and np.isnan(data).any():
+        raise ValueError(
+            "Data contains NaNs but "
+            "nan_policy='raise'"
+        )
+
+    # Verify sufficient samples remain
+    if len(data) < min_samples:
+        raise ValueError(
+            f"Insufficient data points "
+            f"({len(data)}/{min_samples}) after "
+            f"NaN handling (original: {original_count})"
+        )
+
+    # Compute key statistics
+    q1, q3 = np.nanpercentile(data, [25, 75])
+    iqr_val = q3 - q1
+    med = np.nanmedian(data)
+    mad_val = np.nanmedian(np.abs(data - med))
+    std_val = np.nanstd(data)
+    mean_val = np.nanmean(data)
+
+    # Candidate thresholds for each method
+    methods = {
+        'iqr':         q3 + 1.5 * iqr_val,
+        'percentile':  np.nanpercentile(data, 95),
+        'std':         mean_val + 2 * std_val,
+        'mad':         med + 3 * mad_val,
+        'kmeans':      _kmeans_threshold(data)
+    }
+
+    # Evaluate skewness for adaptive method
+    skewness = np.abs(
+        (mean_val - med)
+        / (std_val + epsilon)
+    )
+
+    # Select method
+    if method == 'adaptive':
+        chosen_method = (
+            'percentile'
+            if skewness > 1 else
+            'std'
+            if iqr_val < std_val else
+            'iqr'
+        )
+    else:
+        if method not in methods:
+            raise ValueError(
+                f"Invalid method: {method}. "
+                f"Choose from {list(methods.keys())}"
+            )
+        chosen_method = method
+
+    threshold     = methods[chosen_method]
+    base_threshold = threshold
+    threshold    *= sensitivity
+
+    # Compile metadata
+    metadata = {
+        'threshold':        threshold,
+        'method':           chosen_method,
+        'base_threshold':   base_threshold,
+        'sensitivity':      sensitivity,
+        'nan_policy':       nan_policy,
+        'stats': {
+            'mean':         mean_val,
+            'median':       med,
+            'std':          std_val,
+            'iqr':          iqr_val,
+            'mad':          mad_val,
+            'original_samples': original_count,
+            'valid_samples':    len(data),
+            'nan_count':        original_count - len(data)
+        }
+    }
+
+    # Optionally print metadata if verbose > 0
+    if verbose > 0:
+        summary = ResultSummary(
+            name="ThresholdMetadata",
+            flatten_nested_dicts=False
+        )
+        summary.add_results(metadata)
+        print(summary)
+
+    return metadata if return_metadata else threshold
+
+def _kmeans_threshold(data: np.ndarray) -> float:
+    """Simple binary K-means threshold estimation with NaN handling"""
+    
+    clean_data = data[~np.isnan(data)].reshape(-1, 1)
+    
+    if len(clean_data) < 2:
+        return np.nan
+    
+    kmeans = KMeans(n_clusters=2, n_init=10).fit(clean_data)
+    centers = np.sort(kmeans.cluster_centers_.flatten())
+    return np.mean(centers)
 
 
 @check_params ( { 

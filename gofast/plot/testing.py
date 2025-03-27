@@ -962,6 +962,7 @@ def plot_errors(
     heatmap_kwargs: Optional[dict] = None,
     spatial_kwargs: Optional[dict] = None,
     ax: Optional[plt.Axes] = None,
+    axis_off=False, 
     verbose: int = 0,
     **kwargs
 ) -> plt.Axes:
@@ -1402,6 +1403,9 @@ def plot_errors(
                 )
             )
             ax.set_title(tlabel, fontsize=10)
+            
+            if axis_off:
+                ax.axis('off')
 
         except Exception as e:
             # Handle any plotting error

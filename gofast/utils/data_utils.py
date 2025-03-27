@@ -37,7 +37,7 @@ from ..core.checks import (
     is_iterable, assert_ratio, are_all_frames_valid , 
     check_features_types, exist_features, is_df_square, 
     check_files, exist_labels, is_valid_dtypes,
-    ensure_same_shape, check_empty 
+    ensure_same_shape, check_empty, check_non_emptiness 
 )
 from ..core.handlers import columns_manager 
 from ..core.io import SaveFile, is_data_readable, to_frame_if
@@ -47,6 +47,21 @@ from .validator import (
      is_frame, validate_positive_integer, parameter_validator, 
      build_data_if
     )
+
+HAS_TQDM = False
+HAS_PRETTYTABLE = False
+
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    pass
+
+try:
+    from prettytable import PrettyTable
+    HAS_PRETTYTABLE = True
+except ImportError:
+    pass
 
 logger = gofastlog().get_gofast_logger(__name__) 
 
@@ -78,7 +93,305 @@ __all__= [
     'group_and_aggregate', 
     'mask_by_reference', 
     'filter_by_isin', 
+    'filter_df',
+    'generate_comparison', 
     ]
+
+
+@SaveFile (writer_kws={'index': True})
+@check_non_emptiness(params=['metrics'])
+def generate_comparison(
+    *dfs: pd.DataFrame,
+    metrics: Dict[str, Union[str, List[str]]],
+    labels: Optional[List[str]] = None,
+    agg_funcs: List[str] = ['mean', 'std', 'max'],
+    display: bool = True,
+    precision: int = 3,
+    savefile: Optional[str]=None, 
+    verbose: int = 0,
+) -> Union[pd.DataFrame, str]:
+    r"""
+    Generates a comparative summary table across multiple
+    datasets. The function `generate_comparison` computes
+    specified `metrics` on the provided DataFrames, applies
+    any of the specified `agg_funcs` aggregations, and
+    returns a formatted summary, either as a PrettyTable
+    (if available) or as a pandas DataFrame.
+
+    .. math::
+        \text{metric\_value}
+        = \text{agg\_func}\bigl(\text{df}[col]\bigr)
+
+    for each selected column :math:`col` in ``metrics``.
+    Multiple aggregations can be performed (e.g.,
+    :math:`\min`, :math:`\max`, :math:`\text{mean}`) on
+    the same metric. Also supports verbose logging and
+    progress indicators (via tqdm) if installed.
+
+    Parameters
+    ----------
+    dfs : pd.DataFrame
+        One or more DataFrames to be analyzed comparatively.
+        Each DataFrame is associated with a corresponding
+        label from `labels` if provided.
+
+    metrics : dict of {str : str or list of str}
+        A dictionary specifying the target columns for
+        analysis. Keys represent how the metric will be
+        displayed (e.g., ``'Subsidence'``), and values
+        represent one or more column names found in each
+        DataFrame (e.g., ``['subsidence_2022',
+        'subsidence_2023']`` or ``'GWL'``). Missing or
+        non-numeric columns will raise an error.
+
+    labels : list of str, optional
+        Names for each dataset provided in `dfs`. If not
+        specified, automatically generated labels like
+        ``Dataset 1, Dataset 2, ...`` are used. If fewer
+        labels than datasets are provided, extra labels
+        will also be auto-generated.
+
+    agg_funcs : list of str, default=['mean', 'std', 'max']
+        A list of aggregation functions to apply to each
+        metric. Common examples include
+        ``['mean', 'std', 'max', 'min']``.
+
+    display : bool, default=True
+        If True, returns a formatted table (PrettyTable if
+        available, otherwise a string representation of
+        the pandas DataFrame). If False, returns a
+        pandas DataFrame directly.
+
+    precision : int, default=3
+        Rounding precision for numerical values in the
+        summary. This controls the display format in the
+        final table or DataFrame output.
+
+    verbose : int, default=0
+        The verbosity level. A value > 0 enables progress
+        bars (via tqdm) if installed, and a value > 1
+        prints additional warnings or debug info.
+
+    Returns
+    -------
+    pd.DataFrame or str
+        If `display` is False, a pandas DataFrame is
+        returned, where each row corresponds to a dataset
+        (each item in `dfs`) and columns correspond to
+        metric-aggregation pairs. If `display` is True and
+        PrettyTable is installed, a PrettyTable instance
+        is returned; otherwise, a string representing the
+        DataFrame is returned.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from gofast.utils.ext import generate_comparison
+    >>> # Create synthetic data for Nansha
+    >>> nansha_sample = pd.DataFrame({
+    ...     'GWL': np.random.randn(100) * 50 + 50,
+    ...     'normalized_seismic_risk_score': np.random.rand(100),
+    ...     'subsidence': np.random.randn(100) * 10 + 20,
+    ...     'subsidence_2022': np.random.randn(100) * 5 + 10,
+    ...     'subsidence_2023': np.random.randn(100) * 8 + 5,
+    ... })
+    >>> # Create synthetic data for Zhongshan
+    >>> zhongshan_sample = pd.DataFrame({
+    ...     'GWL': np.random.randn(120) * 30 + 40,
+    ...     'normalized_seismic_risk_score': np.random.rand(120),
+    ...     'subsidence': np.random.randn(120) * 12 + 25,
+    ...     'subsidence_2022': np.random.randn(120) * 6 + 15,
+    ...     'subsidence_2023': np.random.randn(120) * 7 + 8,
+    ... })
+    >>> # Example usage of generate_comparison
+    >>> result = generate_comparison(
+    ...     nansha_sample,
+    ...     zhongshan_sample,
+    ...     labels=['Nansha', 'Zhongshan'],
+    ...     metrics={
+    ...         'Groundwater Level': 'GWL',
+    ...         'Seismic Risk': 'normalized_seismic_risk_score',
+    ...         'Subsidence': [
+    ...             'subsidence',
+    ...             'subsidence_2022',
+    ...             'subsidence_2023'
+    ...         ]
+    ...     },
+    ...     agg_funcs=['mean', 'max'],
+    ...     precision=3,
+    ...     verbose=3
+    ... )
+    >>> result
+
+    Notes
+    -----
+    This function consolidates common aggregation metrics
+    for a quick overview of multiple datasets. For
+    instance, you can quickly compare multiple DataFrames
+    representing different regions, experimental groups,
+    or time spans with consistent column structures. If
+    the optional Python libraries `tqdm` and `PrettyTable`
+    are installed, additional features (like a progress bar
+    and a pretty summary table) will be enabled
+    automatically.
+
+    See Also
+    --------
+    pandas.DataFrame.agg : Perform one or more operations
+        over the specified axis.
+    pandas.DataFrame.stack : Pivot a level of column
+        labels into the index.
+    numpy.round : Round elements of an array to the
+        nearest integer or specified decimal precision.
+
+    References
+    ----------
+    .. [1] Wes McKinney. *Python for Data Analysis:
+       Data Wrangling with Pandas, NumPy, and IPython.*
+       O'Reilly Media, 2017.
+    """
+
+    # Input Validation
+    dfs = are_all_frames_valid(
+        *dfs, df_only=True, 
+        ops='validate'
+    )
+    labels = labels or [
+        f'Dataset {i+1}' for i in range(len(dfs))
+    ]
+    # Extend labels if fewer than dfs
+    print(dfs)
+    labels = labels[:len(dfs)] + [
+        f'Dataset {i+1}' for i in range(
+            len(labels), len(dfs)
+        )
+    ]
+
+    if len(dfs) != len(labels):
+        raise ValueError(
+            f"Mismatch between {len(dfs)} datasets and "
+            f"{len(labels)} labels"
+        )
+
+    if not isinstance(metrics, dict) or not metrics:
+        raise ValueError(
+            "Metrics must be a non-empty dictionary"
+        )
+        
+    # Data Processing
+    summary_data = {}
+    iterator = zip(labels, dfs)
+
+    if HAS_TQDM and verbose > 0:
+        # Show progress bar if tqdm is installed
+        iterator = tqdm(
+            iterator,
+            total=len(dfs),
+            desc="Processing datasets"
+        )
+
+    for label, df in iterator:
+        label_data = {}
+
+        for display_name, cols in metrics.items():
+            # Convert single string to list
+            target_cols = (
+                [cols] if isinstance(cols, str)
+                else cols
+            )
+
+            # Check that columns exist
+            valid_cols = [
+                c for c in target_cols
+                if c in df.columns
+            ]
+            if not valid_cols:
+                raise ValueError(
+                    f"Missing columns for "
+                    f"'{display_name}' in {label}: "
+                    f"{target_cols}"
+                )
+
+            # Check that columns are numeric
+            non_numeric = [
+                c for c in valid_cols
+                if not pd.api.types.is_numeric_dtype(df[c])
+            ]
+            if non_numeric:
+                raise ValueError(
+                    f"Non-numeric columns for "
+                    f"'{display_name}' in {label}: "
+                    f"{non_numeric}"
+                )
+
+            # Stack values to form a single Series
+            values = df[valid_cols].stack()
+
+            # Compute aggregations
+            for func in agg_funcs:
+                key = f"{display_name} ({func})"
+                try:
+                    label_data[key] = np.round(
+                        values.agg(func),
+                        precision
+                    )
+                except Exception as e:
+                    if verbose > 1:
+                        print(
+                            f"Warning: Failed {func} "
+                            f"on {display_name} for {label}: "
+                            f"{str(e)}"
+                        )
+                    label_data[key] = np.nan
+
+        summary_data[label] = label_data
+
+    summary_df = pd.DataFrame.from_dict(
+        summary_data,
+        orient='index'
+    )
+    # ======================
+    # Output Formatting
+    # ======================
+
+    if not display:
+        # Return as raw DataFrame if display=False
+        return summary_df
+
+    if HAS_PRETTYTABLE:
+        # PrettyTable is installed
+        pt = PrettyTable()
+        pt.field_names = ["Metric"] + labels
+        pt.float_format = f".{precision}"
+
+        for metric in metrics:
+            # For each metric and each agg_func
+            for func in agg_funcs:
+                row = [f"{metric} ({func})"]
+                row += [
+                    summary_df.loc[label,
+                                   f"{metric} ({func})"]
+                    for label in labels
+                ]
+                pt.add_row(row)
+
+        pt.align = 'r'
+        pt.align['Metric'] = 'l'
+        return pt
+
+    # Fallback: no PrettyTable installed
+    if verbose > 0:
+        print(
+            "\nPrettyTable not installed, "
+            "using DataFrame display"
+        )
+        print(
+            summary_df.to_string(
+                float_format=f"%.{precision}f"
+            )
+        )
+    return summary_df.round(precision)
 
 @SaveFile  
 @is_data_readable 
@@ -322,6 +635,197 @@ def build_df(
         
     # Return the final DataFrame for downstream usage
     return df
+
+@SaveFile 
+@is_data_readable 
+@Dataify(auto_columns=True, fail_silently=True) 
+@check_non_emptiness(params=['data', 'column' ], include=('dict', ))
+def filter_df(
+    data: pd.DataFrame,
+    column: str = "subsidence",
+    value: Union[float, int, str] = 0,
+    operator: Union[str, Callable] = "!=",
+    drop_na: bool = True,
+    savefile: Optional[str]=None, 
+    reset_index: bool=True, 
+    verbose: bool = False, 
+) -> pd.DataFrame:
+    r"""
+    Filters a given DataFrame by comparing a specified
+    column's values to a desired `value` via an `operator`.
+    The method `filter_df` handles NaN values, custom
+    comparison functions, and offers verbose logging of
+    its actions.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input DataFrame containing the data to be
+        filtered.
+
+    column : str, 
+        The name of the column on which the comparison
+        will be applied. Must exist within the columns
+        of `df`.
+
+    value : float or int or str, default=0
+        The value to compare against. This can be a
+        numeric or string value, depending on the
+        intended filter logic.
+
+    operator : str or callable, default='!='
+        The comparison operator or custom function used
+        for filtering. If a string is provided, it must
+        be one of ``'=='``, ``'!='``, ``'>'``,
+        ``'<'``, ``'>='``, ``'<='``. If a custom function
+        is provided, it must accept two arguments
+        (series, value) and return a boolean mask of the
+        same length as the series.
+
+    drop_na : bool, default=True
+        Indicates whether rows containing NaN values in
+        the target column should be removed before
+        filtering. If True, those rows are dropped.
+
+    savefile: str, optional 
+        Whether to save the filtered data. Deafult file
+        format is '.csv' file. 
+        
+    reset_index: bool, default=False 
+        If ``True`` reset the index of the dataset otherwise 
+        keep the filtered index.
+        
+    verbose : bool, default=False
+        Controls the verbosity of the logging. When True,
+        detailed log statements are printed, including
+        the number of rows dropped and filter conditions.
+
+    Returns
+    -------
+    pd.DataFrame
+        A new DataFrame containing only those rows
+        that satisfy the filter condition.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.utils.data_utils import filter_df
+    >>> data = {
+    ...     'subsidence': [0.0, 0.5, None, 1.0, 2.0],
+    ...     'location': ['A', 'B', 'C', 'D', 'E']
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> # Filter out rows where 'subsidence' is not 0
+    >>> df_filtered = filter_df(df, value=0, operator='!=')
+    >>> df_filtered
+
+    Notes
+    -----
+    The `filter_df` method is designed to simplify
+    programmatic row filtering in a robust manner. By
+    default, NaN rows are dropped from the specified
+    column prior to filtering, which can be disabled by
+    setting ``drop_na=False``. This method can also
+    handle more complex operations by providing a custom
+    function in `operator`.
+    
+    .. math::
+        \text{FilteredRows} = \{\, x \in df 
+        \,\mid\, \text{operator}(x[\text{column}], 
+        \text{value}) = \text{True} \}
+
+    Here, :math:`x` represents a row in the DataFrame,
+    and :math:`\text{operator}` is either a built-in
+    comparison operator or a user-supplied function.
+
+
+    See Also
+    --------
+    pandas.DataFrame.dropna : Drops rows containing
+        NaN values from a DataFrame.
+    pandas.Series.eq : Returns True if elements
+        equal a specified value.
+    pandas.Series.ne, pandas.Series.gt, etc. : Similar
+        built-in comparison methods.
+
+    References
+    ----------
+    .. [1] Wes McKinney. *Python for Data Analysis: Data
+       Wrangling with Pandas, NumPy, and IPython.*
+       O'Reilly Media, 2017.
+    """
+    # make sure column is a string value.
+    column=columns_manager(column)[0]
+    # Validate column existence
+    if column not in data.columns:
+        raise ValueError(
+            f"Column '{column}' not found in "
+            f"DataFrame columns: {list(data.columns)}"
+        )
+
+    # Create copy to avoid mutating original
+    filtered_df = data.copy()
+
+    # Handle NaN values if drop_na
+    na_count = filtered_df[column].isna().sum()
+    if drop_na and na_count > 0:
+        if verbose:
+            print(f"Removing {na_count} NaN values "
+                  f"from '{column}'")
+        filtered_df = filtered_df.dropna(
+            subset=[column]
+        )
+
+    # Build condition mask
+    try:
+        if isinstance(operator, str):
+            ops = {
+                '==': filtered_df[column].eq,
+                '!=': filtered_df[column].ne,
+                '>': filtered_df[column].gt,
+                '<': filtered_df[column].lt,
+                '>=': filtered_df[column].ge,
+                '<=': filtered_df[column].le,
+            }
+            if operator not in ops:
+                raise ValueError(
+                    f"Invalid operator '{operator}'. "
+                    f"Valid operators: {list(ops.keys())}"
+                )
+            mask = ops[operator](value)
+        else:
+            # Use custom function
+            mask = operator(
+                filtered_df[column],
+                value
+            )
+    except Exception as e:
+        raise ValueError(
+            f"Error applying operator to column "
+            f"'{column}': {str(e)}"
+        )
+
+    # Apply filter
+    result_df = filtered_df[mask]
+
+    # Verbose output
+    if verbose:
+        original_count  = len(data)
+        filtered_count  = len(result_df)
+        print(f"Filtering complete: "
+              f"{original_count} → {filtered_count} rows")
+        print(f"Filter condition: "
+              f"{column} {operator} {value}")
+        print(f"NaN values handled: {na_count} "
+              f"{'(removed)' if drop_na else '(kept)'}")
+        print(f"Final valid rows: {filtered_count} "
+              f"({(filtered_count/original_count)*100:.1f}% "
+              f"of original)")
+        
+    return ( 
+        result_df.reset_index (drop=True ) 
+        if reset_index else result_df
+    )
 
 
 @SaveFile  

@@ -285,7 +285,12 @@ class SaveFile:
     dout : int, default='.csv'
         The default output to save the dataframe if the extension of the file 
         is not provided by the user. 
-        
+    writer_kws: dict, optional 
+       keywords argument of the writer function. If not passed, assume the 
+       'csv' format and turned index to False. 
+    verbose: int, default=1 
+       Minimum diplaying message. 
+       
     Methods
     -------
     __call__(self, func):
@@ -374,6 +379,7 @@ class SaveFile:
         # *, 
         data_index=0, 
         dout='.csv', 
+        writer_kws=None, 
         verbose=1, 
     ):
         # Store the function if passed directly (no parentheses),
@@ -383,6 +389,7 @@ class SaveFile:
         self.dout = dout
         self.data_handler = PandasDataHandlers()
         self.verbose=verbose 
+        self.writer_kws= writer_kws or {'index': False}
 
     def __call__(self, func):
         # If self.func is None, it means the decorator is used with parentheses.
@@ -403,6 +410,11 @@ class SaveFile:
 
             # Check if a 'savefile' kwarg is provided
             savefile = w_kwargs.get('savefile', None)
+            
+            # otherwirte the writter kws if use provides it explicitely.  
+            writer_kws= w_kwargs.get('write_kws', None)
+            self.writer_kws = writer_kws or self.writer_kws 
+            
             if savefile is not None:
                 # Extract extension or use self.dout if none is provided
                 _, ext = os.path.splitext(savefile)
@@ -464,6 +476,8 @@ class SaveFile:
                 # Get the appropriate writer based on file extension
                 writers_dict = self.data_handler.writers(df_to_save)
                 writer_func = writers_dict.get(ext.lower())
+                self.writer_kws= _get_valid_kwargs(writer_func, self.writer_kws)
+                
                 if writer_func is None:
                     warnings.warn(
                         f"Unsupported file extension '{ext}'. "
@@ -475,7 +489,8 @@ class SaveFile:
                 try:
                     writer_func(
                         savefile,
-                        index=False
+                        **self.writer_kws
+                        # index=False
                     )
                 except Exception as e:
                     warnings.warn(
@@ -500,11 +515,12 @@ class SaveFile:
         *, 
         data_index=0, 
         dout='.csv', 
-        verbose=1, 
+        writer_kws=None, 
+        verbose=1,
     ): 
         if func is not None:
-            return cls(data_index, dout, verbose)(func)
-        return cls(data_index, dout)
+            return cls(data_index, dout, writer_kws, verbose)(func)
+        return cls(data_index, dout, writer_kws, verbose)
     
     
 # Class-based decorator to save returned DataFrame(s) to file.

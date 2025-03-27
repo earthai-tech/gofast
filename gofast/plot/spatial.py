@@ -31,13 +31,15 @@ from ..api.types import DataFrame
 from ..core.checks import ( 
     check_features_types, 
     check_spatial_columns,
-    exist_features, 
+    exist_features,
+    are_all_frames_valid, 
 )
 from ..core.handlers import columns_manager
 from ..core.io import is_data_readable, export_data  
 from ..core.plot_manager import ( 
     default_params_plot, 
-    return_fig_or_ax
+    return_fig_or_ax, 
+    set_axis_grid 
 )
 from ..compat.sklearn import ( 
     validate_params,
@@ -57,7 +59,8 @@ __all__=[
         'plot_dist',
         'plot_categories_dist',
         'plot_spatial_features', 
-        'plot_spatial_clusters'
+        'plot_spatial_clusters', 
+        'plot_hotspot_map', 
  ]
 
 @default_params_plot(
@@ -1204,6 +1207,9 @@ def plot_categorical_feature(
     check_features_types(
         data, features= feature, dtype='category', extra=extra_msg)
     # Get unique categories
+    if isinstance (feature, (list, tuple)): 
+        feature = feature[0]
+        
     categories = data[feature].unique()
     num_categories = len(categories)
 
@@ -1573,8 +1579,6 @@ def plot_spatial_features(
 
                 if kind == 'scatter':
                     kwargs = filter_valid_kwargs(ax.scatter, kwargs)
-                    print("Kwargs",kwargs )
-                    print("colormap", cmap)
                     sc = ax.scatter(
                         x,
                         y,
@@ -1703,3 +1707,408 @@ def plot_spatial_features(
 
     plt.tight_layout()
     plt.show()
+    
+def plot_hotspot_map(
+    *dfs: pd.DataFrame,
+    target_col: str,
+    spatial_cols: Tuple[str, str] = ('longitude', 'latitude'),
+    labels: Optional[List[str]]   = None,
+    threshold: Optional[Union[
+        str, float
+    ]]                           = None,
+    cmap: str                     = 'viridis',
+    size: Union[float, str]      = 10,
+    figsize: Tuple[float, float] = (12, 10),
+    title: str                   = 'Hotspot Map',
+    thresh_label: str            = None,
+    cbar_label: str              = None,
+    basemap: bool                = True,
+    use_gpd: bool                = "auto",
+    crs: str                     = "EPSG:4326",
+    epsg                          = 3857,
+    axis_off                     = False,
+    savefig: Optional[str]       = None,
+    show_grid: bool              = True,
+    grid_props: dict             = None,
+    s                            = 50,
+    verbose: int                 = 0,
+    **kwargs
+) -> plt.Figure:
+    r"""
+    Generates a spatial visualization of potential
+    hotspots using geographic coordinates from one or
+    more DataFrames. The method `plot_hotspot_map`
+    creates a scatter map of values in `target_col`
+    over a specified region, optionally overlaying a
+    base map and highlighting areas surpassing a given
+    `threshold`.
+
+    Parameters
+    ----------
+    dfs : list of pd.DataFrame
+        The input DataFrames, each containing columns
+        for spatial coordinates and the `target_col`.
+        A variable number of DataFrames can be provided.
+
+    target_col : str
+        The name of the numeric column representing
+        the metric to visualize (e.g., subsidence
+        or risk score).
+
+    spatial_cols : tuple of str, default=('longitude',
+        'latitude')
+        A tuple specifying the longitude and latitude
+        column names.
+
+    labels : list of str, optional
+        Labels corresponding to each DataFrame. If fewer
+        labels than DataFrames are provided, the missing
+        ones are auto-generated.
+
+    threshold : str or float, optional
+        A threshold value for highlighting points
+        exceeding a critical limit. If ``'auto'``,
+        an internal percentile-based approach is used.
+        Set to None to disable highlighting.
+
+    cmap : str, default='viridis'
+        The colormap used to color the scatter points
+        according to `target_col`.
+
+    size : float or str, default=10
+        The marker size. If a numeric value is given,
+        all markers have the same size. If a column
+        name is given (e.g., ``'size_col'``), marker
+        sizes vary by that column's values.
+
+    figsize : tuple of float, default=(12, 10)
+        Dimensions of the figure in inches.
+
+    title : str, default='Hotspot Map'
+        The main title displayed above the map.
+
+    thresh_label : str, optional
+        The legend label used for threshold
+        highlight markers.
+
+    cbar_label : str, optional
+        The label for the color bar if a basic
+        matplotlib scatter is used.
+
+    basemap : bool, default=True
+        If True, attempts to overlay a tiled map
+        in the background. Requires `contextily`
+        if using geopandas.
+
+    use_gpd : bool or str, default="auto"
+        Controls whether geopandas-based plotting
+        is used (True), or basic matplotlib (False).
+        If ``"auto"``, geopandas is used if
+        installed, otherwise a fallback occurs.
+
+    crs : str, default="EPSG:4326"
+        The initial coordinate reference system of
+        the input data (if geopandas is used).
+
+    epsg : int, default=3857
+        The projected EPSG code for web mapping (e.g.,
+        for contextily backgrounds). Used when
+        `basemap` is True.
+
+    axis_off : bool, default=False
+        If True, disables axis lines and labels.
+
+    savefig : str, optional
+        A path for saving the figure to disk. If None,
+        the figure is not saved.
+
+    show_grid : bool, default=True
+        If True, shows grid lines on the axis.
+
+    grid_props : dict, optional
+        Additional style properties for grid lines,
+        passed to an internal method handling axis
+        styling.
+
+    s : int, default=50
+        The size of markers used for highlighting
+        threshold exceedances.
+
+    verbose : int, default=0
+        Verbosity level (0-5). Higher values produce
+        more console messages.
+
+    **kwargs
+        Additional keyword arguments passed to the
+        internal plotting function (e.g., scatter
+        properties).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The created matplotlib Figure containing the
+        plotted map or figure.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.plot.spatial import plot_hotspot_map
+    >>> # Create synthetic DataFrame
+    >>> df = pd.DataFrame({
+    ...     'longitude': [114.05, 114.06, 114.07],
+    ...     'latitude': [22.55, 22.56, 22.57],
+    ...     'subsidence': [2.5, 3.7, 4.2]
+    ... })
+    >>> # Basic usage without geopandas
+    >>> fig = plot_hotspot_map(
+    ...     df,
+    ...     target_col='subsidence',
+    ...     threshold=3.0,
+    ...     title='Subsidence Hotspots'
+    ... )
+
+    Notes
+    -----
+    If geopandas and contextily are installed (and
+    `use_gpd` is not False), data points are converted
+    into a GeoDataFrame, reprojected to EPSG:3857,
+    and overlaid with a web basemap. Otherwise, a
+    basic matplotlib scatter is used.
+    
+    .. math::
+        \text{Hotspot} =
+        \{\,(x, y)\,\mid\,
+        \text{value}(x,y) >
+        \text{threshold}\,\}
+
+    where :math:`(x, y)` are the coordinates in
+    `spatial_cols`. If `threshold` is set to ``'auto'``,
+    the function attempts to infer a threshold via a
+    percentile-based approach.
+
+
+    See Also
+    --------
+    plot_hotspot_map : Method for creating geographic
+        scatter plots with threshold highlighting.
+    contextily.add_basemap : Renders a web-based tile
+        map behind geospatial data.
+
+    References
+    ----------
+    .. [1] J. D. Hunter. *Matplotlib: A 2D Graphics
+       Environment.* Computing in Science & Engineering,
+       9(3), 90-95, 2007.
+    """
+
+    # --- Optional geospatial dependencies.
+    HAS_GEOPANDAS   = False
+    HAS_CONTEXTILY  = False
+
+    try:
+        import geopandas as gpd
+        from shapely.geometry import Point
+        HAS_GEOPANDAS = True
+    except ImportError:
+        pass
+
+    try:
+        import contextily as ctx
+        HAS_CONTEXTILY = True
+    except ImportError:
+        pass
+
+    # If user explicitly sets use_gpd=False,
+    # even if geopandas is installed, skip it.
+    if not use_gpd:
+        HAS_GEOPANDAS = False
+
+    # Validate DataFrames
+    dfs = are_all_frames_valid(
+        *dfs,
+        ops='validate',
+        df_only=True
+    )
+    if not dfs:
+        raise ValueError(
+            "At least one DataFrame "
+            "must be provided"
+        )
+
+    # Check all DataFrames have required columns
+    [check_spatial_columns(
+        df,
+        spatial_cols=spatial_cols
+    ) for df in dfs]
+
+    lon_col, lat_col = spatial_cols
+    required_cols = [
+        lon_col,
+        lat_col,
+        target_col
+    ]
+
+    for i, df in enumerate(dfs):
+        missing = [
+            col for col in required_cols
+            if col not in df.columns
+        ]
+        if missing:
+            raise ValueError(
+                f"DataFrame {i} missing "
+                f"columns: {missing}"
+            )
+
+    # Prepare labels
+    labels = (
+        labels or
+        [f'Area {i+1}' for i in range(len(dfs))]
+    )
+    labels = (
+        labels[:len(dfs)] +
+        [f'Area {i+1}' for i in range(
+            len(labels),
+            len(dfs)
+        )]
+    )
+
+    # Create figure and axes
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Loop over data sets
+    for df, label in zip(dfs, labels):
+        # If geopandas is available
+        if HAS_GEOPANDAS:
+            geometry = [
+                Point(xy) for xy
+                in zip(df[lon_col], df[lat_col])
+            ]
+            gdf = gpd.GeoDataFrame(
+                df,
+                geometry=geometry,
+                crs=crs
+            )
+            if basemap:
+                gdf = gdf.to_crs(epsg=epsg)
+        else:
+            if verbose > 0:
+                status ='disabled' if not use_gpd else 'not installed'
+                print(
+                    f"geopandas {status} - "
+                    "using basic matplotlib plot"
+                )
+
+        # Plotting args
+        plot_args = {
+            'cmap': cmap,
+            'markersize': (
+                size if isinstance(
+                    size, (int, float)
+                ) else df[size]
+            ),
+            'alpha': 0.7,
+            'edgecolor': 'w',
+            'linewidth': 0.3,
+            **kwargs
+        }
+
+        # If using geopandas + basemap
+        if HAS_GEOPANDAS and basemap:
+            # geo plotting
+            plot = gdf.plot( # Noqa: E504
+                column=target_col,
+                ax=ax,
+                legend=True,
+                **plot_args
+            )
+            if basemap and HAS_CONTEXTILY:
+                ctx.add_basemap(
+                    ax,
+                    source=ctx.providers
+                        .OpenStreetMap.Mapnik
+                )
+        else:
+            # fallback scatter
+            plot_args = filter_valid_kwargs(
+                ax.scatter,
+                plot_args
+            )
+            sc = ax.scatter(
+                df[lon_col],
+                df[lat_col],
+                c=df[target_col],
+                **plot_args
+            )
+        if not HAS_GEOPANDAS:
+            plt.colorbar(
+                sc,
+                label=(
+                    cbar_label or
+                    f'{target_col.capitalize()}'
+                )
+            )
+
+        # Threshold highlighting
+        if threshold is not None:
+            if threshold == "auto":
+                from gofast.utils.mathext import (
+                    get_threshold_from
+                )
+                threshold = get_threshold_from(
+                    df[target_col],
+                    method='percentile'
+                )
+            hotspots = df[
+                df[target_col] > threshold
+            ]
+            ax.scatter(
+                hotspots[lon_col],
+                hotspots[lat_col],
+                color='red',
+                marker='x',
+                s=s,
+                label=(
+                    thresh_label or
+                    f'Critical '
+                    f'{target_col.capitalize()}'
+                )
+            )
+
+    # Format axes
+    ax.set_title(title)
+    ax.set_xlabel(f'{lon_col.capitalize()}')
+    ax.set_ylabel(f'{lat_col.capitalize()}')
+
+    set_axis_grid(
+        ax,
+        show_grid=show_grid,
+        grid_props=grid_props
+    )
+
+    if basemap and (
+        not HAS_CONTEXTILY
+    ) and verbose > 0:
+        print(
+            "contextily not installed "
+            "- basemap disabled"
+        )
+
+    # Add legend if threshold
+    if threshold is not None:
+        ax.legend()
+
+    if axis_off:
+        ax.set_axis('off')
+
+    if savefig:
+        plt.savefig(
+            savefig,
+            bbox_inches='tight',
+            dpi=300
+        )
+        if verbose > 0:
+            print(
+                f"Map saved to {savefig}"
+            )
+
+    return fig

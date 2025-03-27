@@ -29,22 +29,6 @@ from ..decorators import isdf, Dataify
 from .validator import parameter_validator, validate_length_range 
 from .validator import  get_estimator_name 
 
-__all__ = [
-    "reorder_importances", 
-    "spread_coverage", 
-    "denormalizer",
-    "denormalize_in", 
-    "normalize_in", 
-    "to_ranking", 
-    "to_importances", 
-    "parse_used_columns", 
-    "evaluate_df", 
-    "to_micmic", 
-    "spread_uncertainty", 
-    "reorder_by", 
-    "normalize_categorical_column", 
-    "compute_pairwise_errors", 
-    ]
 
 @Dataify(enforce_df=True,)
 def compute_pairwise_errors(
@@ -515,7 +499,8 @@ def normalize_categorical_column(
     
     # Map categories to numeric codes.
     numeric_series = series.map(mapping)
-    
+    numeric_series = pd.to_numeric(numeric_series, errors='coerce')
+
     # Fill missing values if requested.
     if fill_missing is not None:
         numeric_series = numeric_series.fillna(fill_missing)

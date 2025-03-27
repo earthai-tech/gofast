@@ -17,13 +17,17 @@ import seaborn as sns
 
 from sklearn.metrics import mean_squared_error, confusion_matrix
 
-from ..core.checks import are_all_frames_valid 
+from ..core.checks import are_all_frames_valid
+from ..core.handlers import columns_manager 
 from ..core.plot_manager import ( 
     set_axis_grid, 
     default_params_plot, 
     is_valid_kind 
 )
+from ..utils.ts_utils import to_dt 
+from ..utils.validator import parameter_validator
 from ._config import PlotConfig
+from .utils import select_hex_colors 
 
 HAS_TQDM = True
 try:
@@ -39,8 +43,11 @@ __all__ = [
     'plot_trends', 
     'plot_variability', 
     'plot_factor_contribution', 
+    'plot_comparative_bars', 
+    'plot_line_graph', 
     ]
 
+     
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_feature_trend_plot.png')
 )
@@ -334,6 +341,376 @@ def plot_feature_trend(
     return fig
 
 @default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_compararive_bars_plot.png')
+)
+def plot_comparative_bars(
+    *dfs: pd.DataFrame,
+    target_col: str,
+    dt_col: Optional[str] = None,
+    freq: str = 'Y',
+    labels: Optional[List[str]] = None,
+    agg_func: str = 'mean',
+    error_func: Optional[str] = 'std',
+    figsize: tuple = (12, 7),
+    title: str = 'Comparative Analysis',
+    xlabel: str = 'Study Period',
+    ylabel: str = 'Rate',
+    colors: Optional[List[str]] = None,
+    rotation: int = 45,
+    show_grid: bool = True,
+    grid_props: dict = None,
+    savefig: Optional[str] = None,
+    verbose: int = 0,
+    **kws
+) -> plt.Figure:
+    r"""
+    Creates comparative bar charts over time for multiple
+    datasets. The method `plot_comparative_bars` allows
+    aggregating temporal data (resampled by `freq`) and
+    displays results side by side in grouped bar charts.
+
+    Parameters
+    ----------
+    dfs : pd.DataFrame
+        One or more DataFrames to be plotted
+        comparatively. Each DataFrame must contain the
+        `target_col` and optionally a datetime column
+        `dt_col` if time-based indexing is desired.
+
+    target_col : str
+        The name of the column to aggregate and plot.
+        Must be numeric in all DataFrames.
+
+    dt_col : str, optional
+        The name of a datetime column, if present.
+        If omitted, the index is checked for a datetime
+        type; if found, it is used directly.
+
+    freq : str, default='Y'
+        The resampling frequency string (e.g., `'M'` for
+        monthly, `'Y'` for yearly). Follows pandas'
+        resample rules.
+
+    labels : list of str, optional
+        Labels corresponding to each DataFrame.
+        Automatically generated if fewer than the
+        number of DataFrames are provided.
+
+    agg_func : str, default='mean'
+        The aggregation function applied to each
+        resampling bin. Common examples include
+        `'mean'`, `'sum'`, `'max'`, etc.
+
+    error_func : str, optional
+        An optional aggregation function for error bars.
+        By default, standard deviation (`'std'`) is used.
+        Set to None to omit error bars.
+
+    figsize : tuple of (float, float), default=(12, 7)
+        The size of the resulting figure
+        (width, height) in inches.
+
+    title : str, default='Comparative Analysis'
+        The main title displayed above the chart.
+
+    xlabel : str, default='Study Period'
+        The x-axis label.
+
+    ylabel : str, default='Rate'
+        The y-axis label.
+
+    colors : list of str, optional
+        A list of color names or codes used for each
+        DataFrame. If not provided, a default cycle
+        is used.
+
+    rotation : int, default=45
+        Rotation angle (in degrees) for x-axis labels.
+
+    show_grid : bool, default=True
+        If True, displays grid lines on the chart.
+
+    grid_props : dict, optional
+        Dictionary of grid properties (e.g., `'linestyle'`,
+        `'alpha'`). Passed to the function that handles
+        axis grid styling.
+
+    savefig : str, optional
+        The filepath to save the figure. If None,
+        no figure is saved.
+
+    verbose : int, default=0
+        The verbosity level. A value > 0 enables a
+        progress bar (via `tqdm`) if installed.
+
+    **kws
+        Additional keyword arguments passed to
+        `ax.bar`, allowing further customization
+        of the plotted bars.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The matplotlib Figure object containing the
+        comparative bar chart.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from gofast.plot.comparison import plot_comparative_bars
+    >>> # Create synthetic data
+    >>> np.random.seed(42)
+    >>> df1 = pd.DataFrame({
+    ...     'date': pd.date_range('2020-01-01', periods=12, freq='M'),
+    ...     'value': np.random.randn(12).cumsum() + 10
+    ... })
+    >>> df2 = pd.DataFrame({
+    ...     'date': pd.date_range('2020-01-01', periods=12, freq='M'),
+    ...     'value': np.random.randn(12).cumsum() + 5
+    ... })
+    >>> # Usage of `plot_comparative_bars`
+    >>> fig = plot_comparative_bars(
+    ...     df1, df2,
+    ...     target_col='value',
+    ...     dt_col='date',
+    ...     freq='M',
+    ...     labels=['Region A', 'Region B'],
+    ...     agg_func='mean',
+    ...     error_func='std',
+    ...     title='Monthly Comparative Analysis',
+    ...     ylabel='Mean Value',
+    ...     rotation=30,
+    ...     verbose=1
+    ... )
+
+    Notes
+    -----
+    Internally, `plot_comparative_bars` converts the
+    specified `dt_col` into a datetime index (if not
+    already), resamples at frequency `freq`, computes
+    `agg_func` and optionally `error_func`, then plots
+    grouped bars for each dataset side by side. Error
+    bars can be omitted by setting ``error_func=None``.
+
+    .. math::
+        \text{agg}(t)
+        = \text{agg\_func}(\{ x_i : x_i \in \text{period} \})
+
+    where :math:`\text{agg\_func}` is a summary statistic
+    (e.g., mean, max) applied to all data points :math:`x_i`
+    within each resampling period :math:`t`. An optional
+    error function (e.g., standard deviation) can also be
+    used to plot error bars.
+        
+    See Also
+    --------
+    plot_comparative_bars : This method can be used
+        with various resampling intervals for daily,
+        monthly, or yearly analyses.
+    pandas.DataFrame.resample : Resamples time-series
+        data at a specified frequency.
+    matplotlib.pyplot.bar : Underlying bar plot
+        functionality.
+
+    References
+    ----------
+    .. [1] J. D. Hunter. *Matplotlib: A 2D Graphics
+       Environment.* Computing in Science & Engineering,
+       9(3), 90-95, 2007.
+    """
+    dfs = are_all_frames_valid(
+        *dfs, df_only=True, 
+        ops='validate'
+   )
+    # Validate that at least one DataFrame is provided
+    if not dfs:
+        raise ValueError(
+            "At least one DataFrame must be provided"
+        )
+
+    # Copy DataFrames to avoid mutation
+    dfs_copy = [df.copy() for df in dfs]
+
+    # Ensure target column is in each DataFrame
+    for i, df in enumerate(dfs_copy):
+        if target_col not in df.columns:
+            raise ValueError(
+                f"DataFrame {i} missing target "
+                f"column: '{target_col}'"
+            )
+
+    # Prepare labels for each dataset
+    labels = (
+        labels or
+        [f'Dataset {i+1}' for i in range(len(dfs))]
+    )
+    labels = (
+        labels[:len(dfs)] +
+        [f'Dataset {i+1}' for i in range(
+            len(labels),
+            len(dfs)
+        )]
+    )
+
+    # Setup the figure and axes
+    fig, ax = plt.subplots(
+        figsize=figsize
+    )
+    width      = 0.8 / len(dfs)
+    x_ticks    = None
+    all_indices = []
+
+    # Create a color cycle for plotting
+    default_colors = (
+        plt.rcParams['axes.prop_cycle']
+        .by_key()['color']
+    )
+    color_cycle = cycle(
+        colors or default_colors
+    )
+
+    # Possible progress bar
+    iterator = enumerate(
+        zip(dfs_copy, labels)
+    )
+    if HAS_TQDM and verbose > 0:
+        iterator = tqdm(
+            iterator,
+            total=len(dfs),
+            desc="Processing datasets"
+        )
+
+    # Main loop over DataFrames
+    for idx, (df, label) in iterator:
+        # Attempt time-based processing
+        try:
+            # Convert dt_col to datetime if provided
+            if dt_col is not None:
+                df = to_dt(
+                    df,
+                    dt_col=dt_col,
+                    format=f'%{freq}',
+                    error='raise'
+                )
+            # Determine time series
+            time_series = (
+                df[dt_col] if dt_col
+                else df.index.to_series()
+                if df.index.inferred_type
+                   == 'datetime'
+                else pd.RangeIndex(
+                    start=0,
+                    stop=len(df)
+                )
+            )
+        except Exception as e:
+            raise ValueError(
+                f"Time conversion failed "
+                f"for {label}: {str(e)}"
+            )
+
+        # Set index to time series
+        df = df.set_index(
+            pd.to_datetime(time_series)
+        )
+
+        # Aggregate (resample)
+        agg_functions = [agg_func]
+        if error_func:
+            agg_functions.append(error_func)
+        resampled = (
+            df.resample(freq)[target_col]
+              .agg(agg_functions)
+        )
+
+        # Keep track of indices for alignment
+        all_indices.append(
+            resampled.index
+        )
+
+        # Determine positions for bars
+        positions = (
+            np.arange(len(resampled))
+            + idx * width
+        )
+
+        # Initialize or keep x_ticks
+        positions = (
+            np.arange(len(resampled))
+            + idx * width
+        )
+        x_ticks = (
+            positions if x_ticks
+            is not None else
+            ax.get_xticklabels()
+        )
+
+        # Plot the bars
+        ax.bar(
+            positions,
+            resampled[agg_func],
+            width=width,
+            label=label,
+            color=next(color_cycle),
+            yerr=(
+                resampled[error_func]
+                if error_func else None
+            ),
+            error_kw={
+                'capsize': 3
+            },
+            **kws
+        )
+
+    # Unite all indices for consistent ticks
+    common_index = all_indices[0]
+    for idx in all_indices[1:]:
+        common_index = common_index.union(idx)
+
+    # Final formatting
+    ax.set(
+        title=title,
+        xlabel=xlabel,
+        ylabel=ylabel,
+        xticks=x_ticks,
+        xticklabels=[
+            ts.strftime('%Y-%m')
+            for ts in common_index
+        ]
+    )
+    plt.xticks(rotation=rotation)
+
+    # Place legend
+    ax.legend(
+        bbox_to_anchor=(1.05, 1),
+        loc='upper left'
+    )
+    plt.tight_layout()
+
+    # Apply grid or style from manager
+    set_axis_grid(
+        ax,
+        show_grid=show_grid,
+        grid_props=grid_props
+    )
+    ax.set_axisbelow(True)
+
+    # Save figure if path specified
+    if savefig:
+        plt.savefig(
+            savefig,
+            bbox_inches='tight',
+            dpi=300
+        )
+        if verbose > 0:
+            print(
+                f"Saved figure to: {savefig}"
+            )
+
+    return fig
+
+@default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_density_plot.png')
 )
 def plot_density(
@@ -561,8 +938,366 @@ def plot_density(
     # Verbosity info
     if verbose >= 1:
         print(
-            f"Created scatter plot with {len(dfs)} datasets"
+            f"\nCreated scatter plot with {len(dfs)} datasets"
         )
+
+    return fig
+
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_line_graph_plot.png')
+)
+def plot_line_graph(
+    *dfs: pd.DataFrame,
+    feature: str,
+    target_col: str,
+    dt_col: Optional[str] = None,
+    freq: str            = 'M',
+    labels: Optional[
+        List[str]
+    ]                   = None,
+    figsize: Tuple[
+        int, int
+    ]                   = (14, 7),
+    title: str          = None,
+    styles: List[str]   = None,
+    markers: List[str]  = None,
+    colors: Optional[
+        List[str]
+    ]                   = None,
+    ylabel_feature: str = None,
+    ylabel_target: str  = None,
+    show_grid: dict     = None,
+    grid_props: dict    = None,
+    verbose: int        = 0,
+    savefig: Optional[
+        str
+    ]                   = None,
+    **kwargs
+) -> plt.Figure:
+    r"""
+    Plots a line graph of two time-series columns using a
+    dual-axis approach. The method `plot_line_graph` merges
+    multiple DataFrames, resamples them by `freq`, and
+    displays `<feature>` on the left y-axis and
+    `<target_col>` on the right y-axis.
+
+    Parameters
+    ----------
+    dfs : list of pd.DataFrame
+        One or more DataFrames containing the columns
+        `<feature>` and `<target_col>`. Each DataFrame is
+        plotted in a distinct style or color.
+
+    feature : str
+        The column name of the first time-series to be
+        shown on the left y-axis (e.g., a groundwater
+        metric).
+
+    target_col : str
+        The column name of the second time-series to be
+        shown on the right y-axis (e.g., a subsidence
+        measure).
+
+    dt_col : str, optional
+        The column containing datetime information.
+        If None, the index is assumed to be datetime.
+        Otherwise, `<dt_col>` is converted to datetime.
+
+    freq : str, default='M'
+        A pandas-compatible resampling frequency
+        specifying how data is aggregated over time
+        (e.g., `'M'`=monthly, `'D'`=daily).
+
+    labels : list of str, optional
+        A list of labels for each DataFrame. Additional
+        labels are auto-generated if fewer than the
+        number of DataFrames are provided.
+
+    figsize : tuple of (int, int), default=(14, 7)
+        The figure size in inches (width, height).
+
+    title : str, optional
+        The main title displayed at the top of the plot.
+        If None, no overall title is shown.
+
+    styles : list of str, optional
+        A list of line styles (e.g., `'-', '--', '-.'`)
+        used in a cycle for each DataFrame.
+
+    markers : list of str, optional
+        A list of marker styles (e.g., `'o', 's', '^'`)
+        used in a cycle for each DataFrame.
+
+    colors : list of str, optional
+        A list of hex or named colors. If None, default
+        package colors are used.
+
+    ylabel_feature : str, optional
+        The y-axis label for `<feature>` (left axis).
+        Defaults to the name of `<feature>`.
+
+    ylabel_target : str, optional
+        The y-axis label for `<target_col>` (right axis).
+        Defaults to the name of `<target_col>`.
+
+    show_grid : dict, optional
+        Whether and how to show a grid on the main axis.
+        For instance, `{'show': True}` or `{'show': True, 
+        'axis': 'both'}`.
+
+    grid_props : dict, optional
+        Dictionary of grid style properties, e.g.,
+        `{'alpha': 0.4, 'linestyle': '--'}`.
+
+    verbose : int, default=0
+        Verbosity level. A value > 0 shows progress
+        bars (if tqdm is installed) and extra logs.
+
+    savefig : str, optional
+        A filepath to which the figure is saved. If None,
+        the figure is not saved.
+
+    **kwargs
+        Additional keyword arguments passed to the
+        underlying matplotlib plotting function(s).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The matplotlib Figure containing the dual-axis
+        line plot.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.plot.comparison import plot_line_graph
+    >>> # Create two DataFrames for demonstration
+    >>> df1 = pd.DataFrame({
+    ...     'date': pd.date_range('2021-01-01', periods=5, freq='M'),
+    ...     'GWL': [10, 9, 8, 7, 7],
+    ...     'Subsidence': [0.2, 0.3, 0.4, 0.6, 0.9]
+    ... })
+    >>> df2 = pd.DataFrame({
+    ...     'date': pd.date_range('2021-01-01', periods=5, freq='M'),
+    ...     'GWL': [15, 14, 13, 13, 12],
+    ...     'Subsidence': [0.1, 0.25, 0.35, 0.55, 0.8]
+    ... })
+    >>> # Plot them on dual axes
+    >>> fig = plot_line_graph(
+    ...     df1, df2,
+    ...     feature='GWL',
+    ...     target_col='Subsidence',
+    ...     dt_col='date',
+    ...     freq='M',
+    ...     labels=['Site A', 'Site B'],
+    ...     title='GWL vs. Subsidence'
+    ... )
+
+    Notes
+    -----
+    This function merges two distinct metrics (e.g.,
+    a hydrologic parameter and a subsidence parameter)
+    over time on separate y-axes. By default, each
+    dataset is resampled to a common frequency before
+    plotting. Markers, line styles, and colors can all
+    be customized to distinguish multiple datasets.
+    
+    
+    .. math::
+        \begin{aligned}
+        & Y_f(t) = \text{Resample}\bigl(\text{feature}, 
+             \text{freq}\bigr), \\
+        & Y_t(t) = \text{Resample}\bigl(\text{target\_col}, 
+             \text{freq}\bigr),
+        \end{aligned}
+
+    where :math:`t` is the time index derived from
+    `dt_col` or DataFrame index, and :math:`\text{freq}`
+    is the resampling interval (e.g., monthly).
+    
+
+    See Also
+    --------
+    gofast.plot.comparison.plot_feature_trend:
+        Plot a specified `feature` and a corresponding 
+        `target_col` trend over time
+    pandas.DataFrame.resample : Convenience method
+        for frequency-based time-series resampling.
+    matplotlib.pyplot.plot : Underlying function for
+        line plotting.
+
+    References
+    ----------
+    .. [1] J. D. Hunter. *Matplotlib: A 2D Graphics
+       Environment.* Computing in Science &
+       Engineering, 9(3), 90-95, 2007.
+    """
+
+    # Validate the DataFrames
+    dfs = are_all_frames_valid(
+        *dfs,
+        ops='validate',
+        df_only=True
+    )
+    if not dfs:
+        raise ValueError(
+            "At least one DataFrame must be provided"
+        )
+
+    # Ensure columns exist
+    required_cols = [feature, target_col]
+    for i, df in enumerate(dfs):
+        missing = [
+            col for col in required_cols
+            if col not in df.columns
+        ]
+        if missing:
+            raise ValueError(
+                f"DataFrame {i} missing "
+                f"columns: {missing}"
+            )
+
+    # Generate or extend labels
+    labels = (
+        labels or
+        [f'Dataset {i+1}' for i in range(len(dfs))]
+    )
+    labels = (
+        labels[:len(dfs)] +
+        [f'Dataset {i+1}' for i in range(
+            len(labels),
+            len(dfs)
+        )]
+    )
+
+    # Create the figure and dual axes
+    fig, ax1 = plt.subplots(figsize=figsize)
+    ax2 = ax1.twinx()
+
+    # Default line styles and markers
+    styles  = styles  or ['-', '--', '-.', ':']
+    markers = markers or ['o', 's', 'D', '^']
+
+    # Prepare color generation
+    d_colors = select_hex_colors(
+        len(dfs),
+        seed=42, 
+    )
+    # Handle user-provided colors
+    colors = columns_manager(
+        colors,
+        empty_as_none=False
+    )
+    colors = colors + d_colors
+
+    style_cycle  = cycle(styles)
+    marker_cycle = cycle(markers)
+
+    # Possibly show progress bar
+    iterator = zip(dfs, labels)
+    if HAS_TQDM and verbose > 0:
+        iterator = tqdm(
+            iterator,
+            total=len(dfs),
+            desc="Processing datasets"
+        )
+
+    for ix, (df, label) in enumerate(iterator):
+        # Convert to datetime
+        try:
+            df = to_dt(
+                df,
+                dt_col=dt_col,
+                format=f"%{freq}"
+            )
+            time_series = (
+                pd.to_datetime(df[dt_col])
+                if dt_col else
+                pd.to_datetime(df.index)
+            )
+        except Exception as e:
+            raise ValueError(
+                f"Datetime conversion failed "
+                f"for {label}: {str(e)}"
+            )
+
+        df = df.set_index(time_series).sort_index()
+
+        # Resample
+        resampled = df.resample(freq).agg({
+            feature: 'mean',
+            target_col: 'mean'
+        })
+
+        linestyle = next(style_cycle)
+        marker    = next(marker_cycle)
+
+        # Plot feature on left axis
+        ax1.plot(
+            resampled.index,
+            resampled[feature],
+            color=colors[ix],
+            linestyle=linestyle,
+            marker=marker,
+            markersize=6,
+            label=f'{label} {feature}',
+            **kwargs
+        )
+
+        # Plot target_col on right axis
+        ax2.plot(
+            resampled.index,
+            resampled[target_col],
+            color=colors[ix],
+            linestyle=linestyle,
+            marker=marker,
+            markersize=6,
+            alpha=0.7,
+            label=f'{label} {target_col}',
+            **kwargs
+        )
+
+    ax1.set(
+        title=title,
+        xlabel='Time',
+        ylabel=ylabel_feature or feature
+    )
+    ax2.set(
+        ylabel=ylabel_target or target_col
+    )
+
+    # Merge legend entries
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(
+        lines1 + lines2,
+        labels1 + labels2,
+        loc='upper center',
+        bbox_to_anchor=(0.5, -0.15),
+        ncol=2
+    )
+
+    # Grid styling
+    set_axis_grid(
+        ax1,
+        show_grid=show_grid,
+        grid_props=grid_props
+    )
+    ax2.grid(False)
+
+    fig.autofmt_xdate()
+
+    # Save figure if path is provided
+    if savefig:
+        plt.savefig(
+            savefig,
+            bbox_inches='tight',
+            dpi=300
+        )
+        if verbose > 0:
+            print(
+                f"Saved figure to: {savefig}"
+            )
 
     return fig
 
@@ -574,7 +1309,7 @@ def plot_factor_contribution(
     features: List[str],
     target_col: str,
     labels: Optional[List[str]] = None,
-    plot_type: str = 'stacked',
+    kind: str = 'stacked',
     agg_func: str = 'mean',
     figsize: tuple = (12, 7),
     title: Optional[str] = None,
@@ -608,7 +1343,7 @@ def plot_factor_contribution(
     labels : list of str, optional
         Custom labels for each DataFrame. Defaults to
         ``["Dataset 1", "Dataset 2", ...]`` if not provided.
-    plot_type : {'stacked', 'heatmap'}, optional
+    kind : {'stacked', 'heatmap'}, optional
         Type of plot to display. If ``'stacked'``, a stacked bar
         chart is produced. If ``'heatmap'``, a heatmap is
         produced. Default is ``'stacked'``.
@@ -704,7 +1439,7 @@ def plot_factor_contribution(
     ...     df2,
     ...     features=["f1", "f2"],
     ...     target_col="target",
-    ...     plot_type="stacked",
+    ...     kind="stacked",
     ...     title="Feature Contribution vs Target",
     ...     agg_func="mean",
     ...     verbose=1
@@ -751,6 +1486,17 @@ def plot_factor_contribution(
             raise ValueError(
                 f"Dataframe {i} missing columns: {missing}"
             )
+    
+    # Extend or create dataset labels
+    if labels is None:
+        labels = [
+            f"Dataset {i+1}" for i in range(len(dfs))
+        ]
+    else:
+        labels = list(labels) + [
+            f"Dataset {i+1}"
+            for i in range(len(labels), len(dfs))
+        ]
 
     # Aggregate the data per DataFrame, computing
     # user-chosen agg_func on features and target.
@@ -773,7 +1519,7 @@ def plot_factor_contribution(
             )
             if discrepancy > 0.1 * res['target']:
                 warnings.warn(
-                    f"Dataset {i} feature sum "
+                    f"{labels[i]} feature sum "
                     f"differs from target by "
                     f"{discrepancy:.2f}"
                 )
@@ -782,9 +1528,9 @@ def plot_factor_contribution(
     fig, ax = plt.subplots(figsize=figsize)
 
     # Default labels if none provided.
-    labels = labels or [
-        f'Dataset {i+1}' for i in range(len(dfs))
-    ]
+    # labels = labels or [
+    #     f'Dataset {i+1}' for i in range(len(dfs))
+    # ]
     x = np.arange(len(labels))
 
     # Generate a color map for the features, 
@@ -797,7 +1543,7 @@ def plot_factor_contribution(
     )
 
     # If user wants a stacked bar plot.
-    if plot_type == 'stacked':
+    if kind == 'stacked':
         # Build from the bottom up
         bottoms = np.zeros(len(labels))
 
@@ -861,7 +1607,7 @@ def plot_factor_contribution(
         ax.set_xticklabels(labels, rotation=45, ha='right')
 
     # If user wants a heatmap instead.
-    elif plot_type == 'heatmap':
+    elif kind == 'heatmap':
         data_matrix = np.array([
             res['features'].values
             for res in agg_results
@@ -909,7 +1655,7 @@ def plot_factor_contribution(
         ),
         ylabel=(
             'Contribution Value'
-            if plot_type == 'stacked'
+            if kind == 'stacked'
             else ''
         )
     )
@@ -925,7 +1671,7 @@ def plot_factor_contribution(
         ax.grid(False)
 
     # If stacked bar, place legend outside
-    if plot_type == 'stacked':
+    if kind == 'stacked':
         ax.legend(
             bbox_to_anchor=(1.05, 1),
             loc='upper left',
@@ -1195,23 +1941,39 @@ def plot_prediction_comparison(
         })
 
     # Define defaults for actual/pred line props
+    d_colors = select_hex_colors(len(pred_list), seed=42 )
     actual_props = (
         actual_props
         or {'linestyle': '-', 'marker': 'o', 'linewidth': 1.5,}
     )
+    if 'color' not in actual_props: 
+        actual_colors = d_colors  # plt.cm.tab10  
+    else: 
+        actual_colors= columns_manager (actual_props.pop('color' )) + d_colors 
+    
     pred_props = (
         pred_props
         or {'linestyle': '--', 'marker': 'x', 'alpha': 0.8}
     )
+    if 'color' not in pred_props: 
+        pred_colors = d_colors 
+    else: 
+        pred_colors= columns_manager (pred_props.pop('color' )) + d_colors 
+    
     grid_props = (
         grid_props
         or {'axis': 'both', 'alpha': 0.7, 'linestyle': ':'}
     )
-
     # Generate or reuse labels if not provided
-    labels = labels or [
-        f"DataFrame {i+1}" for i in range(len(dfs))
-    ]
+    if labels is None:
+        labels = [
+            f"Dataset {i+1}" for i in range(len(dfs))
+        ]
+    else:
+        labels = list(labels) + [
+            f"Dataset {i+1}"
+            for i in range(len(labels), len(dfs))
+        ]
 
     # Plot each DataFrame in its own subplot
     for ax, df_, tdata, lbl in zip(
@@ -1234,10 +1996,11 @@ def plot_prediction_comparison(
                 else np.arange(len(df_))
             )
             # Plot actual
+            
             ax.plot(
                 x_vals,
                 tdata['grouped'][actual],
-                color = plt.cm.tab10(i),
+                color =actual_colors[i],
                 label = (
                     f"{lbl} Actual"
                     if i == 0
@@ -1249,7 +2012,8 @@ def plot_prediction_comparison(
             ax.plot(
                 x_vals,
                 tdata['grouped'][pred],
-                color = plt.cm.tab10(i),
+                color = pred_colors[i], 
+                # color = plt.cm.tab10(i),
                 label = (
                     f"{lbl} Predicted"
                     if i == 0
@@ -1330,7 +2094,7 @@ def plot_error_analysis(
     actual_col: str,
     pred_col: str,
     dt_col: Optional[str] = None,
-    error_type: str = 'absolute',    # 'absolute' or 'relative'
+    error_type: str = 'abs',    # 'absolute' or 'relative'
     time_bins: Union[str, List] = 'auto',
     target_bins: Union[int, List] = 5,
     matrix_type: str = 'heatmap',    # 'confusion' or 'error'
@@ -1493,12 +2257,13 @@ def plot_error_analysis(
     dfs = are_all_frames_valid(*dfs, ops='validate')
     
     # Validate the chosen error type
-    valid_errors = ['absolute', 'relative']
-    if error_type not in valid_errors:
-        raise ValueError(
-            f"Invalid error_type. Choose from {valid_errors}"
-        )
-
+    valid_errors = ['absolute', 'relative',]
+    error_type = parameter_validator(
+        "error_type", 
+        target_strs= valid_errors, 
+        deep=True, 
+        error_msg =  f"Invalid error_type. Choose from {valid_errors}"
+        )(error_type)
     # For each DataFrame, confirm required columns
     for df in dfs:
         if (actual_col not in df.columns
@@ -2239,4 +3004,17 @@ def plot_variability(
     return fig
 
 
+# nansha_sample.columns
+# Out[205]: 
+# Index(['longitude', 'latitude', 'year', 'building_concentration', 'geology',
+#        'GWL', 'rainfall_mm', 'normalized_seismic_risk_score', 'soil_thickness',
+#        'subsidence'],
+#       dtype='object')
+
+# Index(['longitude', 'latitude', 'year', 'GWL', 'seismic_risk_score',
+#        'rainfall_mm', 'subsidence', 'geological_category',
+#        'normalized_density', 'density_tier', 'subsidence_intensity',
+#        'density_concentration', 'normalized_seismic_risk_score',
+#        'rainfall_category'],
+#       dtype='object')
      
