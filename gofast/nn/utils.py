@@ -41,7 +41,6 @@ from ..core.diagnose_q import (
     validate_quantiles, 
     validate_consistency_q
 )
-from ..core.generic import get_actual_column_name
 from ..core.handlers import TypeEnforcer, columns_manager 
 from ..core.io import is_data_readable 
 from ..compat.sklearn import ( 
@@ -55,6 +54,7 @@ from ..decorators import DynamicMethod, isdf
 from ..metrics_special import coverage_score
 from ..utils.data_utils import mask_by_reference 
 from ..utils.deps_utils import ensure_pkg, get_versions 
+from ..utils.generic_utils import get_actual_column_name
 from ..utils.io_utils import save_job
 from ..utils.sys_utils import BatchDataFrameBuilder, build_large_df 
 from ..utils.ts_utils import ts_validator, filter_by_period 

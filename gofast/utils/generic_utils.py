@@ -7,13 +7,18 @@ Provides common helper functions and for validation,
 comparison, and other generic operations
 """
 import warnings
-from typing import Union, Optional
+import inspect
+
+from typing import ( 
+    Union, Optional, 
+    Dict, Any, List
+)
 import numpy as np 
 import pandas as pd 
 
 __all__ =['verify_identical_items', 'vlog', 'detect_dt_format',
-          'get_actual_column_name', 'transform_contributions']
-
+          'get_actual_column_name', 'transform_contributions', 
+          'exclude_duplicate_kwargs']
 
 def verify_identical_items(
     list1, 
@@ -56,7 +61,7 @@ def verify_identical_items(
 
     Examples
     --------
-    >>> from gofast.core.generic import verify_identical_items 
+    >>> from gofast.utils.generic_utils import verify_identical_items 
     >>> list1 = [0.1, 0.5, 0.9]
     >>> list2 = [0.1, 0.5, 0.9]
     >>> verify_identical_items(list1, list2, mode="unique", ops="validate")
@@ -216,7 +221,7 @@ def vlog(
 
     Examples
     --------
-    >>> from gofast.core.generic import vlog
+    >>> from gofast.utils.generic_utils import vlog
     >>> # Example with mode='log'
     >>> # This prints only if global or passed-in
     >>> # verbose >= 4.
@@ -346,7 +351,7 @@ def get_actual_column_name(
 
     Examples
     --------
-    >>> from gofast.core.generic import get_actual_column_name
+    >>> from gofast.utils.generic_utils import get_actual_column_name
     >>> df = pd.DataFrame({'subsidence_actual': [1, 2, 3]})
     >>> get_actual_column_name(df, tname="subsidence")
     'subsidence_actual'
@@ -423,6 +428,7 @@ def detect_dt_format(series: pd.Series) -> str:
 
     Examples
     --------
+    >>> from gofast.utils.generic_utils import detect_dt_format
     >>> import pandas as pd
     >>> dates = pd.to_datetime(['2023-01-01', '2024-01-01', '2025-01-01'])
     >>> fmt = detect_dt_format(pd.Series(dates))
@@ -561,7 +567,7 @@ def transform_contributions(
 
     Examples
     --------
-    >>> from gofast.core.generic import transform_contributions
+    >>> from gofast.utils.generic_utils import transform_contributions
     >>> contributions = {
     >>>     'GWL': 2.226836617133828,
     >>>     'rainfall_mm': 12.398293851061492,
@@ -650,3 +656,137 @@ def transform_contributions(
         }
     
     return contributions
+
+
+def exclude_duplicate_kwargs(
+    func: callable,
+    existing_kwargs: Union[
+        Dict[str, Any],
+        List[str]
+    ],
+    user_kwargs: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Prevents the user from overriding existing parameters
+    in a target function. The method `exclude_duplicate_kwargs`
+    checks both developer-specified and function-level
+    parameter names to exclude them from `user_kwargs`.
+    
+    .. math::
+       \text{final\_kwargs} =
+       \{\,(k, v) \in \text{user\_kwargs} \,\mid\,
+       k \notin \text{protected\_params}\,\}
+    
+    Parameters
+    ----------
+    func : callable
+        The target function whose valid parameters are
+        checked. It uses Python's introspection to gather
+        the acceptable parameter names.
+    
+    existing_kwargs : dict or list
+        Developer-defined parameters to protect. Can be:
+        * A dictionary of parameter-value pairs (e.g.,
+          ``{'ax': ax_obj, 'data': df}``) whose keys
+          are excluded from user overrides.
+        * A list of parameter names (e.g., ``['ax',
+          'data']``) to protect from user overrides.
+    
+    user_kwargs : dict
+        The user-supplied keyword arguments that are
+        candidates for merging with `existing_kwargs`.
+        This dictionary is filtered to remove collisions
+        with protected parameters.
+    
+    Returns
+    -------
+    dict
+        A filtered dictionary of user-defined arguments
+        that do not overlap with protected parameters.
+    
+    Examples
+    --------
+    >>> from gofast.utils.generic_utils import exclude_duplicate_kwargs
+    >>> import seaborn as sns
+    >>> # Developer has some base kwargs
+    ... base_kwargs = {
+    ...     'x': 'species',
+    ...     'y': 'sepal_length',
+    ...     'palette': 'viridis'
+    ... }
+    >>> # User tries to override 'x' with new param
+    ... user_args = {
+    ...     'x': 'petal_width',
+    ...     'color': 'red'
+    ... }
+    >>> # Filter out duplicates
+    ... safe_args = exclude_duplicate_kwargs(
+    ...     sns.scatterplot,
+    ...     base_kwargs,
+    ...     user_args
+    ... )
+    >>> safe_args
+    {'color': 'red'}
+    
+    Notes
+    -----
+    By default, if `existing_kwargs` is a dictionary,
+    its keys are treated as protected parameter names.
+    If it's a list, those items are protected. The
+    function signature of `func` is also used to
+    verify that only recognized parameters are
+    protected.
+    
+    See Also
+    --------
+    inspect.signature : Used to introspect function
+        parameters.
+    filter_valid_kwargs : Another inline function that
+        discards user params not valid for a given
+        function.
+    
+    References
+    ----------
+    .. [1] David Beazley and Brian K. Jones.
+       *Python Cookbook, 3rd Edition.* O'Reilly Media, 2013.
+    """
+
+    # Validate existing_kwargs
+    if not isinstance(existing_kwargs, (dict, list)):
+        raise TypeError(
+            "existing_kwargs must be a dict or list"
+        )
+
+    # Build set of protected parameters
+    protected_params = (
+        existing_kwargs.keys()
+        if isinstance(existing_kwargs, dict)
+        else existing_kwargs
+    )
+
+    # Inspect func signature to get valid names
+    sig = inspect.signature(func)
+    valid_params = {
+        name: param
+        for name, param in sig.parameters.items()
+        if param.kind not in (
+            param.VAR_POSITIONAL,
+            param.VAR_KEYWORD
+        )
+    }
+
+    # Restrict protection to valid parameters only
+    exclude = [
+        param
+        for param in protected_params
+        if param in valid_params
+    ]
+
+    # Filter out excluded params from user_kwargs
+    safe_kwargs = {
+        k: v
+        for k, v in user_kwargs.items()
+        if k not in exclude
+    }
+
+    return safe_kwargs

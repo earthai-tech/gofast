@@ -67,7 +67,6 @@ from ..core.checks  import  (
     check_params, 
     check_numeric_dtype
 ) 
-from ..core.generic import vlog
 from ..core.handlers import ( 
     columns_manager, 
     param_deprecated_message, 
@@ -77,6 +76,7 @@ from ..core.io import is_data_readable
 from ..core.utils import normalize_string, smart_format 
 from .deps_utils import ensure_pkg, is_module_installed 
 from .ext import reorder_by
+from .generic_utils import vlog
 from .validator import (
     _is_numeric_dtype,
     _ensure_y_is_valid,

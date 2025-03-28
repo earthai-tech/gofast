@@ -16,7 +16,7 @@ import pandas as pd
 
 from .io import to_frame_if
 from .checks import is_in_if 
-from .generic import verify_identical_items
+# from .generic import verify_identical_items
 
 
 __all__= [ 
@@ -1628,7 +1628,7 @@ def validate_consistency_q(
     # In strict mode, expect the user_q to exactly match the detected quantiles.
     if mode == "strict":
         # valid_quantiles = user_q
-        valid_quantiles = verify_identical_items( 
+        valid_quantiles = _verify_identical_items( 
             user_q, detected_q_values, 
             ops="validate", 
             objname="quantiles list", 
@@ -1664,5 +1664,121 @@ def validate_consistency_q(
     return sorted(valid_quantiles) 
 
 
+def _verify_identical_items(
+    list1, 
+    list2, 
+    mode: str = "unique", 
+    ops: str = "check_only", 
+    error: str = "raise", 
+    objname: str = None, 
+) -> Union[bool, list]:
+    """
+    Check if two lists contain identical elements according 
+    to the specified mode.
+
+    In "unique" mode, the function compares the unique elements
+    in each list.
+    In "ascending" mode, it compares elements pairwise in order.
+
+    Parameters
+    ----------
+    list1     : list
+        The first list of items.
+    list2`     : list
+        The second list of items.
+    mode      : {'unique', 'ascending'}, default="unique"
+        The mode of comparison:
+          - "unique": Compare unique elements (order-insensitive).
+          - "ascending": Compare each element pairwise in order.
+    ops       : {'check_only', 'validate'}, default="check_only"
+        If "check_only", returns True/False indicating a match.
+        If "validate", returns the validated list.
+    error     : {'raise', 'warn', 'ignore'}, default="raise"
+        Specifies how to handle mismatches.
+    objname   : str, optional
+        A name to include in error messages.
+
+    Returns
+    -------
+    bool or list
+        Depending on `ops`, returns True/False or the validated list.
+
+    Examples
+    --------
+    >>> from gofast.core.generic import verify_identical_items 
+    >>> list1 = [0.1, 0.5, 0.9]
+    >>> list2 = [0.1, 0.5, 0.9]
+    >>> verify_identical_items(list1, list2, mode="unique", ops="validate")
+    [0.1, 0.5, 0.9]
+    >>> verify_identical_items(list1, list2, mode="ascending", ops="check_only")
+    True
+
+    Notes
+    -----
+    In "ascending" mode, both lists must have the same length, and the
+    function compares each corresponding pair of elements.
+    In "unique" mode, the function uses the set of unique values for
+    comparison. If the lists contain mixed types, the function attempts
+    to compare their string representations.
+    """
+    # Validate mode.
+    if mode not in ("unique", "ascending"):
+        raise ValueError("mode must be either 'unique' or 'ascending'")
+    if ops not in ("check_only", "validate"):
+        raise ValueError("ops must be either 'check_only' or 'validate'")
+    if error not in ("raise", "warn", "ignore"):
+        raise ValueError(
+            "error must be one of 'raise', 'warn', or 'ignore'")
+
+    # Ascending mode: compare each element in order.
+    if mode == "ascending":
+        if len(list1) != len(list2):
+            msg = (
+                f"Length mismatch in {objname or 'object lists'}: "
+                f"{len(list1)} vs {len(list2)}."
+            )
+            if error == "raise":
+                raise ValueError(msg)
+            elif error == "warn":
+                import warnings
+                warnings.warn(msg, UserWarning)
+            return False
+        
+        differences = []
+        for idx, (a, b) in enumerate(zip(list1, list2)):
+            if a != b:
+                differences.append((idx, a, b))
+        if differences:
+            msg = (
+                f"Differences in {objname or 'object lists'}: {differences}."
+            )
+            if error == "raise":
+                raise ValueError(msg)
+            elif error == "warn":
+                import warnings
+                warnings.warn(msg, UserWarning)
+            return False
+        return True if ops == "check_only" else list1
+
+    # Unique mode: compare the unique elements of each list.
+    else:
+        try:
+            unique1 = sorted(set(list1))
+            unique2 = sorted(set(list2))
+        except Exception:
+            unique1 = sorted({str(x) for x in list1})
+            unique2 = sorted({str(x) for x in list2})
+        if unique1 != unique2:
+            msg = (
+                f"Inconsistent unique elements in {objname or 'object lists'}: "
+                f"{unique1} vs {unique2}."
+            )
+            if error == "raise":
+                raise ValueError(msg)
+            elif error == "warn":
+                import warnings
+                warnings.warn(msg, UserWarning)
+            return False
+        return True if ops == "check_only" else unique1
 
 

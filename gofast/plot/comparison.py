@@ -7,9 +7,10 @@ Provides comparison plots between multiple datasets.
 """
 from itertools import cycle
 import warnings 
-from typing import List, Optional, Union, Tuple 
+from typing import List, Optional, Union, Tuple, Dict 
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.ticker import FixedLocator, FixedFormatter
 
 import numpy as np 
 import pandas as pd
@@ -24,8 +25,9 @@ from ..core.plot_manager import (
     default_params_plot, 
     is_valid_kind 
 )
+from ..utils.generic_utils import exclude_duplicate_kwargs
 from ..utils.ts_utils import to_dt 
-from ..utils.validator import parameter_validator
+from ..utils.validator import parameter_validator, filter_valid_kwargs
 from ._config import PlotConfig
 from .utils import select_hex_colors 
 
@@ -45,9 +47,381 @@ __all__ = [
     'plot_factor_contribution', 
     'plot_comparative_bars', 
     'plot_line_graph', 
+    'plot_side_by_side', 
+    'plot_trends_in'
     ]
 
-     
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_side_by_side_plot.png')
+)
+def plot_side_by_side(
+    *dfs: pd.DataFrame,
+    target_col: str,
+    kind: str                = 'box',
+    labels: Optional[
+        List[str]
+    ]                        = None,
+    title: str               = 'Distribution Comparison',
+    xlabel: str              = 'Data',
+    ylabel: str              = 'Value',
+    palette: Union[
+        str,
+        List[str]
+    ]                        = 'muted',
+    orient: str             = 'v',
+    style: str              = None,
+    show_swarm: bool        = False,
+    swarm_params: dict      = None,
+    inner: str              = 'quartile',
+    figsize: Tuple[
+        float, float
+    ]                        = (8, 6),
+    show_grid: bool         = True,
+    grid_props: dict        = None,
+    nan_policy: str         = 'omit',
+    verbose: int            = 0,
+    savefig: Optional[str]  = None,
+    **kwargs
+) -> plt.Figure:
+    """
+    Plots comparative distribution graphs (box or violin)
+    for multiple DataFrames side by side. The method
+    `plot_side_by_side` merges each dataset into a common
+    structure and displays them in vertical or horizontal
+    orientation.
+    
+    Parameters
+    ----------
+    dfs : list of pd.DataFrame
+        One or more DataFrames from which the target
+        column is extracted.
+    
+    target_col : str
+        The column name containing the metric to
+        visualize (e.g., subsidence rate).
+    
+    kind : {'box', 'violin'}, default='box'
+        The type of plot to create. A 'box' plot displays
+        quartiles and outliers, while a 'violin' plot shows
+        density distributions.
+    
+    labels : list of str, optional
+        Custom labels for each dataset. Missing labels
+        are auto-generated (e.g., "Dataset 1", etc.).
+    
+    title : str, default='Distribution Comparison'
+        The main title at the top of the figure.
+    
+    xlabel : str, default='Data'
+        Label for the x-axis.
+    
+    ylabel : str, default='Value'
+        Label for the y-axis.
+    
+    palette : str or list of str, default='muted'
+        A color palette name or list of colors passed
+        directly to seaborn.
+    
+    orient : {'v', 'h'}, default='v'
+        Controls plot orientation:
+        * 'v' : vertical orientation
+        * 'h' : horizontal orientation
+    
+    style : str, optional
+        A matplotlib or seaborn style to apply. If None,
+        uses the default `'seaborn-whitegrid'`.
+    
+    show_swarm : bool, default=False
+        If True, overlays a swarm plot of individual
+        points on top of the distribution plot.
+    
+    swarm_params : dict, optional
+        Additional swarmplot properties (e.g., 
+        ``{'size': 3, 'color': '.25'}``).
+    
+    inner : str, default='quartile'
+        Internal visualization for violin plots
+        (e.g. `'box'`, `'quartile'`, or `'point'`).
+    
+    figsize : tuple of float, default=(8, 6)
+        The width and height of the resulting figure.
+    
+    show_grid : bool, default=True
+        Shows or hides grid lines on the main axes.
+    
+    grid_props : dict, optional
+        Additional style properties for the grid
+        lines (e.g., 
+        ``{'linestyle': '--', 'alpha': 0.4}``).
+    
+    nan_policy : {'omit', 'raise', 'propagate'},
+        default='omit'
+        Policy for handling missing values. 
+        * 'omit' : Removes rows with NaNs
+        * 'raise' : Raises an error if NaNs are found
+        * 'propagate' : Leaves NaNs as is
+    
+    verbose : int, default=0
+        Verbosity level (0-5). Higher levels produce
+        more log information during processing.
+    
+    savefig : str, optional
+        Path to save the figure. If None, the figure is
+        not saved.
+    
+    **kwargs
+        Additional keyword arguments passed to the 
+        seaborn plot functions (boxplot/violinplot).
+    
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.plot.comparison import plot_side_by_side
+    >>> df1 = pd.DataFrame({
+    ...     'subsidence': [1.2, 1.7, 2.0, 3.5, 2.1]
+    ... })
+    >>> df2 = pd.DataFrame({
+    ...     'subsidence': [2.2, 2.8, 2.6, 3.0, 3.4]
+    ... })
+    >>> # Compare distributions with a box plot
+    >>> fig = plot_side_by_side(
+    ...     df1, df2,
+    ...     target_col='subsidence',
+    ...     labels=['Area1', 'Area2'],
+    ...     kind='box'
+    ... )
+    
+    Notes
+    -----
+    The inline method `plot_side_by_side` constructs a
+    combined DataFrame labeled by source dataset and
+    plots each group side by side. Missing data can
+    be handled or raised based on the chosen
+    `nan_policy`.
+    
+    .. math::
+       \text{value}(i) =
+       \begin{cases}
+       \text{clean\_df}_i[\text{target\_col}], 
+       & \text{if not NaN} \\[6pt]
+       \text{discard}, & \text{otherwise}
+       \end{cases}
+    
+    
+    See Also
+    --------
+    pandas.concat : Combining or adding rows or columns
+        to DataFrame.
+    seaborn.boxplot : Underlying function for box
+        visualization.
+    seaborn.violinplot : Underlying function for
+        violin visualization.
+    
+    References
+    ----------
+    .. [1] M. Waskom. *Seaborn: Statistical Data 
+       Visualization.*, 2021.
+    """
+
+    def _handle_nans(
+        df: pd.DataFrame,
+        policy: str,
+        label: str,
+        verbose: int
+    ) -> pd.DataFrame:
+        # Basic NaN handling, dropping them or raising error
+        original_count = len(df)
+        clean_df       = df.dropna()
+        if policy == 'raise' and len(clean_df) < original_count:
+            raise ValueError(
+                f"NaNs detected in dataset '{label}'"
+                f" (count: {original_count - len(clean_df)})"
+            )
+        if verbose > 1 and len(clean_df) < original_count:
+            print(
+                f"Dataset '{label}': Removed "
+                f"{original_count - len(clean_df)} NaNs"
+            )
+        return clean_df
+
+    dfs = are_all_frames_valid(
+        *dfs,
+        ops='validate',
+        df_only=True
+    )
+    if not dfs:
+        raise ValueError(
+            "At least one DataFrame must be provided"
+        )
+
+    # Validate plot kind
+    kind = is_valid_kind(
+        kind,
+        valid_kinds=['box', 'violin']
+    )
+
+    # Assign labels if missing
+    labels = (
+        labels or
+        [f'Dataset {i+1}' for i in range(len(dfs))]
+    )
+    labels = labels[:len(dfs)] + [
+        f'Dataset {i+1}' for i in range(
+            len(labels),
+            len(dfs)
+        )
+    ]
+
+    # Build combined dataset
+    plot_data = []
+    iterator  = zip(dfs, labels)
+    if HAS_TQDM and verbose > 0:
+        iterator = tqdm(
+            iterator,
+            total=len(dfs),
+            desc="Processing datasets"
+        )
+
+    for df, label in iterator:
+        if target_col not in df.columns:
+            raise ValueError(
+                f"DataFrame '{label}' "
+                f"missing target column: '{target_col}'"
+            )
+        clean_df = _handle_nans(
+            df[[target_col]],
+            nan_policy,
+            label,
+            verbose
+        )
+        plot_data.append(
+            pd.DataFrame({
+                'value': clean_df[target_col],
+                'group': label
+            })
+        )
+
+    combined_df = pd.concat(
+        plot_data,
+        ignore_index=True
+    )
+
+    plt.style.use(
+        style or 'seaborn-whitegrid'
+    )
+    fig, ax = plt.subplots(
+        figsize=figsize
+    )
+
+    base_kwargs = {
+        'x': (
+            'group' if orient == 'v'
+            else 'value'
+        ),
+        'y': (
+            'value' if orient == 'v'
+            else 'group'
+        ),
+        'data':     combined_df,
+        'palette':  palette,
+        'ax':       ax
+    }
+
+    # Choose plot type
+    if kind == 'box':
+        base_kwargs.update({
+            'width': 0.6,
+            'linewidth': 1.5,
+        })
+        valid_kwargs  = filter_valid_kwargs(
+            sns.boxplot,
+            kwargs
+        )
+        final_kwargs  = exclude_duplicate_kwargs(
+            sns.boxplot,
+            base_kwargs,
+            valid_kwargs
+        )
+        sns.boxplot(**{**base_kwargs, **final_kwargs})
+    else:
+        base_kwargs.update({
+            'inner': inner,
+            'cut':   0,
+            'bw':    0.2
+        })
+        valid_kwargs  = filter_valid_kwargs(
+            sns.violinplot,
+            kwargs
+        )
+        final_kwargs  = exclude_duplicate_kwargs(
+            sns.violinplot,
+            base_kwargs,
+            valid_kwargs
+        )
+        sns.violinplot(**{**base_kwargs, **final_kwargs})
+
+    # Optional swarm overlay
+    if show_swarm:
+        swarm_params = swarm_params or {
+            'size': 3,
+            'color': '.25',
+            'alpha': 0.7
+        }
+        swarm_params = filter_valid_kwargs(
+            sns.swarmplot,
+            swarm_params
+        )
+        sns.swarmplot(
+            x=(
+                'group' if orient == 'v'
+                else 'value'
+            ),
+            y=(
+                'value' if orient == 'v'
+                else 'group'
+            ),
+            data=combined_df,
+            ax=ax,
+            **swarm_params
+        )
+
+    # Final labeling
+    ax.set(
+        title=title,
+        xlabel=xlabel,
+        ylabel=ylabel
+    )
+
+    # Rotate x labels if vertical
+    if orient == 'v':
+        plt.xticks(
+            rotation=(
+                45 if len(labels) > 3
+                else 0
+            )
+        )
+
+    set_axis_grid(
+        ax,
+        show_grid=show_grid,
+        grid_props=grid_props
+    )
+
+    if savefig:
+        plt.savefig(
+            savefig,
+            bbox_inches='tight',
+            dpi=300
+        )
+        if verbose > 0:
+            print(
+                f"Saved plot to: {savefig}"
+            )
+
+    plt.tight_layout()
+
+    return fig
+
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_feature_trend_plot.png')
 )
@@ -2462,6 +2836,337 @@ def plot_error_analysis(
 
     return fig
 
+
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_trends_in_plot.png')
+)
+def plot_trends_in(
+    *dfs: pd.DataFrame,
+    target_col: str                 = 'subsidence',
+    dt_col: Optional[str]           = None,
+    freq: str                       = 'M',
+    labels: Optional[List[str]]     = None,
+    agg_func: str                   = 'mean',
+    ci: Union[float, str]           = 0.95,
+    colors: Optional[List[str]]     = None,
+    styles: List[str]               = None,
+    markers: List[str]              = None,
+    figsize: tuple                  = (12, 6),
+    title: str                      = 'Comparative Subsidence Trends',
+    ylabel: str                     = 'Subsidence Rate (mm/year)',
+    show_grid: bool                 = True,
+    grid_props: Optional[Dict]      = None,
+    nan_policy: str                 = 'raise',
+    verbose: int                    = 0,
+    savefile: Optional[str]         = None,
+    **kwargs
+) -> plt.Figure:
+    r"""
+    Plots comparative subsidence trends over time for
+    multiple DataFrames. The method `plot_trends_in`
+    resamples time-series data at a specified `freq`,
+    calculates a statistical function (e.g., mean),
+    and shows a simple confidence band based on
+    standard deviation.
+
+    .. math::
+       \text{Agg}(t) = \text{agg\_func}\bigl(X(t)\bigr)
+
+    Here, :math:`X(t)` is the set of observations
+    in the resampling window :math:`t`, and
+    :math:`\text{agg\_func}` is applied to compute
+    the main trend. The band is formed by :math:`\pm
+    \text{std}`.
+
+    Parameters
+    ----------
+    dfs : list of pd.DataFrame
+        One or more DataFrames containing the
+        `target_col` and optionally `dt_col`.
+
+    target_col : str, default='subsidence'
+        The column name representing the metric to
+        be plotted (e.g., subsidence).
+
+    dt_col : str, optional
+        Name of the datetime column. If None, the
+        DataFrame index is used.
+
+    freq : str, default='M'
+        The resampling frequency (e.g., 'D', 'M',
+        'Y'). Data is grouped according to this
+        interval before `agg_func` is applied.
+
+    labels : list of str, optional
+        Labels describing each dataset. Extra or
+        missing labels are automatically managed.
+
+    agg_func : str, default='mean'
+        The aggregation function used during
+        resampling (e.g., 'mean', 'sum', etc.).
+
+    ci : float or str, default=0.95
+        Confidence interval specification. Currently,
+        this parameter is not used directly; a simple
+        +/- std approach is shown, but future
+        extensions may consider `ci`.
+
+    colors : list of str, optional
+        A list of colors for the lines. If None,
+        default matplotlib colors are used.
+
+    styles : list of str, default=['-', '--', '-.', ':']
+        Line styles cycled over each dataset.
+
+    markers : list of str, default=['o', 's', 'D', '^']
+        Marker styles cycled over each dataset.
+
+    figsize : tuple of float, default=(12, 6)
+        The figure dimensions (width, height).
+
+    title : str, default='Comparative Subsidence Trends'
+        The main title of the plot.
+
+    ylabel : str, default='Subsidence Rate (mm/year)'
+        The label for the y-axis.
+
+    show_grid : bool, default=True
+        Enables or disables grid lines.
+
+    grid_props : dict, optional
+        A dictionary of properties controlling
+        the appearance of grid lines (e.g.,
+        ``{'linestyle': '--', 'alpha': 0.3}``).
+
+    nan_policy : {'raise', 'warn'}, default='raise'
+        How to handle NaN values:
+        * ``raise`` : Raises an error if NaNs are found.
+        * ``warn`` : Drops NaNs and issues a warning.
+
+    verbose : int, default=0
+        The verbosity level. If > 0, logs extra
+        information.
+
+    savefile : str, optional
+        Path where the figure is saved. If None,
+        no file is saved.
+
+    **kwargs
+        Additional keyword arguments passed to the
+        underlying matplotlib line plotting calls.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The created figure with multiple trend lines
+        and confidence bands.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.plot.comparison import plot_trends_in
+    >>> # Create synthetic data
+    >>> df1 = pd.DataFrame({
+    ...     'date': pd.date_range('2021-01-01', periods=12, freq='M'),
+    ...     'subsidence': range(12)
+    ... })
+    >>> df2 = pd.DataFrame({
+    ...     'date': pd.date_range('2021-01-01', periods=12, freq='M'),
+    ...     'subsidence': [x*1.2 for x in range(12)]
+    ... })
+    >>> fig = plot_trends_in(
+    ...     df1, df2,
+    ...     target_col='subsidence',
+    ...     dt_col='date',
+    ...     freq='M',
+    ...     labels=['CityA', 'CityB']
+    ... )
+
+    Notes
+    -----
+    The inline method `plot_trends_in` calculates a
+    simple standard deviation around the aggregated
+    values for error shading. More robust confidence
+    intervals or statistical approaches may replace
+    this in the future.
+
+    See Also
+    --------
+    pandas.DataFrame.resample : Main logic for frequency
+        grouping.
+    matplotlib.pyplot.fill_between : Used to create the
+        confidence band.
+
+    References
+    ----------
+    .. [1] M. Waskom. *Seaborn: Statistical Data
+       Visualization.*, 2021.
+    """
+    # Validate DataFrames
+    dfs = are_all_frames_valid(
+        *dfs,
+        ops='validate'
+    )
+    if not dfs:
+        raise ValueError(
+            "At least one city DataFrame required"
+        )
+
+    # Validate required columns
+    required = [target_col]
+    if dt_col:
+        required.append(dt_col)
+    for df in dfs:
+        missing = [
+            col for col in required
+            if col not in df.columns
+        ]
+        if missing:
+            raise ValueError(
+                f"Missing columns: {missing}"
+            )
+
+    # Handle labels
+    labels = (
+        labels or
+        [f'City {i+1}' for i in range(len(dfs))]
+    )
+    if len(labels) < len(dfs):
+        labels += [
+            f'City {i+1}' for i in range(
+                len(labels),
+                len(dfs)
+            )
+        ]
+    elif len(labels) > len(dfs):
+        warnings.warn(
+            f"Extra labels provided - "
+            f"using first {len(dfs)}"
+        )
+
+    # Cycles for styling
+    color_cycle  = cycle(
+        colors or plt.rcParams['axes.prop_cycle']
+        .by_key()['color']
+    )
+    style_cycle  = cycle(styles or ['-', '--', '-.', ':'])
+    marker_cycle = cycle(markers or ['o', 's', 'D', '^'])
+
+    # Create figure
+    fig, ax = plt.subplots(
+        figsize=figsize
+    )
+
+    # Possibly progress
+    iterator = zip(dfs, labels)
+    if HAS_TQDM:
+        iterator = tqdm(
+            iterator,
+            desc=f"Processing  {len(dfs)} dataset(s)",
+            leave=False
+        )
+    elif verbose >= 1:
+        print(
+            f"Processing  {len(dfs)} dataset(s)"
+        )
+
+    # Plot each dataset
+    for df, label in iterator:
+        clean_df = df.copy()
+        na_count = clean_df[target_col] \
+            .isna().sum()
+        if na_count > 0:
+            if nan_policy == 'raise':
+                raise ValueError(
+                    f"{label} has {na_count} NaNs"
+                )
+            if (nan_policy == 'warn'
+                    and verbose > 0):
+                warnings.warn(
+                    f"{label}: Dropping {na_count} NaNs"
+                )
+            clean_df = clean_df.dropna(
+                subset=[target_col]
+            )
+
+        clean_df = to_dt(
+            clean_df,
+            dt_col=dt_col,
+            format="%Y"
+        )
+        dt_series = pd.to_datetime(
+            clean_df[dt_col]
+            if dt_col
+            else clean_df.index
+        )
+        ts_data = clean_df.set_index(dt_series)[
+            target_col
+        ]
+
+        # Resample
+        resampled = ts_data.resample(freq) \
+            .agg([agg_func, 'std'])
+        resampled['lower'] = \
+            resampled[agg_func] \
+            - resampled['std']
+        resampled['upper'] = \
+            resampled[agg_func] \
+            + resampled['std']
+
+        color = next(color_cycle)
+        valid_kwargs = filter_valid_kwargs(
+            ax.plot,
+            kwargs
+        )
+        ax.plot(
+            resampled.index,
+            resampled[agg_func],
+            color=color,
+            linestyle=next(style_cycle),
+            marker=next(marker_cycle),
+            label=label,
+            **valid_kwargs
+        )
+        ax.fill_between(
+            resampled.index,
+            resampled['lower'],
+            resampled['upper'],
+            color=color,
+            alpha=0.2
+        )
+
+    ax.set(
+        title=title,
+        xlabel='Date/Time' if dt_col else
+               'Observation Sequence',
+        ylabel=ylabel
+    )
+    set_axis_grid(
+        ax,
+        show_grid=show_grid,
+        grid_props=grid_props
+    )
+    ax.legend(
+        bbox_to_anchor=(1.05, 1),
+        loc='upper left'
+    )
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+
+    if savefile:
+        fig.savefig(
+            savefile,
+            bbox_inches='tight',
+            dpi=300
+        )
+        if verbose > 0:
+            print(
+                f"Saved figure to: {savefile}"
+            )
+
+    return fig
+
+
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_trends_plot.png')
 )
@@ -2480,7 +3185,7 @@ def plot_trends(
     figsize: tuple = (14, 7),
     title: str = 'Comparative Analysis',
     xlabel: str = 'Observation Period',
-    ylabel: str = 'Subsidence Rate',
+    ylabel: str = 'Rate',
     show_grid: bool=True, 
     grid_props: dict =None,
     savefig: Optional[str]=None, 
@@ -2632,9 +3337,8 @@ def plot_trends(
            An Introduction. Chapman and Hall/CRC.
     """
     dfs = are_all_frames_valid(*dfs, ops='validate')
-    # --------------------------
+
     # Validation & Setup
-    # --------------------------
     plt.style.use(plot_style)
     fig, ax = plt.subplots(figsize=figsize)
     
@@ -2644,9 +3348,7 @@ def plot_trends(
         if missing:
             raise ValueError(f"Dataset {i} missing: {missing}")
 
-    # --------------------------
     # Data Processing
-    # --------------------------
     processed = []
     for df in dfs:
         # Temporal handling
@@ -2678,9 +3380,7 @@ def plot_trends(
         
         processed.append(agg_df)
 
-    # --------------------------
     # Visualization
-    # --------------------------
     color_cycler = cycle(colors or sns.color_palette())
     
     styles = styles or ['-', '--', '-.', ':']
@@ -2728,17 +3428,25 @@ def plot_trends(
                 **error_props
             )
 
-    # --------------------------
     # Aesthetics
-    # --------------------------
     ax.set(
         title  = title,
         xlabel = xlabel,
         ylabel = ylabel
     )
-    ax.xaxis.set_major_formatter(
-        plt.FixedFormatter(data.index.strftime('%Y-%m'))  # Auto-format
+    
+    # data.index is a DatetimeIndex or similar array-like of tick positions
+    tick_positions = data.index  
+    ax.xaxis.set_major_locator(
+        FixedLocator(tick_positions)
         )
+    ax.xaxis.set_major_formatter(
+        FixedFormatter(tick_positions.strftime('%Y-%m')) # Auto-format
+        )
+
+    # ax.xaxis.set_major_formatter(
+    #     plt.FixedFormatter(data.index.strftime('%Y-%m'))  
+    #     )
     
     # Grid & legend
     set_axis_grid (ax, show_grid, grid_props)

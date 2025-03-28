@@ -46,6 +46,9 @@ from ..compat.sklearn import (
     StrOptions, 
 )
 from ..decorators import isdf
+from ..utils.mathext import (
+    get_threshold_from
+)
 from ..utils.validator import ( 
     validate_positive_integer,
     filter_valid_kwargs
@@ -1708,6 +1711,8 @@ def plot_spatial_features(
     plt.tight_layout()
     plt.show()
     
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_hotspot_map_plot.png'))
 def plot_hotspot_map(
     *dfs: pd.DataFrame,
     target_col: str,
@@ -2015,6 +2020,10 @@ def plot_hotspot_map(
         # If using geopandas + basemap
         if HAS_GEOPANDAS and basemap:
             # geo plotting
+            plot_args = filter_valid_kwargs(
+                gdf.plot,
+                plot_args
+            )
             plot = gdf.plot( # Noqa: E504
                 column=target_col,
                 ax=ax,
@@ -2051,9 +2060,6 @@ def plot_hotspot_map(
         # Threshold highlighting
         if threshold is not None:
             if threshold == "auto":
-                from gofast.utils.mathext import (
-                    get_threshold_from
-                )
                 threshold = get_threshold_from(
                     df[target_col],
                     method='percentile'

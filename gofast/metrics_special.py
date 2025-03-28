@@ -30,20 +30,19 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import cross_val_predict
 from sklearn.preprocessing import label_binarize
-try: 
-    from sklearn.utils.multiclass import type_of_target
-except : 
-    from .core.utils import type_of_target 
-    
+
 from .api.formatter import MetricFormatter, DescriptionFormatter 
 from .api.summary import TW, ReportFactory, assemble_reports
 from .api.summary import ResultSummary 
 from .core.array_manager import to_arrays 
 from .core.checks import exist_features, is_iterable
-from .core.generic import transform_contributions 
 from .core.utils import normalize_string
-from .compat.sklearn import StrOptions, HasMethods, Interval, validate_params 
+from .compat.sklearn import ( 
+    StrOptions, HasMethods, Interval, validate_params,
+    type_of_target
+)
 from .decorators import Substitution, Appender
+from .utils.generic_utils import transform_contributions 
 from .utils.validator import (
     _ensure_y_is_valid, _is_numeric_dtype, check_epsilon, check_is_fitted, 
     validate_multioutput, validate_nan_policy, check_array, build_data_if, 
@@ -134,7 +133,7 @@ interpret : bool, default=False
         StrOptions({'barh', 'bar', 'pie', 'scatter'}), None],
     "max_iter": [Interval(Integral, 1, None, closed='left')]
 })
-# kind
+
 def miv_score(
     X, 
     y, 
@@ -529,6 +528,14 @@ def _plot_feature_importance(
                      va='center', 
                      ha='left')  
 
+@validate_params ({ 
+    'y_true': ['array-like'], 
+    'y_lower': ['array-like'], 
+    'y_upper': ['array-like'],
+    'nan_policy': [StrOptions ({'omit', 'propagate', 'raise'})], 
+    'fill_value': [Real, None], 
+    }
+)
 def coverage_score(
     y_true,
     y_lower,

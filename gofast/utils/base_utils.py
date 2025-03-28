@@ -48,7 +48,7 @@ from ..core.checks import(
     is_numeric_dtype, check_datetime 
     )
 from ..core.handlers import get_batch_size 
-from ..core.io import is_data_readable 
+from ..core.io import is_data_readable
 from ..core.utils import ellipsis2false, smart_format, error_policy 
 from ..compat.scipy import check_scipy_interpolate
 from ..decorators import Dataify

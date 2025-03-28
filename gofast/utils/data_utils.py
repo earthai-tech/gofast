@@ -95,8 +95,552 @@ __all__= [
     'filter_by_isin', 
     'filter_df',
     'generate_comparison', 
+    'handle_nans', 
     ]
 
+@SaveFile
+@Dataify(auto_columns= True) 
+def handle_nans(
+    df: pd.DataFrame,
+    policy: str = 'omit',
+    fill_value: Optional[
+        Union[float,
+              str,
+              Dict[str, Union[float, str]]]
+    ]                   = None,
+    method: str         = None,
+    columns: Optional[
+        Union[str,
+              List[str]]
+    ]                   = None,
+    threshold: Optional[
+        Union[float,
+              Dict[str, float]]
+    ]                   = None,
+    threshold_action: str = 'error',
+    inplace: bool       = False,
+    fallback_strategy: str = 'mode',
+    label: str = 'dataset',
+    savefile: Optional[str]=None, 
+    verbose: int        = 0,
+) -> pd.DataFrame:
+    """
+    Handles missing values in a DataFrame according to
+    various policies. The method `handle_nans` can remove,
+    raise, fill, or interpolate NaNs. It also optionally
+    checks for maximum allowed NaN percentages and applies
+    `threshold_action` accordingly.
+    
+    .. math::
+       \text{NaN\_ratio} =
+       \frac{\text{count\_NaNs}}{\text{count\_total}} \times 100
+    
+    If :math:`\text{NaN\_ratio}` in any column exceeds a
+    user-defined threshold, an action such as dropping
+    the column or raising an error can be performed.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input DataFrame in which missing values
+        are processed. Must be convertible to a numeric
+        type for certain fill strategies.
+    
+    policy : {'omit', 'raise', 'propagate', 'fill',
+              'interpolate'}, default='omit'
+        The main strategy for handling NaNs:
+        * ``omit`` : Drops rows containing NaNs
+        * ``raise`` : Raises an error if any NaNs exist
+        * ``propagate`` : Leaves NaNs as is
+        * ``fill`` : Fills NaNs using a specified value
+          or statistical rule
+        * ``interpolate`` : Applies interpolation
+          (linear, time-based, etc.)
+
+    fill_value : float or str or dict, optional
+        The fill specification used when
+        `policy='fill'`. Can be:
+        * A numeric scalar
+        * A string rule like ``'mean'``, ``'median'``,
+          ``'mode'``, ``'min'``, ``'max'``
+        * A dictionary mapping columns to specific
+          rules or values
+    
+    method : str, optional
+        The interpolation method if
+        `policy='interpolate'`, such as
+        ``'linear'``, ``'time'``, ``'pad'``,
+        etc.
+    
+    columns : str or list of str, optional
+        Specific columns to handle. If None, all
+        columns in `df` are processed.
+    
+    threshold : float or dict, optional
+        Maximum acceptable percentage of NaNs for a
+        column. If a column's NaN ratio exceeds this
+        value, `threshold_action` is applied. Can be
+        a single float or a dict of per-column floats.
+    
+    threshold_action : {'error', 'warn', 'drop_column',
+                        'drop_row', 'fill'}, default='error'
+        Action to take if the NaN ratio in a column
+        exceeds `threshold`:
+        * ``error`` : Raises ValueError
+        * ``warn`` : Prints a warning
+        * ``drop_column`` : Drops the entire column
+        * ``drop_row`` : Drops rows with NaNs in that
+          column
+        * ``fill`` : Fills that column's NaNs using
+          `fill_value`
+    
+    inplace : bool, default=False
+        If True, modifies `df` in place. Otherwise,
+        returns a copy.
+    
+    fallback_strategy : str, default='mode'
+        The fallback rule if a fill strategy is
+        unclear or not applicable. Typically
+        ``'mode'`` or ``'median'``.
+        
+    label : str, default='dataset'
+        A label used in error messages and logs to
+        identify the current dataset.
+        
+    verbose : int, default=0
+        The verbosity level (0-3). Higher values
+        print more diagnostic information.
+    
+    Returns
+    -------
+    pd.DataFrame
+        The resulting DataFrame after applying
+        the specified NaN policies.
+    
+    Examples
+    --------
+    >>> from gofast.utils.base_utils import handle_nans
+    >>> import pandas as pd
+    >>> data = {
+    ...     'A': [1, None, 3, 4],
+    ...     'B': [None, 2, 2, 2]
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> # Fill NaNs using column means
+    >>> cleaned = handle_nans(
+    ...     df,
+    ...     policy='fill',
+    ...     fill_value='mean',
+    ...     verbose=2
+    ... )
+    
+    Notes
+    -----
+    The inline method `handle_nans` can also verify that
+    NaN percentages remain below certain thresholds. This
+    can be useful for robust data cleaning, ensuring no
+    key columns exceed a tolerable missing-data ratio.
+    
+    See Also
+    --------
+    pandas.DataFrame.fillna : Core function for replacing
+        missing values.
+    pandas.DataFrame.interpolate : Additional interpolation
+        strategies.
+    
+    References
+    ----------
+    .. [1] Wes McKinney. *Python for Data Analysis: Data
+       Wrangling with Pandas, NumPy, and IPython.*
+       O'Reilly Media, 2017.
+    """
+
+    # Validate parameters and create copy if needed
+    # Then process columns according to chosen policy
+    # Return cleaned DataFrame
+    valid_policies = ['omit', 'raise', 'propagate',
+                      'fill', 'interpolate']
+    if policy not in valid_policies:
+        raise ValueError(f"Invalid policy. Valid options: "
+                         f"{valid_policies}")
+
+    if policy == 'interpolate' and not method:
+        interp_methods = {'linear', 'time',
+                          'index', 'pad',
+                          'ffill', 'bfill'}
+        raise ValueError("Interpolation method required "
+                         "for 'interpolate' policy. valid "
+                         f"methods: {interp_methods}")
+
+    if not inplace:
+        df = df.copy()
+
+    columns = (columns
+               if columns is not None
+               else df.columns.tolist())
+    if isinstance(columns, str):
+        columns = [columns]
+
+    nan_stats = {}
+    original_shape = df.shape
+
+    # Threshold checks
+    for col in columns:
+        if col not in df.columns:
+            raise ValueError(f"Column '{col}' "
+                             f"not found in DataFrame")
+        na_count = df[col].isna().sum()
+        na_pct = (na_count / len(df)) * 100
+        nan_stats[col] = {
+            'count': na_count,
+            'percent': na_pct
+        }
+        col_threshold = (threshold.get(col)
+                         if isinstance(threshold, dict)
+                         else threshold)
+        if col_threshold and na_pct > col_threshold:
+            _handle_threshold_violation(
+                df,
+                col,
+                na_pct,
+                col_threshold,
+                threshold_action,
+                label,
+                verbose,
+                fill_value,
+                method,
+            )
+
+    # Apply main policy
+    if policy == 'omit':
+        df = df.dropna(subset=columns)
+    elif policy == 'raise':
+        for col in columns:
+            if nan_stats[col]['count'] > 0:
+                raise ValueError(f"NaNs detected in "
+                                 f"{label} column '{col}'")
+    elif policy == 'fill':
+        fill_values = _resolve_fill_values(
+            df,
+            columns,
+            fill_value
+        )
+        df = _fill_na_values(
+            df,
+            columns,
+            fill_values,
+            method,
+            verbose
+        )
+    elif policy == 'interpolate':
+        df[columns] = df[columns].interpolate(
+            method=method
+        )
+
+    # Log final stats
+    new_nan_count = df[columns].isna().sum().sum()
+    if verbose > 0:
+        _log_processing_stats(
+            original_shape,
+            df.shape,
+            new_nan_count,
+            nan_stats,
+            label,
+            verbose
+        )
+
+    return df
+
+
+def _resolve_fill_values(
+    df: pd.DataFrame,
+    columns: List[str],
+    fill_value: Union[
+        float,
+        str,
+        Dict[str, Union[float, str]]
+    ]
+) -> Dict[str, float]:
+    """
+    Compute fill values for each column in ``df`` given
+    a single fill rule or multiple fill rules.
+    """
+    if isinstance(fill_value, dict):
+        return {
+            col: _calculate_fill_value(
+                df[col],
+                fill_value.get(col, np.nan)
+            )
+            for col in columns
+        }
+    return {
+        col: _calculate_fill_value(
+            df[col],
+            fill_value
+        )
+        for col in columns
+    }
+
+
+def _calculate_fill_value(
+    series: pd.Series,
+    value: Union[float, str]
+) -> float:
+    """
+    Derive a single fill value by rule or direct numeric,
+    e.g. `'mean'`, `'median'`, `'mode'`, or a float.
+    """
+    if isinstance(value, str):
+        if value == 'mean':
+            return series.mean()
+        elif value == 'median':
+            return series.median()
+        elif value == 'mode':
+            return series.mode()[0]
+        elif value == 'min':
+            return series.min()
+        elif value == 'max':
+            return series.max()
+        else:
+            raise ValueError(f"Invalid fill value "
+                             f"string: {value}")
+    return value
+
+
+def _fill_na_values(
+    df: pd.DataFrame,
+    columns: List[str],
+    fill_values: Dict[str, float],
+    method: str,
+    verbose: int
+) -> pd.DataFrame:
+    """
+    Replace NaNs in specified columns using computed
+    fill values, optionally with a fill `method`.
+    """
+    for col, val in fill_values.items():
+        na_count = df[col].isna().sum()
+        if na_count > 0:
+            df[col] = df[col].fillna(
+                val,
+                method=method
+            )
+            if verbose > 1:
+                print(f"Filled {na_count} NaNs in "
+                      f"column '{col}' with {val:.2f}")
+    return df
+
+
+def _log_processing_stats(
+    original_shape: Tuple[int, int],
+    new_shape: Tuple[int, int],
+    new_nan_count: int,
+    nan_stats: Dict,
+    label: str,
+    verbose: int
+):
+    """
+    Print a brief summary of changes in size and NaN
+    counts after cleaning.
+    """
+    if verbose > 0:
+        print(f"\n{label} NaN handling report:")
+        print(f"Original shape: {original_shape}")
+        print(f"New shape: {new_shape}")
+        print(f"Remaining NaNs: {new_nan_count}")
+    if verbose > 1:
+        for col, stat in nan_stats.items():
+            print(f"Column '{col}':")
+            print(f"  - Original NaNs: "
+                  f"{stat['count']} "
+                  f"({stat['percent']:.1f}%)")
+
+
+def _handle_threshold_violation(
+    df: pd.DataFrame,
+    col: str,
+    na_pct: float,
+    threshold: float,
+    action: str,
+    label: str,
+    verbose: int,
+    fill_value: Union[
+        float,
+        str,
+        Dict[str, Union[float, str]]
+    ] = None,
+    method: str = None,
+    fallback_strategy: str = 'mode'
+):
+    """
+    Respond to columns exceeding a NaN threshold. This
+    can drop rows, drop the column, raise an error, or
+    fill data.
+    """
+    msg = (f"{label} column '{col}' has {na_pct:.1f}% "
+           f"NaNs (exceeds {threshold}% threshold)")
+    if action == 'error':
+        raise ValueError(msg)
+    elif action == 'warn' and verbose > 0:
+        warnings.warn(msg)
+    elif action == 'drop_column':
+        if verbose > 1:
+            print(f"Dropping column '{col}' due to NaN "
+                  f"threshold violation")
+        df.drop(col, axis=1, inplace=True)
+    elif action == 'drop_row':
+        if verbose > 1:
+            print(f"Dropping rows with NaNs in '{col}'")
+        df.dropna(subset=[col], inplace=True)
+    elif action == 'fill':
+        if verbose > 1:
+            print(f"Filling NaNs in '{col}' due to "
+                  f"threshold violation")
+        fill_val = _resolve_fill_value(
+            df[col],
+            fill_value,
+            fallback_strategy,
+            col,
+            verbose
+        )
+        _safe_fill_column(df, col, fill_val, verbose)
+    else:
+        raise ValueError(f"Invalid threshold action: "
+                         f"{action}")
+
+
+def _resolve_fill_value(
+    series: pd.Series,
+    fill_value: Union[
+        float,
+        str,
+        Dict[str, Union[float, str]]
+    ],
+    fallback: str,
+    col: str,
+    verbose: int
+) -> Union[float, str]:
+    """
+    Determine a fill value for a column with fallback
+    if no direct rule matches or if fill is `'fallback'`.
+    """
+    try:
+        if isinstance(fill_value, dict):
+            col_fill = fill_value.get(col, 'fallback')
+        else:
+            col_fill = fill_value or 'fallback'
+        if col_fill == 'fallback':
+            return _get_fallback_value(
+                series,
+                fallback,
+                col,
+                verbose
+            )
+        if isinstance(col_fill, str):
+            return _calculate_stat_fill(
+                series,
+                col_fill,
+                col
+            )
+        return col_fill
+    except Exception as e:
+        raise ValueError(f"Failed to determine fill "
+                         f"value for {col}: {str(e)}")
+
+
+def _calculate_stat_fill(
+    series: pd.Series,
+    strategy: str,
+    col: str
+) -> Union[float, str]:
+    """
+    Compute fill values based on a statistical strategy
+    like `'mean'`, `'median'`, `'mode'`, or `'ffill'`.
+    """
+    valid_strategies = [
+        'mean', 'median', 'mode',
+        'min', 'max', 'ffill', 'bfill'
+    ]
+    if strategy not in valid_strategies:
+        raise ValueError(f"Invalid fill strategy "
+                         f"'{strategy}' for column "
+                         f"'{col}'")
+    if strategy in ['ffill', 'bfill']:
+        return (series.ffill().iloc[-1]
+                if strategy == 'ffill'
+                else series.bfill().iloc[0])
+    if not pd.api.types.is_numeric_dtype(series):
+        if strategy != 'mode':
+            raise ValueError(f"Cannot calculate {strategy} "
+                             f"for non-numeric column "
+                             f"'{col}'")
+        return (series.mode()[0]
+                if not series.mode().empty
+                else np.nan)
+    return {
+        'mean': series.mean(),
+        'median': series.median(),
+        'mode': series.mode()[0],
+        'min': series.min(),
+        'max': series.max()
+    }[strategy]
+
+
+def _get_fallback_value(
+    series: pd.Series,
+    strategy: str,
+    col: str,
+    verbose: int
+) -> Union[float, str]:
+    """
+    Pick a fallback fill rule if the original fill
+    spec doesn't apply. Chooses `'mode'` or `'median'`
+    for numeric data, or an empty string for categorical.
+    """
+    if pd.api.types.is_numeric_dtype(series):
+        if (strategy == 'mode'
+                and series.nunique()
+                > len(series)/2):
+            if verbose > 1:
+                print(f"Using median fallback for "
+                      f"high-cardinality numeric "
+                      f"column '{col}'")
+            return series.median()
+        return _calculate_stat_fill(series,
+                                    strategy,
+                                    col)
+    else:
+        mode_val = series.mode()
+        if not mode_val.empty:
+            return mode_val[0]
+        if verbose > 1:
+            print(f"Using empty string fallback "
+                  f"for categorical column '{col}'")
+        return ''
+
+
+def _safe_fill_column(
+    df: pd.DataFrame,
+    col: str,
+    fill_val: Union[float, str],
+    verbose: int
+):
+    """
+    Replace NaNs in a single column with ``fill_val``
+    ensuring type alignment. Raise error on mismatch.
+    """
+    try:
+        na_count = df[col].isna().sum()
+        df[col] = df[col].fillna(fill_val)
+        if verbose > 1:
+            print(f"Filled {na_count} NaNs in {col} "
+                  f"with {fill_val}")
+    except TypeError as e:
+        raise TypeError(
+            f"Type mismatch filling {col} "
+            f"({df[col].dtype}) with "
+            f"{type(fill_val)} value: {fill_val}"
+        ) from e
 
 @SaveFile (writer_kws={'index': True})
 @check_non_emptiness(params=['metrics'])

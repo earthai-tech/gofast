@@ -21,11 +21,11 @@ from ..compat.sklearn import validate_params
 from ..core.array_manager import to_series 
 from ..core.checks import assert_ratio, check_numeric_dtype
 from ..core.checks import check_params, exist_features
-from ..core.generic import vlog 
 from ..core.handlers import columns_getter, columns_manager 
 from ..core.io import SaveFile, is_data_readable
 from ..core.utils import error_policy, smart_format 
 from ..decorators import isdf, Dataify 
+from .generic_utils import vlog 
 from .validator import parameter_validator, validate_length_range 
 from .validator import  get_estimator_name 
 
