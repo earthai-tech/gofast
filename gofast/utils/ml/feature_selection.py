@@ -27,14 +27,14 @@ from ...api.summary import ReportFactory, ResultSummary
 from ...compat.sklearn import validate_params, Interval, StrOptions, HasMethods 
 from ...core.array_manager import to_numeric_dtypes, is_array_like
 from ...core.checks import is_in_if, is_iterable, exist_features, is_numeric_dtype
-from ...core.generic import vlog 
 from ...core.handlers import columns_manager 
 from ...core.io import is_data_readable
 from ...core.utils import type_of_target 
 from ...decorators import Dataify
 from ..base_utils import select_features, extract_target
 from ..deps_utils import ensure_pkg
-from ..io_utils import to_txt 
+from ..io_utils import to_txt
+from ..generic_utils import vlog  
 from ..validator import ( 
     build_data_if, validate_data_types, check_consistent_length, 
     get_estimator_name, filter_valid_kwargs

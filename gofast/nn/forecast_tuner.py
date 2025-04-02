@@ -30,11 +30,11 @@ from typing import TYPE_CHECKING # noqa
 
 import numpy as np
 
-from ..core.generic import vlog 
 from ..compat.sklearn import validate_params, Interval 
 from ..core.checks import assert_ratio, check_params, check_non_emptiness
 from ..core.handlers import param_deprecated_message
 from ..utils.deps_utils import ensure_pkg 
+from ..utils.generic_utils import vlog
 from ..utils.validator import validate_positive_integer, parameter_validator
 
 from .__init__ import config 
@@ -163,7 +163,6 @@ def xtft_tuner(
     # Define default parameter space.
     vlog(
         f"Start {model_name.upper()} {tuner_type.upper()} tune ... ",
-        
         level=3
     )
     # Local helper to retrieve parameter space values.
@@ -753,48 +752,3 @@ References
        Computing in Science & Engineering, 13(2), 22-30.
 """
 
-    # def default_model_builder(hp: "kt.HyperParameters") -> Model:
-
-    #     params= dict ( 
-    #         static_input_dim  = X_static.shape[1],
-    #         dynamic_input_dim = X_dynamic.shape[2],
-    #         future_input_dim  = X_future.shape[2],
-    #         forecast_horizon  = case_info.get("forecast_horizon", 1),
-    #         quantiles         = case_info.get("quantiles", None),
-    #         embed_dim         = hp.Choice('embed_dim', 
-    #                                   get_param_space('embed_dim')),
-    #         max_window_size   = hp.Choice('max_window_size', 
-    #                                   get_param_space('max_window_size')),
-    #         memory_size       = hp.Choice('memory_size', 
-    #                                   get_param_space('memory_size')),
-    #         num_heads         = hp.Choice('num_heads', 
-    #                                   get_param_space('num_heads')),
-    #         dropout_rate      = hp.Choice('dropout_rate', 
-    #                                   get_param_space('dropout_rate')),
-    #         lstm_units        = hp.Choice('lstm_units', 
-    #                                   get_param_space('lstm_units')),
-    #         attention_units   = hp.Choice('attention_units', 
-    #                                   get_param_space('attention_units')),
-    #         hidden_units      = hp.Choice('hidden_units', 
-    #                                   get_param_space('hidden_units'))
-    #     )
- 
-    #     if model_name.lower() =="xtft":
-    #         model =XTFT (**params )
-    #     elif model_name.lower() in ('super_xtft', 'superxtft'): 
-    #         model =SuperXTFT (**params)
-            
-    #     model.compile(
-    #         optimizer = Adam(
-    #             hp.Choice('learning_rate', 
-    #                       get_param_space('learning_rate'))
-    #         ),
-    #         loss =  get_param_space('loss')
-    #     )
-    #     vlog(
-    #         "Model builder sucessfully set. ",
-    #         level=3
-    #     )
-    #     return model
-    
-    # model_builder = default_model_builder
