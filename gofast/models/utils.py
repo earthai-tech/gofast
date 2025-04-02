@@ -1050,6 +1050,122 @@ def get_cv_mean_std_scores(
 
     return mean_aggregate, std_aggregate
 
+def fix_batch_size_for_cv(
+    X: pd.DataFrame,
+    y: pd.Series,
+    batch_size: int,
+    cv: int,
+    *,
+    classification: bool = True,
+    shuffle: bool = True
+) -> int:
+    """
+    Suggest a safe batch size so that each data batch
+    can accommodate the chosen cross-validation splits
+    without error.
+
+    If `classification=True`, attempts to ensure
+    that each batch will have at least ``cv`` samples
+    from each class (if data is balanced enough),
+    although truly robust distribution across chunks
+    may also require shuffling or stratification.
+
+    Parameters
+    ----------
+    X : pd.DataFrame
+        Feature matrix.
+
+    y : pd.Series
+        Target array of shape (n_samples,).
+
+    batch_size : int
+        The proposed batch size.
+
+    cv : int
+        The number of cross-validation folds.
+
+    classification : bool, default=True
+        If True, attempts to ensure that each batch
+        can have enough samples from every class to
+        avoid an error with stratified splits.
+
+    shuffle : bool, default=True
+        If True, data should be shuffled (by the
+        caller) before splitting into batches. If
+        data is not shuffled, some batches may be
+        dominated by a single class.
+
+    Returns
+    -------
+    new_batch_size : int
+        A potentially adjusted batch size that
+        reduces the risk of cross-validation
+        failures.
+
+    Notes
+    -----
+    This function is a heuristic. If the dataset
+    is very imbalanced or too small, you may still
+    encounter cross-validation errors. For truly
+    robust chunk distribution, consider using a
+    stratified approach or verifying each batch's
+    class distribution manually.
+
+    Examples
+    --------
+    >>> from gofast.models.utils import fix_batch_size_for_cv
+    >>> import pandas as pd
+    >>> X = pd.DataFrame({
+    ...     'feat1': [0.1, 0.3, 0.7, 1.2]*10,
+    ...     'feat2': [1.0, 1.5, 0.9, 0.3]*10
+    ... })
+    >>> y = pd.Series([0, 1, 0, 1]*10)
+    >>> # Suppose batch_size=2 but cv=2 is risky
+    >>> safe_batch = fix_batch_size_for_cv(X, y, batch_size=2, cv=2)
+    >>> safe_batch
+    4
+    """
+    # Basic check: if batch_size is already large
+    # enough, do nothing special (except for
+    # classification checks).
+    n_samples = len(X)
+    if batch_size >= n_samples:
+        # If the batch size is bigger than the entire
+        # dataset, that effectively means one batch
+        # (which is usually safe).
+        return batch_size
+
+    # Minimal requirement for standard KFold is that
+    # each batch has at least `cv` samples total.
+    # So ensure batch_size >= cv in any case.
+    if batch_size < cv:
+        batch_size = cv
+    
+    if classification =='auto': 
+        problem = type_of_target(y, input_name ='y')
+        classification = True  if problem in [
+            'binary', 'multiclass', 'multilabel-indicator', 
+            'multiclass-multioutput'] else False 
+        
+    if classification:
+        # If classification is true, we want to ensure
+        # each batch can hold enough data for all
+        # classes. Typically, we want
+        # batch_size >= cv * n_classes. However,
+        # this does not guarantee each chunk has a
+        # balanced distribution, but it helps.
+        unique_classes = y.unique()
+        n_classes = len(unique_classes)
+
+        # Some or all classes might be small, or data
+        # might not be shuffled. So let's pick a safer
+        # minimum if possible.
+        required_min = cv * n_classes
+        if batch_size < required_min:
+            batch_size = required_min
+
+    return batch_size
+
 def get_split_best_scores(cvres:Dict[str, ArrayLike], 
                        split:int=0)->Dict[str, float]: 
     """Get the best score at each split from cross-validation results.

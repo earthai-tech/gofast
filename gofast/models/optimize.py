@@ -26,13 +26,317 @@ from ..utils.validator import get_estimator_name , check_X_y
 from ._optimize import BaseOptimizer, _perform_search, _validate_parameters
 from .utils import get_strategy_method, params_combinations # noqa
 from .utils import prepare_estimators_and_param_grids
+from .utils import fix_batch_size_for_cv 
 
 
 __all__=[
     "Optimizer", "ThreadedOptimizer" , "OptimizeSearch", "ParallelizeSearch", 
     "OptimizeHyperparams",  "ParallelOptimizer", "optimize_search", 
     "parallelize_search", "optimize_hyperparams", "optimize_search_in", 
+    "BatchTuner"
     ]
+
+class BatchTuner(BaseOptimizer):
+    """
+    Provides batch-wise hyperparameter optimization for multiple
+    estimators by splitting data into chunks. The class
+    `BatchTuner` inherits from `BaseOptimizer` and runs each
+    chunk in parallel, aggregating the best results.
+    
+    .. math::
+       \text{arg\,minimize}_{\Theta} \,
+       \mathbb{E}[\text{Loss}(f(X; \Theta), y)]
+    
+    Here, :math:`\Theta` denotes the hyperparameter space,
+    and data is divided into batches to accelerate the
+    search process.
+    
+    Parameters
+    ----------
+    estimators : dict
+        A mapping of custom names to estimator objects.
+        Each key in `estimators` is a string uniquely
+        identifying the estimator (e.g., `'svc'`,
+        `'rf'`). The value is an instance of a scikit-learn
+        compatible estimator (i.e., an object with `.fit`,
+        `.predict`, and optionally `.score` methods). For
+        example::
+    
+            estimators = {
+                'svc': SVC(),
+                'random_forest': RandomForestClassifier()
+            }
+    
+        This dictionary may contain any number of estimators,
+        each to be tuned with its own hyperparameter grid.
+    
+    param_grids : dict
+        A dictionary mapping the same estimator names in
+        `estimators` to their respective parameter grids.
+        For each entry, the key must precisely match one of
+        the keys in `<estimators>`, and the value is another
+        dictionary describing the parameter search space.
+        For example::
+    
+            param_grids = {
+                'svc': {
+                    'C': [1, 10],
+                    'kernel': ['rbf', 'linear']
+                },
+                'random_forest': {
+                    'n_estimators': [50, 100],
+                    'max_depth': [2, 5, 10]
+                }
+            }
+    
+        Each parameter grid indicates which hyperparameters
+        will be systematically explored by the chosen
+        strategy (e.g., `'GSCV'`). For instance, with
+        `'GSCV'`, every combination of listed parameter
+        values is tested.
+    
+    strategy : str, default='GSCV'
+        The name of the optimization search strategy.
+        Determines which internal search method is used
+        to explore hyperparameters. Valid values typically
+        include (but are not limited to):
+    
+        * ``'GSCV'`` or ``'GridSearchCV'`` for exhaustive
+          grid search,
+        * ``'RSCV'`` or ``'RandomizedSearchCV'`` for random
+          search,
+        * ``'BSCV'`` or ``'BayesSearchCV'`` for Bayesian
+          optimization,
+        - ``'ASCV'``, ``'AnnealingSearchCV'`` for Simulated
+          Annealing-based Search.
+        - ``'SWSCV'``, ``'PSOSCV'`` for Swarm Optimization.
+        - ``'SQSCV'``, ``'SequentialSearchCV'`` for 
+          Sequential Model-Based Optimization.
+        - ``'EVSCV'``, ``'EvolutionarySearchCV'`` for 
+          Evolutionary Algorithms-based Search.
+        - ``'GBSCV'``, ``'GradientSearchCV'`` for Gradient-Based
+          Optimization.
+        - ``'GENSCV'``, 'GeneticSearchCV' for Genetic 
+          Algorithms-based Search.
+ 
+        By default, it is set to ``'GSCV'``, which means a
+        typical grid search approach is used (i.e., every
+        combination of values in `param_grids` is tested).
+        For specialized or advanced searching (like random
+        sampling, Bayesian optimization, or evolutionary
+        algorithms), you can switch to a different strategy
+        (e.g., `'RSCV'`, `'BSCV'`,`'SWSCV'` etc.) as 
+        supported by gofast package.
+    
+    scoring : str or callable, optional
+        Metric for evaluating parameter sets. If None,
+        uses the default scorer of the estimator.
+        Accepts any scikit-learn-compatible scorer.
+    
+    cv : int or cross-validation generator, optional
+        Cross-validation strategy. If None, defaults
+        to 5-fold. An integer (e.g., 3) triggers
+        k-fold with that many folds.
+    
+    save_results : bool, default=False
+        If True, invokes the method
+        `save_results_to_file` to persist results
+        upon completion.
+    
+    n_jobs : int, default=-1
+        Number of parallel jobs. `-1` uses all
+        available CPUs. This parameter influences
+        the parallelism during batch fits.
+    
+    batch_size : int, default=2
+        Number of samples per batch. The input data
+        is split into chunks of this size, each
+        chunk is fit in parallel using the chosen
+        strategy.
+    
+    **search_kwargs : dict
+        Additional keyword arguments passed to the
+        search constructor. For instance, when
+        using random search, you could include
+        ``n_iter=50`` in ``search_kwargs``.
+    
+    Methods
+    -------
+    fit(X, y)
+        Perform parallel hyperparameter optimization
+        over chunked data. It divides X, y into
+        batches of size `batch_size` and runs
+        the search in parallel. Returns a summary
+        containing best parameters and scores.
+    
+    Examples
+    --------
+    >>> from gofast.models.optimize import BatchTuner
+    >>> import pandas as pd
+    >>> from sklearn.svm import SVC
+    >>> # Create synthetic data
+    >>> X = pd.DataFrame({
+    ...     'feat1': [0.1, 0.3, 0.7, 1.2]*10,
+    ...     'feat2': [1.0, 1.5, 0.9, 0.3]*10
+    ... })
+    >>> y = pd.Series([0, 1, 0, 1]*10)
+    >>> # Define estimators & param grids
+    >>> ests = {'svc': SVC()}
+    >>> pgrids = {'svc': {'C': [1, 10], 'kernel': ['rbf','linear']}}
+    >>> # Create and run tuner
+    >>> tuner = BatchTuner(
+    ...     estimators=ests,
+    ...     param_grids=pgrids,
+    ...     strategy='RSCV',
+    ...     batch_size=2, 
+    ...     cv=2, 
+    ... )
+    >>> summary = tuner.fit(X, y)
+    >>> print(summary)
+    
+    Notes
+    -----
+    `BatchTuner` can be especially helpful when
+    datasets are large or when data is naturally
+    segmented. It harnesses parallel processing
+    to evaluate different portions of the data
+    simultaneously. After collecting results from
+    each batch, it identifies the best overall
+    parameters.
+    
+    See Also
+    --------
+    BaseOptimizer : Core class for optimization logic.
+    sklearn.model_selection.GridSearchCV : Exhaustive
+        parameter value search.
+    sklearn.model_selection.RandomizedSearchCV :
+        Random hyperparameter search.
+    
+    References
+    ----------
+    .. [1] Pedregosa, F. et al. *Scikit-learn: Machine
+       Learning in Python.* *J. Mach. Learn. Res.*, 12,
+       2825-2830, 2011.
+    """
+
+    def __init__(
+        self,
+        estimators,
+        param_grids,
+        strategy='GSCV',
+        scoring=None,
+        cv=None,
+        save_results=False,
+        n_jobs=-1,
+        batch_size: int = 2,
+        **search_kwargs
+    ):
+        # Initialize the parent class with standard arguments.
+        super().__init__(
+            estimators=estimators,
+            param_grids=param_grids,
+            strategy=strategy,
+            scoring=scoring,
+            cv=cv,
+            save_results=save_results,
+            n_jobs=n_jobs,
+            **search_kwargs
+        )
+        # Store user-defined batch size.
+        self.batch_size = batch_size
+
+    def fit(self, X, y):
+        # Validate search parameters and strategy.
+        self._validate_search_params()
+
+        # Total number of samples.
+        n_samples = len(X)
+        # fix batch_size for cv 
+        self.batch_size = fix_batch_size_for_cv(
+            X, y, 
+            batch_size=self.batch_size, 
+            cv= 5 if self.cv is None else self.cv 
+        )
+        # Number of full batches
+        n_batches = n_samples // self.batch_size
+        # Leftover samples if not perfectly divisible.
+        remainder = n_samples % self.batch_size
+
+        # Build list of (start_idx, end_idx) for each batch.
+        index_splits = []
+        start_idx = 0
+        for _ in range(n_batches):
+            end_idx = start_idx + self.batch_size
+            index_splits.append((start_idx, end_idx))
+            start_idx = end_idx
+        if remainder > 0:
+            index_splits.append((start_idx, start_idx + remainder))
+
+        # Store results across all estimators.
+        aggregator = {}
+
+        # Helper function to process one batch (parallelizable).
+        def process_batch(estimator, param_grid, start_idx, end_idx):
+            # Slice data for current batch.
+            X_chunk = X[start_idx:end_idx]
+            y_chunk = y[start_idx:end_idx]
+            # Instantiate chosen search method (GridSearch, etc.).
+            search_obj = self.strategy_(
+                estimator,
+                param_grid,
+                scoring=self.scoring,
+                cv=self.cv,
+                n_jobs=self.n_jobs,
+                **self.search_kwargs
+            )
+            # Fit the search object on the chunk.
+            search_obj.fit(X_chunk, y_chunk)
+        
+            # Return best results from that batch.
+            return {
+                "best_estimator_": search_obj.best_estimator_,
+                "best_params_":    search_obj.best_params_,
+                "best_score_":     search_obj.best_score_,
+                "cv_results_":     search_obj.cv_results_
+            }
+  
+        # For each estimator, run parallel search across batches.
+        names = list(self.generate_estimator_shortnames().keys())
+        for name,  est, param_grid in zip(
+                names,  self.estimators, self.param_grids
+                ):
+            # Execute each batch in parallel.
+            with Parallel(n_jobs=self.n_jobs, prefer="threads") as parallel:
+                batch_results = parallel(
+                    delayed(process_batch)(
+                        est,
+                        param_grid,
+                        start_idx,
+                        end_idx
+                    )
+                    for (start_idx, end_idx) in tqdm(
+                        index_splits,
+                        desc=f"[BatchTuner] {name}",
+                        ascii=True
+                    )
+                )
+
+            # Determine the best batch by highest score.
+            best_batch = max(batch_results, key=lambda r: r["best_score_"])
+            aggregator[name] = best_batch
+
+        # Optionally save results to file if requested.
+        if self.save_results:
+            self.save_results_to_file(aggregator)
+
+        # Build summary from aggregator.
+        summary = self.construct_model_summary(
+            aggregator,
+            descriptor="BatchTuner"
+        )
+
+        return summary
+
 
 @smartFitRun
 class OptimizeHyperparams(BaseOptimizer):
