@@ -255,8 +255,9 @@ class BatchTuner(BaseOptimizer):
         self.batch_size = fix_batch_size_for_cv(
             X, y, 
             batch_size=self.batch_size, 
-            cv= 5 if self.cv is None else self.cv 
-        )
+            cv= 5 if self.cv is None else self.cv, 
+            classification="auto"
+        ) 
         # Number of full batches
         n_batches = n_samples // self.batch_size
         # Leftover samples if not perfectly divisible.
