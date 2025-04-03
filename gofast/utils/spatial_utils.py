@@ -24,6 +24,7 @@ from scipy.spatial import cKDTree
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import seaborn as sns
 
 from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
@@ -54,6 +55,7 @@ from ..core.checks import (
     exist_features, 
     assert_ratio, 
     are_all_frames_valid, 
+    check_spatial_columns
     )
 from ..core.handlers import columns_manager, resolve_label  
 from ..core.io import SaveFile, is_data_readable 
@@ -107,8 +109,388 @@ __all__ = [
      'extract_zones_from', 
      'filter_position', 
      'create_spatial_clusters', 
+     'generate_negative_samples'
      
  ]
+
+
+@SaveFile
+@isdf
+def generate_negative_samples(
+    df: DataFrame,
+    target_col: str,
+    spatial_cols: Tuple [str, str]=('longitude', 'latitude'),
+    feature_cols: Optional[List[str]]=None,
+    buffer_km: float=10,
+    neg_feature_range: Tuple[float, float]=(0, 5),
+    num_neg_per_pos: int=1,
+    use_gpd: Union [bool, str]='auto',
+    view: bool=False,
+    savefile: Optional[str] = None, 
+    verbose: int=1
+):
+    r"""
+    Generate synthetic negative samples for spatial binary
+    classification tasks.
+    
+    This function creates additional samples labeled as
+    non-events within a specified spatial buffer around
+    the positive (event) observations. The main idea is to
+    generate negative examples that reflect realistic
+    conditions but have not triggered an event, thereby
+    assisting models in distinguishing occurrences from
+    non-occurrences [1]_.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input DataFrame containing the positive samples
+        (events). Must include both the target column
+        and the specified spatial columns.
+    target_col : str
+        Column name for the binary target (e.g.
+        `landslide`). Rows where this column is
+        1 (or True) are considered positive samples.
+    spatial_cols : tuple of str, default ('longitude', 'latitude')
+        Tuple specifying the longitude> and latitude
+        column names in `df`.
+    feature_cols : list of str or None, default None
+        List of feature columns to use or to simulate
+        for generated negatives. If ``None``, the
+        function automatically detects numeric and
+        categorical columns excluding `spatial_cols`
+        and `target_col`.
+    buffer_km : float, default 10
+        Spatial buffer in kilometers used to define
+        the radius around each positive sample
+        within which negative samples are created.
+    neg_feature_range : tuple of int, default (0, 5)
+        Value range (minimum, maximum) used for
+        simulating numeric feature values in negative
+        samples if the corresponding feature column
+        does not exist in `<df>`.
+    num_neg_per_pos : int, default 1
+        Number of negative samples to generate
+        per positive sample. For instance, if
+        ``num_neg_per_pos=2``, each positive sample
+        spawns two negatives.
+    use_gpd : str, default 'auto'
+        If set to 'auto', the function tries to
+        import GeoPandas for visualization. If
+        `'none'`, no GeoPandas usage will occur.
+    view : bool, default False
+        Whether to visualize the generated samples
+        on a map. Attempts to use `geopandas` if
+        installed; falls back to `matplotlib` if
+        `'auto'` is chosen and GeoPandas is not
+        available.
+    savefile : str or None, default None
+        Path to which the resulting DataFrame is
+        saved if provided. Handled by the decorator
+        that wraps this function.
+    verbose : int, default 1
+        Verbosity level. `0` for silent,
+        `1` for progress indication, `2` for
+        more messages, `3` for debugging output.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        Combined DataFrame with both original positive
+        samples and newly generated negative samples. The
+        `<target_col>` is 1 for positives and 0 for negatives.
+    
+    Methods
+    -------
+    `columns_manager`
+        This internal function is used to handle the
+        processing of columns for features and
+        spatial parameters.
+    
+    Notes
+    -----
+    - If a feature column exists in `df`, the negative
+      samples will copy or randomly select categories for
+      categorical columns, and sample integers within
+      ``neg_feature_range`` for numeric columns.
+    - If `feature_cols` is empty or does not exist
+      in `df`, the function simulates all values for
+      negative samples.
+    - When `view=True`, circles depicting the buffer
+      zone around each positive sample are drawn for
+      visualization.
+    - The approximation of 1° ~ 111 km varies slightly
+      depending on latitude [1]_.
+    
+    Mathematically, we define the spatial buffer in degrees
+    as:
+    
+    .. math::
+       \\Delta = \\frac{\\text{buffer_km}}{111.0},
+    
+    where :math:`111.0` km approximates the distance of
+    one degree of latitude or longitude [1]_. For each
+    positive sample at location :math:`(lat, lon)`,
+    we generate :math:`n` new points with offsets
+    :math:`\\delta_{lat}` and :math:`\\delta_{lon}`, each
+    drawn from a uniform distribution
+    :math:`U(-\\Delta, \\Delta)`:
+    
+    .. math::
+       \\begin{aligned}
+       &lat_{new} = lat + \\delta_{lat},\\\\
+       &lon_{new} = lon + \\delta_{lon}.
+       \\end{aligned}
+    
+    Combined with randomly sampled or inferred feature
+    values, these new samples serve as negative examples
+    for modeling tasks such as landslide prediction.
+    
+    Examples
+    --------
+    >>> from gofast.utils.spatial_utils import generate_negative_samples
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> df_pos = pd.DataFrame({
+    ...     'longitude': [113.5, 113.8],
+    ...     'latitude': [24.6, 24.9],
+    ...     'landslide': [1, 1]
+    ... })
+    >>> combined = generate_negative_samples(
+    ...     df=df_pos,
+    ...     target_col='landslide',
+    ...     buffer_km=10,
+    ...     num_neg_per_pos=2,
+    ...     view=False,
+    ...     verbose=2
+    ... )
+    >>> print(combined.head())
+    
+    See Also
+    --------
+    check_spatial_columns : Ensures the existence of
+                              required spatial columns.
+    exist_features : Verifies the presence of
+                       specified features in `<df>`.
+    columns_manager : Handles both feature and spatial
+                        columns for processing.
+    
+    References
+    ----------
+    .. [1] US National Geodetic Survey (NGS). "What is a
+           degree of Latitude/Longitude?"
+           (https://www.ngs.noaa.gov/).
+    """
+
+    # Validate input and columns
+    exist_features(df,
+                   features=target_col,
+                   name=f"Target '{target_col}'")
+
+    feature_cols = columns_manager(feature_cols)
+    spatial_cols = columns_manager(spatial_cols)
+    lon_col, lat_col = spatial_cols
+   
+    check_spatial_columns(df, spatial_cols=spatial_cols)
+    exist_features(df,
+                   features=spatial_cols,
+                   name="Spatial columns")
+    neg_feature_range= validate_length_range(
+        neg_feature_range, 
+        param_name="neg_feature_range"
+    )
+    num_neg_per_pos= validate_positive_integer(
+        num_neg_per_pos, 
+        "num_neg_per_pos", 
+    )
+    
+    # If no feature_cols provided, auto-detect from remaining columns
+    if feature_cols is None:
+        excluded_cols = list(spatial_cols) + [target_col]
+        feature_cols = [
+            col for col in df.columns
+            if col not in excluded_cols
+        ]
+        if verbose >= 2:
+            print(f"[INFO] Auto-detected feature_cols:"
+                  f" {feature_cols}")
+
+    feature_cols = columns_manager(feature_cols,
+                                   empty_as_none=False)
+
+    if len(feature_cols) == 0:
+        raise ValueError("No feature columns found. Please "
+                         "specify `feature_cols` explicitly.")
+
+    # Warn if a feature column does not exist in df
+    for col in feature_cols:
+        if col not in df.columns and verbose >= 2:
+            print(f"[WARN] Feature column '{col}' not "
+                  "found in df; it will be simulated.")
+
+    # Check GeoPandas
+    HAS_GPD = False
+    try:
+        import geopandas as gpd
+        from shapely.geometry import Point
+        HAS_GPD = True
+    except ImportError:
+        HAS_GPD = False
+
+
+    # Buffer conversion (km -> deg)
+    buffer_deg = buffer_km / 111.0
+
+    if verbose >= 2:
+        print(f"[INFO] Generating negative samples within "
+              f"{buffer_km} km buffer zones.")
+    if verbose >= 3:
+        print(f"[DEBUG] Buffer in degrees: {buffer_deg:.4f}")
+
+    # Generate negative samples per row
+    negative_samples = []
+    iterator = df.iterrows()
+    if verbose >= 1 and HAS_TQDM:
+        iterator = tqdm(
+            iterator,
+            total=len(df),
+            desc="Generating negatives"
+        )
+
+    for _, row in iterator:
+        for _ in range(num_neg_per_pos):
+            lat_offset = np.random.uniform(-buffer_deg,
+                                           buffer_deg)
+            lon_offset = np.random.uniform(-buffer_deg,
+                                           buffer_deg)
+            new_lat = row[lat_col] + lat_offset
+            new_lon = row[lon_col] + lon_offset
+
+            sample = {
+                lat_col: new_lat,
+                lon_col: new_lon,
+                target_col: 0
+            }
+
+            # Simulate or copy feature columns for negs
+            for col in feature_cols:
+                # Categorical features
+                if (df[col].dtype == 'object'
+                   or df[col].dtype.name == 'category'):
+                    unique_vals = (df[col].dropna()
+                                      .unique())
+                    if len(unique_vals) > 0:
+                        sample[col] = np.random.choice(
+                                          unique_vals
+                                       )
+                    else:
+                        sample[col] = None
+                # Numeric features
+                elif np.issubdtype(df[col].dtype,
+                                   np.number):
+                    sample[col] = np.random.randint(
+                        neg_feature_range[0],
+                        neg_feature_range[1] + 1
+                    )
+                else:
+                    sample[col] = None
+
+            negative_samples.append(sample)
+
+    df_negative = pd.DataFrame(negative_samples)
+
+    # Label positive set and combine
+    df_positive = df.copy()
+    df_positive[target_col] = 1
+
+    combined = pd.concat([df_positive, df_negative],
+                         ignore_index=True)
+
+    if verbose >= 2:
+        print(f"[INFO] Final dataset: {len(df_positive)} "
+              f"positive and {len(df_negative)} negative "
+              f"samples.")
+
+
+    # Optional View/Plot
+    if view:
+        if (use_gpd == 'auto') and HAS_GPD:
+            if verbose >= 2:
+                print("[INFO] Visualizing with GeoPandas.")
+
+            geometry = [
+                Point(xy) for xy in zip(
+                    combined[lon_col],
+                    combined[lat_col]
+                )
+            ]
+            gdf = gpd.GeoDataFrame(combined,
+                                   geometry=geometry)
+
+            fig, ax = plt.subplots(figsize=(10, 8))
+            for label, color, name in zip(
+                [1, 0],
+                ['red', 'green'],
+                ['Positive', 'Negative']
+            ):
+                gdf[gdf[target_col] == label].plot(
+                    ax=ax,
+                    color=color,
+                    label=f"{name} Sample",
+                    markersize=50
+                )
+
+            for _, row in df_positive.iterrows():
+                circle = plt.Circle(
+                    (row[lon_col], row[lat_col]),
+                    buffer_deg,
+                    color='blue',
+                    alpha=0.2
+                )
+                ax.add_patch(circle)
+
+        else:
+            if verbose >= 2:
+                print("[INFO] Visualizing with Matplotlib.")
+
+            fig, ax = plt.subplots(figsize=(10, 8))
+            for label, color, name in zip(
+                [1, 0],
+                ['red', 'green'],
+                ['Positive', 'Negative']
+            ):
+                subset = combined[combined[target_col]
+                                  == label]
+                ax.scatter(subset[lon_col],
+                           subset[lat_col],
+                           color=color,
+                           label=f"{name} Sample",
+                           s=50)
+
+            for _, row in df_positive.iterrows():
+                circle = plt.Circle(
+                    (row[lon_col], row[lat_col]),
+                    buffer_deg,
+                    color='blue',
+                    alpha=0.2
+                )
+                ax.add_patch(circle)
+
+        ax.set_title("Negative Sample Generation with "
+                     "Spatial Buffers")
+        ax.set_xlabel("Longitude")
+        ax.set_ylabel("Latitude")
+        ax.legend(handles=[
+            Patch(color='red', label='Positive Samples'),
+            Patch(color='green', label='Negative Samples'),
+            Patch(color='blue', alpha=0.2,
+                  label=f"{buffer_km} km Buffer")
+        ])
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+
+    return combined
 
 @SaveFile 
 @isdf 
