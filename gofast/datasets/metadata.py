@@ -2847,6 +2847,53 @@ DESCR_METADATA={
             ),
         },
     },
+    "simulate_landslide_data": {
+    "overview": (
+        "Simulated Landslide Dataset models geospatial landslide events "
+        "based on environmental, geological, and meteorological factors. "
+        "It generates synthetic positive samples (landslide occurrences) and "
+        "plausible negative samples (no landslide), following spatiotemporal "
+        "constraints such as rainfall timing, terrain slope, and proximity. "
+        "The dataset is designed for training and evaluating binary "
+        "classification or early-warning systems for landslide prediction."
+    ),
+    "features": {
+        "latitude": (
+            "Latitude coordinate of the sample point, representing its spatial "
+            "position in a georeferenced system."
+        ),
+        "longitude": (
+            "Longitude coordinate of the sample point, forming the spatial "
+            "reference with latitude."
+        ),
+        "date": (
+            "The event date associated with the landslide or reference date "
+            "used for negative samples. Enables temporal alignment of rainfall."
+        ),
+        "slope": (
+            "Slope angle (in degrees) at the sample location, representing "
+            "terrain steepness — a critical landslide risk factor."
+        ),
+        "rainfall_day_* or rainfall_-X_to_-Y": (
+            "Rainfall indicators over a configurable time window before the "
+            "event date. Can be generated as a single list or multiple daily "
+            "columns depending on the `flatten_rainfall` setting."
+        ),
+        "soil_type": (
+            "Optional categorical feature representing the type of soil "
+            "(e.g., argile, sable, limon), if enabled in the simulation."
+        ),
+        "geology": (
+            "Optional geological unit or rock type (e.g., granite, schiste, "
+            "calcaire) at the sample site, if enabled in the simulation."
+        ),
+        "landslide": (
+            "Target label for classification. 1 = landslide (positive sample), "
+            "0 = no landslide (negative sample)."
+        ),
+    },
+ }
+
 }
 
 

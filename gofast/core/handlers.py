@@ -1533,7 +1533,8 @@ def add_noises_to(
     noise=0.1, 
     seed=None, 
     gaussian_noise=False,
-    cat_missing_value=pd.NA
+    cat_missing_value=pd.NA, 
+    ex_columns=None,
     ):
     """
     Adds NaN or specified missing values to a pandas DataFrame.
@@ -1565,7 +1566,9 @@ def add_noises_to(
     cat_missing_value : scalar, default=pd.NA
         The value to use for missing data in categorical columns. By 
         default, `pd.NA` is used.
-
+    ex_columns: optional , str or list of str, 
+       If provided, then noise is not applied to that/these column(s). 
+       
     Returns
     -------
     pandas.DataFrame
@@ -1626,10 +1629,14 @@ def add_noises_to(
     if noise is None: 
         return data 
     noise, gaussian_noise  = _parse_gaussian_noise (noise )
-
+    
+    ex_columns = columns_manager(ex_columns)
     if gaussian_noise:
         # Add Gaussian noise to numerical columns only
         def add_gaussian_noise(column):
+            # Skip modification if the column is in the exclusion list.
+            if ex_columns is not None and column in ex_columns:
+                return column
             if pd.api.types.is_numeric_dtype(column):
                 return column + np.random.normal(0, noise, size=column.shape)
             return column
@@ -1645,6 +1652,8 @@ def add_noises_to(
         nan_count_per_column = int(noise * len(df_with_nan))
 
         for column in df_with_nan.columns:
+            if ex_columns is not None and column in ex_columns:
+                continue  # Skip columns that should not be modified.
             nan_indices = random.sample(range(len(df_with_nan)), nan_count_per_column)
             if pd.api.types.is_numeric_dtype(df_with_nan[column]):
                 df_with_nan.loc[nan_indices, column] = np.nan

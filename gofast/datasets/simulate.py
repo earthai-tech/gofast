@@ -5,7 +5,8 @@
 Provides functions for simulating synthetic datasets across various domains,
 including environment, energy, customer behavior, and more.
 """
-
+from __future__ import annotations 
+from typing import List, Optional 
 import datetime
 import inspect
 import warnings 
@@ -39,7 +40,8 @@ from .util import (
     select_location_for_mineral,
     validate_loan_parameters,
     validate_noise_level,
-    validate_region
+    validate_region, 
+    get_random_soil_and_geology
 )
 
 __all__ = [
@@ -68,6 +70,387 @@ __all__ = [
     "simulate_traffic_data"
 ]
 
+
+def simulate_landslide_data(
+    *,
+    n_events: int = 572,
+    buffer_km: float = 10.0,
+    noise_level: float = 0.1,
+    randomize_dates: bool = True,
+    start_date: str = "2022-01-01",
+    end_date: str = "2022-12-31",
+    add_soil: bool = True,
+    add_geology: bool = True,
+    neg_rainfall_range: tuple = (0, 5),
+    pos_rainfall_range: tuple = (20, 40),
+    slope_range: tuple = (20, 45),
+    lat_range: tuple = (24.0, 25.0),
+    lon_range: tuple = (113.0, 114.0),
+    n_rainfall_days: int = 5,
+    flatten_rainfall: bool = False,
+    as_frame: bool = False,
+    return_X_y: bool = False,
+    target_name: list = None,
+    n_samples: Optional[int] = None,
+    soil_types: Optional[List[str]] = None,
+    geology_types: Optional[List[str]] = None,
+    seed: Optional[int] = None,
+):
+    """
+    Simulate realistic landslide data, including spatial
+    coordinates, rainfall patterns, and optional soil or
+    geology types.
+    
+    This function generates both positive (landslide)
+    and negative (no landslide) samples by randomly
+    sampling within specified spatial bounds and time
+    intervals. It then offsets the location of each
+    positive sample to create a nearby negative sample
+    if `<buffer_km>` is nonzero [1]_. The approximate
+    distance conversion is:
+    
+    .. math::
+       \\Delta = \\frac{\\text{buffer\\_km}}{111.0},
+    
+    where :math:`111.0` km is an estimate of how many
+    kilometers correspond to 1 degree of latitude
+    or longitude.
+    
+    Parameters
+    ----------
+    n_events : int, default 572
+        Number of positive (landslide) events to
+        simulate. Each such event generates one
+        corresponding negative sample in a nearby
+        location.
+    buffer_km : float, default 10.0
+        Radius in kilometers around each positive
+        sample within which a negative sample is
+        spawned. If ``0.0``, the negative sample
+        is not offset spatially.
+    noise_level : float, default 0.1
+        Proportion of noise injected into numeric
+        features. The function `<manage_data>`
+        handles this noise parameter internally.
+    randomize_dates : bool, default True
+        Whether to assign each event date randomly
+        within the available date range. If
+        ``False``, events are spaced sequentially.
+    start_date : str, default ``"2022-01-01"``
+        Beginning of the date range within which
+        events can occur.
+    end_date : str, default ``"2022-12-31"``
+        End of the date range for event generation.
+    add_soil : bool, default True
+        Whether to include a soil type column
+        in the simulated dataset. If ``True``,
+        random soil types are selected from
+        `soil_types`.
+    add_geology : bool, default True
+        Whether to include a geology type column
+        in the simulated dataset. If ``True``,
+        random geology types are selected from
+        `geology_types`.
+    neg_rainfall_range : tuple, default (0, 5)
+        Integer range from which rainfall values
+        are sampled for negative (no event)
+        examples.
+    pos_rainfall_range : tuple, default (20, 40)
+        Integer range for rainfall in positive
+        (landslide) examples.
+    slope_range : tuple, default (20, 45)
+        Float range within which slope values are
+        drawn for each sample.
+    lat_range : tuple, default (24.0, 25.0)
+        Latitude range for all simulated points.
+    lon_range : tuple, default (113.0, 114.0)
+        Longitude range for all simulated points.
+    n_rainfall_days : int, default 5
+        Number of consecutive rainfall days to
+        simulate for each event. If `<flatten_rainfall>`
+        is False, these days are stored in a single
+        array column. Otherwise, each day is a
+        separate column.
+    flatten_rainfall : bool, default False
+        Whether to store rainfall values per day in
+        separate columns (`rainfall_day_1`, etc.)
+        instead of one column of lists.
+    as_frame : bool, default False
+        If ``True``, the returned structure is a
+        pandas DataFrame or a Bunch-like object
+        containing a DataFrame. Otherwise, a
+        NumPy array (or tuple) may be returned.
+    return_X_y : bool, default False
+        If ``True``, returns features and target
+        separately rather than a single dataset
+        object or DataFrame.
+    target_name : list, optional
+        Name(s) of the target column(s). Defaults
+        to ``["landslide"]`` if not provided.
+    n_samples : int, optional
+        If specified, triggers an automatic
+        adjustment of `n_events` and the number
+        of available dates to match the requested
+        total samples. 
+    soil_types : list of str, optional
+        Custom soil types to sample from if
+        `add_soil` is True. If not provided,
+        the function supplies default options.
+    geology_types : list of str, optional
+        Custom geology types for `add_geology`.
+        If not specified, default categories are
+        used.
+    seed : int, optional
+        Random seed for reproducibility. Affects
+        location, rainfall, and soil/geology
+        sampling.
+    
+    Returns
+    -------
+    pandas.DataFrame or tuple
+        Simulated dataset containing both positive
+        and negative landslide samples. If
+        `<return_X_y>` is True, returns a tuple
+        ``(X, y)``. If `<as_frame>` is True,
+        returns a DataFrame or Bunch; otherwise,
+        may return arrays.
+    
+
+    Notes
+    -----
+    - The positive and negative samples have
+      uniform random placement within `<lat_range>`
+      and `<lon_range>`. The negative sample for
+      each event is offset by up to
+      ``buffer_km / 111.0`` degrees.
+    - If `<start_date>` and `<end_date>` do not
+      match `<n_samples>`, a subset of dates is
+      selected.
+    - Rainfall values are either flattened into
+      multiple columns or stored in a single
+      column (list of days) based on
+      `<flatten_rainfall>`.
+    
+    Examples
+    --------
+    >>> from gofast.datasets.simulate import simulate_landslide_data
+    >>> data = simulate_landslide_data(
+    ...     n_events=10,
+    ...     pos_rainfall_range=(30, 50),
+    ...     buffer_km=5.0,
+    ...     randomize_dates=True,
+    ...     seed=42
+    ... )
+    >>> print(data.head())
+    
+    See Also
+    --------
+    simulate_landfill_capacity: Simulate dataset of landfill 
+       capacity measurements across various locations over a 
+       specified time period.
+    
+    References
+    ----------
+    .. [1] USGS (2020). "Factors Influencing
+           Landslides" in "Landslide Hazards
+           Program".
+    """
+
+    # Fetch the function name for logging/metadata
+    func_name = inspect.currentframe().f_code.co_name
+    
+    # Retrieve dataset and feature metadata
+    dataset_descr, features_descr = fetch_simulation_metadata(
+        func_name
+    )
+    # validate ranges 
+    slope_range = validate_length_range(
+        slope_range, sorted_values= False , 
+        param_name="Slope Range", 
+        )
+    lat_range = validate_length_range(
+        lat_range, 
+        param_name ="Latitude Range", 
+    )
+    lon_range = validate_length_range(
+        lon_range, 
+        param_name ="Longitude Range", 
+     )
+    
+    # Set a seed for reproducibility, if provided
+    np.random.seed(seed)
+    
+    # Acquire (or generate) soil/geology type lists
+    soil_types, geology_types = get_random_soil_and_geology(
+        soil_types=soil_types,
+        geology_types=geology_types,
+        seed=seed, 
+        n="*", 
+    )
+   
+    # Validate and parse date inputs; convert if needed
+    start_date, end_date = validate_dates(
+        start_date,
+        end_date,
+        return_as_date_str=True
+    )
+    
+    # Generate a range of dates between start and end
+    dates = pd.date_range(start=start_date, end=end_date)
+
+    # If n_samples is specified, adjust the parameters
+    # accordingly (number of events, etc.)
+    if n_samples:
+        adjust_params = adjust_parameters_to_fit_samples(
+            n_samples,
+            initial_guesses={
+                "n_events": n_events,
+                "n_days": len(dates)
+            }
+        )
+        n_events = adjust_params.get("n_events", 7)
+        n_days = adjust_params.get("n_days", 7)
+        dates = dates[:n_days]
+
+    # Create dynamic column names for rainfall windows
+    rainfall_col_pos = f"rainfall_-{n_rainfall_days}_to_-1"
+    rainfall_col_neg = (
+        f"rainfall_-{n_rainfall_days + 5}_to_-6"
+    )
+
+    # Lists for storing positive/negative samples
+    positives, negatives = [], []
+
+    # Main loop for simulating data
+    for i in range(n_events):
+        # Generate random location within lat/lon range
+        lat = np.random.uniform(*lat_range)
+        lon = np.random.uniform(*lon_range)
+
+        # Generate slope within specified range
+        slope = np.random.uniform(*slope_range)
+
+        # Generate rainfall arrays for positives/negatives
+        rain_pos = np.random.randint(
+            *pos_rainfall_range,
+            size=n_rainfall_days
+        )
+        rain_neg = np.random.randint(
+            *neg_rainfall_range,
+            size=n_rainfall_days
+        )
+
+        # Pick an event date (random or sequential)
+        if randomize_dates:
+            event_date = np.random.choice(dates)
+        else:
+            event_date = dates[i % len(dates)]
+
+        # If required, pick random soil/geology
+        soil = (
+            np.random.choice(soil_types)
+            if add_soil else None
+        )
+        geology = (
+            np.random.choice(geology_types)
+            if add_geology else None
+        )
+
+        # -------------- Positive Sample --------------
+        pos_sample = {
+            "id": generate_custom_id(
+                length=8,
+                prefix="POS-",
+                include_timestamp=False,
+                numeric_only=False
+                ),
+            "longitude": lon,
+            "latitude": lat,
+            "date": event_date,
+            "slope": slope,
+            "landslide": 1
+        }
+
+        # Decide whether rainfall is flattened or chunked
+        if flatten_rainfall:
+            for j in range(n_rainfall_days):
+                pos_sample[f"rainfall_day_{j + 1}"] = (
+                    rain_pos[j]
+                )
+        else:
+            pos_sample[rainfall_col_pos] = (
+                rain_pos.tolist()
+            )
+
+        # Add soil/geology if requested
+        if add_soil:
+            pos_sample["soil_type"] = soil
+        if add_geology:
+            pos_sample["geology"] = geology
+
+        # -------------- Negative Sample --------------
+        # Offset location within the buffer
+        lat_offset = np.random.uniform(
+            -buffer_km / 111,
+            buffer_km / 111
+        )
+        lon_offset = np.random.uniform(
+            -buffer_km / 111,
+            buffer_km / 111
+        )
+
+        neg_sample = {
+            "id": generate_custom_id(
+                length=8,
+                prefix="NEG-",
+                include_timestamp=False,
+                numeric_only=False
+                ),
+            "longitude": lon + lon_offset,
+            "latitude": lat + lat_offset,
+            "date": event_date,
+            "slope": slope + np.random.uniform(-2, 2),
+            "landslide": 0
+        }
+
+        # Decide whether rainfall is flattened or chunked
+        if flatten_rainfall:
+            for j in range(n_rainfall_days):
+                neg_sample[f"rainfall_day_{j + 1}"] = (
+                    rain_neg[j]
+                )
+        else:
+            neg_sample[rainfall_col_neg] = (
+                rain_neg.tolist()
+            )
+
+        # Add soil/geology if requested
+        if add_soil:
+            neg_sample["soil_type"] = soil
+        if add_geology:
+            neg_sample["geology"] = geology
+
+        # Collect both positive and negative samples
+        positives.append(pos_sample)
+        negatives.append(neg_sample)
+
+    # Combine into a DataFrame
+    df = pd.DataFrame(positives + negatives)
+
+    # Default target name if not specified
+    target_name = target_name or ["landslide"]
+
+    # Final data management (noise, format, etc.)
+    return manage_data(
+        data=df,
+        as_frame=as_frame,
+        return_X_y=return_X_y,
+        target_names=target_name,
+        noise=noise_level,
+        DESCR=dataset_descr,
+        FDESCR=features_descr,
+        ex_columns=['id', 'longitude', 'latitude'], 
+    )
 
 def simulate_electricity_data(
     *,
