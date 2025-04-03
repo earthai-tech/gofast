@@ -11,14 +11,14 @@ import inspect
 
 from typing import ( 
     Union, Optional, 
-    Dict, Any, List
+    Dict, Any, List, 
 )
 import numpy as np 
 import pandas as pd 
 
 __all__ =['verify_identical_items', 'vlog', 'detect_dt_format',
           'get_actual_column_name', 'transform_contributions', 
-          'exclude_duplicate_kwargs']
+          'exclude_duplicate_kwargs', 'reorder_columns']
 
 def verify_identical_items(
     list1, 
@@ -790,3 +790,197 @@ def exclude_duplicate_kwargs(
     }
 
     return safe_kwargs
+
+def reorder_columns(
+    df: pd.DataFrame,
+    columns: Union[str, List[str]],
+    pos: Union[str, int, float] = "end"
+):
+    """
+    Reorder columns in a DataFrame by moving specified
+    columns to a chosen position.
+
+    This function locates `<columns>` in the original
+    DataFrame `<df>` and rearranges them based on the
+    parameter ``pos``. If ``pos`` is `"end"`, columns
+    are appended to the end. If `"begin"` or `"start"`,
+    they are placed at the front. If `"center"`, they
+    are inserted at the midpoint:
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input DataFrame to be modified.
+
+    columns : str or iterable of str
+        A single column name or multiple column
+        names to reposition. If a single string is
+        given, it is converted to a list with one
+        element.
+
+    pos : str, int, or float, default ``"end"``
+        Determines the target placement:
+          - ``"end"``: Append after all other
+            columns.
+          - ``"begin"`` or ``"start"``: Prepend at
+            the start.
+          - ``"center"``: Insert at the midpoint of
+            remaining columns.
+          - integer or float: Insert at zero-based
+            index among the remaining columns. If
+            out of bounds, the original DataFrame is
+            returned unchanged.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A new DataFrame with `<columns>` moved as
+        specified by ``pos``.
+
+    Methods
+    -------
+    `reorder_columns_in`
+        This method rearranges columns without
+        altering values or data order beyond column
+        placement.
+
+    Notes
+    -----
+    - The function checks if `<columns>` exist in
+      `<df>`, ignoring columns not present.
+    - A warning is issued if the position is beyond
+      the range of valid indices.
+    - Negative indices for integer ``pos`` are
+      converted to positive by adding the total
+      number of remaining columns.
+      
+    .. math::
+       i_{\\text{center}} = \\left\\lfloor
+           \\frac{|R|}{2}
+       \\right\\rfloor,
+
+    where :math:`|R|` is the number of remaining
+    columns after removing the target columns [1]_.
+    For integer or float ``pos``, the target columns
+    are inserted at index :math:`\\lfloor pos
+    \\rfloor` among the remaining columns.
+
+    Examples
+    --------
+    >>> from gofast.utils.generic_utils import reorder_columns
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({
+    ...     'id': [1, 2, 3],
+    ...     'latitude': [10.1, 10.2, 10.3],
+    ...     'landslide': [0, 1, 0],
+    ...     'longitude': [20.1, 20.2, 20.3]
+    ... })
+    >>> # Move 'landslide' to the end (default)
+    >>> reorder_columns(data, 'landslide', pos="end")
+       id  latitude  longitude  landslide
+    0   1      10.1       20.1          0
+    1   2      10.2       20.2          1
+    2   3      10.3       20.3          0
+
+    See Also
+    --------
+    pandas.DataFrame.reindex : Pandas method for
+                                 reindexing or
+                                 reordering columns
+                                 more generally.
+
+    References
+    ----------
+    .. [1] Wes McKinney. "Python for Data Analysis,"
+           2nd Edition, O'Reilly Media.
+    """
+    # Validate that the input 'df' is a pandas DataFrame
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(
+            f"Expect dataframe. Got {type(df).__name__!r}"
+        )
+
+    # Normalize 'columns' to a list of strings
+    if isinstance(columns, str):
+        columns = [columns]
+    elif not isinstance(columns, (list, tuple, set)):
+        raise TypeError(
+            "columns must be a string or an "
+            "iterable of strings."
+        )
+
+    # Filter out columns that are actually in df
+    valid_targets = [
+        col for col in columns if col in df.columns
+    ]
+    if not valid_targets:
+        raise ValueError(
+            "None of the specified columns were "
+            "found in the DataFrame."
+        )
+
+    # Create a list of remaining columns while
+    # preserving their original order
+    remaining_columns = [
+        col for col in df.columns if col not in
+        valid_targets
+    ]
+
+    # Maintain the original target columns' order
+    target_order = [
+        col for col in df.columns if col in
+        valid_targets
+    ]
+
+    # Compute new order based on 'pos'
+    if isinstance(pos, str):
+        pos_lower = pos.lower()
+        if pos_lower == "end":
+            new_order = remaining_columns + target_order
+        elif pos_lower in ("begin", "start"):
+            new_order = target_order + remaining_columns
+        elif pos_lower == "center":
+            center_index = len(remaining_columns) // 2
+            new_order = (
+                remaining_columns[:center_index]
+                + target_order
+                + remaining_columns[center_index:]
+            )
+        else:
+            try:
+                pos = int(pos)
+            except Exception as e:
+                raise ValueError(
+                    f"Unrecognized string value for pos:"
+                    f" {pos}"
+                ) from e
+
+    # If 'pos' is numeric, insert the columns at
+    # that position
+    if isinstance(pos, (int, float)):
+        pos_int = int(pos)
+        # Check if pos_int is within bounds
+        if (pos_int > len(remaining_columns)
+           or pos_int < -len(remaining_columns)):
+            warnings.warn(
+                "Position is out of bounds. Skipping "
+                "moving columns."
+            )
+            return df
+        # Convert negative index to positive
+        if pos_int < 0:
+            pos_int = len(remaining_columns) + pos_int
+        new_order = (
+            remaining_columns[:pos_int]
+            + target_order
+            + remaining_columns[pos_int:]
+        )
+    else:
+        # If it's not a recognized type, raise an error
+        if not isinstance(pos, str):
+            raise TypeError(
+                "pos must be a string, integer, or float."
+            )
+
+    # Return the DataFrame with the new column order
+    return df[new_order]

@@ -3361,7 +3361,7 @@ def validate_length_range(length_range, sorted_values=True, param_name=None):
     Parameters:
     ----------
     length_range : tuple
-        A tuple containing two integers that represent the minimum and maximum
+        A tuple containing two values that represent the minimum and maximum
         lengths of reviews.
     sorted_values: bool, default=True 
         If True, the function expects the input length range to be sorted in 
@@ -3398,7 +3398,7 @@ def validate_length_range(length_range, sorted_values=True, param_name=None):
 
     if not all(isinstance(x, ( float, int, np.integer, np.floating)
                           ) for x in length_range):
-        raise ValueError(f"Both elements in {param_name} must be integers.")
+        raise ValueError(f"Both elements in {param_name} must be numeric.")
     
     if sorted_values: 
         length_range  = tuple  (sorted ( [min_length, max_length] )) 
