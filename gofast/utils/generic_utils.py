@@ -225,8 +225,8 @@ def vlog(
     >>> # Example with mode='log'
     >>> # This prints only if global or passed-in
     >>> # verbose >= 4.
-    >>> vlog("Check debugging details.", verbose=3, level=4,
-    ...      mode='log')
+    >>> vlog("Check debugging details.", verbose=3, 
+    ...      level=4, mode='log')
     >>> # Example with mode='naive'
     >>> # If verbose=2, it displays as [INFO] prefixed.
     >>> vlog("Loading data...", verbose=2, mode='naive')

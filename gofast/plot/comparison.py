@@ -3711,18 +3711,3 @@ def plot_variability(
     
     return fig
 
-
-# nansha_sample.columns
-# Out[205]: 
-# Index(['longitude', 'latitude', 'year', 'building_concentration', 'geology',
-#        'GWL', 'rainfall_mm', 'normalized_seismic_risk_score', 'soil_thickness',
-#        'subsidence'],
-#       dtype='object')
-
-# Index(['longitude', 'latitude', 'year', 'GWL', 'seismic_risk_score',
-#        'rainfall_mm', 'subsidence', 'geological_category',
-#        'normalized_density', 'density_tier', 'subsidence_intensity',
-#        'density_concentration', 'normalized_seismic_risk_score',
-#        'rainfall_category'],
-#       dtype='object')
-     
