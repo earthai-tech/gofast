@@ -63,6 +63,7 @@ from .feature_analysis import (
     plot_regularization_path, 
     plot_feature_importances, 
    )
+from .grid import plot_feature_dist_grid
 from .inspection  import ( 
     plot_learning_inspection, 
     plot_learning_inspections, 
@@ -116,7 +117,8 @@ from .spatial import (
     plot_dist,
     plot_categories_dist,
     plot_spatial_features, 
-    plot_hotspot_map
+    plot_hotspot_map, 
+    plot_sampling_map
 )
 from .suite import (
     plot_sensitivity, 
@@ -157,6 +159,8 @@ __all__= [
     "two_ring_donuts",
     "plot_contrib", 
     'plot_radial_groups', 
+    
+    'plot_feature_dist_grid', 
     
     'plot_feature_trend', 
     'plot_density', 
@@ -236,7 +240,8 @@ __all__= [
     "plot_r_squared",
     "plot_text", 
     "plot_spatial_features", 
-    "plot_hotspot_map", 
+    "plot_hotspot_map",
+    "plot_sampling_map", 
     "plot_categorical_feature", 
     "plot_sensitivity", 
     "plot_categories_dist", 

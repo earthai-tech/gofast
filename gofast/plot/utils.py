@@ -64,7 +64,6 @@ _param_defaults = {
     'value_name': "Values", 
 }
 
-
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE("my_r-squared_plot.png"), 
     fig_size = (10, 6), 
@@ -2519,3 +2518,4 @@ def _set_defaults(**kwargs):
             params[key] = value
 
     return params
+

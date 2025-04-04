@@ -162,7 +162,8 @@ from ..compat.types import (
     NewType,
     TypedDict,
     Generator,
-    TypeGuard
+    TypeGuard, 
+    Literal
 )
 
 
@@ -173,6 +174,7 @@ __all__ = [
     "Dict", 
     "Iterable",
     "Callable",
+    "Literal", 
     "Any",
     "Pattern", 
     "Generic", 

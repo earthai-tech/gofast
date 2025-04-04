@@ -176,6 +176,7 @@ MODULE_MAPPING = {
         'stats_from_prediction',
         'stratify_categories', 
         'encode_target',
+        'groupwise_train_test_split', 
     ], 
     'sys_utils': [
         'WorkflowOptimizer',
@@ -195,6 +196,10 @@ MODULE_MAPPING = {
         'extract_zones_from', 
         'filter_position', 
         'create_spatial_clusters', 
+        'gen_negative_samples', 
+        'gen_buffered_negative_samples', 
+        'gen_negative_samples_plus', 
+        
         ]
 }
 

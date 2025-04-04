@@ -6,20 +6,623 @@
 Provides common helper functions and for validation, 
 comparison, and other generic operations
 """
+import re
 import warnings
 import inspect
 
 from typing import ( 
     Union, Optional, 
-    Dict, Any, List, 
+    Dict, Any, List,
+    Literal
 )
 import numpy as np 
 import pandas as pd 
 
 __all__ =['verify_identical_items', 'vlog', 'detect_dt_format',
           'get_actual_column_name', 'transform_contributions', 
-          'exclude_duplicate_kwargs', 'reorder_columns']
+          'exclude_duplicate_kwargs', 'reorder_columns',
+          'find_id_column', 'check_group_column_validity']
 
+def check_group_column_validity(
+    df: pd.DataFrame,
+    group_col: str,
+    ops: str = 'check_only',  
+    max_unique: int = 10,
+    auto_bin: bool = False,
+    bins: int = 4,
+    error: str = "warn",      
+    bin_labels: Optional[List[str]] = None,
+    verbose: bool = True
+) -> Union[pd.DataFrame, bool]:
+    """
+    Checks and optionally transforms a numeric group column,
+    providing flexibility for categorical plots or group-based
+    operations. Depending on ``ops``, it may simply validate,
+    apply binning, or return a boolean status of validity.
+
+    Internally, the function compares the number of unique
+    values in `group_col` to ``max_unique``. If the column is
+    numeric and exceeds this threshold, it may require binning
+    or triggers a warning/error based on ``error``.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input DataFrame holding the data to be examined.
+    group_col : str
+        Name of the column in ``df`` that may be treated as
+        a grouping or categorical variable in plots.
+    ops : {'check_only', 'binning', 'validate'}, optional
+        Defines the operation mode:
+        - ``"check_only"`` : Returns a boolean indicating
+          whether `group_col` is valid as categorical.
+        - ``"binning"`` : Bins `group_col` if necessary,
+          returning a modified DataFrame.
+        - ``"validate"`` : Acts like ``"check_only"``, but
+          raises or warns if invalid, depending on
+          ``error``.
+    max_unique : int
+        Maximum allowable unique numeric values to consider
+        `group_col` categorical.
+    auto_bin : bool
+        Whether to auto-bin if `group_col` is invalid and
+        ``ops='binning'``. If False, a warning/error may
+        appear.
+    bins : int
+        Number of quantile bins to create if binning is
+        used. Must be an integer >= 1.
+    error : {'warn', 'raise', 'ignore'}, optional
+        Determines how validation issues are handled:
+        - ``"warn"`` : Prints a warning message.
+        - ``"raise"`` : Raises a ValueError.
+        - ``"ignore"`` : Does nothing.
+    bin_labels : list of str, optional
+        Custom labels for the binned categories if used.
+        If None, default labels like "Q1", "Q2", etc. are
+        generated.
+    verbose : bool, optional
+        Whether to print informational messages when
+        transformations or warnings occur.
+
+    Returns
+    -------
+    bool or pandas.DataFrame
+        - If ``ops="check_only"``, a boolean indicating
+          whether `group_col` can be used as a category.
+        - Otherwise, a pandas DataFrame (possibly with
+          a transformed `group_col`).
+
+    Notes
+    -----
+    If ``ops="validate"`` and `group_col` is numeric with
+    many unique values, the function may raise or warn,
+    based on the ``error`` argument. If ``auto_bin=True``,
+    it automatically switches to ``"binning"``.
+    
+    Mathematically, if the user chooses quantile binning, then
+    :math:`bins` equally spaced quantiles are computed:
+
+    .. math::
+       Q_i = \\text{quantile}\\bigl(
+       \\frac{i}{\\text{bins}}\\bigr),
+       \\quad i = 1,2,\\ldots,\\text{bins}
+
+    where each :math:`Q_i` is the i-th quantile boundary of
+    the distribution of `group_col`.
+
+    Examples
+    --------
+    >>> from gofast.utils.generic_utils import check_group_column_validity
+    >>> import pandas as pd
+    >>> data = {
+    ...     "value": [10.5, 11.2, 9.8, 15.6, 12.0],
+    ...     "category": ["A", "B", "B", "A", "C"]
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> # Simple check if 'category' can be used
+    >>> # as a grouping column
+    >>> is_valid = check_group_column_validity(
+    ...     df, "category", ops="check_only"
+    ... )
+    >>> print(is_valid)
+    True
+
+    >>> # Binning a numeric column with auto_bin
+    >>> result_df = check_group_column_validity(
+    ...     df, "value", ops="binning", auto_bin=True
+    ... )
+    >>> print(result_df["value"])
+
+    See Also
+    --------
+    pd.qcut : Pandas method used internally for creating
+        quantile-based bins from numeric data.
+
+    References
+    ----------
+    .. [1] T. Hastie, R. Tibshirani, and J. Friedman.
+       "The Elements of Statistical Learning:
+       Data Mining, Inference, and Prediction."
+       Springer Series in Statistics, 2009.
+    """
+
+    # Check if group_col is in the DataFrame.
+    if group_col not in df.columns:
+        raise ValueError(
+            f"[ERROR] Column '{group_col}' not found "
+            f"in DataFrame."
+        )
+
+    # Extract data from the column and check if numeric.
+    col_data = df[group_col]
+    is_numeric = pd.api.types.is_numeric_dtype(
+        col_data
+    )
+    # If numeric, ensure we haven't exceeded max_unique.
+    is_valid_group = (
+        not is_numeric
+        or col_data.nunique()
+          <= max_unique
+    )
+
+    # Validate ops argument.
+    if ops not in {
+        'check_only',
+        'binning',
+        'validate'
+    }:
+        raise ValueError(
+            f"Unknown 'ops' value: {ops}. Choose from "
+            f"'check_only', 'binning', 'validate'."
+        )
+
+    # If user only wants a check, return boolean.
+    if ops == 'check_only':
+        return is_valid_group
+
+    # If 'validate', decide whether to warn/raise
+    # or fallback to binning if auto_bin is True.
+    elif ops == 'validate':
+        if is_valid_group:
+            return df
+        msg = (
+            f"Column '{group_col}' is numeric with "
+            f"{col_data.nunique()} unique values. "
+            "Not suitable for grouping in plots."
+        )
+        if auto_bin:
+            ops = 'binning'  # fallback
+        else:
+            if error == 'raise':
+                raise ValueError(msg)
+            elif error == 'warn':
+                warnings.warn(f"{msg}")
+            return df
+
+    # If 'binning', we attempt to transform the column.
+    if ops == 'binning':
+        # If already valid, no change needed.
+        if is_valid_group:
+            return df
+
+        # If auto_bin is True, we do quantile binning.
+        if auto_bin:
+            if bin_labels is None:
+                bin_labels = [
+                    f"Q{i+1}"
+                    for i in range(bins)
+                ]
+            df[group_col] = pd.qcut(
+                col_data,
+                q=bins,
+                labels=bin_labels
+            )
+            if verbose:
+                print(
+                    f"[INFO] Auto-binned '{group_col}' "
+                    f"into {bins} quantile-based categories."
+                )
+            return df
+        else:
+            # If auto_bin is False and data is invalid,
+            # we handle per 'error'.
+            if error == 'raise':
+                raise ValueError(
+                    "Auto-binning disabled, and group "
+                    "column is not suitable."
+                )
+            elif error == 'warn':
+                warnings.warn(
+                    "Group column is not categorical "
+                    "and was not binned."
+                )
+            return df
+
+def find_id_column(
+    df: pd.DataFrame,
+    strategy: Literal[
+        'naive',
+        'exact',
+        'dtype',
+        'regex',
+        'prefix_suffix'
+    ] = 'naive',
+    regex_pattern: Optional[str] = None,
+    uniqueness_threshold: float = 0.95,
+    errors: Literal['raise', 'warn', 'ignore'] = 'raise',
+    empty_as_none: bool = True,
+    as_list: bool = False,
+    case_sensitive: bool = False,
+    as_frame: bool = False
+) -> Union[str, List[str], pd.DataFrame, None]:
+    """
+    Identify potential ID column(s) in a pandas DataFrame
+    using multiple heuristic strategies.
+    
+    The function examines column names and/or data properties
+    to detect columns likely to serve as unique identifiers.
+    This is particularly useful for large datasets where the
+    ID field is not explicitly labeled, and for quick scanning
+    of possible key columns [1]_.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input DataFrame in which to search for
+        potential ID columns.
+    strategy : {'naive', 'exact', 'dtype', 'regex',
+                'prefix_suffix'}, default 'naive'
+        Defines the logic for detecting ID columns:
+        - `exact`: Checks for a column name that exactly
+          matches `id` (case sensitivity controlled by
+          ``case_sensitive``).
+        - `naive`: Searches for columns where `id` is
+          part of the name (e.g., `location_id`) subject
+          to case sensitivity.
+        - `prefix_suffix`: Considers columns prefixed
+          or suffixed with `id` or `_id`.
+        - `dtype`: Examines columns having data types
+          commonly used for IDs (integer, string, or
+          object) and checks if they show high uniqueness
+          via :math:`\\text{uniqueness\\_ratio}
+          \\geq \\text{uniqueness\\_threshold}`.
+        - `<regex>`: Uses a custom regular expression
+          ``<regex_pattern>`` to find matches in column
+          names.
+    regex_pattern : str, optional
+        Required if `strategy` is `'regex'`. The
+        pattern is compiled via `re.compile`, with case
+        sensitivity determined by `<case_sensitive>`.
+    uniqueness_threshold : float, default 0.95
+        For `<dtype>` strategy, columns are flagged as ID
+        candidates if the ratio:
+    
+        .. math::
+           r = \\frac{
+                  \\text{unique\\_values}
+              }{
+                  \\text{non\\_NA\\_rows}
+              }
+    
+        satisfies :math:`r \\geq \\text{uniqueness\\_threshold}`,
+        or if the number of unique values equals the number
+        of non-null rows.
+    errors : {'raise', 'warn', 'ignore'}, default 'raise'
+        How to handle no-match cases:
+          - `raise`: Raises a `ValueError`.
+          - `warn`: Issues a `UserWarning` and returns
+            based on `<as_frame>` or `<empty_as_none>`.
+          - `ignore`: Returns an empty result based on
+            the same parameters without warning.
+    empty_as_none : bool, default True
+        *Applies only if `as_frame` is False.* Defines
+        whether to return `None` (if True) or an empty list
+        (if False) when no ID column is found and
+        `<errors>` is `'warn'` or `'ignore'`.
+    as_list : bool, default False
+        If True, return all matched columns. If False,
+        return only the first match. Affects both name
+        returns and DataFrame returns.
+    case_sensitive : bool, default False
+        If False, comparisons (including regex) are
+        performed in a case-insensitive manner.
+    as_frame : bool, default False
+        If True, return the matched columns as a
+        pandas DataFrame. If `as_list` is True,
+        it may include multiple columns. If no column
+        is found, returns an empty DataFrame (if
+        `<errors>` is `'warn'` or `'ignore'`).
+    
+    Returns
+    -------
+    str or List[str] or pandas.DataFrame or None
+        Depends on `as_frame`, `as_list`, and the
+        number of matching columns:
+        - `<as_frame>`=False, `as_list`=False:
+          returns the first match as a string,
+          or `None`/`[]`.
+        - `as_frame`=False, `as_list`=True:
+          returns all matching column names as
+          a list of strings.
+        - `as_frame`=True, `as_list`=False:
+          returns a DataFrame with the first matched
+          column. If no match is found, an empty
+          DataFrame may be returned.
+        - `as_frame`=True, `as_list`=True:
+          returns a DataFrame with all matched columns
+          included.
+    
+    Notes
+    -----
+    - For `<dtype>` strategy, integer, string, and
+      object columns are inspected. The function
+      calculates a uniqueness ratio and compares it
+      against `<uniqueness_threshold>`.
+    - Negative or zero thresholds are invalid, as are
+      values above 1.
+    - If the DataFrame has no columns or is empty, the
+      behavior is determined by `<errors>`.
+    
+    Examples
+    --------
+    >>> from gofast.utils.generic_utils import find_id_column
+    >>> import pandas as pd
+    >>> data = pd.DataFrame({
+    ...     'ID_code': [101, 102, 103],
+    ...     'Name': ['Alice', 'Bob', 'Charlie'],
+    ...     'value': [10, 20, 30]
+    ... })
+    >>> # Example using the 'naive' strategy
+    >>> col = find_id_column(data, strategy='naive')
+    >>> print(col)  # Might return 'ID_code'
+    >>> # Example with as_list=True
+    >>> cols = find_id_column(data, strategy='naive',
+    ...                       as_list=True)
+    >>> print(cols)  # ['ID_code']
+    
+    See Also
+    --------
+    re.compile : The regex compilation method used
+                   when `strategy`='regex'.
+    pandas.api.types.is_integer_dtype : Checks integer type.
+    pandas.api.types.is_string_dtype : Checksstring type.
+    pandas.api.types.is_object_dtype : Checksobject type.
+    
+    References
+    ----------
+    .. [1] E. F. Codd (1970). "A Relational Model of Data
+           for Large Shared Data Banks."
+    """
+    # Validate that df is a DataFrame
+    if not isinstance(df, pd.DataFrame):
+        raise ValueError(
+            "Input 'df' must be a pandas DataFrame."
+        )
+
+    valid_strategies = [
+        'naive',
+        'exact',
+        'dtype',
+        'regex',
+        'prefix_suffix'
+    ]
+    if strategy not in valid_strategies:
+        raise ValueError(
+            f"Invalid strategy '{strategy}'. Must be one "
+            f"of {valid_strategies}."
+        )
+
+    valid_errors = ['raise', 'warn', 'ignore']
+    if errors not in valid_errors:
+        raise ValueError(
+            f"Invalid errors value '{errors}'. Must be one "
+            f"of {valid_errors}."
+        )
+
+    # If strategy='regex', ensure regex_pattern is valid
+    if strategy == 'regex':
+        if not regex_pattern or not isinstance(
+           regex_pattern, str):
+            raise ValueError(
+                "Parameter 'regex_pattern' must be a "
+                "non-empty string when strategy is "
+                "'regex'."
+            )
+
+    # If strategy='dtype', ensure threshold in [0,1]
+    if strategy == 'dtype':
+        if not (0.0 <= uniqueness_threshold <= 1.0):
+            raise ValueError(
+                "Parameter 'uniqueness_threshold' must be "
+                "between 0.0 and 1.0."
+            )
+
+    # If DataFrame is empty, handle accordingly
+    if df.empty or len(df.columns) == 0:
+        msg = ("DataFrame is empty or has no columns. "
+               "Cannot find ID column.")
+        if errors == 'raise':
+            raise ValueError(msg)
+        elif errors == 'warn':
+            warnings.warn(msg, UserWarning)
+        if as_frame:
+            return pd.DataFrame()
+        else:
+            return [] if not empty_as_none else None
+
+    # Prepare columns for matching
+    original_columns = df.columns.tolist()
+    if not case_sensitive:
+        col_map = {}
+        seen_lower = set()
+        for c in original_columns:
+            lc = c.lower()
+            if lc not in seen_lower:
+                col_map[lc] = c
+                seen_lower.add(lc)
+        match_columns_keys = list(col_map.keys())
+    else:
+        col_map = {c: c for c in original_columns}
+        match_columns_keys = original_columns
+
+    found_matches_keys = []
+
+    # -------------- Strategy: 'exact' --------------
+    if strategy == 'exact':
+        target = 'id' if not case_sensitive else 'id'
+        if target in match_columns_keys:
+            found_matches_keys.append(target)
+
+    # -------------- Strategy: 'naive' --------------
+    elif strategy == 'naive':
+        target = 'id' if not case_sensitive else 'id'
+        found_matches_keys = [
+            mc_key for mc_key in match_columns_keys
+            if target in mc_key
+        ]
+
+    # -------------- Strategy: 'prefix_suffix' -------
+    elif strategy == 'prefix_suffix':
+        targets = ['id', '_id']
+        if not case_sensitive:
+            targets = [t.lower() for t in targets]
+        for mc_key in match_columns_keys:
+            match = False
+            for t in targets:
+                if (mc_key.startswith(t)
+                   or mc_key.endswith(t)):
+                    match = True
+                    break
+            if match:
+                found_matches_keys.append(mc_key)
+
+    # -------------- Strategy: 'regex' --------------
+    elif strategy == 'regex':
+        try:
+            flags = 0 if case_sensitive else re.IGNORECASE
+            pattern = re.compile(regex_pattern, flags)
+            original_regex_matches = [
+                c for c in original_columns
+                if pattern.search(c)
+            ]
+            if not case_sensitive:
+                found_matches_keys = [
+                    k for k, v in col_map.items()
+                    if v in original_regex_matches
+                ]
+            else:
+                found_matches_keys = [
+                    k for k in original_regex_matches
+                    if k in match_columns_keys
+                ]
+        except re.error as e:
+            raise ValueError(
+                f"Invalid regex pattern provided: {e}"
+            ) from e
+
+    # -------------- Strategy: 'dtype' --------------
+    elif strategy == 'dtype':
+        for col_name in original_columns:
+            col_series = df[col_name]
+            # Check if type is integer, string, or object
+            is_potential_type = (
+                pd.api.types.is_integer_dtype(col_series)
+                or pd.api.types.is_string_dtype(col_series)
+                or pd.api.types.is_object_dtype(col_series)
+            )
+            if is_potential_type:
+                non_na = col_series.dropna()
+                if len(non_na) > 0:
+                    if pd.api.types.is_object_dtype(
+                       non_na):
+                        num_unique = (
+                            non_na.astype(str)
+                            .nunique()
+                        )
+                    else:
+                        num_unique = non_na.nunique()
+                    uniqueness_ratio = (
+                        num_unique / len(non_na)
+                    )
+                    is_perfectly_unique = (
+                        num_unique == len(non_na)
+                    )
+                    if (uniqueness_ratio
+                       >= uniqueness_threshold
+                       or is_perfectly_unique):
+                        key_to_add = (
+                            col_name.lower()
+                            if not case_sensitive
+                            else col_name
+                        )
+                        if key_to_add in col_map:
+                            if key_to_add not in (
+                               found_matches_keys):
+                                found_matches_keys.append(
+                                    key_to_add
+                                )
+
+    # Remove duplicates while preserving order
+    ordered_unique_matches_keys = sorted(
+        list(set(found_matches_keys)),
+        key=found_matches_keys.index
+    )
+    original_matches = [
+        col_map[mk] for mk in ordered_unique_matches_keys
+    ]
+
+    # -------------- Handle Results --------------
+    if original_matches:
+        if as_frame:
+            # Decide columns to select
+            cols_to_select = (
+                original_matches if as_list else
+                [original_matches[0]]
+            )
+            valid_cols = [
+                c for c in cols_to_select
+                if c in df.columns
+            ]
+            if not valid_cols:
+                msg = ("Internal error: Matched columns "
+                       "not found in DataFrame.")
+                if errors == 'raise':
+                    raise ValueError(msg)
+                elif errors == 'warn':
+                    warnings.warn(
+                        f"{msg} Returning empty DataFrame.",
+                        UserWarning
+                    )
+                return pd.DataFrame()
+            return df[valid_cols]
+        elif as_list:
+            return original_matches
+        else:
+            return original_matches[0]
+    else:
+        msg = (f"No ID column found in DataFrame using "
+               f"strategy='{strategy}'")
+        if regex_pattern and strategy == 'regex':
+            msg += f" with pattern='{regex_pattern}'"
+        if strategy == 'dtype':
+            msg += f" and threshold={uniqueness_threshold}"
+        if not case_sensitive:
+            msg += " (case-insensitive)."
+        else:
+            msg += " (case-sensitive)."
+
+        if errors == 'raise':
+            raise ValueError(msg)
+        elif errors == 'warn':
+            warnings.warn(msg, UserWarning)
+
+        # Return empty or None if no match
+        if as_frame:
+            return pd.DataFrame()
+        else:
+            return [] if not empty_as_none else None
+
+    
 def verify_identical_items(
     list1, 
     list2, 

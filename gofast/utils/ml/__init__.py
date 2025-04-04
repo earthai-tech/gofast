@@ -74,6 +74,7 @@ from .utils import (
     laplace_smoothing, 
     laplace_smoothing_categorical,
     laplace_smoothing_word,
+    groupwise_train_test_split, 
     )
 
 __all__ = [
@@ -115,5 +116,6 @@ __all__ = [
     'stats_from_prediction',
     'stratify_categories',
     'encode_target',
-    'validate_feature_utility', 
+    'validate_feature_utility',
+    'groupwise_train_test_split', 
 ]
