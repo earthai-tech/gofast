@@ -283,18 +283,22 @@ def generate_negative_samples(
     """
 
     # Validate input and columns
-    exist_features(df,
-                   features=target_col,
-                   name=f"Target '{target_col}'")
+    exist_features(
+        df,
+        features=target_col,
+        name=f"Target '{target_col}'"
+    )
 
     feature_cols = columns_manager(feature_cols)
     spatial_cols = columns_manager(spatial_cols)
     lon_col, lat_col = spatial_cols
    
     check_spatial_columns(df, spatial_cols=spatial_cols)
-    exist_features(df,
-                   features=spatial_cols,
-                   name="Spatial columns")
+    exist_features(
+        df,
+        features=spatial_cols,
+        name="Spatial columns"
+    )
     neg_feature_range= validate_length_range(
         neg_feature_range, 
         param_name="neg_feature_range"
@@ -336,7 +340,6 @@ def generate_negative_samples(
         HAS_GPD = True
     except ImportError:
         HAS_GPD = False
-
 
     # Buffer conversion (km -> deg)
     buffer_deg = buffer_km / 111.0
