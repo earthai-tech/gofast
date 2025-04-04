@@ -12,11 +12,12 @@ import warnings
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.model_selection import StratifiedShuffleSplit, GroupShuffleSplit
 
 from ...api.types import List, Tuple, Dict, Optional, Union, Series
 from ...api.types import ArrayLike, DataFrame, Callable
 from ...compat.sklearn import train_test_split
+from ...core.array_manager import array_preserver, return_if_preserver_failed
 from ...core.checks import is_iterable, str2columns 
 from ...core.io import is_data_readable
 from ...core.utils import smart_format
@@ -36,7 +37,400 @@ __all__= [
     'laplace_smoothing', 
     'laplace_smoothing_categorical',
     'laplace_smoothing_word',
+    'groupwise_train_test_split'
     ]
+
+def groupwise_train_test_split(
+    df: pd.DataFrame,                     
+    group_col: str = 'id',                
+    test_size: Optional[float] = 0.2,     
+    train_size: Optional[float] = None,   
+    random_state: Optional[int] = 42,     
+    verbose: int = 0                      
+) -> Tuple[pd.DataFrame, pd.DataFrame]:   
+    """Splits DataFrame into train/test sets ensuring group integrity.
+
+    This function partitions a pandas DataFrame into training and
+    testing subsets while strictly respecting group boundaries defined
+    by a specified column (`group_col`). It guarantees that all rows
+    belonging to the same group are assigned entirely to *either* the
+    training set or the testing set, never split across both. This is
+    essential for preventing data leakage in machine learning models,
+    particularly when dealing with data where samples are not
+    independent (e.g., time series from the same sensor, medical
+    records from the same patient, observations from the same event).
+
+    The core mechanism relies on scikit-learn's ``GroupShuffleSplit``
+    [1]_, which first identifies unique groups, shuffles these groups
+    randomly (controlled by `random_state`), and then assigns a
+    proportion of the *groups* (determined by `test_size` or
+    `train_size`) to the test set, with the remainder forming the
+    training set. Finally, all data rows corresponding to the chosen
+    groups are collected to form the final train and test DataFrames.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input pandas DataFrame containing the entire dataset to be
+        split. This DataFrame must include the column specified by the
+        `group_col` parameter.
+
+    group_col : str, default='id'
+        The name of the column within `df` that contains the group
+        identifiers. All rows sharing the same value in this column
+        will be treated as part of the same group and kept together
+        during the split. Example: ``'patient_id'``, ``'event_id'``.
+
+    test_size : float or None, default=0.2
+        The desired proportion of *unique groups* to allocate to the
+        test set. This value must be a float between 0.0 and 1.0.
+        If ``train_size`` is provided and ``test_size`` is ``None``,
+        the test size will be automatically inferred as
+        :math:`1 - p_{train}`. If both ``test_size`` and
+        ``train_size`` are ``None``, `test_size` defaults to ``0.2``.
+        Note that the proportion is based on the count of unique
+        groups, not the count of rows.
+
+    train_size : float or None, default=None
+        The desired proportion of *unique groups* to allocate to the
+        training set. Similar to `test_size`, this must be a float
+        between 0.0 and 1.0. If ``test_size`` is provided and
+        ``train_size`` is ``None``, the train size will be inferred as
+        :math:`1 - p_{test}`. It is generally recommended to specify
+        only one of `test_size` or `train_size`.
+
+    random_state : int or None, default=42
+        A seed value for the pseudo-random number generator used to
+        shuffle the groups before splitting. Providing an integer
+        (e.g., ``42``) ensures that the split is deterministic and
+        reproducible across multiple runs with the same inputs. If set
+        to ``None``, the split will be different each time the function
+        is executed.
+
+    verbose : int, default=0
+        Controls the level of informational output printed to the
+        console during execution. Valid levels are:
+        - ``0``: No output (silent execution).
+        - ``1``: Prints basic summary information before the split,
+          including total sample and group counts, and the specified
+          split parameters.
+        - ``2``: Prints the information from level 1, plus detailed
+          results after the split, including the number and proportion
+          of samples and groups in the resulting train and test sets,
+          and a verification check for group overlap.
+
+    Returns
+    -------
+    Tuple[pd.DataFrame, pd.DataFrame]
+        A tuple containing two pandas DataFrames:
+        1. ``train_df``: The subset of the original `df` allocated to
+           the training set.
+        2. ``test_df``: The subset of the original `df` allocated to
+           the testing set.
+        Both DataFrames have their indices reset (using
+        ``.reset_index(drop=True)``).
+
+    Raises
+    ------
+    ValueError
+        If input parameters are invalid (e.g., `df` is not a DataFrame,
+        `test_size` or `train_size` outside [0, 1], `verbose` level
+        out of range, fewer than 2 unique groups found).
+    KeyError
+        If the specified `group_col` is not found in `df.columns`.
+    ImportError
+        If required libraries (`pandas`, `scikit-learn`) are not
+        installed.
+
+    See Also
+    --------
+    sklearn.model_selection.GroupShuffleSplit : The underlying scikit-learn
+        class used for performing the group-based split.
+    sklearn.model_selection.train_test_split : Standard scikit-learn function
+        for splitting data without considering groups (prone to data
+        leakage if groups exist).
+    sklearn.model_selection.GroupKFold : For cross-validation respecting
+        group boundaries over K folds.
+    sklearn.model_selection.StratifiedGroupKFold : Cross-validation that
+        preserves group integrity and class distribution.
+
+    Notes
+    -----
+    - The exact number of samples in the train and test sets depends not
+      only on `test_size`/`train_size` but also on the distribution of
+      samples within each group. The proportions apply to the *groups*.
+    - If the total number of unique groups is small, the resulting
+      proportions of groups in the train/test sets might deviate
+      slightly from the requested `test_size` or `train_size` due to
+      the discrete nature of groups.
+    - This function is intended purely for data splitting. Subsequent
+      analysis, model training, or visualization should be performed on
+      the returned ``train_df`` and ``test_df``.
+      
+
+    Let :math:`D` be the input DataFrame and :math:`g(d)` be the
+    function that returns the group identifier for a row :math:`d \in D`
+    from the column specified by `group_col`. Let :math:`G` be the set
+    of all unique group identifiers in :math:`D`.
+
+    .. math::
+        G = \{ g(d) \mid d \in D \}
+
+    The function aims to partition the set of unique groups :math:`G`
+    into two disjoint subsets, :math:`G_{train}` and :math:`G_{test}`,
+    based on the specified proportions :math:`p_{test}` (`test_size`)
+    and :math:`p_{train}` (`train_size`).
+
+    .. math::
+        G_{train}, G_{test} = \\text{RandomPartition}\\
+            (G, p_{train}, p_{test}, \\text{seed}=\\text{random_state})
+
+    Where :math:`|G_{test}| \\approx p_{test} \\times |G|` and
+    :math:`|G_{train}| \\approx p_{train} \\times |G|` (subject to
+    rounding for integer counts of groups), such that:
+
+    .. math::
+        G_{train} \\cap G_{test} = \\emptyset \\quad \\text{and}\\
+            \\quad G_{train} \\cup G_{test} = G
+
+    The final DataFrames are constructed by selecting all rows whose
+    group identifier falls into the respective group subsets:
+
+    .. math::
+        D_{train} = \{ d \\in D \\mid g(d) \\in G_{train} \} \\\\
+        D_{test} = \{ d \\in D \\mid g(d) \\in G_{test} \}
+
+    The function internally calls the `.split()` method of a
+    ``GroupShuffleSplit`` instance to generate the indices for
+    :math:`D_{train}` and :math:`D_{test}`.
+
+
+    References
+    ----------
+    .. [1] Scikit-learn Developers. "User Guide: 3.1. Cross-validation:
+           evaluating estimator performance". Scikit-learn Documentation.
+           Accessed April 4, 2025.
+           https://scikit-learn.org/stable/modules/cross_validation.html#group-shuffle-split
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.utils.ml.utils import groupwise_train_test_split 
+
+    >>> # Sample data with groups 'A', 'B', 'C', 'D', 'E'
+    >>> data = {
+    ...     'id': ['A', 'A', 'B', 'B', 'C', 'C', 'C', 'D', 'E', 'E'],
+    ...     'feature': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    ...     'target': [0, 0, 1, 1, 0, 0, 0, 1, 1, 1]
+    ... }
+    >>> my_df = pd.DataFrame(data)
+    >>> print("Original DataFrame:\\n", my_df)
+    Original DataFrame:
+       id  feature  target
+    0  A        1       0
+    1  A        2       0
+    2  B        3       1
+    3  B        4       1
+    4  C        5       0
+    5  C        6       0
+    6  C        7       0
+    7  D        8       1
+    8  E        9       1
+    9  E       10       1
+
+    >>> # Perform a group-wise split with 30% groups in test set
+    >>> # Use verbose=2 for detailed output
+    >>> train_data, test_data = refactored_groupwise_train_test_split(
+    ...     df=my_df,
+    ...     group_col='id',
+    ...     test_size=0.3,  # Request ~30% of groups for test
+    ...     random_state=42, # For reproducibility
+    ...     verbose=2
+    ... )
+    -----------------------------------------------------------------
+    Initiating Group-wise Train-Test Split
+    -----------------------------------------------------------------
+      Input DataFrame shape:     (10, 3)
+      Total samples (rows):      10
+      Grouping column:           'id'
+      Total unique groups found: 5
+      Requested test_size (groups):  0.3
+      Requested train_size (groups): None
+      Random state seed:         42
+    -----------------------------------------------------------------
+    Split Execution Results:
+    -----------------------------------------------------------------
+      Training Set:
+        Number of samples: 7 (70.00%)
+        Number of groups:  3 (60.00%) <--- Note: Group proportion might differ due to rounding
+
+      Test Set:
+        Number of samples: 3 (30.00%)
+        Number of groups:  2 (40.00%) <--- Note: Group proportion might differ due to rounding
+    -----------------------------------------------------------------
+      Verification: Passed. No groups overlap between train and test sets.
+    -----------------------------------------------------------------
+
+    >>> print("\\nTraining Data (Groups: {}):\\n{}".format(
+    ...     sorted(train_data['id'].unique()), train_data))
+    <BLANKLINE>
+    Training Data (Groups: ['A', 'C', 'E']):
+       id  feature  target
+    0  A        1       0
+    1  A        2       0
+    2  C        5       0
+    3  C        6       0
+    4  C        7       0
+    5  E        9       1
+    6  E       10       1
+
+    >>> print("\\nTesting Data (Groups: {}):\\n{}".format(
+    ...     sorted(test_data['id'].unique()), test_data))
+    <BLANKLINE>
+    Testing Data (Groups: ['B', 'D']):
+       id  feature  target
+    0  B        3       1
+    1  B        4       1
+    2  D        8       1
+    """
+    # --- Input Validation ---
+    if not isinstance(df, pd.DataFrame):
+        raise ValueError("Input 'df' must be a pandas DataFrame.")
+
+    if group_col not in df.columns:
+        raise KeyError(
+            f"The group column '{group_col}' was not found in the "
+            f"DataFrame columns: {df.columns.tolist()}"
+        )
+
+    # Validate sizes (basic check, GroupShuffleSplit does more thorough checks)
+    for size, name in [(test_size, "test_size"), (train_size, "train_size")]:
+        if size is not None:
+            if not isinstance(size, (float, int)):
+                 raise ValueError(f"{name} must be a float or None.")
+            if not (0.0 <= size <= 1.0):
+                raise ValueError(
+                    f"{name} must be between 0.0 and 1.0, but got {size}."
+                )
+
+    # If both sizes are None, default test_size to 0.2 (as per default arg)
+    if test_size is None and train_size is None:
+        test_size = 0.2
+        if verbose > 0:
+            print(
+                "Info: Both test_size and train_size were None. "
+                "Defaulting test_size to 0.2."
+                )
+
+    # --- Prepare for Splitting ---
+    groups = df[group_col] # Extract the group labels series
+    unique_groups = groups.unique()
+    n_total_samples = len(df)
+    n_total_groups = len(unique_groups)
+
+    if n_total_groups < 2:
+        raise ValueError(
+            f"Cannot perform train/test split with fewer than 2 unique groups. "
+            f"Found {n_total_groups} unique group(s) in column '{group_col}'."
+        )
+
+    # --- Verbose Level 1 Output ---
+    if verbose >= 1:
+        print("-" * 65)
+        print("Initiating Group-wise Train-Test Split")
+        print("-" * 65)
+        print(f"  Input DataFrame shape:     {df.shape}")
+        print(f"  Total samples (rows):      {n_total_samples}")
+        print(f"  Grouping column:           '{group_col}'")
+        print(f"  Total unique groups found: {n_total_groups}")
+        print(f"  Requested test_size (groups):  {test_size}")
+        print(f"  Requested train_size (groups): {train_size}")
+        print(f"  Random state seed:         {random_state}")
+        print("-" * 65)
+
+    # --- Configure and Execute the Split ---
+    # Instantiate the splitter from scikit-learn
+    # Using vertical alignment and parentheses for long parameter lists
+    splitter = GroupShuffleSplit(
+        n_splits=1,                # We require only a single split
+        test_size=test_size,       # Proportion of groups for the test set
+        train_size=train_size,     # Proportion of groups for the train set
+        random_state=random_state  # Seed for reproducibility
+    )
+
+    # The splitter yields indices. Since n_splits=1, we get one pair.
+    # The 'y' parameter is not needed for unsupervised splitting like this.
+    try:
+        train_indices, test_indices = next(
+            splitter.split(X=df, y=None, groups=groups)
+        )
+    except ValueError as e:
+         # Catch potential errors from scikit-learn's splitter
+         # (e.g., sizes summing > 1, insufficient groups for split)
+        print("\nError occurred during scikit-learn's GroupShuffleSplit:")
+        print(f"  Original Error: {e}")
+        print(f"  Check test_size ({test_size}), train_size ({train_size}), "
+              f"and the number of unique groups ({n_total_groups}).")
+        raise  # Re-raise the exception after providing context
+
+    # --- Create Train/Test DataFrames ---
+    # Select rows based on the indices generated by the splitter
+    train_df = df.iloc[train_indices]
+    test_df = df.iloc[test_indices]
+
+    # Reset the index for the resulting DataFrames for cleaner output
+    train_df = train_df.reset_index(drop=True)
+    test_df = test_df.reset_index(drop=True)
+
+    # --- Verbose Level 2 Output ---
+    if verbose >= 2:
+        n_train_samples = len(train_df)
+        n_test_samples = len(test_df)
+        train_groups_set = set(train_df[group_col].unique())
+        test_groups_set = set(test_df[group_col].unique())
+        n_train_groups = len(train_groups_set)
+        n_test_groups = len(test_groups_set)
+
+        # Calculate actual proportions achieved based on the split
+        actual_test_group_prop = (
+            n_test_groups / n_total_groups if n_total_groups > 0 else 0
+            )
+        actual_train_group_prop = (
+            n_train_groups / n_total_groups if n_total_groups > 0 else 0
+            )
+        actual_test_sample_prop = (
+            n_test_samples / n_total_samples if n_total_samples > 0 else 0
+            )
+        actual_train_sample_prop = (
+            n_train_samples / n_total_samples if n_total_samples > 0 else 0
+            )
+
+        print("Split Execution Results:")
+        print("-" * 65)
+        print("  Training Set:")
+        print(f"    Number of samples: {n_train_samples} "
+              f"({actual_train_sample_prop:.2%})")
+        print(f"    Number of groups:  {n_train_groups} "
+              f"({actual_train_group_prop:.2%})")
+        print("\n  Test Set:")
+        print(f"    Number of samples: {n_test_samples} "
+              f"({actual_test_sample_prop:.2%})")
+        print(f"    Number of groups:  {n_test_groups} "
+              f"({actual_test_group_prop:.2%})")
+        print("-" * 65)
+
+        # Verification step: Ensure no groups overlap between sets
+        overlapping_groups = train_groups_set.intersection(test_groups_set)
+        if not overlapping_groups:
+            print("  Verification: Passed. No groups overlap between train and test sets.")
+        else:
+            # This should theoretically not happen with GroupShuffleSplit
+            print(f"  Verification: FAILED! Found {len(overlapping_groups)} "
+                  f"overlapping group(s): {list(overlapping_groups)[:5]}...") # Show first few
+        print("-" * 65)
+
+    # --- Return Results ---
+    return train_df, test_df
 
 
 def smart_split(
@@ -586,7 +980,7 @@ def smart_label_classifier(
 
     Examples
     --------
-    >>> from gofast.utils.mlutils import smart_label_classifier
+    >>> from gofast.utils.ml.utils import smart_label_classifier
     >>> import numpy as np
     >>> y = np.arange(0, 7, 0.5)
     
@@ -628,11 +1022,13 @@ def smart_label_classifier(
     .. [2] Lee, K., & Singh, P. (2019). *Threshold-Based Classification
        Techniques*. Journal of Machine Learning, 9(2), 67-80.
     """
-
+    # Preserve the structure of the input array/Series/DataFrame.
+    collected = array_preserver(y, action='collect')
+    
     name = None
     if isinstance(y, pd.Series) and hasattr(y, "name"):
         name = y.name
-
+    
     arr = np.asarray(y).squeeze()
 
     if not _is_arraylike_1d(arr):
@@ -717,6 +1113,23 @@ def smart_label_classifier(
         arr_mapped = arr_mapped if name is None else pd.Series(
             arr_mapped, name=name
         )
+    
+    # Attempt to restore original structure (index, shape, etc.)
+    collected['processed'] = [arr_mapped]
+    try:
+        arr_mapped = array_preserver(
+            collected,
+            solo_return=True,
+            action='restore',
+            deep_restore=True, 
+        )
+    except Exception:
+        # If it fails, fallback to raw arr_mapped, optional ignore warnings
+        arr_mapped = return_if_preserver_failed(
+            arr_mapped,
+            warn="ignore",
+            verbose=0
+        )
 
     return arr_mapped
 
@@ -785,6 +1198,7 @@ def _assert_labels_from_values(
     order: str = 'soft'
 ) -> Tuple[List[Union[int, str]], Dict[Union[int, float], Union[int, str]]]:
     unique_labels = list(np.unique(arr))
+    
     if not is_iterable(labels):
         labels = [labels]
 
@@ -912,7 +1326,8 @@ def _extract_target(
         y = np.array(target)
         target_names = ["target"]
     else:
-        raise ValueError("Unsupported target type or target does not match X dimensions.")
+        raise ValueError(
+            "Unsupported target type or target does not match X dimensions.")
     
     check_consistent_length(X, y)
     

@@ -2620,10 +2620,1203 @@ POSSIBLE_DISEASES = [
 ]
 
 
+# Global constants for geospatial and simulation features
+SOIL_TYPES= {
+    "Clay": {
+        "properties": {
+            "texture": "Fine-grained, cohesive",
+            "permeability": "Very low",
+            "plasticity": "High shrink-swell potential",
+            "other": "Tends to hold water, forms hard clods when dry"
+        },
+        "common_purposes": [
+            "Used as a natural liner or barrier (landfills, ponds)",
+            "Good for certain crops like rice if well-managed",
+            "Material for bricks, ceramics"
+        ],
+        "risks": [
+            "Expansive behavior can damage foundations",
+            "Prone to waterlogging",
+            "Shrinks and cracks in dry conditions"
+        ]
+    },
+    "Sandy Clay": {
+        "properties": {
+            "texture": "Clay with sand fraction; somewhat cohesive",
+            "permeability": "Low to medium (depending on clay content)",
+            "plasticity": "Moderate to high",
+            "other": "Better drainage than pure clay, but can still hold water"
+        },
+        "common_purposes": [
+            "Intermediate for engineering fill (requires proper compaction)",
+            "Agriculture use if organic matter is supplemented",
+            "Earthen structures, dams (if well compacted)"
+        ],
+        "risks": [
+            "May exhibit moderate shrink-swell behavior",
+            "Potential for moderate settlement",
+            "Can become unstable when fully saturated"
+        ]
+    },
+    "Silty Clay": {
+        "properties": {
+            "texture": "Clay with notable silt fraction",
+            "permeability": "Low",
+            "plasticity": "Medium to high",
+            "other": "Retains water but can be more susceptible to erosion than pure clay"
+        },
+        "common_purposes": [
+            "Soil liner or barrier for landfills",
+            "Agriculture with careful drainage management",
+            "Earthen fill with adequate compaction"
+        ],
+        "risks": [
+            "Can be prone to slumping when saturated",
+            "Moderate to high settlement risk under load",
+            "Expansion/contraction cycles with moisture changes"
+        ]
+    },
+    "Silt": {
+        "properties": {
+            "texture": "Fine-grained, non-plastic or low-plasticity",
+            "permeability": "Moderate",
+            "plasticity": "Low (unless mixed with clay)",
+            "other": "Smooth, floury texture when dry; can form crust"
+        },
+        "common_purposes": [
+            "Fertile agricultural soil (especially in floodplains)",
+            "Can be used in engineered fills if stabilized",
+            "Topsoil component for landscaping"
+        ],
+        "risks": [
+            "Highly erodible by wind and water",
+            "Strength drops significantly when saturated",
+            "Risk of collapse under load if water content changes abruptly"
+        ]
+    },
+    "Sandy Silt": {
+        "properties": {
+            "texture": "Mostly silt, but noticeable sand fraction",
+            "permeability": "Moderate to moderately high",
+            "plasticity": "Low (unless mixed with clay)",
+            "other": "Potential for piping or internal erosion under seepage"
+        },
+        "common_purposes": [
+            "Potential topsoil in some areas if organic content is added",
+            "Fill material if well-graded and compacted",
+            "Used in horticulture for improved drainage"
+        ],
+        "risks": [
+            "Susceptible to washout under high water flow",
+            "Can lose bearing capacity when wet",
+            "Moderate to high erodibility"
+        ]
+    },
+    "Loam": {
+        "properties": {
+            "texture": "Mixture of sand, silt, clay with organic matter",
+            "permeability": "Moderate",
+            "plasticity": "Medium",
+            "other": "Ideal balance of drainage and water retention"
+        },
+        "common_purposes": [
+            "Highly valued in agriculture/gardening",
+            "Landscaping and topsoil",
+            "Moderate support for light foundations"
+        ],
+        "risks": [
+            "Minimal shrink-swell issues",
+            "Can be subject to moderate erosion if left bare",
+            "Requires organic matter upkeep to maintain structure"
+        ]
+    },
+    "Sandy Loam": {
+        "properties": {
+            "texture": "Loam with a higher sand fraction",
+            "permeability": "Moderate to high",
+            "plasticity": "Low to moderate",
+            "other": "Drains well, good aeration"
+        },
+        "common_purposes": [
+            "Excellent for many crops (root vegetables, etc.)",
+            "Easily worked soil, common in horticulture",
+            "Suitable for general landscaping"
+        ],
+        "risks": [
+            "Dries out faster than clay-rich loams",
+            "Can be prone to wind erosion if not vegetated",
+            "Nutrient leaching if not managed"
+        ]
+    },
+    "Silty Loam": {
+        "properties": {
+            "texture": "Loam with higher silt fraction",
+            "permeability": "Moderate",
+            "plasticity": "Low to moderate",
+            "other": "Holds water and nutrients better than sandy loam"
+        },
+        "common_purposes": [
+            "Great for agriculture (fruits, vegetables, grains)",
+            "Easy to cultivate, good structure",
+            "Often used as topsoil for landscaping"
+        ],
+        "risks": [
+            "Can compact under heavy machinery",
+            "Erosion potential if exposed",
+            "Risk of becoming waterlogged if poorly drained"
+        ]
+    },
+    "Peat": {
+        "properties": {
+            "texture": "High organic content, fibrous",
+            "permeability": "Variable, can hold large amounts of water",
+            "plasticity": "Can be sponge-like",
+            "other": "Highly compressible, acidic pH"
+        },
+        "common_purposes": [
+            "Soil amendment (peat moss)",
+            "Historically used as a fuel source",
+            "Wetland habitat conservation"
+        ],
+        "risks": [
+            "Major settlement issues under load",
+            "Fire hazard when dry",
+            "Ongoing decomposition leads to subsidence"
+        ]
+    },
+    "Gravel": {
+        "properties": {
+            "texture": "Coarse particles (>2 mm), mostly rock fragments",
+            "permeability": "High",
+            "plasticity": "Non-plastic",
+            "other": "Excellent drainage, good load-bearing when compacted"
+        },
+        "common_purposes": [
+            "Base and subbase in road construction",
+            "Drainage layers and backfill",
+            "Aggregate for concrete/asphalt"
+        ],
+        "risks": [
+            "Loose gravel can shift if unconfined",
+            "Particle migration under high water flow",
+            "Potential for water contamination to spread quickly"
+        ]
+    },
+    "Sand": {
+        "properties": {
+            "texture": "Granular, visible particles, usually <2 mm",
+            "permeability": "High",
+            "plasticity": "Non-plastic (pure sand)",
+            "other": "Low nutrient and water retention for agriculture"
+        },
+        "common_purposes": [
+            "Construction aggregate",
+            "Backfill for drainage",
+            "Base for paving and foundations"
+        ],
+        "risks": [
+            "Prone to liquefaction in seismic areas",
+            "Erodible by wind/water",
+            "Requires support in deep excavations"
+        ]
+    },
+    "Fine Sand": {
+        "properties": {
+            "texture": "Sand with smaller grain size (0.075 - 0.425 mm)",
+            "permeability": "Moderate to high (but less than coarse sand)",
+            "plasticity": "Non-plastic",
+            "other": "More easily transported by wind than coarse sand"
+        },
+        "common_purposes": [
+            "Mortar and plaster mixes",
+            "Some filtration systems",
+            "Landscaping or turf topdressing"
+        ],
+        "risks": [
+            "Higher susceptibility to erosion",
+            "Can become unstable under load if not compacted",
+            "Likely to blow away in windy conditions if bare"
+        ]
+    },
+    "Coarse Sand": {
+        "properties": {
+            "texture": "Larger sand grains (0.425 - 2.0 mm)",
+            "permeability": "High",
+            "plasticity": "Non-plastic",
+            "other": "Better stability than fine sand"
+        },
+        "common_purposes": [
+            "Concrete and asphalt aggregates",
+            "Drainage layers, filter beds",
+            "Backfill for retaining structures"
+        ],
+        "risks": [
+            "Still prone to liquefaction (though less than fine sand)",
+            "Requires compaction for structural use",
+            "Water and nutrient leaching in agricultural context"
+        ]
+    },
+    "Sandy Gravel": {
+        "properties": {
+            "texture": "Mixed coarse fraction with significant sand content",
+            "permeability": "Very high",
+            "plasticity": "Non-plastic to low",
+            "other": "Excellent load-bearing if well-graded"
+        },
+        "common_purposes": [
+            "Ideal for road bases, foundation backfill",
+            "High-drainage fill for construction",
+            "Aggregate for concrete or landscaping"
+        ],
+        "risks": [
+            "Requires proper gradation to avoid voids",
+            "May allow rapid infiltration of contaminants",
+            "Slight possibility of settlement if poorly graded"
+        ]
+    },
+    "Organic Soil": {
+        "properties": {
+            "texture": "High content of decaying plant material",
+            "permeability": "Varies greatly",
+            "plasticity": "Highly variable, can be spongy",
+            "other": "Decomposes over time, leading to subsidence"
+        },
+        "common_purposes": [
+            "Gardening, horticulture (high nutrient content)",
+            "Ecological restoration (wetlands, etc.)",
+            "Sometimes used in landscaping for topsoil"
+        ],
+        "risks": [
+            "Unstable for foundations (high compressibility)",
+            "Possible gas emissions (methane) during decomposition",
+            "Susceptible to subsidence"
+        ]
+    },
+    "Volcanic Ash": {
+        "properties": {
+            "texture": (
+                "Fine pyroclastic particles of glassy volcanic material."
+            ),
+            "permeability": (
+                "Variable; can form a porous layer when uncompacted."
+            ),
+            "plasticity": (
+                "Low to moderate, depending on clay alteration."
+            ),
+            "other": (
+                "Often high in silica; can form Andisols with organic "
+                "matter."
+            )
+        },
+        "common_purposes": [
+            "Highly fertile (Andisols) once weathered; used in farming.",
+            "Pozzolanic material in cement or concrete production.",
+            "Soil amendment to improve aeration and drainage."
+        ],
+        "risks": [
+            "Fresh deposits may be acidic or contain sharp glass shards.",
+            "Heavy ashfall can overload structures and harm crops.",
+            "Unconsolidated ash is prone to mudflows or lahars if wet."
+        ]
+    },
+    "Compact Clay": {
+        "properties": {
+            "texture": (
+                "Densely compressed clay with minimal pore space."
+            ),
+            "permeability": (
+                "Very low due to tight packing."
+            ),
+            "plasticity": (
+                "Moderate to high shrink-swell potential."
+            ),
+            "other": (
+                "Can form under high overburden or by mechanical "
+                "compaction."
+            )
+        },
+        "common_purposes": [
+            "Engineered fill for impermeable barriers (e.g., landfills).",
+            "Stable subgrade if properly drained and compacted.",
+            "Embankment dams or levees for water retention."
+        ],
+        "risks": [
+            "Swelling clays can damage structures with expansion cycles.",
+            "Excavation is challenging without heavy equipment.",
+            "Prolonged saturation may lead to slope instability."
+        ]
+    },
+    "Marl": {
+        "properties": {
+            "texture": (
+                "A calcareous clay or silt with varying lime and clay."
+            ),
+            "permeability": (
+                "Low to moderate; depends on clay-lime ratio."
+            ),
+            "plasticity": (
+                "Moderate; more clay increases plasticity."
+            ),
+            "other": (
+                "Often found in marine or lake environments."
+            )
+        },
+        "common_purposes": [
+            "Historically used to reduce soil acidity and add calcium.",
+            "Raw material for cement (contains carbonate and clay).",
+            "Sometimes used as low-grade construction fill."
+        ],
+        "risks": [
+            "Can soften or collapse if heavily saturated.",
+            "Potential expansion or shrinkage with moisture changes.",
+            "Acidic conditions may dissolve carbonate fraction."
+        ]
+    },
+    "Calcareous Soil": {
+        "properties": {
+            "texture": (
+                "Contains notable calcium carbonate, often "
+                "from limestone."
+            ),
+            "permeability": (
+                "Variable; moderate if coarser fragments dominate."
+            ),
+            "plasticity": (
+                "Generally low unless mixed with clay."
+            ),
+            "other": (
+                "Alkaline pH; often effervesces with dilute acid."
+            )
+        },
+        "common_purposes": [
+            "Suited for alkaline-tolerant crops (e.g., olives, grapes).",
+            "Used in building materials if coarser fragments exist.",
+            "Popular for lime-loving horticultural species."
+        ],
+        "risks": [
+            "High pH may cause nutrient deficiencies (iron chlorosis).",
+            "Over karstic limestone, sinkholes or subsidence can occur.",
+            "Dust formation possible if soil is dry and weakly aggregated."
+        ]
+    },
+    "Colluvial Soil": {
+        "properties": {
+            "texture": (
+                "Unsorted mix of rock fragments, sand, silt, and clay "
+                "transported downslope by gravity."
+            ),
+            "permeability": (
+                "Highly variable; depends on grain-size distribution."
+            ),
+            "plasticity": (
+                "Ranges from low to moderate with clay content."
+            ),
+            "other": (
+                "Accumulates at slope bases; often lacks layering."
+            )
+        },
+        "common_purposes": [
+            "Potentially farmed if stabilized and fertile.",
+            "Used as general fill where compaction is feasible.",
+            "Valuable for studying slope evolution and mass-wasting."
+        ],
+        "risks": [
+            "Prone to landslides or creep on steep slopes.",
+            "Poor sorting leads to unpredictable bearing capacity.",
+            "Erodes easily if vegetation is removed."
+        ]
+    },
+    "Lateritic Soil": {
+        "properties": {
+            "texture": (
+                "Highly weathered tropical soil rich in iron and "
+                "aluminum oxides."
+            ),
+            "permeability": (
+                "Moderate, but can form hardened surface (laterite)."
+            ),
+            "plasticity": (
+                "Generally low, though varies with clay fraction."
+            ),
+            "other": (
+                "Often red or reddish-brown; can become rock-like "
+                "on exposure."
+            )
+        },
+        "common_purposes": [
+            "Used in tropical regions for road surfaces or bricks.",
+            "Sometimes mined for aluminum or iron ores.",
+            "Low-cost material for construction when hardened."
+        ],
+        "risks": [
+            "Nutrient-poor unless supplemented.",
+            "Highly erodible once vegetative cover is lost.",
+            "Hardened crust may crack under load or wet-dry cycles."
+        ]
+    },
+    "Saline Soil": {
+        "properties": {
+            "texture": (
+                "Ranges from sandy to clayey but high in soluble salts."
+            ),
+            "permeability": (
+                "Variable; salts can eventually block pore spaces."
+            ),
+            "plasticity": (
+                "Depends on clay content."
+            ),
+            "other": (
+                "Often shows a white salt crust in arid regions."
+            )
+        },
+        "common_purposes": [
+            "Limited farming unless reclaimed or with salt-tolerant crops.",
+            "Sometimes used for salt extraction in flats.",
+            "Specialized landscaping (halophyte gardens)."
+        ],
+        "risks": [
+            "Excess salts harm most crops and soil organisms.",
+            "Corrosive to infrastructure like pipes and foundations.",
+            "Difficult, costly reclamation through leaching and drainage."
+        ]
+    },
+    "Black Cotton Soil": {
+        "properties": {
+            "texture": (
+                "Dark, clay-rich soil with high montmorillonite content."
+            ),
+            "permeability": (
+                "Very low when wet."
+            ),
+            "plasticity": (
+                "Extremely high shrink-swell capacity."
+            ),
+            "other": (
+                "Found in semiarid tropics; often called Vertisols."
+            )
+        },
+        "common_purposes": [
+            "Grows cotton and cereals if managed carefully.",
+            "Historically used for bricks or pottery.",
+            "Possible water retention if engineered for expansion."
+        ],
+        "risks": [
+            "Severe swelling/shrinkage can crack roads or buildings.",
+            "Deep cracks in dry seasons complicate land use.",
+            "Requires specialized foundations (e.g., deep piles)."
+        ]
+    },
+    "Podzol": {
+        "properties": {
+            "texture": (
+                "Often sandy or loamy sand with a bleached E-horizon."
+            ),
+            "permeability": (
+                "High in the sandy top horizon."
+            ),
+            "plasticity": (
+                "Low."
+            ),
+            "other": (
+                "Typical of conifer forests in cool, humid climates; "
+                "acidic."
+            )
+        },
+        "common_purposes": [
+            "Forestry with conifers adapted to acidic conditions.",
+            "Limited farming unless heavily limed or fertilized.",
+            "Useful for ecological studies of soil formation."
+        ],
+        "risks": [
+            "Low nutrient content and high acidity hamper crops.",
+            "Easily leached and prone to acidification.",
+            "Susceptible to erosion if vegetation is cleared."
+        ]
+    },
+    "Vertisol": {
+        "properties": {
+            "texture": (
+                "Clay-rich soil with deep cracks during dry periods."
+            ),
+            "permeability": (
+                "Low when wet, but cracks allow quick infiltration "
+                "when dry."
+            ),
+            "plasticity": (
+                "Extremely high shrink-swell potential."
+            ),
+            "other": (
+                "Self-turning from repeated cracking, shifting surface."
+            )
+        },
+        "common_purposes": [
+            "Grows cotton or sorghum if water is well-managed.",
+            "Cracks can store moisture for plant roots in semiarid zones.",
+            "Sometimes used as earthen building material if stabilized."
+        ],
+        "risks": [
+            "Frequent volume changes damage foundations or roads.",
+            "Deep cracks pose hazards for livestock and machinery.",
+            "Excess water can cause waterlogging in rainy seasons."
+        ]
+    }
+
+}
 
 
+GEOLOGY_TYPES= {
+    "Granite": {
+        "properties": (
+            "Intrusive igneous rock rich in quartz and feldspar. "
+            "Hard, dense, and highly durable. Typically low porosity."
+        ),
+        "common_purposes": (
+            "Popular dimension stone (monuments, countertops), "
+            "structural foundations, aggregate in construction."
+        ),
+        "risks": (
+            "If heavily jointed or weathered, can lead to rockfalls. "
+            "May contain trace radioactive minerals (radon risk)."
+        )
+    },
+    "Schist": {
+        "properties": (
+            "Metamorphic rock with pronounced foliation, rich "
+            "in platy minerals (mica). Strength varies with foliation."
+        ),
+        "common_purposes": (
+            "Flagstone, decorative stone, dimension stone where "
+            "aesthetic foliation is desired."
+        ),
+        "risks": (
+            "Planes of weakness along foliation. Slope failures "
+            "common if foliation dips out of slope face."
+        )
+    },
+    "Limestone": {
+        "properties": (
+            "Sedimentary rock mostly of calcite. Soluble in acidic "
+            "water; karst features like sinkholes may form."
+        ),
+        "common_purposes": (
+            "Building stone, crushed aggregate, raw material for cement. "
+            "Also used as soil conditioner (lime)."
+        ),
+        "risks": (
+            "Sinkhole formation in karst terrain. Structural instability "
+            "if voids exist. Reacts with acidic solutions."
+        )
+    },
+    "Sandstone": {
+        "properties": (
+            "Clastic sedimentary rock of sand grains cemented "
+            "by silica, calcite, or iron oxides. Variable strength."
+        ),
+        "common_purposes": (
+            "Building and paving stone, reservoir rock for "
+            "water or hydrocarbons, general aggregate use."
+        ),
+        "risks": (
+            "Erodes if poorly cemented. Possible slope failures "
+            "along bedding planes. Water infiltration along joints."
+        )
+    },
+    "Shale": {
+        "properties": (
+            "Fine-grained sedimentary rock that splits along bedding. "
+            "Very low permeability, weathers to clay."
+        ),
+        "common_purposes": (
+            "Cap rock in petroleum systems, raw material for bricks "
+            "and ceramics, filler in cement manufacture."
+        ),
+        "risks": (
+            "Prone to landslides when weathered. Weak bedding planes "
+            "cause slope instability, slaking in wet-dry cycles."
+        )
+    },
+    "Basalt": {
+        "properties": (
+            "Mafic igneous rock, fine-grained and dark. Often columnar "
+            "jointed, dense, and hard with low porosity."
+        ),
+        "common_purposes": (
+            "Crushed basalt used in construction aggregate, "
+            "road base, and rail ballast. Sometimes decorative."
+        ),
+        "risks": (
+            "Columnar joints create fracture planes prone to rockfalls. "
+            "Weathered basalt can form weak, clay-rich soils."
+        )
+    },
+    "Gneiss": {
+        "properties": (
+            "Metamorphic rock with banded texture and high-grade "
+            "foliation. Often contains quartz and feldspar layers."
+        ),
+        "common_purposes": (
+            "Dimension stone where banding is visually appealing. "
+            "Structurally sound for foundations if unweathered."
+        ),
+        "risks": (
+            "Planes of foliation may act as weak zones. "
+            "Deep weathering reduces strength significantly."
+        )
+    },
+    "Marble": {
+        "properties": (
+            "Metamorphic rock from limestone or dolomite. "
+            "Crystalline texture of calcite or dolomite minerals."
+        ),
+        "common_purposes": (
+            "High-end decorative stone in architecture, sculpture, "
+            "flooring, countertops, monumental works."
+        ),
+        "risks": (
+            "Solution cavities may form if calcite dissolves. "
+            "Surface easily etched by acids."
+        )
+    },
+    "Quartzite": {
+        "properties": (
+            "Highly metamorphosed sandstone. Consists mainly of "
+            "quartz grains fused by silica cement, very hard."
+        ),
+        "common_purposes": (
+            "Crushed stone for high-strength concrete, railroad ballast, "
+            "and as dimension stone for cladding."
+        ),
+        "risks": (
+            "If fractured, blocks can detach. Very hard to excavate, "
+            "abrasive to drilling and cutting equipment."
+        )
+    },
+    "Dolomite": {
+        "properties": (
+            "Sedimentary carbonate rock composed primarily "
+            "of the mineral dolomite (CaMg(CO3)2)."
+        ),
+        "common_purposes": (
+            "Crushed for aggregate, raw material for refractory bricks, "
+            "used in glass production."
+        ),
+        "risks": (
+            "Similar karst phenomena as limestone. Dissolution can cause "
+            "sinkholes, voids, structural concerns."
+        )
+    },
+    "Andesite": {
+        "properties": (
+            "Intermediate volcanic rock, typically gray and fine-grained. "
+            "Associated with stratovolcanoes."
+        ),
+        "common_purposes": (
+            "Crushed for aggregate and road construction. Sometimes "
+            "used as building stone locally."
+        ),
+        "risks": (
+            "Fractured andesite may lead to rockfalls. Weathered surface "
+            "slopes prone to debris flows."
+        )
+    },
+    "Conglomerate": {
+        "properties": (
+            "Clastic sedimentary rock containing rounded gravel-sized "
+            "clasts cemented in a finer matrix."
+        ),
+        "common_purposes": (
+            "Occasional dimension stone if well-cemented. Aggregate source "
+            "if broken down, though variable quality."
+        ),
+        "risks": (
+            "Weak cementation can reduce strength. Heterogeneous composition "
+            "makes engineering properties unpredictable."
+        )
+    },
+    "Siltstone": {
+        "properties": (
+            "Fine-grained sedimentary rock with particle sizes between "
+            "clay and sandstone. Low to moderate strength."
+        ),
+        "common_purposes": (
+            "Limited dimension stone usage. Sometimes used as fill "
+            "if properly tested and stabilized."
+        ),
+        "risks": (
+            "Weakly cemented siltstone may degrade to silt. Prone to "
+            "erosion and slaking when repeatedly wetted and dried."
+        )
+    },
+    "Tuff": {
+        "properties": (
+            "Consolidated volcanic ash or pyroclastic deposits. Texture "
+            "ranges from fine ash to coarse lapilli."
+        ),
+        "common_purposes": (
+            "Blocks for lightweight construction in some regions. "
+            "Decorative stone when cut or polished."
+        ),
+        "risks": (
+            "Porous and can absorb water, weakening with freeze-thaw cycles. "
+            "Potential for slope instability if poorly consolidated."
+        )
+    },
+    "Metamorphic Rock": {
+        "properties": (
+            "General category for rocks altered by heat, pressure, "
+            "and chemical processes (e.g., gneiss, schist)."
+        ),
+        "common_purposes": (
+            "Various uses depending on specific type, structure, "
+            "and composition (e.g., marble, slate)."
+        ),
+        "risks": (
+            "Anisotropy due to foliation or banding. Weathering "
+            "and fracturing can limit strength."
+        )
+    },
+    "Sedimentary Rock": {
+        "properties": (
+            "General category for rocks formed by deposition of "
+            "minerals or organic matter (e.g., sandstone, shale)."
+        ),
+        "common_purposes": (
+            "Building stones, aggregates, reservoirs for water, oil, or gas, "
+            "depending on subtype."
+        ),
+        "risks": (
+            "Layering and bedding planes may be weak surfaces. "
+            "Erodibility and dissolution vary widely by type."
+        )
+    },
+    "Igneous Rock": {
+        "properties": (
+            "Rocks crystallized from magma or lava, either intrusive "
+            "(e.g., granite) or extrusive (e.g., basalt)."
+        ),
+        "common_purposes": (
+            "Building stones, aggregates, ornamental stone if texture "
+            "and color are desirable."
+        ),
+        "risks": (
+            "Fractures or joints can create instability in slopes. "
+            "Weathered profiles may form weak soils or clay layers."
+        )
+    },
+    "Mudstone": {
+        "properties": (
+            "Very fine-grained sedimentary rock. Non-fissile, "
+            "unlike shale, but similar composition."
+        ),
+        "common_purposes": (
+            "Limited structural use. Source for ceramics, and may "
+            "serve as low-permeability layers."
+        ),
+        "risks": (
+            "Slaking and rapid weathering in cyclic wetting/drying. "
+            "Susceptible to landslides if slopes are steep."
+        )
+    },
+    "Chalk": {
+        "properties": (
+            "Soft, porous, fine-grained limestone composed of calcite "
+            "from marine microorganisms."
+        ),
+        "common_purposes": (
+            "Cement raw material, whiting in paints, soil conditioner "
+            "for acidity reduction."
+        ),
+        "risks": (
+            "High porosity; can form unstable cliffs. Dissolution "
+            "can create sinkholes or cavities."
+        )
+    },
+    "Phyllite": {
+        "properties": (
+            "Metamorphic rock with a foliated, silky sheen surface. "
+            "Between slate and schist in metamorphic grade."
+        ),
+        "common_purposes": (
+            "Limited dimension stone use; sometimes for crushed fill. "
+            "Can exhibit aesthetic layering."
+        ),
+        "risks": (
+            "Foliation planes can lead to slope failures. Weathering "
+            "and moisture reduce strength on cleavage surfaces."
+        )
+    },
+    "Rhyolite": {
+        "properties": (
+            "Extrusive igneous rock with high silica content. Fine-grained "
+            "matrix, often pink or gray. Typically forms in violent eruptions; "
+            "can be porphyritic or vesicular."
+        ),
+        "common_purposes": (
+            "Used as crushed aggregate or fill material. Limited use as "
+            "dimension stone due to brittleness."
+        ),
+        "risks": (
+            "If highly vesicular or fractured, can weaken slopes and "
+            "facilitate rockfalls. Weathering may produce unstable debris."
+        )
+    },
+    "Slate": {
+        "properties": (
+            "Low-grade metamorphic rock derived from shale. Fine-grained, "
+            "with excellent fissility along cleavage planes. Typically "
+            "gray, black, or bluish."
+        ),
+        "common_purposes": (
+            "Roofing shingles, flooring tiles, and decorative panels due "
+            "to its easy split into thin sheets."
+        ),
+        "risks": (
+            "Cleavage planes may reduce structural strength in load-bearing "
+            "applications. Slopes can fail if cleavage planes dip outward."
+        )
+    },
+    "Obsidian": {
+        "properties": (
+            "Volcanic glass formed by rapid cooling of high-silica lava. "
+            "Typically black or dark; conchoidal fracture. Very sharp edges."
+        ),
+        "common_purposes": (
+            "Historically used for cutting tools and weapons. Modern niche "
+            "use as ornamental stone or novelty items."
+        ),
+        "risks": (
+            "Brittle and prone to fracture. Glass shards can pose health "
+            "hazards if not handled properly."
+        )
+    },
+    "Coal": {
+        "properties": (
+            "Organic sedimentary rock formed from plant debris under "
+            "pressure. Ranks include peat, lignite, bituminous, anthracite."
+        ),
+        "common_purposes": (
+            "Major fuel source for electricity and industry. Can produce "
+            "coke for steelmaking (bituminous coal)."
+        ),
+        "risks": (
+            "Combustible, generating CO2 and pollutants. Underground "
+            "mines risk collapse and methane explosions."
+        )
+    },
+    "Gypsum": {
+        "properties": (
+            "Soft evaporite mineral (CaSO4·2H2O). Often forms from "
+            "evaporation of saline waters. Low hardness (2 on Mohs scale)."
+        ),
+        "common_purposes": (
+            "Used in plaster, drywall (sheetrock), and cement production. "
+            "Also as a soil amendment to improve structure."
+        ),
+        "risks": (
+            "Dissolves in water over time, forming karst-like features. "
+            "Excavations need dewatering to avoid collapse."
+        )
+    },
+    "Breccia": {
+        "properties": (
+            "Clastic sedimentary rock with angular rock fragments "
+            "cemented in a finer matrix. Often indicates rapid deposition."
+        ),
+        "common_purposes": (
+            "Sometimes cut as decorative stone if visually striking. "
+            "Crushed for road base or aggregate if sufficiently tough."
+        ),
+        "risks": (
+            "Variable cementation leads to unpredictable strength. "
+            "Large angular blocks can pose slope instability issues."
+        )
+    },
+    "Chert": {
+        "properties": (
+            "Microcrystalline quartz (SiO2), very hard and conchoidally "
+            "fracturing. Forms nodules or layers in limestones, or as "
+            "bedded deposits."
+        ),
+        "common_purposes": (
+            "Historically used for tools and weapons (flint). Sometimes "
+            "crushed for high-strength aggregate or abrasives."
+        ),
+        "risks": (
+            "Extremely hard, difficult to excavate. Conchoidal fracture "
+            "can produce razor-sharp fragments."
+        )
+    },
+    "Travertine": {
+        "properties": (
+            "Freshwater carbonate rock precipitated from mineral-rich "
+            "springs or streams. Typically banded and porous."
+        ),
+        "common_purposes": (
+            "Popular architectural stone (flooring, cladding). Polishes "
+            "well. Also used in ornamental features."
+        ),
+        "risks": (
+            "Porous nature can lead to water infiltration and freeze-thaw "
+            "damage. Dissolution cavities may undermine support."
+        )
+    },
+    "Hornfels": {
+        "properties": (
+            "Contact metamorphic rock formed by heat from igneous "
+            "intrusions. Fine-grained, dense, and often dark."
+        ),
+        "common_purposes": (
+            "Occasional use as decorative stone or crushed aggregate. "
+            "Durable where unfractured."
+        ),
+        "risks": (
+            "If fractured, can lose strength. Excavation near contact zones "
+            "requires care due to thermal metamorphism changes."
+        )
+    },
+    "Pegmatite": {
+        "properties": (
+            "Intrusive igneous rock with exceptionally large crystals, "
+            "often containing rare minerals (tourmaline, beryl)."
+        ),
+        "common_purposes": (
+            "Source of gemstones, industrial minerals (feldspar, mica). "
+            "Decorative stone if aesthetic crystals are present."
+        ),
+        "risks": (
+            "Highly variable composition and texture. Large crystal zones "
+            "may create weak planes or pockets in construction."
+        )
+    }
+}
+
+GEOLOGY_TYPES_LONG = {
+    "Granite": {
+        "properties": (
+            "Intrusive igneous rock (felsic), very hard and strong. "
+            "Low porosity (~1%) and density of 2.6–2.7 g/cc. Mostly "
+            "quartz and feldspar, highly durable. Compressive strength "
+            "~100–250 MPa. Minimal water absorption."
+        ),
+        "common_purposes": (
+            "Extensively used in construction. Blocks, paving stones, "
+            "and countertops. Great foundation rock if unweathered. "
+            "Crushed granite is a top aggregate for concrete, asphalt, "
+            "and rail ballast."
+        ),
+        "risks": (
+            "Generally stable but fracturing can cause planes of "
+            "weakness. Exfoliation joints can trigger rockfalls in "
+            "mountains. Deep weathering yields weak saprolite. May "
+            "contain radioactive minerals releasing radon gas."
+        )
+    },
+    "Basalt": {
+        "properties": (
+            "Extrusive igneous rock (mafic), fine-grained and dense "
+            "(~3.0 g/cc). Hard rock with compressive strength "
+            "~100–300 MPa. Often shows columnar joints. Low primary "
+            "porosity, though vesicles can occur. Weathers to "
+            "clay-rich soils."
+        ),
+        "common_purposes": (
+            "Used widely in construction. Quarried for blocks or "
+            "cobblestones. Crushed basalt is a common road base and "
+            "aggregate. Melted basalt yields rock wool insulation. "
+            "Highly abrasion-resistant."
+        ),
+        "risks": (
+            "Cooling joints form blocks prone to rockfalls. Large "
+            "landslides can occur if weak layers are present. "
+            "Weathered basalt soils may fail when saturated."
+        )
+    },
+    "Sandstone": {
+        "properties": (
+            "Clastic sedimentary rock of sand-sized grains. Moderate "
+            "to high porosity; can be an aquifer. Strength varies "
+            "with cement (silica, calcite, or iron). Well-cemented "
+            "forms are strong; friable if poorly cemented. Surface "
+            "weathering can lead to erosion."
+        ),
+        "common_purposes": (
+            "Building and paving stone for many structures. Stable "
+            "foundations if well-cemented. Important reservoir rock "
+            "for oil, gas, or water. Crushed for road base or fill."
+        ),
+        "risks": (
+            "Erodes if poorly cemented. Water may collect on "
+            "impermeable layers, creating slip planes. Undercut "
+            "cliffs can shed blocks in arid areas. Weathered forms "
+            "may degrade into loose sand."
+        )
+    },
+    "Shale": {
+        "properties": (
+            "Fine-grained sedimentary rock with fissility. Mostly "
+            "compacted clay and silt. Extremely low permeability, "
+            "useful as a seal. Weathers quickly to clay under "
+            "exposure."
+        ),
+        "common_purposes": (
+            "Limited dimension stone usage. Crushed for bricks, "
+            "pottery, tiles, cement. Acts as a cap rock in "
+            "petroleum systems, preventing fluid flow."
+        ),
+        "risks": (
+            "Prone to landslides when weathered. Slumps occur "
+            "along bedding planes, especially with harder layers. "
+            "Shale may disintegrate (slake) in wet-dry cycles. "
+            "Fissility can cause uneven settlement under loads."
+        )
+    },
+    "Limestone": {
+        "properties": (
+            "Carbonate sedimentary rock mostly calcite. Light "
+            "gray, moderate hardness. Porosity ~5–20%, but "
+            "dissolves in acid. Karst features (caves, sinkholes) "
+            "may develop. Impurities may include clay or silica."
+        ),
+        "common_purposes": (
+            "Major building material in blocks or aggregate. "
+            "Primary ingredient in cement (heated to form clinker). "
+            "Used as lime for soil conditioning. Employed in steel, "
+            "glass, and flue-gas processes."
+        ),
+        "risks": (
+            "Soluble nature forms karst, risking sinkholes. Fractures "
+            "may cause rockfalls on slopes. Poor surface drainage "
+            "complicates water management. Thorough site investigation "
+            "for cavities is vital."
+        )
+    },
+    "Schist": {
+        "properties": (
+            "Metamorphic rock with pronounced foliation. Platy "
+            "minerals (mica) create schistosity. Medium to coarse "
+            "grains, anisotropic strength. Often derived from "
+            "mudstone or shale."
+        ),
+        "common_purposes": (
+            "Common as decorative stone or flagstone. Sometimes "
+            "roofing slates if finely foliated. Paving stones or "
+            "cladding for a rustic look. Weak foliation limits "
+            "load-bearing use."
+        ),
+        "risks": (
+            "Foliation planes can slip on slopes. Weathered schist "
+            "may become soft and weak. Excavations risk instability "
+            "if foliation is adverse. Foundations must consider "
+            "foliation orientation."
+        )
+    }
+}
 
 
+SOIL_TYPES_LONG = {
+    "Clay": {
+        "properties": (
+            "Fine-grained, high plasticity, very low permeability cohesive soil.\n"
+            "Shrinks and swells significantly with moisture changes.\n"
+            "Exhibits high cohesion when unsaturated."
+        ),
+        "common_purposes": (
+            "Used as natural liners (landfills, ponds) for impermeability.\n"
+            "Holds nutrients well, suitable for crops like rice.\n"
+            "Common in bricks or ceramics when stabilized."
+        ),
+        "risks": (
+            "Prone to waterlogging and slow drainage.\n"
+            "Expansive clays can crack foundations or roads.\n"
+            "Shrink-swell cycles cause subsidence or uplift."
+        )
+    },
+    "Silt": {
+        "properties": (
+            "Fine particles with low plasticity or cohesion.\n"
+            "Intermediate water-holding capacity, smoother than sand,\n"
+            "and slips when wet. Prone to surface crusting."
+        ),
+        "common_purposes": (
+            "Common in floodplains; highly fertile for agriculture.\n"
+            "Easier to cultivate than clay. Used cautiously in\n"
+            "foundations, often requiring stabilization."
+        ),
+        "risks": (
+            "Highly erodible if unprotected by vegetation.\n"
+            "Loses strength quickly when saturated (e.g., loess).\n"
+            "Collapse under load may occur upon wetting."
+        )
+    },
+    "Sand": {
+        "properties": (
+            "Coarse-grained, non-plastic soil with high permeability.\n"
+            "Minimal cohesion but strong frictional resistance when\n"
+            "compacted. Low water and nutrient retention."
+        ),
+        "common_purposes": (
+            "Widely used for stability and drainage in construction.\n"
+            "Forms solid bases for roads, shallow foundations,\n"
+            "and concrete aggregate. Early-crop benefits in farming."
+        ),
+        "risks": (
+            "Unconfined sand shifts or collapses easily.\n"
+            "Liquefaction risk under seismic loading.\n"
+            "Highly prone to wind or water erosion if bare."
+        )
+    },
+    "Gravel": {
+        "properties": (
+            "Very coarse soil (>2 mm) with excellent drainage.\n"
+            "High bearing capacity due to frictional interlock,\n"
+            "especially in angular varieties. Non-cohesive."
+        ),
+        "common_purposes": (
+            "Ideal for foundations, road base, and drainage layers.\n"
+            "Often placed under concrete slabs for stability.\n"
+            "Common as aggregate in asphalt or concrete."
+        ),
+        "risks": (
+            "Lack of cohesion can lead to raveling in steep cuts.\n"
+            "High permeability may transmit contaminants.\n"
+            "Particle migration if not contained by geotextiles."
+        )
+    },
+    "Loam": {
+        "properties": (
+            "Balanced mix of sand, silt, clay (~40–40–20%), plus organics.\n"
+            "Retains water and nutrients well while draining adequately.\n"
+            "Friable with good structure, not overly compact."
+        ),
+        "common_purposes": (
+            "Ideal for farming and gardening with broad crop support.\n"
+            "Good root penetration, easy to cultivate.\n"
+            "In construction, often removed or compacted as topsoil."
+        ),
+        "risks": (
+            "Generally stable but can erode if mismanaged.\n"
+            "Some loams contain gravel hindering excavation.\n"
+            "Maintaining organic matter is essential."
+        )
+    },
+    "Peat": {
+        "properties": (
+            "Extremely high organic content, dark and fibrous.\n"
+            "Holds large amounts of water, very compressible,\n"
+            "and low shear strength. Often acidic."
+        ),
+        "common_purposes": (
+            "Poor for structural support due to instability.\n"
+            "Highly fertile if drained (used in agriculture).\n"
+            "Harvested as fuel or horticultural peat moss."
+        ),
+        "risks": (
+            "Consolidates significantly under load, causing settlement.\n"
+            "Oxidation of drained peat leads to subsidence.\n"
+            "Fire hazard when dry; boggy and unstable when wet."
+        )
+    }
+}
 
 
 

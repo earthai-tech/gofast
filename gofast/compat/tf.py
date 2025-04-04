@@ -7,21 +7,52 @@ Provides utilities for managing compatibility between TensorFlow's Keras and
 standalone Keras. It includes functions and classes for dynamically importing 
 Keras dependencies and checking the availability of TensorFlow or Keras.
 """
-
+import os
 import logging
 import warnings 
 import importlib
+import numpy as np 
 from functools import wraps
 from contextlib import contextmanager 
 from typing import Callable 
 
-# Attempt to import TensorFlow and set a flag based on availability
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+# 0 = all messages are logged (default)
+# 1 = filter out INFO messages
+# 2 = filter out INFO and WARNING messages
+# 3 = filter out INFO, WARNING, and ERROR messages
+
+# Disable OneDNN logs or usage (Optional):
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+# # '3' shows only errors, suppressing warnings and infos
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 try:
     import tensorflow as tf
     HAS_TF = True
 except ImportError:
     HAS_TF = False
-    
+else: 
+    # If TF is imported successfully, detect the version:
+    version_str = tf.__version__
+    major_version = int(version_str.split('.')[0])
+
+    if major_version >= 2:
+        # For TF 2.x:
+        tf.get_logger().setLevel('ERROR')
+    else:
+        # For older TF 1.x style (still works in tf.compat.v1):
+        tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+        
+try:
+    # First, try the new location (2.15+):
+    from tensorflow.keras.saving import register_keras_serializable
+    saving_module = "saving"
+except ImportError:
+    # Fallback: In older TF/Keras, `register_keras_serializable` is in `utils`.
+    from tensorflow.keras.utils import register_keras_serializable # noqa: F401
+    saving_module = "utils"
+
 __all__ = [
     'KerasDependencies',
     'check_keras_backend',
@@ -29,8 +60,10 @@ __all__ = [
     'import_keras_function',
     'standalone_keras', 
     'optional_tf_function', 
-    'suppress_tf_warnings'
+    'suppress_tf_warnings', 
+    'has_wrappers'
 ]
+
 
 class KerasDependencies:
     def __init__(
@@ -72,14 +105,20 @@ class KerasDependencies:
         standalone_mapping = {
             'reduce_mean': ('tensorflow', 'reduce_mean'),
             'reduce_sum': ('tensorflow', 'reduce_sum'),
+            'reduce_all': ('tensorflow', 'reduce_all'),
             'rank': ('tensorflow', 'rank'), 
+            'zeros': ('tensorflow', 'zeros'),
+            'zeros_like': ('tensorflow', 'zeros_like'), 
             'stack': ('tensorflow', 'stack'), 
             'reshape': ('tensorflow', 'reshape'), 
             'tile': ('tensorflow', 'tile'), 
             'concat': ('tensorflow', 'concat'),
+            'unstack': ('tensorflow', 'unstack'), 
+            'errors': ('tensorflow', 'errors'), 
             'expand_dims': ('tensorflow', 'expand_dims'), 
             'shape': ('tensorflow', 'shape'), 
             'square': ('tensorflow.math', 'square'),
+            'is_nan': ('tensorflow.math', 'is_nan'), 
             'GradientTape': ('tensorflow', 'GradientTape'),
             'Dataset': ('tensorflow.data', 'Dataset'),
             'set_seed':('tensorflow.random', 'set_seed'), 
@@ -91,12 +130,16 @@ class KerasDependencies:
             'range':('tensorflow', 'range'), 
             'convert_to_tensor': ('tensorflow', 'convert_to_tensor'), 
             'Tensor': ('tensorflow', 'Tensor'), 
-            'cast': ('tensforflow', 'cast'), 
+            'cast': ('tensorflow', 'cast'), 
+            'abs': ('tensorflow', 'abs'), 
             'float32': ('tensorflow', 'float32'), 
             'autograph': ('tensorflow', 'autograph'), 
             # 'zeros': ('tensorflow', 'zeros'),
             'multiply': ('tensorflow', 'multiply'), 
             'get_static_value':('tensorflow', 'get_static_value'),
+            'equal': ('tensorflow', 'equal'), 
+            'debugging': ('tensorflow', 'debugging'), 
+            'assert_equal': ('tensorflow', 'assert_equal')
             # 'constant': ('tensorflow', 'constant')
         }
 
@@ -119,7 +162,7 @@ class KerasDependencies:
             'LSTMCell':('layers', 'LSTMCell'), 
             'Input': ('layers', 'Input'),
             'Conv2D': ('layers', 'Conv2D'),
-            'Conv21': ('layers', 'Conv21'),
+            'Conv1D': ('layers', 'Conv1D'),
             'Optimizer':('optimizers', 'Optimizer'), 
             'Metric': ('metrics', 'Metric'), 
             'MaxPooling2D': ('layers', 'MaxPooling2D'),
@@ -154,7 +197,7 @@ class KerasDependencies:
             'Embedding': ('layers', 'Embedding'), 
             'clone_model': ('models', 'clone_model'),
             'load_model': ('models', 'load_model'),
-            'register_keras_serializable': ('utils', 'register_keras_serializable')
+            "register_keras_serializable": (saving_module, "register_keras_serializable"),
         }
 
         if name in mapping:
@@ -167,11 +210,136 @@ class KerasDependencies:
         raise AttributeError(
             f"'KerasDependencies' object has no attribute '{name}'"
         )
+  
+class TFConfig:
+    """
+    A configuration class that manages TensorFlow's dimension compatibility 
+    by toggling the `ndim` attribute behavior based on the TensorFlow version.
+    
+    This class provides a means to control whether the `ndim` attribute should 
+    function as it did in older versions of TensorFlow or if it should utilize 
+    the newer `shape` attribute to determine the number of dimensions.
+    
+    Attributes:
+    -----------
+    compat_ndim_enabled : bool
+        A flag to enable or disable compatibility mode for the `ndim` attribute.
+        When enabled, the `ndim` behavior is overridden to use `get_ndim` instead.
         
-# XXX TODO 
-# WARNING:tensorflow:From C:\Users\Daniel\Anaconda3\envs\watex\lib\site-packages
-# \keras\src\losses.py:2976: The name tf.losses.sparse_softmax_cross_entropy is
-#  deprecated. Please use tf.compat.v1.losses.sparse_softmax_cross_entropy instead.
+    _original_ndim : callable or None
+        A reference to the original `ndim` method of the TensorFlow `Tensor` 
+        class, if available. This is used for restoring the original
+        behavior when compatibility mode is disabled. If `ndim` is not
+        present (new TensorFlow version), it will be `None`.
+    
+    Methods:
+    --------
+    compat_ndim_enabled(value)
+        Sets the flag to enable or disable compatibility mode based
+        on the value provided.
+        
+    enable_ndim_compatibility()
+        Replaces TensorFlow's `ndim` with a compatibility method that
+        uses `get_ndim`.
+        
+    disable_ndim_compatibility()
+        Restores the original `ndim` method of TensorFlow if available.
+    """
+    
+    def __init__(self):
+        """
+        Initializes the TFConfig instance and checks the TensorFlow version.
+        
+        It verifies if the `ndim` attribute exists on TensorFlow's 
+        `Tensor` class. If the attribute exists, it stores the original
+        method. If not, it prepares for newer TensorFlow versions where
+        `ndim` is not available.
+        
+        Attributes:
+        -----------
+        _original_ndim : callable or None
+            Stores the original `ndim` method, or `None` if it doesn't exist.
+        _set_compat_ndim_tensor : bool
+            A flag to toggle compatibility mode for `ndim`.
+        """
+        # Check TensorFlow version before accessing tf.Tensor.ndim
+        if hasattr(tf.Tensor, 'ndim'):
+            self._original_ndim = tf.Tensor.ndim
+        else:
+            # Indicate that ndim doesn't exist in TensorFlow
+            self._original_ndim = None  
+
+        self._set_compat_ndim_tensor = False
+
+    @property
+    def compat_ndim_enabled(self):
+        """
+        Retrieves the current status of the `ndim` compatibility flag.
+        
+        Returns:
+        --------
+        bool
+            The current status of the compatibility mode. `True` means that 
+            `get_ndim` is used, and `False` means the original behavior
+            is restored.
+        """
+        return self._set_compat_ndim_tensor
+
+    @compat_ndim_enabled.setter
+    def compat_ndim_enabled(self, value):
+        """
+        Sets the compatibility mode for TensorFlow's `ndim` attribute.
+        
+        Parameters:
+        -----------
+        value : bool
+            If `True`, enable the compatibility mode where `get_ndim` is used. 
+            If `False`, restore the original `ndim` behavior.
+        """
+        self._set_compat_ndim_tensor = value
+        # Apply changes when the flag is set or unset
+        if value:
+            self.enable_ndim_compatibility()
+        else:
+            self.disable_ndim_compatibility()
+
+    def enable_ndim_compatibility(self):
+        """
+        Enables compatibility mode for TensorFlow's `ndim` attribute.
+        
+        This method overrides TensorFlow's default `ndim` property with
+        a custom method that uses the `get_ndim` function from the
+        `gofast.compat.tf` module, allowing compatibility with both
+        old and new TensorFlow versions.
+        """
+        # Define a compatibility method for ndim that uses get_ndim
+        def compat_ndim(self):
+            return get_ndim(self)
+
+        # Override TensorFlow's ndim method with compat_ndim
+        tf.Tensor.ndim = property(compat_ndim)
+
+    def disable_ndim_compatibility(self):
+        """
+        Disables compatibility mode and restores the original `ndim` method.
+        
+        If the original `ndim` method is available 
+        (for older TensorFlow versions), 
+        it will be restored. Otherwise, if `ndim` was not present,
+        no changes are made.
+        """
+        # Restore the original ndim method if it exists
+        if self._original_ndim:
+            tf.Tensor.ndim = self._original_ndim
+        else:
+            # If the original ndim was never there, don't restore anything
+            # since it does not exist, no neeed. Just for consistency.
+            delattr(tf.Tensor, 'ndim')  # Optional, remove any existing ndim definition
+            
+#--------------------------------------------------
+# Instantiate the global configuration object
+Config = TFConfig()
+# ------------------------------------------------
 
 def import_keras_function(
     module_name,
@@ -358,7 +526,196 @@ def suppress_tf_warnings():
             yield
         finally:
             tf_logger.setLevel(original_level)  # Restore original logging level
-            
+         
+
+def get_ndim(tensor):
+    """
+    Compatibility function to retrieve the number of dimensions
+    of a TensorFlow tensor.
+    
+    This function checks if the object is a TensorFlow tensor and whether
+    it has the 'ndim'attribute. If not, it falls back to using the 
+    `len(object.shape)` to get the number of dimensions.
+    If TensorFlow is not available, it provides a generic approach for
+    non-TensorFlow objects.
+
+    Parameters
+    ----------
+    tensor : `tf.Tensor` or `np.ndarray` or any object with a `.shape` attribute
+        The input tensor object whose number of dimensions is to be retrieved. 
+        It can be a TensorFlow tensor, a NumPy array, or any object that exposes a 
+        `.shape` attribute representing its dimensions.
+
+    Returns
+    -------
+    int
+        The number of dimensions of the tensor-like object.
+        
+    Notes
+    -----
+    - If TensorFlow is installed and the object is a TensorFlow tensor, 
+      it uses the `ndim` attribute to retrieve the number of dimensions. 
+    - If the `ndim` attribute is unavailable, the function falls back to using the 
+      length of the `shape` attribute (i.e., `len(tensor.shape)`).
+    - If TensorFlow is not installed, the function checks if the object 
+      is a NumPy array or an object that exposes a `shape` attribute,
+      and it uses `len(tensor.shape)` to retrieve the number of dimensions.
+
+    Examples
+    --------
+    >>> from gofast.compat.tf import get_ndim
+    >>> import tensorflow as tf
+    >>> tensor = tf.constant([[1, 2], [3, 4]])
+    >>> get_ndim(tensor)
+    2
+
+    >>> import numpy as np
+    >>> arr = np.array([[1, 2], [3, 4]])
+    >>> get_ndim(arr)
+    2
+
+    See Also
+    --------
+    TensorFlow Documentation: https://www.tensorflow.org/api_docs/python/tf/Tensor
+    NumPy Documentation: https://numpy.org/doc/stable/reference/generated/numpy.ndarray.shape.html
+
+    References
+    ----------
+    .. [1] TensorFlow API Documentation. 
+           TensorFlow 2.x: https://www.tensorflow.org/api_docs/python/tf/Tensor.
+    .. [2] NumPy Documentation.
+           https://numpy.org/doc/stable/reference/generated/numpy.ndarray.shape.html.
+    """
+    
+    # Check if TensorFlow is available
+    if HAS_TF:
+        if isinstance(tensor, tf.Tensor):
+            # If TensorFlow tensor, return the number 
+            # of dimensions using 'ndim' or 'shape'
+            return getattr(tensor, 'ndim', len(tensor.shape))
+    
+    # If TensorFlow is not available, check if it is a NumPy
+    # array or another object with a shape attribute
+    if isinstance(tensor, np.ndarray):
+        # For NumPy arrays, use len(tensor.shape)
+        return len(tensor.shape)
+    
+    if hasattr(tensor, 'shape'):
+        # For objects with a shape attribute, return the length of shape
+        return len(tensor.shape)
+    elif hasattr(tensor, "ndim"): 
+        return tensor.ndim 
+    # if we reach here then raise the eror 
+    # Raise an exception if the input does not have the necessary attributes
+    raise ValueError(
+        "Input object must be a TensorFlow tensor,"
+        " a NumPy array, or an object with a 'shape' attribute."
+    )
+
+
+def has_wrappers(
+        error="warn", model=None, ops="check_only", 
+        estimator_type="classifier", **kw):
+    """
+    Function to check if Keras wrappers are available 
+    (either from scikeras or keras).
+
+    Parameters:
+    -----------
+    error : str, default='warn'
+        Specifies the behavior if the wrappers are not found:
+        - 'raise': Raises an ImportError if neither scikeras nor
+          keras.wrappers.scikit_learn is available.
+        - 'warn' (default): Warns the user and returns True or False.
+        - 'ignore': Returns True or False without any warning or error.
+
+    model : estimator object, optional, default=None
+        The model to be used if the operation is to 'build'.
+
+    ops : str, default='check_only'
+        Specifies the operation to perform:
+        - 'check_only': Only checks if wrappers are available.
+        - 'build': Checks the wrappers and builds the model 
+          based on the provided estimator type.
+
+    estimator_type : str, default='classifier'
+        Type of estimator to build, either 'classifier' or 'regressor'.
+
+    **kw : additional keyword arguments
+        Additional arguments passed to the model's build function.
+
+    Returns:
+    --------
+    bool or estimator object
+        - If ops='check_only', returns True if wrappers are available, 
+          otherwise False.
+        - If ops='build', returns the built model (KerasClassifier or 
+          KerasRegressor).
+    """
+    # Validate 'error' parameter
+    if error not in {"raise", "warn", "ignore"}:
+        raise ValueError(
+            "Invalid error parameter. Choose 'raise', 'warn', or 'ignore'."
+        )
+
+    # Attempt to import from scikeras (the newer package)
+    try:
+        from scikeras.wrappers import KerasClassifier, KerasRegressor
+
+        if error == "warn":
+            warnings.warn(
+                "Using scikeras.wrappers for KerasClassifier and "
+                "KerasRegressor. Ensure you have 'scikeras' installed.",
+                UserWarning
+            )
+        # If only checking, return True since wrappers exist
+        if ops == "check_only":
+            return True
+
+    except ImportError:
+        # Fallback to older Keras wrapper if scikeras is not available
+        try:
+            from keras.wrappers.scikit_learn import KerasClassifier, KerasRegressor  # noqa
+            if ops == "check_only":
+                return True
+
+        except ImportError:
+            # If both wrappers are not found, handle based on 'error' parameter
+            if error == "raise":
+                raise ImportError(
+                    "Neither scikeras nor keras.wrappers.scikit_learn is "
+                    "available. Please install scikeras or ensure Keras is "
+                    "properly installed."
+                )
+            elif error == "warn":
+                warnings.warn(
+                    "Neither scikeras nor keras.wrappers.scikit_learn is "
+                    "available. Please install scikeras or ensure Keras is "
+                    "properly installed.",
+                    UserWarning
+                )
+                return False
+            elif error == "ignore":
+                return False
+
+    if estimator_type not in {'classifier', 'regressor'}: 
+        raise ValueError(
+            "Invalid estimator_type. Choose 'classifier' or 'regressor'."
+            )
+    # If ops == 'build', proceed to create and return the model based on estimator type
+    if ops == "build":
+        if model is None:
+            raise ValueError("A model must be provided when ops='build'.")
+
+        # Build model for classifier
+        if estimator_type == "classifier":
+            return KerasClassifier(build_fn=model, **kw)
+        
+        # Build model for regressor
+        elif estimator_type == "regressor":
+            return KerasRegressor(build_fn=model, **kw)
+        
+     
 # ---------------------- class and func documentations ----------------------
 
 KerasDependencies.__doc__="""\ 

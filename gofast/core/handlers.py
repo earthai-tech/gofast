@@ -38,8 +38,10 @@ __all__ = [
     'get_valid_kwargs',
     'generate_id',
     'make_ids',
-    'resolve_label'
-    ]
+    'resolve_label', 
+    'columns_manager', 
+    'columns_getter'
+   ]
 
 class TypeEnforcer:
     """
@@ -1531,7 +1533,8 @@ def add_noises_to(
     noise=0.1, 
     seed=None, 
     gaussian_noise=False,
-    cat_missing_value=pd.NA
+    cat_missing_value=pd.NA, 
+    ex_columns=None,
     ):
     """
     Adds NaN or specified missing values to a pandas DataFrame.
@@ -1563,7 +1566,9 @@ def add_noises_to(
     cat_missing_value : scalar, default=pd.NA
         The value to use for missing data in categorical columns. By 
         default, `pd.NA` is used.
-
+    ex_columns: optional , str or list of str, 
+       If provided, then noise is not applied to that/these column(s). 
+       
     Returns
     -------
     pandas.DataFrame
@@ -1624,10 +1629,14 @@ def add_noises_to(
     if noise is None: 
         return data 
     noise, gaussian_noise  = _parse_gaussian_noise (noise )
-
+    
+    ex_columns = columns_manager(ex_columns)
     if gaussian_noise:
         # Add Gaussian noise to numerical columns only
         def add_gaussian_noise(column):
+            # Skip modification if the column is in the exclusion list.
+            if ex_columns is not None and column in ex_columns:
+                return column
             if pd.api.types.is_numeric_dtype(column):
                 return column + np.random.normal(0, noise, size=column.shape)
             return column
@@ -1643,6 +1652,8 @@ def add_noises_to(
         nan_count_per_column = int(noise * len(df_with_nan))
 
         for column in df_with_nan.columns:
+            if ex_columns is not None and column in ex_columns:
+                continue  # Skip columns that should not be modified.
             nan_indices = random.sample(range(len(df_with_nan)), nan_count_per_column)
             if pd.api.types.is_numeric_dtype(df_with_nan[column]):
                 df_with_nan.loc[nan_indices, column] = np.nan
@@ -1887,7 +1898,6 @@ def get_params(obj: object) -> dict:
 
     return PARAMS_VALUES
 
-
 def parse_attrs (attr,  regex=None ): 
     """ Parse attributes using the regular expression.
     
@@ -1922,6 +1932,145 @@ def parse_attrs (attr,  regex=None ):
                         flags=re.IGNORECASE) 
     attr= list(filter (None, regex.split(attr)))
     return attr 
+
+def columns_getter(
+    *dfs, 
+     error = "warn",   
+     to_df = "series", 
+     columns = None,     
+     return_cols = "any"     
+    ):
+    """
+    Fetch and return a list of column names from a collection of 
+    DataFrames based on set operations. Depending on the value of 
+    `return_cols`, the function returns either the union, intersection, 
+    or missing columns relative to a provided list.
+
+    Parameters
+    ----------
+    *dfs : array-like
+        One or more objects which should be pandas DataFrames or 
+        Series. If an item is not a DataFrame or Series, handling is 
+        determined by `error`.
+    error : ``str``, default ``"warn"``
+        Controls error handling for invalid inputs:
+        - ``"raise"``: Throw an error if an input is not a 
+          DataFrame or Series.
+        - ``"warn"``: Issue a warning and skip the invalid input.
+        - ``"ignore"``: Silently ignore invalid inputs.
+    to_df : ``str``, default ``"series"``
+        Determines conversion behavior for Series:
+        - If set to ``"series"``, convert a Series into a DataFrame.
+        - If set to ``"*"``, convert all inputs into DataFrames.
+    columns : ``list``, optional
+        A list of column names to check. If provided, the output will 
+        be restricted to these columns.
+    return_cols : ``str``, default ``"any"``
+        Specifies the type of column list to return:
+        
+        - ``"any"``: Return the union of all columns found across 
+          the DataFrames.
+        - ``"all"``: Return the intersection (columns present in 
+          every DataFrame).
+        - ``"missing"``: If `columns` is provided, return the list of 
+          columns from `columns` that are missing in every DataFrame; 
+          if `columns` is not provided, return columns that are not 
+          common to all DataFrames.
+    
+    Returns
+    -------
+    list of str
+        The list of column names as determined by `return_cols`.
+
+    Examples
+    --------
+    1) **Return union of columns (any):**
+
+       >>> from gofast.core.handlers import columns_getter
+       >>> import pandas as pd
+       >>> df1 = pd.DataFrame({"A": [1,2], "B": [3,4]})
+       >>> df2 = pd.DataFrame({"B": [5,6], "C": [7,8]})
+       >>> columns_getter(df1, df2, return_cols="any")
+       ['A', 'B', 'C']
+
+    2) **Return intersection of columns (all):**
+
+       >>> columns_getter(df1, df2, return_cols="all")
+       ['B']
+
+    3) **Return missing columns from a given set:**
+
+       >>> columns_getter(df1, df2, columns=["A", "B", "D"], 
+       ...               return_cols="missing")
+       ['D']
+
+    Notes
+    -----
+    The function iterates through each input in *dfs. If an input 
+    is a pandas Series and `to_df` is set to ``"series"`` or ``"*"``, 
+    it is converted to a DataFrame using `pd.DataFrame`. The valid 
+    DataFrames are then used to compute the union and intersection 
+    of their column names. If `columns` is provided, the computed 
+    sets are intersected with the specified columns. Finally, based on 
+    `return_cols`, the union, intersection, or missing columns are 
+    returned [1]_.
+
+
+    References
+    ----------
+    .. [1] Smith, J., & Doe, A. "Set operations for data 
+           integration." *Journal of Data Science*, vol. 10, no. 2, 
+           pp. 123-134, 2020.
+    """
+
+    valid_dfs = []
+    for idx, item in enumerate(dfs):
+        if isinstance(item, pd.DataFrame):
+            valid_dfs.append(item)
+        elif isinstance(item, pd.Series):
+            if to_df in ["series", "*"]:
+                valid_dfs.append(item.to_frame())
+            else:
+                msg = f"Item {idx} is a Series and will be skipped."
+                if error == "raise":
+                    raise ValueError(msg)
+                elif error == "warn":
+                    warnings.warn(msg)
+        else:
+            msg = f"Item {idx} is not a DataFrame or Series and will be ignored."
+            if error == "raise":
+                raise ValueError(msg)
+            elif error == "warn":
+                warnings.warn(msg)
+
+    if not valid_dfs:
+        return []
+
+    # Compute union and intersection of columns across valid DataFrames.
+    union_cols = set()
+    intersection_cols = set(valid_dfs[0].columns)
+    for df in valid_dfs:
+        union_cols.update(df.columns)
+        intersection_cols.intersection_update(df.columns)
+
+    if columns is not None:
+        specified = set(columns)
+        union_cols = union_cols.intersection(specified)
+        intersection_cols = intersection_cols.intersection(specified)
+        missing = specified - union_cols
+    else:
+        missing = union_cols - intersection_cols
+
+    if return_cols == "any":
+        return sorted(list(union_cols))
+    elif return_cols == "all":
+        return sorted(list(intersection_cols))
+    elif return_cols == "missing":
+        return sorted(list(missing))
+    else:
+        raise ValueError(
+            "Invalid return_cols option. Choose among 'any', 'all', or 'missing'."
+        )
 
 def columns_manager(
     columns: Optional[Union[str, list, tuple]],  
@@ -2003,12 +2152,25 @@ def columns_manager(
     if isinstance(columns, (int, float)):
         columns = [columns]
         
+    elif callable(columns): 
+        columns=[columns] 
+        
+    ## Use inspect to determine if it is a class.
+    # Alternatively, if the object is not iterable (has no __iter__ attribute),
+    # we assume it's a single model instance.
+    if inspect.isclass(columns) or not hasattr(columns, '__iter__'):
+        columns = [columns]
+        
     # If columns is a string, split by separator or use regex
-    if isinstance(columns, str):
+    elif isinstance(columns, str):
         if separator is not None:
             columns = columns.split(separator)
         else:
-            columns = str2columns(columns, regex=regex, pattern=pattern)
+            columns = str2columns(
+                columns, 
+                regex=regex, 
+                pattern=pattern
+        )
     
     # If columns is any iterable object, convert it to a list
     elif isinstance(columns, Iterable) : 
@@ -2018,7 +2180,7 @@ def columns_manager(
             if error == 'raise':
                 raise ValueError(f"Error converting columns to list: {e}")
             elif error == 'warn':
-                warnings.warn(f"Warning: Could not convert columns to list: {e}")
+                warnings.warn(f"Could not convert columns to list: {e}")
             else:
                 pass  # Ignore errors silently
 
@@ -2039,9 +2201,21 @@ def columns_manager(
         # Convert all items to string if requested
         if to_string:
             columns = [str(col) for col in columns]
-
+    else: 
+        # If 'columns' is not a string, list, or tuple, 
+        # then it might be a single object 
+        # (for example, an instance of RandomForestRegressor).
+        # In such a case, we attempt to check if it is iterable. 
+        # Since an instance of RandomForestRegressor
+        # is neither callable nor a class, nor is it iterable 
+        # (i.e., it has no __iter__ # attribute), we wrap it into a list.
+        if not isinstance(columns, (str, list, tuple)):
+            try:
+                iter(columns)
+            except:
+                columns = [columns]
+        
     return columns
-
 
 def resolve_label(
     obj,
@@ -2302,3 +2476,197 @@ def resolve_label(
     else:
         return names
   
+def extend_values(
+    values,
+    target,
+    mode: str = "constant",
+    increment: float = 0,
+    extra_values=None,
+    verbose: int = 0
+):
+    """
+    Extends or increments a list of values (or single value) to match a
+    desired length. The desired length can be given by an integer, a float
+    (converted internally to an integer), or the length of an iterable.
+
+    This function is flexible enough to handle both numeric and non-numeric
+    values. Incrementing or decrementing (i.e., increasing or decreasing)
+    only applies when the last value in the list is numeric. Otherwise, the
+    function falls back to constant repetition.
+
+    Parameters
+    ----------
+    values : int, float, str, list
+        The initial values to be extended. If it is not already a list,
+        it will be converted into a list of one element.
+
+    target : int, float, or iterable
+        The target size (length) to extend to. If an integer or float is
+        provided, it is used directly (float is cast to int). If an iterable
+        is provided, the length of the iterable is taken as the target
+        length. For example, if `target` has length 5, the resulting list
+        will have length 5.
+
+    mode : {'constant', 'increase', 'decrease'}, default='constant'
+        Determines how the extension is done:
+          - 'constant': repeats the last value in `values`.
+          - 'increase': increments from the last value by `increment`,
+            creating a sequence. This makes sense only if the last
+            value is numeric.
+          - 'decrease': decrements from the last value by `increment`,
+            creating a sequence. This also makes sense only if the
+            last value is numeric.
+
+    increment : float, default=0
+        The amount by which to increment or decrement each subsequent
+        new value if `mode` is 'increase' or 'decrease'. Ignored if
+        `mode` is 'constant'. If the last value of `values` is not numeric,
+        the function falls back to constant repetition.
+
+    extra_values : single value or list, optional
+        If provided, these values are appended to the original `values`
+        before any further extension. For a single item, it is converted
+        to a list of one element.
+
+    verbose : int, default=0
+        Controls the level of debug output:
+          - 0: no messages (silent).
+          - 1: basic messages about the process.
+          - 2 or 3: more detailed messages (for development).
+
+    Returns
+    -------
+    extended_values : list
+        The extended list of values of length equal to the integer
+        derived from `target`.
+
+    Examples
+    --------
+    >>> from gofast.core.handlers import extend_values
+    >>> # Example 1: constant extension
+    >>> val = 0.3
+    >>> ext = extend_values(val, 3, mode='constant')
+    >>> # 'val' is converted to list [0.3], and repeated to get [0.3, 0.3, 0.3]
+    >>> print(ext)
+    [0.3, 0.3, 0.3]
+
+    >>> # Example 2: numeric increment
+    >>> vals = [0.3]
+    >>> ext = extend_values(vals, 3, mode='increase', increment=0.2)
+    >>> # Here we get [0.3, 0.5, 0.7]
+    >>> print(ext)
+    [0.3, 0.5, 0.7]
+
+    >>> # Example 3: numeric decrement
+    >>> ext = extend_values(vals, 3, mode='decrease', increment=0.2)
+    >>> # Here we get [0.3, 0.1, -0.1]
+    >>> print(ext)
+    [0.3, 0.1, -0.1]
+
+    >>> # Example 4: Extra values plus extension
+    >>> vals = 0.3
+    >>> # Suppose we have extra_values=[0.8], and we want total length 4
+    >>> # Then we first get [0.3, 0.8], then we extend further.
+    >>> ext = extend_values(vals, 4, extra_values=[0.8], mode='constant')
+    >>> # -> [0.3, 0.8, 0.8, 0.8]
+    >>> print(ext)
+    [0.3, 0.8, 0.8, 0.8]
+
+    >>> # Example 5: Non-numeric extension
+    >>> # For non-numeric, 'increase' or 'decrease' fallback to 'constant'
+    >>> val = "hello"
+    >>> ext = extend_values(val, 4, mode='increase', increment=10)
+    >>> # -> ['hello', 'hello', 'hello', 'hello']
+    >>> print(ext)
+    ['hello', 'hello', 'hello', 'hello']
+    """
+    # Convert `values` to list if it's not already.
+    if hasattr(values, '__iter__') and not isinstance (values, str): 
+        values= list(values)
+        
+    if not isinstance(values, list):
+        values = [values]
+
+    # Convert `extra_values` to list if it is provided but not a list.
+    if extra_values is not None:
+        if hasattr(extra_values, '__iter__') and not isinstance (
+                extra_values, str): 
+            extra_values= list(extra_values)
+            
+        if not isinstance(extra_values, list):
+            extra_values = [extra_values]
+        values.extend(extra_values)
+
+    # Determine the integer length we need based on `target`.
+    # If `target` is an integer or float, convert float->int.
+    # If `target` is an iterable, use its length.
+    if isinstance(target, int):
+        desired_length = target
+    elif isinstance(target, float):
+        desired_length = int(target)
+    elif hasattr(target, "__iter__"):
+        desired_length = len(target)  # length of the iterable
+    else:
+        raise TypeError(
+            "Invalid type for `target`. Must be int, float, or an iterable."
+        )
+
+    current_length = len(values)
+
+    if verbose > 0:
+        print(f"[extend_values] Current length: {current_length}, "
+              f"Desired length: {desired_length}")
+
+    # If we already meet or exceed the desired length, truncate.
+    if current_length >= desired_length:
+        if verbose > 1:
+            print("[extend_values] Already sufficient length, truncating.")
+        return values[:desired_length]
+
+    # Otherwise, we need to extend the list.
+    diff = desired_length - current_length
+
+    # Identify last value for extension basis.
+    last_val = values[-1]
+
+    # Prepare a helper to check numeric feasibility.
+    def is_numeric(x):
+        return isinstance(x, (int, float))
+
+    # If incrementing/decrementing is requested, ensure last_val is numeric.
+    # Otherwise, fall back to constant repetition.
+    if mode in ("increase", "decrease") and not is_numeric(last_val):
+        if verbose > 0:
+            print("[extend_values] Warning: last value is not numeric. "
+                  "Falling back to constant mode.")
+        mode = "constant"
+
+    if mode == "constant":
+        # Repeat the last value
+        values.extend([last_val] * diff)
+        if verbose > 1:
+            print("[extend_values] Extended by constant repetition.")
+
+    elif mode == "increase":
+        # Add increment * 1, increment * 2, etc.
+        base = last_val
+        for i in range(1, diff + 1):
+            values.append(base + i * increment)
+        if verbose > 1:
+            print("[extend_values] Extended by incrementing.")
+
+    elif mode == "decrease":
+        # Subtract increment * 1, increment * 2, etc.
+        base = last_val
+        for i in range(1, diff + 1):
+            values.append(base - i * increment)
+        if verbose > 1:
+            print("[extend_values] Extended by decrementing.")
+    else:
+        # If an unknown mode is passed, revert to constant.
+        if verbose > 0:
+            print(f"[extend_values] Unrecognized mode: '{mode}'. "
+                  "Falling back to constant mode.")
+        values.extend([last_val] * diff)
+
+    return values

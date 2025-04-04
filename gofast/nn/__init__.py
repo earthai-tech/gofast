@@ -11,9 +11,15 @@ available, the module will raise an ImportError with instructions to install
 TensorFlow.
 
 """
+import os 
+# filter out TF INFO and WARNING messages
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # or "3"
+# Disable oneDNN custom operations
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+
 import warnings
 from .generate import create_sequences, data_generator
-from ..compat.tf import import_keras_dependencies, check_keras_backend, standalone_keras
+from ..compat.tf import import_keras_dependencies, check_keras_backend
 from ._config import configure_dependencies, Config as config
 
 # Set default configuration
@@ -105,60 +111,5 @@ if KERAS_BACKEND:
         "cross_validate_lstm",
     ]
 
-    # Get necessary classes and functions from Keras dependencies
-    Layer = KERAS_DEPS.Layer 
-    # Equivalent to: from tensorflow.keras import activations
-    try:
-        activations = KERAS_DEPS.activations  
-    except (ImportError, AttributeError) as e: 
-        try: 
-            activations = standalone_keras('activations')
-        except: 
-            raise ImportError (str(e))
-    except: 
-        raise ImportError(
-                "Module 'activations' could not be imported from either "
-                "tensorflow.keras or standalone keras. Ensure that TensorFlow "
-                "or standalone Keras is installed and the module exists."
-            )
-
-    class Activation(Layer):
-        """
-        Custom Activation layer that wraps a Keras activation function
-        and captures its name.
-        """
-        def __init__(self, activation='relu', **kwargs):
-            super(Activation, self).__init__(**kwargs)
-            # Get the activation function; Keras will raise an error if invalid
-            self.activation= activations.get(activation)
-            # self.activation = activation  # Store the original activation parameter
-
-            # Assign activation name
-            if isinstance(activation, str):
-                self.activation_name = activation
-            elif callable(activation):
-                # Try to get the name from the activation function
-                self.activation_name = getattr(
-                    activation, '__name__', activation.__class__.__name__)
-            else:
-                # Fallback to string representation
-                self.activation_name = str(activation)
-
-        def call(self, inputs):
-            return self.activation(inputs)
-
-        def get_config(self):
-            config = super(Activation, self).get_config()
-            # Serialize the activation function properly
-            config.update({
-                'activation': activations.serialize(self.activation)
-            })
-            return config
-
-        def __repr__(self):
-            return f"{self.__class__.__name__}(activation={self.activation_name!r})"
-
-    # Add Activation to the list of public objects if __all__ is defined
-    __all__.extend(["Activation"])
 
     

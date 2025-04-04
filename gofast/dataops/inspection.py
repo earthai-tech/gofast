@@ -83,7 +83,6 @@ def verify_data_integrity(
     # exception if not (via `is_frame` from gofast). 
     # In fact no need, since decorator handle the case. 
     # But just here for consistency in case decorator failed.
-    
     is_frame(
         data,
         df_only=True,
@@ -253,6 +252,7 @@ def verify_data_integrity(
     # and the assembled report object
     return is_valid, report_obj
 
+@is_data_readable 
 @isdf
 def inspect_data(
     data: DataFrame, /, 

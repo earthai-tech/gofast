@@ -30,19 +30,19 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import cross_val_predict
 from sklearn.preprocessing import label_binarize
-try: 
-    from sklearn.utils.multiclass import type_of_target
-except : 
-    from .core.utils import type_of_target 
-    
+
 from .api.formatter import MetricFormatter, DescriptionFormatter 
 from .api.summary import TW, ReportFactory, assemble_reports
 from .api.summary import ResultSummary 
 from .core.array_manager import to_arrays 
 from .core.checks import exist_features, is_iterable
 from .core.utils import normalize_string
-from .compat.sklearn import StrOptions, HasMethods, Interval, validate_params 
+from .compat.sklearn import ( 
+    StrOptions, HasMethods, Interval, validate_params,
+    type_of_target
+)
 from .decorators import Substitution, Appender
+from .utils.generic_utils import transform_contributions 
 from .utils.validator import (
     _ensure_y_is_valid, _is_numeric_dtype, check_epsilon, check_is_fitted, 
     validate_multioutput, validate_nan_policy, check_array, build_data_if, 
@@ -133,6 +133,7 @@ interpret : bool, default=False
         StrOptions({'barh', 'bar', 'pie', 'scatter'}), None],
     "max_iter": [Interval(Integral, 1, None, closed='left')]
 })
+
 def miv_score(
     X, 
     y, 
@@ -141,7 +142,8 @@ def miv_score(
     max_iter=10, 
     plot_type='bar',  
     percent=False,    
-    relative=False,   
+    relative=False, 
+    normalize=False, 
     show_grid=True, 
     fig_size=(12, 8),
     cmap='viridis', 
@@ -215,6 +217,11 @@ def miv_score(
         of feature impact.
         If ``False``, MIV is computed based on the difference between positive 
         and negative perturbations.
+        
+    normalize : bool, optional, default=False
+        Whether to normalize the contributions using min-max scaling. If 
+        `True`, the values will be scaled to the range defined in 
+        ``norm_range``.
 
     show_grid : bool, default=True
         If ``True``, displays grid lines on applicable plots (e.g., bar, barh, scatter).
@@ -299,7 +306,7 @@ def miv_score(
 
     See Also
     --------
-    gofast.plot.utils.plot_pertubations: 
+    gofast.plot.suite.plot_pertubations: 
         Plot feature perturbation effects for multiple perturbation values 
         using MIV metrics.
     gofast.metrics_special.relative_sensitivity_score: 
@@ -396,13 +403,20 @@ def miv_score(
         
         # Average MIV over all iterations for the current feature
         avg_miv = np.mean(miv_list)
-        if percent:
-            avg_miv *= 100  # Convert to percentage if required
+        
+        # if percent:
+        #     avg_miv *= 100  # Convert to percentage if required
         miv_values[feature] = avg_miv
         
         if verbose >= 2:
             print(f"MIV for {feature}: {avg_miv:.4f}{'%' if percent else ''}")
     
+    miv_values = transform_contributions( 
+        miv_values, 
+        to_percent=percent, 
+        normalize =normalize, 
+        zero_division= 'ignore', 
+    )
     # Create metric summary using MetricFormatter
     metric_summary = MetricFormatter(
         descriptor="mean_impact_value", 
@@ -514,6 +528,14 @@ def _plot_feature_importance(
                      va='center', 
                      ha='left')  
 
+@validate_params ({ 
+    'y_true': ['array-like'], 
+    'y_lower': ['array-like'], 
+    'y_upper': ['array-like'],
+    'nan_policy': [StrOptions ({'omit', 'propagate', 'raise'})], 
+    'fill_value': [Real, None], 
+    }
+)
 def coverage_score(
     y_true,
     y_lower,
@@ -870,7 +892,7 @@ def relative_sensitivity_score(
     
     # Plot results if requested
     if plot_type is not None:
-        from .plot.utils import plot_sensitivity 
+        from .plot.suite import plot_sensitivity 
         plot_sensitivity(
             sensitivity_values, 
             baseline= baseline_predictions, 

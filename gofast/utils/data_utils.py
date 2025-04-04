@@ -15,7 +15,8 @@ import re
 import copy 
 import warnings 
 from numbers import Real
-from typing import Any, List, Union, Optional, Set, Tuple   
+from typing import Any, List, Union, Optional, Set, Tuple 
+from typing import Callable, Dict  
 from functools import reduce
 
 import scipy 
@@ -36,7 +37,7 @@ from ..core.checks import (
     is_iterable, assert_ratio, are_all_frames_valid , 
     check_features_types, exist_features, is_df_square, 
     check_files, exist_labels, is_valid_dtypes,
-    ensure_same_shape, check_empty 
+    ensure_same_shape, check_empty, check_non_emptiness 
 )
 from ..core.handlers import columns_manager 
 from ..core.io import SaveFile, is_data_readable, to_frame_if
@@ -46,6 +47,21 @@ from .validator import (
      is_frame, validate_positive_integer, parameter_validator, 
      build_data_if
     )
+
+HAS_TQDM = False
+HAS_PRETTYTABLE = False
+
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    pass
+
+try:
+    from prettytable import PrettyTable
+    HAS_PRETTYTABLE = True
+except ImportError:
+    pass
 
 logger = gofastlog().get_gofast_logger(__name__) 
 
@@ -61,8 +77,8 @@ __all__= [
     'read_worksheets',
     'resample_data', 
     'replace_data', 
-    'long_to_wide', 
-    'wide_to_long', 
+    'to_wide', 
+    'to_long', 
     'repeat_feature_accross', 
     'merge_datasets', 
     'swap_ic', 
@@ -70,11 +86,857 @@ __all__= [
     'pop_labels_in', 
     'truncate_data', 
     'filter_data', 
+    'has_duplicates', 
     'index_based_selector', 
     'nan_ops', 
+    'build_df', 
+    'group_and_aggregate', 
+    'mask_by_reference', 
+    'filter_by_isin', 
+    'filter_df',
+    'generate_comparison', 
+    'handle_nans', 
     ]
 
-     
+@SaveFile
+@Dataify(auto_columns= True) 
+def handle_nans(
+    df: pd.DataFrame,
+    policy: str = 'omit',
+    fill_value: Optional[
+        Union[float,
+              str,
+              Dict[str, Union[float, str]]]
+    ]                   = None,
+    method: str         = None,
+    columns: Optional[
+        Union[str,
+              List[str]]
+    ]                   = None,
+    threshold: Optional[
+        Union[float,
+              Dict[str, float]]
+    ]                   = None,
+    threshold_action: str = 'error',
+    inplace: bool       = False,
+    fallback_strategy: str = 'mode',
+    label: str = 'dataset',
+    savefile: Optional[str]=None, 
+    verbose: int        = 0,
+) -> pd.DataFrame:
+    """
+    Handles missing values in a DataFrame according to
+    various policies. The method `handle_nans` can remove,
+    raise, fill, or interpolate NaNs. It also optionally
+    checks for maximum allowed NaN percentages and applies
+    `threshold_action` accordingly.
+    
+    .. math::
+       \text{NaN\_ratio} =
+       \frac{\text{count\_NaNs}}{\text{count\_total}} \times 100
+    
+    If :math:`\text{NaN\_ratio}` in any column exceeds a
+    user-defined threshold, an action such as dropping
+    the column or raising an error can be performed.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input DataFrame in which missing values
+        are processed. Must be convertible to a numeric
+        type for certain fill strategies.
+    
+    policy : {'omit', 'raise', 'propagate', 'fill',
+              'interpolate'}, default='omit'
+        The main strategy for handling NaNs:
+        * ``omit`` : Drops rows containing NaNs
+        * ``raise`` : Raises an error if any NaNs exist
+        * ``propagate`` : Leaves NaNs as is
+        * ``fill`` : Fills NaNs using a specified value
+          or statistical rule
+        * ``interpolate`` : Applies interpolation
+          (linear, time-based, etc.)
+
+    fill_value : float or str or dict, optional
+        The fill specification used when
+        `policy='fill'`. Can be:
+        * A numeric scalar
+        * A string rule like ``'mean'``, ``'median'``,
+          ``'mode'``, ``'min'``, ``'max'``
+        * A dictionary mapping columns to specific
+          rules or values
+    
+    method : str, optional
+        The interpolation method if
+        `policy='interpolate'`, such as
+        ``'linear'``, ``'time'``, ``'pad'``,
+        etc.
+    
+    columns : str or list of str, optional
+        Specific columns to handle. If None, all
+        columns in `df` are processed.
+    
+    threshold : float or dict, optional
+        Maximum acceptable percentage of NaNs for a
+        column. If a column's NaN ratio exceeds this
+        value, `threshold_action` is applied. Can be
+        a single float or a dict of per-column floats.
+    
+    threshold_action : {'error', 'warn', 'drop_column',
+                        'drop_row', 'fill'}, default='error'
+        Action to take if the NaN ratio in a column
+        exceeds `threshold`:
+        * ``error`` : Raises ValueError
+        * ``warn`` : Prints a warning
+        * ``drop_column`` : Drops the entire column
+        * ``drop_row`` : Drops rows with NaNs in that
+          column
+        * ``fill`` : Fills that column's NaNs using
+          `fill_value`
+    
+    inplace : bool, default=False
+        If True, modifies `df` in place. Otherwise,
+        returns a copy.
+    
+    fallback_strategy : str, default='mode'
+        The fallback rule if a fill strategy is
+        unclear or not applicable. Typically
+        ``'mode'`` or ``'median'``.
+        
+    label : str, default='dataset'
+        A label used in error messages and logs to
+        identify the current dataset.
+        
+    verbose : int, default=0
+        The verbosity level (0-3). Higher values
+        print more diagnostic information.
+    
+    Returns
+    -------
+    pd.DataFrame
+        The resulting DataFrame after applying
+        the specified NaN policies.
+    
+    Examples
+    --------
+    >>> from gofast.utils.base_utils import handle_nans
+    >>> import pandas as pd
+    >>> data = {
+    ...     'A': [1, None, 3, 4],
+    ...     'B': [None, 2, 2, 2]
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> # Fill NaNs using column means
+    >>> cleaned = handle_nans(
+    ...     df,
+    ...     policy='fill',
+    ...     fill_value='mean',
+    ...     verbose=2
+    ... )
+    
+    Notes
+    -----
+    The inline method `handle_nans` can also verify that
+    NaN percentages remain below certain thresholds. This
+    can be useful for robust data cleaning, ensuring no
+    key columns exceed a tolerable missing-data ratio.
+    
+    See Also
+    --------
+    pandas.DataFrame.fillna : Core function for replacing
+        missing values.
+    pandas.DataFrame.interpolate : Additional interpolation
+        strategies.
+    
+    References
+    ----------
+    .. [1] Wes McKinney. *Python for Data Analysis: Data
+       Wrangling with Pandas, NumPy, and IPython.*
+       O'Reilly Media, 2017.
+    """
+
+    # Validate parameters and create copy if needed
+    # Then process columns according to chosen policy
+    # Return cleaned DataFrame
+    valid_policies = ['omit', 'raise', 'propagate',
+                      'fill', 'interpolate']
+    if policy not in valid_policies:
+        raise ValueError(f"Invalid policy. Valid options: "
+                         f"{valid_policies}")
+
+    if policy == 'interpolate' and not method:
+        interp_methods = {'linear', 'time',
+                          'index', 'pad',
+                          'ffill', 'bfill'}
+        raise ValueError("Interpolation method required "
+                         "for 'interpolate' policy. valid "
+                         f"methods: {interp_methods}")
+
+    if not inplace:
+        df = df.copy()
+
+    columns = (columns
+               if columns is not None
+               else df.columns.tolist())
+    if isinstance(columns, str):
+        columns = [columns]
+
+    nan_stats = {}
+    original_shape = df.shape
+
+    # Threshold checks
+    for col in columns:
+        if col not in df.columns:
+            raise ValueError(f"Column '{col}' "
+                             f"not found in DataFrame")
+        na_count = df[col].isna().sum()
+        na_pct = (na_count / len(df)) * 100
+        nan_stats[col] = {
+            'count': na_count,
+            'percent': na_pct
+        }
+        col_threshold = (threshold.get(col)
+                         if isinstance(threshold, dict)
+                         else threshold)
+        if col_threshold and na_pct > col_threshold:
+            _handle_threshold_violation(
+                df,
+                col,
+                na_pct,
+                col_threshold,
+                threshold_action,
+                label,
+                verbose,
+                fill_value,
+                method,
+            )
+
+    # Apply main policy
+    if policy == 'omit':
+        df = df.dropna(subset=columns)
+    elif policy == 'raise':
+        for col in columns:
+            if nan_stats[col]['count'] > 0:
+                raise ValueError(f"NaNs detected in "
+                                 f"{label} column '{col}'")
+    elif policy == 'fill':
+        fill_values = _resolve_fill_values(
+            df,
+            columns,
+            fill_value
+        )
+        df = _fill_na_values(
+            df,
+            columns,
+            fill_values,
+            method,
+            verbose
+        )
+    elif policy == 'interpolate':
+        df[columns] = df[columns].interpolate(
+            method=method
+        )
+
+    # Log final stats
+    new_nan_count = df[columns].isna().sum().sum()
+    if verbose > 0:
+        _log_processing_stats(
+            original_shape,
+            df.shape,
+            new_nan_count,
+            nan_stats,
+            label,
+            verbose
+        )
+
+    return df
+
+
+def _resolve_fill_values(
+    df: pd.DataFrame,
+    columns: List[str],
+    fill_value: Union[
+        float,
+        str,
+        Dict[str, Union[float, str]]
+    ]
+) -> Dict[str, float]:
+    """
+    Compute fill values for each column in ``df`` given
+    a single fill rule or multiple fill rules.
+    """
+    if isinstance(fill_value, dict):
+        return {
+            col: _calculate_fill_value(
+                df[col],
+                fill_value.get(col, np.nan)
+            )
+            for col in columns
+        }
+    return {
+        col: _calculate_fill_value(
+            df[col],
+            fill_value
+        )
+        for col in columns
+    }
+
+
+def _calculate_fill_value(
+    series: pd.Series,
+    value: Union[float, str]
+) -> float:
+    """
+    Derive a single fill value by rule or direct numeric,
+    e.g. `'mean'`, `'median'`, `'mode'`, or a float.
+    """
+    if isinstance(value, str):
+        if value == 'mean':
+            return series.mean()
+        elif value == 'median':
+            return series.median()
+        elif value == 'mode':
+            return series.mode()[0]
+        elif value == 'min':
+            return series.min()
+        elif value == 'max':
+            return series.max()
+        else:
+            raise ValueError(f"Invalid fill value "
+                             f"string: {value}")
+    return value
+
+
+def _fill_na_values(
+    df: pd.DataFrame,
+    columns: List[str],
+    fill_values: Dict[str, float],
+    method: str,
+    verbose: int
+) -> pd.DataFrame:
+    """
+    Replace NaNs in specified columns using computed
+    fill values, optionally with a fill `method`.
+    """
+    for col, val in fill_values.items():
+        na_count = df[col].isna().sum()
+        if na_count > 0:
+            df[col] = df[col].fillna(
+                val,
+                method=method
+            )
+            if verbose > 1:
+                print(f"Filled {na_count} NaNs in "
+                      f"column '{col}' with {val:.2f}")
+    return df
+
+
+def _log_processing_stats(
+    original_shape: Tuple[int, int],
+    new_shape: Tuple[int, int],
+    new_nan_count: int,
+    nan_stats: Dict,
+    label: str,
+    verbose: int
+):
+    """
+    Print a brief summary of changes in size and NaN
+    counts after cleaning.
+    """
+    if verbose > 0:
+        print(f"\n{label} NaN handling report:")
+        print(f"Original shape: {original_shape}")
+        print(f"New shape: {new_shape}")
+        print(f"Remaining NaNs: {new_nan_count}")
+    if verbose > 1:
+        for col, stat in nan_stats.items():
+            print(f"Column '{col}':")
+            print(f"  - Original NaNs: "
+                  f"{stat['count']} "
+                  f"({stat['percent']:.1f}%)")
+
+
+def _handle_threshold_violation(
+    df: pd.DataFrame,
+    col: str,
+    na_pct: float,
+    threshold: float,
+    action: str,
+    label: str,
+    verbose: int,
+    fill_value: Union[
+        float,
+        str,
+        Dict[str, Union[float, str]]
+    ] = None,
+    method: str = None,
+    fallback_strategy: str = 'mode'
+):
+    """
+    Respond to columns exceeding a NaN threshold. This
+    can drop rows, drop the column, raise an error, or
+    fill data.
+    """
+    msg = (f"{label} column '{col}' has {na_pct:.1f}% "
+           f"NaNs (exceeds {threshold}% threshold)")
+    if action == 'error':
+        raise ValueError(msg)
+    elif action == 'warn' and verbose > 0:
+        warnings.warn(msg)
+    elif action == 'drop_column':
+        if verbose > 1:
+            print(f"Dropping column '{col}' due to NaN "
+                  f"threshold violation")
+        df.drop(col, axis=1, inplace=True)
+    elif action == 'drop_row':
+        if verbose > 1:
+            print(f"Dropping rows with NaNs in '{col}'")
+        df.dropna(subset=[col], inplace=True)
+    elif action == 'fill':
+        if verbose > 1:
+            print(f"Filling NaNs in '{col}' due to "
+                  f"threshold violation")
+        fill_val = _resolve_fill_value(
+            df[col],
+            fill_value,
+            fallback_strategy,
+            col,
+            verbose
+        )
+        _safe_fill_column(df, col, fill_val, verbose)
+    else:
+        raise ValueError(f"Invalid threshold action: "
+                         f"{action}")
+
+
+def _resolve_fill_value(
+    series: pd.Series,
+    fill_value: Union[
+        float,
+        str,
+        Dict[str, Union[float, str]]
+    ],
+    fallback: str,
+    col: str,
+    verbose: int
+) -> Union[float, str]:
+    """
+    Determine a fill value for a column with fallback
+    if no direct rule matches or if fill is `'fallback'`.
+    """
+    try:
+        if isinstance(fill_value, dict):
+            col_fill = fill_value.get(col, 'fallback')
+        else:
+            col_fill = fill_value or 'fallback'
+        if col_fill == 'fallback':
+            return _get_fallback_value(
+                series,
+                fallback,
+                col,
+                verbose
+            )
+        if isinstance(col_fill, str):
+            return _calculate_stat_fill(
+                series,
+                col_fill,
+                col
+            )
+        return col_fill
+    except Exception as e:
+        raise ValueError(f"Failed to determine fill "
+                         f"value for {col}: {str(e)}")
+
+
+def _calculate_stat_fill(
+    series: pd.Series,
+    strategy: str,
+    col: str
+) -> Union[float, str]:
+    """
+    Compute fill values based on a statistical strategy
+    like `'mean'`, `'median'`, `'mode'`, or `'ffill'`.
+    """
+    valid_strategies = [
+        'mean', 'median', 'mode',
+        'min', 'max', 'ffill', 'bfill'
+    ]
+    if strategy not in valid_strategies:
+        raise ValueError(f"Invalid fill strategy "
+                         f"'{strategy}' for column "
+                         f"'{col}'")
+    if strategy in ['ffill', 'bfill']:
+        return (series.ffill().iloc[-1]
+                if strategy == 'ffill'
+                else series.bfill().iloc[0])
+    if not pd.api.types.is_numeric_dtype(series):
+        if strategy != 'mode':
+            raise ValueError(f"Cannot calculate {strategy} "
+                             f"for non-numeric column "
+                             f"'{col}'")
+        return (series.mode()[0]
+                if not series.mode().empty
+                else np.nan)
+    return {
+        'mean': series.mean(),
+        'median': series.median(),
+        'mode': series.mode()[0],
+        'min': series.min(),
+        'max': series.max()
+    }[strategy]
+
+
+def _get_fallback_value(
+    series: pd.Series,
+    strategy: str,
+    col: str,
+    verbose: int
+) -> Union[float, str]:
+    """
+    Pick a fallback fill rule if the original fill
+    spec doesn't apply. Chooses `'mode'` or `'median'`
+    for numeric data, or an empty string for categorical.
+    """
+    if pd.api.types.is_numeric_dtype(series):
+        if (strategy == 'mode'
+                and series.nunique()
+                > len(series)/2):
+            if verbose > 1:
+                print(f"Using median fallback for "
+                      f"high-cardinality numeric "
+                      f"column '{col}'")
+            return series.median()
+        return _calculate_stat_fill(series,
+                                    strategy,
+                                    col)
+    else:
+        mode_val = series.mode()
+        if not mode_val.empty:
+            return mode_val[0]
+        if verbose > 1:
+            print(f"Using empty string fallback "
+                  f"for categorical column '{col}'")
+        return ''
+
+
+def _safe_fill_column(
+    df: pd.DataFrame,
+    col: str,
+    fill_val: Union[float, str],
+    verbose: int
+):
+    """
+    Replace NaNs in a single column with ``fill_val``
+    ensuring type alignment. Raise error on mismatch.
+    """
+    try:
+        na_count = df[col].isna().sum()
+        df[col] = df[col].fillna(fill_val)
+        if verbose > 1:
+            print(f"Filled {na_count} NaNs in {col} "
+                  f"with {fill_val}")
+    except TypeError as e:
+        raise TypeError(
+            f"Type mismatch filling {col} "
+            f"({df[col].dtype}) with "
+            f"{type(fill_val)} value: {fill_val}"
+        ) from e
+
+@SaveFile (writer_kws={'index': True})
+@check_non_emptiness(params=['metrics'])
+def generate_comparison(
+    *dfs: pd.DataFrame,
+    metrics: Dict[str, Union[str, List[str]]],
+    labels: Optional[List[str]] = None,
+    agg_funcs: List[str] = ['mean', 'std', 'max'],
+    display: bool = True,
+    precision: int = 3,
+    savefile: Optional[str]=None, 
+    verbose: int = 0,
+) -> Union[pd.DataFrame, str]:
+    r"""
+    Generates a comparative summary table across multiple
+    datasets. The function `generate_comparison` computes
+    specified `metrics` on the provided DataFrames, applies
+    any of the specified `agg_funcs` aggregations, and
+    returns a formatted summary, either as a PrettyTable
+    (if available) or as a pandas DataFrame.
+
+    .. math::
+        \text{metric\_value}
+        = \text{agg\_func}\bigl(\text{df}[col]\bigr)
+
+    for each selected column :math:`col` in ``metrics``.
+    Multiple aggregations can be performed (e.g.,
+    :math:`\min`, :math:`\max`, :math:`\text{mean}`) on
+    the same metric. Also supports verbose logging and
+    progress indicators (via tqdm) if installed.
+
+    Parameters
+    ----------
+    dfs : pd.DataFrame
+        One or more DataFrames to be analyzed comparatively.
+        Each DataFrame is associated with a corresponding
+        label from `labels` if provided.
+
+    metrics : dict of {str : str or list of str}
+        A dictionary specifying the target columns for
+        analysis. Keys represent how the metric will be
+        displayed (e.g., ``'Subsidence'``), and values
+        represent one or more column names found in each
+        DataFrame (e.g., ``['subsidence_2022',
+        'subsidence_2023']`` or ``'GWL'``). Missing or
+        non-numeric columns will raise an error.
+
+    labels : list of str, optional
+        Names for each dataset provided in `dfs`. If not
+        specified, automatically generated labels like
+        ``Dataset 1, Dataset 2, ...`` are used. If fewer
+        labels than datasets are provided, extra labels
+        will also be auto-generated.
+
+    agg_funcs : list of str, default=['mean', 'std', 'max']
+        A list of aggregation functions to apply to each
+        metric. Common examples include
+        ``['mean', 'std', 'max', 'min']``.
+
+    display : bool, default=True
+        If True, returns a formatted table (PrettyTable if
+        available, otherwise a string representation of
+        the pandas DataFrame). If False, returns a
+        pandas DataFrame directly.
+
+    precision : int, default=3
+        Rounding precision for numerical values in the
+        summary. This controls the display format in the
+        final table or DataFrame output.
+
+    verbose : int, default=0
+        The verbosity level. A value > 0 enables progress
+        bars (via tqdm) if installed, and a value > 1
+        prints additional warnings or debug info.
+
+    Returns
+    -------
+    pd.DataFrame or str
+        If `display` is False, a pandas DataFrame is
+        returned, where each row corresponds to a dataset
+        (each item in `dfs`) and columns correspond to
+        metric-aggregation pairs. If `display` is True and
+        PrettyTable is installed, a PrettyTable instance
+        is returned; otherwise, a string representing the
+        DataFrame is returned.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from gofast.utils.ext import generate_comparison
+    >>> # Create synthetic data for Nansha
+    >>> nansha_sample = pd.DataFrame({
+    ...     'GWL': np.random.randn(100) * 50 + 50,
+    ...     'normalized_seismic_risk_score': np.random.rand(100),
+    ...     'subsidence': np.random.randn(100) * 10 + 20,
+    ...     'subsidence_2022': np.random.randn(100) * 5 + 10,
+    ...     'subsidence_2023': np.random.randn(100) * 8 + 5,
+    ... })
+    >>> # Create synthetic data for Zhongshan
+    >>> zhongshan_sample = pd.DataFrame({
+    ...     'GWL': np.random.randn(120) * 30 + 40,
+    ...     'normalized_seismic_risk_score': np.random.rand(120),
+    ...     'subsidence': np.random.randn(120) * 12 + 25,
+    ...     'subsidence_2022': np.random.randn(120) * 6 + 15,
+    ...     'subsidence_2023': np.random.randn(120) * 7 + 8,
+    ... })
+    >>> # Example usage of generate_comparison
+    >>> result = generate_comparison(
+    ...     nansha_sample,
+    ...     zhongshan_sample,
+    ...     labels=['Nansha', 'Zhongshan'],
+    ...     metrics={
+    ...         'Groundwater Level': 'GWL',
+    ...         'Seismic Risk': 'normalized_seismic_risk_score',
+    ...         'Subsidence': [
+    ...             'subsidence',
+    ...             'subsidence_2022',
+    ...             'subsidence_2023'
+    ...         ]
+    ...     },
+    ...     agg_funcs=['mean', 'max'],
+    ...     precision=3,
+    ...     verbose=3
+    ... )
+    >>> result
+
+    Notes
+    -----
+    This function consolidates common aggregation metrics
+    for a quick overview of multiple datasets. For
+    instance, you can quickly compare multiple DataFrames
+    representing different regions, experimental groups,
+    or time spans with consistent column structures. If
+    the optional Python libraries `tqdm` and `PrettyTable`
+    are installed, additional features (like a progress bar
+    and a pretty summary table) will be enabled
+    automatically.
+
+    See Also
+    --------
+    pandas.DataFrame.agg : Perform one or more operations
+        over the specified axis.
+    pandas.DataFrame.stack : Pivot a level of column
+        labels into the index.
+    numpy.round : Round elements of an array to the
+        nearest integer or specified decimal precision.
+
+    References
+    ----------
+    .. [1] Wes McKinney. *Python for Data Analysis:
+       Data Wrangling with Pandas, NumPy, and IPython.*
+       O'Reilly Media, 2017.
+    """
+
+    # Input Validation
+    dfs = are_all_frames_valid(
+        *dfs, df_only=True, 
+        ops='validate'
+    )
+    labels = labels or [
+        f'Dataset {i+1}' for i in range(len(dfs))
+    ]
+    # Extend labels if fewer than dfs
+    print(dfs)
+    labels = labels[:len(dfs)] + [
+        f'Dataset {i+1}' for i in range(
+            len(labels), len(dfs)
+        )
+    ]
+
+    if len(dfs) != len(labels):
+        raise ValueError(
+            f"Mismatch between {len(dfs)} datasets and "
+            f"{len(labels)} labels"
+        )
+
+    if not isinstance(metrics, dict) or not metrics:
+        raise ValueError(
+            "Metrics must be a non-empty dictionary"
+        )
+        
+    # Data Processing
+    summary_data = {}
+    iterator = zip(labels, dfs)
+
+    if HAS_TQDM and verbose > 0:
+        # Show progress bar if tqdm is installed
+        iterator = tqdm(
+            iterator,
+            total=len(dfs),
+            desc="Processing datasets"
+        )
+
+    for label, df in iterator:
+        label_data = {}
+
+        for display_name, cols in metrics.items():
+            # Convert single string to list
+            target_cols = (
+                [cols] if isinstance(cols, str)
+                else cols
+            )
+
+            # Check that columns exist
+            valid_cols = [
+                c for c in target_cols
+                if c in df.columns
+            ]
+            if not valid_cols:
+                raise ValueError(
+                    f"Missing columns for "
+                    f"'{display_name}' in {label}: "
+                    f"{target_cols}"
+                )
+
+            # Check that columns are numeric
+            non_numeric = [
+                c for c in valid_cols
+                if not pd.api.types.is_numeric_dtype(df[c])
+            ]
+            if non_numeric:
+                raise ValueError(
+                    f"Non-numeric columns for "
+                    f"'{display_name}' in {label}: "
+                    f"{non_numeric}"
+                )
+
+            # Stack values to form a single Series
+            values = df[valid_cols].stack()
+
+            # Compute aggregations
+            for func in agg_funcs:
+                key = f"{display_name} ({func})"
+                try:
+                    label_data[key] = np.round(
+                        values.agg(func),
+                        precision
+                    )
+                except Exception as e:
+                    if verbose > 1:
+                        print(
+                            f"Warning: Failed {func} "
+                            f"on {display_name} for {label}: "
+                            f"{str(e)}"
+                        )
+                    label_data[key] = np.nan
+
+        summary_data[label] = label_data
+
+    summary_df = pd.DataFrame.from_dict(
+        summary_data,
+        orient='index'
+    )
+    # ======================
+    # Output Formatting
+    # ======================
+
+    if not display:
+        # Return as raw DataFrame if display=False
+        return summary_df
+
+    if HAS_PRETTYTABLE:
+        # PrettyTable is installed
+        pt = PrettyTable()
+        pt.field_names = ["Metric"] + labels
+        pt.float_format = f".{precision}"
+
+        for metric in metrics:
+            # For each metric and each agg_func
+            for func in agg_funcs:
+                row = [f"{metric} ({func})"]
+                row += [
+                    summary_df.loc[label,
+                                   f"{metric} ({func})"]
+                    for label in labels
+                ]
+                pt.add_row(row)
+
+        pt.align = 'r'
+        pt.align['Metric'] = 'l'
+        return pt
+
+    # Fallback: no PrettyTable installed
+    if verbose > 0:
+        print(
+            "\nPrettyTable not installed, "
+            "using DataFrame display"
+        )
+        print(
+            summary_df.to_string(
+                float_format=f"%.{precision}f"
+            )
+        )
+    return summary_df.round(precision)
+
 @SaveFile  
 @is_data_readable 
 @Dataify(auto_columns=True, fail_silently=True) 
@@ -113,17 +975,7 @@ def build_df(
     `inspect_data`. Each ensures consistent data cleaning, 
     and structural analysis [1]_.
     
-    
-    .. math::
-       D_{frame}
-       = f(D_{input}, \text{columns, coerce })
-    
-    Given an input :math:`D_{input}` (which may be a dictionary,
-    list, NumPy array, or existing DataFrame), the function
-    applies transformations (e.g., numeric type coercion, column
-    sanitization) guided by parameters like `min_process`. When
-    :math:`min_process=True`, additional steps such as dropping
-    all-NaN columns and resetting indexes are invoked.
+    See more in :ref:`User Guide <user_guide>`. 
     
     Parameters
     ----------
@@ -211,6 +1063,17 @@ def build_df(
     performed if `integrity_check=True`, making sure the final
     DataFrame meets essential requirements.
     
+    .. math::
+       D_{frame}
+       = f(D_{input}, \text{columns, coerce })
+    
+    Given an input :math:`D_{input}` (which may be a dictionary,
+    list, NumPy array, or existing DataFrame), the function
+    applies transformations (e.g., numeric type coercion, column
+    sanitization) guided by parameters like `min_process`. When
+    :math:`min_process=True`, additional steps such as dropping
+    all-NaN columns and resetting indexes are invoked.
+    
     Examples
     --------
     >>> from gofast.utils.data_utils import build_df
@@ -286,7 +1149,7 @@ def build_df(
             hint = (
                 "To request any attribute of Integrity Report, consider"
                 " calling `verify_data_integrity` function as:\n\n"
-                "    >>> from  gofast.dataops import verify_data_integrity\n"
+                "    >>> from gofast.dataops import verify_data_integrity\n"
                 "    >>> _, report=verify_data_integrity(<your-data>)\n"
                 "    >>> report.outliers # for getting outliers report.\n"
                 "    >>> report.outliers.results # for outliers results.\n"
@@ -314,9 +1177,443 @@ def build_df(
         # printing details of its structure
         assemble_reports(*reports, display=True )
         
-
     # Return the final DataFrame for downstream usage
     return df
+
+@SaveFile 
+@is_data_readable 
+@Dataify(auto_columns=True, fail_silently=True) 
+@check_non_emptiness(params=['data', 'column' ], include=('dict', ))
+def filter_df(
+    data: pd.DataFrame,
+    column: str = "subsidence",
+    value: Union[float, int, str] = 0,
+    operator: Union[str, Callable] = "!=",
+    drop_na: bool = True,
+    savefile: Optional[str]=None, 
+    reset_index: bool=True, 
+    verbose: bool = False, 
+) -> pd.DataFrame:
+    r"""
+    Filters a given DataFrame by comparing a specified
+    column's values to a desired `value` via an `operator`.
+    The method `filter_df` handles NaN values, custom
+    comparison functions, and offers verbose logging of
+    its actions.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input DataFrame containing the data to be
+        filtered.
+
+    column : str, 
+        The name of the column on which the comparison
+        will be applied. Must exist within the columns
+        of `df`.
+
+    value : float or int or str, default=0
+        The value to compare against. This can be a
+        numeric or string value, depending on the
+        intended filter logic.
+
+    operator : str or callable, default='!='
+        The comparison operator or custom function used
+        for filtering. If a string is provided, it must
+        be one of ``'=='``, ``'!='``, ``'>'``,
+        ``'<'``, ``'>='``, ``'<='``. If a custom function
+        is provided, it must accept two arguments
+        (series, value) and return a boolean mask of the
+        same length as the series.
+
+    drop_na : bool, default=True
+        Indicates whether rows containing NaN values in
+        the target column should be removed before
+        filtering. If True, those rows are dropped.
+
+    savefile: str, optional 
+        Whether to save the filtered data. Deafult file
+        format is '.csv' file. 
+        
+    reset_index: bool, default=False 
+        If ``True`` reset the index of the dataset otherwise 
+        keep the filtered index.
+        
+    verbose : bool, default=False
+        Controls the verbosity of the logging. When True,
+        detailed log statements are printed, including
+        the number of rows dropped and filter conditions.
+
+    Returns
+    -------
+    pd.DataFrame
+        A new DataFrame containing only those rows
+        that satisfy the filter condition.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.utils.data_utils import filter_df
+    >>> data = {
+    ...     'subsidence': [0.0, 0.5, None, 1.0, 2.0],
+    ...     'location': ['A', 'B', 'C', 'D', 'E']
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> # Filter out rows where 'subsidence' is not 0
+    >>> df_filtered = filter_df(df, value=0, operator='!=')
+    >>> df_filtered
+
+    Notes
+    -----
+    The `filter_df` method is designed to simplify
+    programmatic row filtering in a robust manner. By
+    default, NaN rows are dropped from the specified
+    column prior to filtering, which can be disabled by
+    setting ``drop_na=False``. This method can also
+    handle more complex operations by providing a custom
+    function in `operator`.
+    
+    .. math::
+        \text{FilteredRows} = \{\, x \in df 
+        \,\mid\, \text{operator}(x[\text{column}], 
+        \text{value}) = \text{True} \}
+
+    Here, :math:`x` represents a row in the DataFrame,
+    and :math:`\text{operator}` is either a built-in
+    comparison operator or a user-supplied function.
+
+
+    See Also
+    --------
+    pandas.DataFrame.dropna : Drops rows containing
+        NaN values from a DataFrame.
+    pandas.Series.eq : Returns True if elements
+        equal a specified value.
+    pandas.Series.ne, pandas.Series.gt, etc. : Similar
+        built-in comparison methods.
+
+    References
+    ----------
+    .. [1] Wes McKinney. *Python for Data Analysis: Data
+       Wrangling with Pandas, NumPy, and IPython.*
+       O'Reilly Media, 2017.
+    """
+    # make sure column is a string value.
+    column=columns_manager(column)[0]
+    # Validate column existence
+    if column not in data.columns:
+        raise ValueError(
+            f"Column '{column}' not found in "
+            f"DataFrame columns: {list(data.columns)}"
+        )
+
+    # Create copy to avoid mutating original
+    filtered_df = data.copy()
+
+    # Handle NaN values if drop_na
+    na_count = filtered_df[column].isna().sum()
+    if drop_na and na_count > 0:
+        if verbose:
+            print(f"Removing {na_count} NaN values "
+                  f"from '{column}'")
+        filtered_df = filtered_df.dropna(
+            subset=[column]
+        )
+
+    # Build condition mask
+    try:
+        if isinstance(operator, str):
+            ops = {
+                '==': filtered_df[column].eq,
+                '!=': filtered_df[column].ne,
+                '>': filtered_df[column].gt,
+                '<': filtered_df[column].lt,
+                '>=': filtered_df[column].ge,
+                '<=': filtered_df[column].le,
+            }
+            if operator not in ops:
+                raise ValueError(
+                    f"Invalid operator '{operator}'. "
+                    f"Valid operators: {list(ops.keys())}"
+                )
+            mask = ops[operator](value)
+        else:
+            # Use custom function
+            mask = operator(
+                filtered_df[column],
+                value
+            )
+    except Exception as e:
+        raise ValueError(
+            f"Error applying operator to column "
+            f"'{column}': {str(e)}"
+        )
+
+    # Apply filter
+    result_df = filtered_df[mask]
+
+    # Verbose output
+    if verbose:
+        original_count  = len(data)
+        filtered_count  = len(result_df)
+        print(f"Filtering complete: "
+              f"{original_count} → {filtered_count} rows")
+        print(f"Filter condition: "
+              f"{column} {operator} {value}")
+        print(f"NaN values handled: {na_count} "
+              f"{'(removed)' if drop_na else '(kept)'}")
+        print(f"Final valid rows: {filtered_count} "
+              f"({(filtered_count/original_count)*100:.1f}% "
+              f"of original)")
+        
+    return ( 
+        result_df.reset_index (drop=True ) 
+        if reset_index else result_df
+    )
+
+
+@SaveFile  
+@is_data_readable 
+@Dataify(auto_columns=True, fail_silently=True) 
+@check_empty (params=['data'], none_as_empty=True)
+def group_and_aggregate(
+    data: pd.DataFrame,
+    by: Union[str, List[str]],
+    agg_columns: Optional[Union[List[str], Dict[str, Any]]] = None,
+    agg_func: Union[str, Callable, Dict[str, List[Union[str, Callable]]]] = "mean",
+    as_index: bool = True,
+    dropna: bool = False,
+    reset_index: bool = True,
+    verbose: int = 0, 
+    savefile: Optional[str]=None, 
+) -> pd.DataFrame:
+    r"""
+    Group and aggregate a pandas DataFrame based on specified columns and
+    aggregation function(s). This function is designed to be robust and
+    versatile for various grouping and aggregation needs.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The input DataFrame to be grouped and aggregated.
+    
+    by : str or list of str
+        The column name(s) by which to group the data. If a single string
+        is provided, the data is grouped by that column. If a list of strings
+        is provided, the data is grouped by all those columns in combination.
+    
+    agg_columns : list of str or dict, optional
+        The columns to be aggregated. This can be:
+          - A list of column names (e.g., ``['soil_thickness', 'subsidence']``).
+          - A dictionary specifying different aggregations for each column 
+            (e.g., ``{'soil_thickness': 'mean', 'subsidence': 'sum'}``).
+        If not provided, aggregation will be applied to all columns 
+        that are compatible with the aggregation function (typically numeric 
+        columns if using standard aggregations like 'mean', 'sum', etc.).
+
+    agg_func : str, callable, or dict, default='mean'
+        The aggregation function to apply. This can be:
+          - A single string (e.g. ``'mean'``, ``'sum'``, ``'count'``, etc.).
+          - A single callable (e.g. ``np.mean``, ``np.sum``).
+          - A dictionary mapping column names to a list of multiple aggregations 
+            (e.g. ``{'soil_thickness': ['mean', 'max'], 'subsidence': 'sum'}``).
+        If both `agg_columns` and `agg_func` are dictionaries, they will be 
+        combined as the final aggregator. If `agg_columns` is a list and 
+        `agg_func` is a dictionary, the dict must map only aggregator methods 
+        to lists, or specific columns to multiple methods.
+
+    as_index : bool, default=True
+        If True, the grouping columns become the index of the resulting 
+        DataFrame. If False, the grouping columns are retained as normal 
+        columns.
+
+    dropna : bool, default=False
+        Whether to drop NA values from the grouping columns before 
+        aggregation. If True, rows with NA in the grouping column(s) are 
+        excluded from the result.
+
+    reset_index : bool, default=True
+        If True, and ``as_index`` is True, the resulting DataFrame index
+        is reset so that grouping columns become normal columns. If False,
+        the grouping columns remain in the index.
+
+    verbose : int, default=0
+        The verbosity level:
+          - 0: no messages (silent).
+          - 1: prints a summary of the grouping and aggregation steps.
+          - 2: prints more detailed intermediate information (for debugging).
+
+    Returns
+    -------
+    grouped_df : pd.DataFrame
+        The grouped and aggregated DataFrame.
+
+    Notes
+    -----
+    - When both `agg_columns` and `agg_func` are provided, the final aggregator
+      is constructed as follows:
+      1. If `agg_columns` is a list and `agg_func` is a single function or 
+         string, each column in `agg_columns` will be aggregated by `agg_func`.
+      2. If `agg_columns` is a dictionary, it will be taken as explicit 
+         definitions of how to aggregate each column. If `agg_func` is also
+         a dictionary, they are combined (with `agg_columns` dict taking 
+         precedence when conflicts arise). If `agg_func` is a single method,
+         it is applied to any column not explicitly mentioned in 
+         `agg_columns` dict.
+      3. If no `agg_columns` are provided, the aggregator in `agg_func`
+         is applied to all columns suitable for that aggregator method.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.utils.data_utils import group_and_aggregate
+
+    >>> # Example dataset
+    >>> data = pd.DataFrame({
+    ...     'longitude': [113.291, 113.291, 113.291, 113.294],
+    ...     'latitude': [22.862, 22.865, 22.865, 22.870],
+    ...     'soil_thickness': [1.87, 1.51, 2.17, 2.78],
+    ...     'subsidence': [0.49, 1.10, 1.13, 1.07],
+    ...     'year': [2015, 2015, 2016, 2016]
+    ... })
+
+    >>> # 1) Simple aggregation by year, using the mean
+    >>> grouped_mean = group_and_aggregate(
+    ...     data, 
+    ...     by='year', 
+    ...     agg_columns=['soil_thickness', 'subsidence'], 
+    ...     agg_func='mean', 
+    ...     as_index=False
+    ... )
+    >>> print(grouped_mean)
+
+    >>> # 2) Multiple aggregations using a dict
+    >>> grouped_multi = group_and_aggregate(
+    ...     data, 
+    ...     by='year',
+    ...     agg_func={
+    ...         'soil_thickness': ['mean', 'max'],
+    ...         'subsidence': 'sum'
+    ...     },
+    ...     as_index=True
+    ... )
+    >>> print(grouped_multi)
+    """
+
+    if isinstance(by, str):
+        by = [by]  # make sure 'by' is a list
+    
+    # If we want to drop NA in grouping columns
+    if dropna:
+        data = data.dropna(subset=by)
+
+    # If user has provided a dict for agg_columns, we consider that
+    # a direct aggregator specification for each column. Otherwise,
+    # if it's a list, we'll build a dict behind the scenes.
+    # For example, if agg_columns=['soil_thickness', 'subsidence']
+    # and agg_func='mean', we do:
+    # {'soil_thickness': 'mean', 'subsidence': 'mean'}
+    
+    final_agg_dict = {}
+
+    # Helper function to check if 'agg_func' is a valid aggregator
+    # for multiple columns, e.g. a dict or single str/callable
+    def is_dict_of_lists_or_str(x):
+        """Return True if x is a dict whose values
+        are either strings, callables, or list of them."""
+        if not isinstance(x, dict):
+            return False
+        for val in x.values():
+            if isinstance(val, (list, tuple)):
+                for sub_val in val:
+                    if not (isinstance(sub_val, str) or callable(sub_val)):
+                        return False
+            elif not (isinstance(val, str) or callable(val)):
+                return False
+        return True
+
+    # Step 1a: Handle if 'agg_columns' is dict
+    if isinstance(agg_columns, dict):
+        # This implies user has directly assigned columns to aggregator methods
+        # e.g. {'soil_thickness': 'mean', 'subsidence': ['sum','max']}
+        # We might also incorporate 'agg_func' if it's a single aggregator
+        final_agg_dict = agg_columns.copy()
+
+        # If 'agg_func' is also a dict, we combine them
+        if is_dict_of_lists_or_str(agg_func):
+            for col, method in agg_func.items():
+                # If not in final_agg_dict, add
+                if col not in final_agg_dict:
+                    final_agg_dict[col] = method
+            # If col is in final_agg_dict, it takes precedence
+        else:
+            # If 'agg_func' is a single string/callable
+            # we apply it to any columns not mentioned
+            # in 'agg_columns' already, e.g., all numeric ones
+            potential_cols = data.select_dtypes(include=["number"]).columns
+            for col in potential_cols:
+                if col not in final_agg_dict and col not in by:
+                    final_agg_dict[col] = agg_func
+    # Step 1b: If agg_columns is a list
+    elif isinstance(agg_columns, list):
+        # e.g. agg_columns=['soil_thickness', 'subsidence']
+        # if agg_func is single aggregator => same aggregator for all
+        # if agg_func is dict => interpret aggregator for those columns
+        # if aggregator not found for a column, skip or raise?
+
+        if is_dict_of_lists_or_str(agg_func):
+            # e.g. agg_func={'soil_thickness': ['mean', 'max'], 'subsidence': 'sum'}
+            # use aggregator for the columns that match. 
+            # columns not in dict => skip or fallback?
+            for c in agg_columns:
+                if c in agg_func:
+                    final_agg_dict[c] = agg_func[c]
+                else:
+                    # fallback aggregator? or skip?
+                    pass
+        else:
+            # single aggregator => apply to all columns in agg_columns
+            for c in agg_columns:
+                final_agg_dict[c] = agg_func
+    else:
+        # If agg_columns is None, we apply 'agg_func' to all numeric columns
+        # or use the dict from agg_func if it's a dict.
+        if agg_columns is None:
+            if is_dict_of_lists_or_str(agg_func):
+                # e.g. agg_func={'soil_thickness': ['mean','max'], 'subsidence': 'sum'}
+                final_agg_dict = agg_func
+            else:
+                # Single aggregator for all numeric columns
+                numeric_cols = data.select_dtypes(include=["number"]).columns
+                for c in numeric_cols:
+                    if c not in by:  # exclude grouping columns
+                        final_agg_dict[c] = agg_func
+        else:
+            raise ValueError(
+                "`agg_columns` should be a list, dict, or None."
+            )
+
+    if verbose > 0:
+        print(f"[group_and_aggregate] Grouping by: {by}")
+        if verbose > 1:
+            print(
+                f"[group_and_aggregate] Final aggregator dict: {final_agg_dict}")
+
+    # Step 2: Perform groupby and aggregation
+    grouped = data.groupby(by=by, as_index=as_index)
+
+    # Apply aggregator
+    aggregated_df = grouped.agg(final_agg_dict)
+
+    # If as_index=True and user wants to reset
+    if as_index and reset_index:
+        aggregated_df = aggregated_df.reset_index()
+
+    if verbose > 0:
+        print( "[group_and_aggregate] Aggregation done."
+              f" Result shape: {aggregated_df.shape}")
+
+    return aggregated_df
 
 @SaveFile
 @is_data_readable 
@@ -361,15 +1658,15 @@ def nan_ops(
     auxi_data : array-like, pandas.DataFrame, or pandas.Series, optional
         Auxiliary data that accompanies the primary `data`. Its role depends
         on the ``data_kind`` parameter. If ``data_kind`` is `'target'`,
-        ``witness_data`` is treated as feature data, and vice versa. This is
+        ``auxi_data`` is treated as feature data, and vice versa. This is
         useful for operations that need to maintain the alignment between
         primary and witness data.
         
     data_kind : {'target', 'feature', None}, optional
         Specifies the role of the primary `data`. If set to `'target'`, `data`
-        is considered target data, and ``witness_data`` (if provided) is
+        is considered target data, and ``auxi_data`` (if provided) is
         treated as feature data. If set to `'feature'`, `data` is treated as
-        feature data, and ``witness_data`` is considered target data. If
+        feature data, and ``auxi_data`` is considered target data. If
         `None`, no special handling is applied, and witness data is ignored
         unless explicitly required by other parameters.
         
@@ -442,16 +1739,16 @@ def nan_ops(
     -------
     array-like, pandas.DataFrame, or pandas.Series
         The sanitized data structure with `NaN` values handled according to
-        the specified parameters. If ``witness_data`` is provided and
+        the specified parameters. If ``auxi_data`` is provided and
         processed, a tuple containing the sanitized `data` and
-        `witness_data` is returned. Otherwise, only the sanitized `data`
+        `auxi_data` is returned. Otherwise, only the sanitized `data`
         is returned.
 
     Raises
     ------
     ValueError
         - If an invalid value is provided for ``ops`` or ``data_kind``.
-        - If ``witness_data`` does not align with ``data`` in shape.
+        - If ``auxi_data`` does not align with ``data`` in shape.
         - If sanitization conditions are not met and the error policy is
           set to `'raise'`.
     Warning
@@ -470,10 +1767,10 @@ def nan_ops(
     ...     'B': ['x', 'y', 'z', np.nan]
     ... })
     >>> # Check for NaNs
-    >>> nan_ops(target, witness_data=features, data_kind='target', ops='check_only')
+    >>> nan_ops(target, auxi_data=features, data_kind='target', ops='check_only')
     (True, True)
     >>> # Validate data (will raise ValueError if NaNs are present)
-    >>> nan_ops(target, witness_data=features, data_kind='target', ops='validate')
+    >>> nan_ops(target, auxi_data=features, data_kind='target', ops='validate')
     Traceback (most recent call last):
         ...
     ValueError: Target contains NaN values.
@@ -1242,7 +2539,7 @@ def has_duplicates(
        https://docs.scipy.org/doc/scipy/reference/spatial.html
     """
 
-    is_frame(data, df_only=True, raise_exception=True, objname='df')
+    is_frame(data, df_only=True, raise_exception=True, objname='data')
     # Validate the 'ops' parameter
     if ops is None:
         ops= 'check_only'
@@ -1318,7 +2615,6 @@ def has_duplicates(
             return None
         
         return df_copy
-
 
 @validate_params ({ 
     'threshold':[Interval(Real, 0, 1, closed='neither')], 
@@ -1607,7 +2903,8 @@ def truncate_data(
                 )
                 print(
                     f"DataFrame {idx}: Original size={original_len}, "
-                    f"Truncated size={truncated_len} ({percent:.2f}%) based on index alignment."
+                    f"Truncated size={truncated_len} ({percent:.2f}%)"
+                    " based on index alignment."
                 )
 
         # Provide additional verbose information if verbosity level is higher
@@ -1705,7 +3002,7 @@ def pop_labels_in(
     Examples:
     ---------
     >>> import pandas as pd 
-    >>> from gofast.utils.datautils import pop_labels_in
+    >>> from gofast.utils.data_utils import pop_labels_in
     >>> df = pd.DataFrame({'category': ['A', 'B', 'C', 'A', 'D']})
     >>> df_result = pop_labels_in(df, 'category', 'A')
     >>> print(df_result)
@@ -1832,7 +3129,7 @@ def nan_to_na(
 
     Examples
     --------
-    >>> from gofast.utils.datautils import nan_to_na
+    >>> from gofast.utils.data_utils import nan_to_na
     >>> import pandas as pd
     >>> import numpy as np
     >>> df = pd.DataFrame({'A': [1.0, 2.0, np.nan], 'B': ['x', np.nan, 'z']})
@@ -1960,7 +3257,7 @@ def resample_data(
 
     Examples
     --------
-    >>> from gofast.utils.datautils import resample_data
+    >>> from gofast.utils.data_utils import resample_data
     >>> import numpy as np
     >>> data = np.arange(100).reshape(20, 5)
 
@@ -2063,7 +3360,8 @@ def pair_data(
     coerce: bool = False,
     force: bool = False,
     decimals: int = 7,
-    raise_warn: bool = True
+    raise_warn: bool = True, 
+    savefile=None, 
 ) -> pd.DataFrame:
     """
     Finds identical objects in multiple DataFrames and merges them 
@@ -2136,7 +3434,7 @@ def pair_data(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.utils.datautils import pair_data
+    >>> from gofast.utils.data_utils import pair_data
     >>> data1 = pd.DataFrame({
     ...     'longitude': [110.486111],
     ...     'latitude': [26.05174],
@@ -2435,7 +3733,7 @@ def read_excel_sheets(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.utils.datautils import read_excel_sheets
+    >>> from gofast.utils.data_utils import read_excel_sheets
     
     >>> # Read all sheets from an Excel file
     >>> sheets = read_excel_sheets("data/sample.xlsx")
@@ -2498,7 +3796,8 @@ def read_excel_sheets(
     
     See Also
     --------
-    check_files : Function to validate file existence, format, and non-emptiness.
+    gofast.core.checks.check_files : 
+        Function to validate file existence, format, and non-emptiness.
     pandas.read_excel : Function to read Excel files into Pandas DataFrames.
     os.path.exists : Check if a path exists.
     os.path.splitext : Split the file path into root and extension.
@@ -2622,7 +3921,7 @@ def read_worksheets(
 
     Examples
     --------
-    >>> from gofast.utils.datautils import read_worksheets
+    >>> from gofast.utils.data_utils import read_worksheets
     >>> # Example 1: Reading a single Excel file
     >>> file_path = r'F:/repositories/gofast/data/erp/sheets/gbalo.xlsx'
     >>> data, sheet_names = read_worksheets(file_path)
@@ -2752,7 +4051,7 @@ def process_and_extract_data(
     --------
     >>> import numpy as np 
     >>> import pandas as pd 
-    >>> from gofast.utils.datautils import process_and_extract_data
+    >>> from gofast.utils.data_utils import process_and_extract_data
     >>> data = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
     >>> process_and_extract_data(data, columns=['A'], to_array=True)
     [array([1, 2, 3])]
@@ -2894,7 +4193,7 @@ def random_selector(
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.utils.datautils import random_selector
+    >>> from gofast.utils.data_utils import random_selector
     >>> data = np.arange(42)
     
     # Select 7 elements deterministically using a seed
@@ -3087,7 +4386,7 @@ def cleaner(
 
     Examples
     --------
-    >>> from gofast.utils.datautils import cleaner
+    >>> from gofast.utils.data_utils import cleaner
     >>> import pandas as pd
     >>> data = pd.DataFrame({
     ...     'A': [1, 2, 3],
@@ -3160,7 +4459,7 @@ def data_extractor(
     round_decimals: int = None,
     fillna_value: Any = None,
     unique: bool = False,
-    coerce_dtype: Any = None
+    coerce_dtype: Any = None, 
 ) -> Tuple[Union[Tuple[float, float], pd.DataFrame, None],
            pd.DataFrame, Tuple[str, ...]]:
     """
@@ -3242,7 +4541,7 @@ def data_extractor(
     Examples
     --------
     >>> import gofast as gf
-    >>> from gofast.utils.datautils import data_extractor
+    >>> from gofast.utils.data_utils import data_extractor
     >>> testdata = gf.datasets.make_erp(n_stations=7, seed=42).frame
 
     # Extract longitude/latitude midpoint
@@ -3396,7 +4695,7 @@ def replace_data(
     --------
     
     >>> import numpy as np 
-    >>> from gofast.utils.datautils import replace_data
+    >>> from gofast.utils.data_utils import replace_data
     >>> X, y = np.random.randn ( 7, 2 ), np.arange(7)
     >>> X.shape, y.shape 
     ((7, 2), (7,))
@@ -3447,6 +4746,7 @@ def replace_data(
         return concat_data(X), concat_data(y)
     return concat_data(X)
 
+@SaveFile
 @isdf 
 @validate_params ({ 
     "long_df": ['array-like'], 
@@ -3459,7 +4759,7 @@ def replace_data(
     'error': [StrOptions({'raise', 'warn', 'ignore'})]
     }
  )
-def long_to_wide(
+def to_wide(
     long_df,
     index_columns=None,
     pivot_column='year',
@@ -3575,7 +4875,7 @@ def long_to_wide(
 
     Examples
     --------
-    >>> from gofast.utils.datautils import pivot_long_to_wide
+    >>> from gofast.utils.data_utils import pivot_long_to_wide
     >>> import pandas as pd
     >>> data = pd.DataFrame({
     ...     'longitude': [1, 1, 2, 2],
@@ -3603,7 +4903,7 @@ def long_to_wide(
     # Set default index columns if not provided
     if index_columns is None:
         index_columns = ['longitude', 'latitude']
-
+    index_columns= columns_manager(index_columns, empty_as_none=False)
     # Check that required columns exist in DataFrame
     required_columns = index_columns + [pivot_column, value_column]
     missing_columns = set(required_columns) - set(long_df.columns)
@@ -3658,24 +4958,25 @@ def long_to_wide(
     # Reset the index to convert back to a normal DataFrame
     wide_df = wide_df.reset_index()
 
-    if savefile:
-        wide_df.to_csv(savefile, index=False)
+    # if savefile:
+    #     wide_df.to_csv(savefile, index=False)
 
     return wide_df
 
+@SaveFile 
 @isdf
 @validate_params ({ 
     "wide_df": ['array-like'], 
     'id_vars': ['array-like', str, None], 
     'value_vars': ['array-like', str, None], 
-    'value_name': [str], 
-    'var_name': [str], 
-    'rename_columns': [list], 
-    'rename-dict': [dict], 
+    'value_name': [str, None], 
+    'var_name': [str, None], 
+    'rename_columns': ['array-like', None], 
+    'rename-dict': [dict, None], 
     'error': [StrOptions({'raise', 'warn', 'ignore'})]
     }
  )
-def wide_to_long(
+def to_long(
     wide_df, 
     id_vars=None, 
     value_vars=None,
@@ -3684,6 +4985,7 @@ def wide_to_long(
     rename_columns=None, 
     rename_dict=None,
     error='raise',
+    savefile=None, 
     **kwargs
 ):
     """
@@ -3736,15 +5038,15 @@ def wide_to_long(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.utils.datautils import wide_to_long 
+    >>> from gofast.utils.data_utils import to_long 
     >>> wide_df = pd.DataFrame({
     ...     'id': [1, 2],
     ...     'longitude': [10, 20],
     ...     'latitude': [30, 40],
     ...     '2015': [0.1, 0.15],
-    ...     '2016': [0.2, 0.25]
+    ...     '2016': [0.2, 0.25], 
     ... })
-    >>> long_df = wide_to_long(
+    >>> long_df = to_long(
     ...     wide_df, 
     ...     id_vars=['id', 'longitude', 'latitude'], 
     ...     value_name='subsidence', 
@@ -3758,7 +5060,7 @@ def wide_to_long(
     3   2         20        40  2016        0.25
 
     >>> # Using rename_columns
-    >>> renamed_df = wide_to_long(
+    >>> renamed_df = to_long(
     ...     wide_df, 
     ...     id_vars=['id', 'longitude', 'latitude'], 
     ...     value_name='subsidence', 
@@ -3889,6 +5191,7 @@ def wide_to_long(
 
     return long_df
 
+@SaveFile 
 @is_data_readable
 @isdf 
 def repeat_feature_accross(
@@ -3900,7 +5203,8 @@ def repeat_feature_accross(
     custom_dates: List[Union[int, pd.Timestamp]] = None,
     drop_existing_date: bool = True,
     sort: bool = False,
-    inplace: bool = False
+    inplace: bool = False, 
+    savefile=None, 
 ) -> DataFrame:
     """
     Repeat static feature across multiple years or specified dates.
@@ -3965,7 +5269,7 @@ def repeat_feature_accross(
     --------
     >>> import pandas as pd
     >>> from datetime import datetime
-    >>> from gofast.utils.datautils import repeat_feature_accross
+    >>> from gofast.utils.data_utils import repeat_feature_accross
     >>> data = {
     ...     'longitude': [113.291328, 113.291847, 113.291847],
     ...     'latitude': [22.862476, 22.865587, 22.865068],
@@ -4121,6 +5425,7 @@ def repeat_feature_accross(
     else:
         return df_repeated.reset_index(drop=True)
 
+@SaveFile 
 def merge_datasets(
     *dfs, 
     on=None, 
@@ -4128,7 +5433,8 @@ def merge_datasets(
     fill_missing=False, 
     fill_value=None, 
     keep_duplicates=False, 
-    suffixes=('_x', '_y')
+    suffixes=('_x', '_y'), 
+    savefile=None, 
 ):
     """
     Merge multiple datasets into a single DataFrame.
@@ -4175,7 +5481,7 @@ def merge_datasets(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.utils.datautils import merge_datasets
+    >>> from gofast.utils.data_utils import merge_datasets
     >>> df1 = pd.DataFrame({'longitude': [1, 2], 'latitude': [3, 4],
     ...                     'year': [2020, 2021], 'value1': [10, 20]})
     >>> df2 = pd.DataFrame({'longitude': [1, 2], 'latitude': [3, 4],
@@ -4312,7 +5618,7 @@ def swap_ic(
     --------
     Example of using the function without sorting:
 
-    >>> from gofast.utils.datautils import swap_ic 
+    >>> from gofast.utils.data_utils import swap_ic 
     >>> df = pd.DataFrame({
     >>>     'A': [1, 2, 3],
     >>>     'B': [4, 5, 6],
@@ -4479,7 +5785,7 @@ def batch_sampling(
 
     Examples
     --------
-    >>> from gofast.utils.datautils import batch_sampling
+    >>> from gofast.utils.data_utils import batch_sampling
     >>> import pandas as pd
     >>> # Create a sample DataFrame
     >>> data = pd.DataFrame({
@@ -4736,7 +6042,7 @@ def to_categories(
     --------
     >>> import pandas as pd
     >>> import numpy as np
-    >>> from gofast.utils.datautils import to_categories
+    >>> from gofast.utils.data_utils import to_categories
     
     >>> # Sample DataFrame
     >>> data = {
@@ -4970,3 +6276,471 @@ def to_categories(
         
     return df
 
+
+@SaveFile  
+@is_data_readable 
+@Dataify(auto_columns=True, fail_silently=True) 
+def mask_by_reference(
+    data: pd.DataFrame,
+    ref_col: str,
+    values: Optional[Union[Any, List[Any]]] = None,
+    find_closest: bool = False,
+    fill_value: Any = 0,
+    mask_columns: Optional[Union[str, List[str]]] = None,
+    error: str = "raise",
+    verbose: int = 0,
+    inplace: bool = False,
+    savefile:Optional[str]=None, 
+) -> pd.DataFrame:
+    r"""
+    Masks (replaces) values in columns other than the reference column
+    for rows in which the reference column matches (or is closest to) the
+    specified value(s).
+
+    If a row's reference-column value is matched, that row's values in
+    the *other* columns are overwritten by ``fill_value``. The reference
+    column itself is not modified.
+
+    This function supports both exact and approximate matching:
+      - **Exact** matching is used if ``find_closest=False``.
+      - **Approximate** (closest) matching is used if
+        ``find_closest=True`` and the reference column is numeric.
+
+    By default, if the reference column does not exist or if the
+    given ``values`` cannot be found (or approximated) in the reference
+    column, an exception is raised. This behavior can be adjusted with
+    the ``error`` parameter.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The input DataFrame containing the data to be masked.
+
+    ref_col : str
+        The column in ``data`` serving as the reference for matching
+        or finding the closest values.
+
+    values : Any or sequence of Any, optional
+        The reference values to look for in ``ref_col``. This can be:
+          - A single value (e.g., ``0`` or ``"apple"``).
+          - A list/tuple of values (e.g., ``[0, 10, 25]``).
+          - If ``values`` is None, **all rows** are masked 
+            (i.e. all rows match), effectively overwriting the entire
+            DataFrame (except the reference column) with ``fill_value``.
+        
+        Note that if ``find_closest=False``, these values must appear
+        in the reference column; otherwise, an error or warning is
+        triggered (depending on the ``error`` setting).
+
+    find_closest : bool, default=False
+        If True, performs an approximate match for numeric reference
+        columns. For each entry in ``values``, the function locates
+        the row(s) in ``ref_col`` whose value is numerically closest.
+        Non-numeric reference columns will revert to exact matching
+        regardless.
+
+    fill_value : Any, default=0
+        The value used to fill/mask the non-reference columns wherever
+        the condition (exact or approximate match) is met. This can
+        be any valid type, e.g., integer, float, string, np.nan, etc.
+        If ``fill_value='auto'`` and multiple values
+        are given, each row matched by a particular reference
+        value is filled with **that same reference value**.
+
+        **Examples**:
+          - If ``values=9`` and ``fill_value='auto'``, the fill
+            value is **9** for matched rows.
+          - If ``values=['a', 10]`` and ``fill_value='auto'``,
+            then rows matching `'a'` are filled with `'a'`, and
+            rows matching `10` are filled with `10`.
+            
+    mask_columns : str or list of str, optional
+        If specified, *only* these columns are masked. If None,
+        all columns except ``ref_col`` are masked. If any column in
+        ``mask_columns`` does not exist in the DataFrame and
+        ``error='raise'``, a KeyError is raised; otherwise, a warning
+        may be issued or ignored.
+
+    error : {'raise', 'warn', 'ignore'}, default='raise'
+        Controls how to handle errors:
+          - 'raise': raise an error if the reference column does not
+            exist or if any of the given values cannot be matched (or
+            approximated).
+          - 'warn': only issue a warning instead of raising an error.
+          - 'ignore': silently ignore any issues.
+
+    verbose : int, default=0
+        Verbosity level:
+          - 0: silent (no messages).
+          - 1: minimal feedback.
+          - 2 or 3: more detailed messages for debugging.
+
+    inplace : bool, default=False
+        If True, performs the operation in place and returns the 
+        original DataFrame with modifications. If False, returns a
+        modified copy, leaving the original unaltered.
+        
+    savefile : str or None, optional
+        File path where the DataFrame is saved if the
+        decorator-based saving is active. If `None`, no saving
+        occurs.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame where rows matching the specified condition (exact
+        or approximate) have had their non-reference columns replaced by
+        ``fill_value``.
+
+    Raises
+    ------
+    KeyError
+        If ``error='raise'`` and ``ref_col`` is not in ``data.columns``.
+    ValueError
+        If ``error='raise'`` and no exact/approx match can be found
+        for one or more entries in ``values``.
+
+    Notes
+    -----
+    - If ``values`` is None, **all** rows are masked in the non-ref
+      columns, effectively overwriting them with ``fill_value``.
+    - When ``find_closest=True``, approximate matching is performed only
+      if the reference column is numeric. For non-numeric data, it falls
+      back to exact matching.
+    - When multiple reference values are provided, each is
+      processed in turn. If `fill_value='auto'`, each matched row
+      is filled with that specific reference value.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.utils.data_utils import mask_by_reference
+    >>>
+    >>> df = pd.DataFrame({
+    ...     "A": [10, 0, 8, 0],
+    ...     "B": [2, 0.5, 18, 85],
+    ...     "C": [34, 0.8, 12, 4.5],
+    ...     "D": [0, 78, 25, 3.2]
+    ... })
+    >>>
+    >>> # Example 1: Exact matching, replace all columns except 'A' with 0
+    >>> masked_df = mask_by_reference(
+    ...     data=df,
+    ...     ref_col="A",
+    ...     values=0,
+    ...     fill_value=0,
+    ...     find_closest=False,
+    ...     error="raise"
+    ... )
+    >>> print(masked_df)
+    >>> # 'B', 'C', 'D' for rows where A=0 are replaced with 0.
+    >>>
+    >>> # Example 2: Approximate matching for numeric
+    >>> # If 'A' has values [0, 10, 8] and we search for 9, then 'A=8' or 'A=10'
+    >>> # are the closest, so those rows get masked in non-ref columns.
+    >>> masked_df2 = mask_by_reference(
+    ...     data=df,
+    ...     ref_col="A",
+    ...     values=9,
+    ...     find_closest=True,
+    ...     fill_value=-999
+    ... )
+    >>> print(masked_df2)
+    
+    >>>
+    >>> # Example 2: Approx. match for numeric ref_col
+    >>> # 9 is between 8 and 10, so rows with A=8 and A=10 are masked
+    >>> res2 = mask_by_reference(df, "A", 9, find_closest=True, fill_value=-999)
+    >>> print(res2)
+    ... # Rows 0 (A=10) and 2 (A=8) are replaced with -999 in columns B,C,D
+    >>>
+    >>> # Example 3: fill_value='auto' with multiple values
+    >>> # Rows matching A=0 => fill with 0; rows matching A=8 => fill with 8
+    >>> res3 = mask_by_reference(df, "A", [0, 8], fill_value='auto')
+    >>> print(res3)
+    ... # => rows with A=0 => B,C,D replaced by 0
+    ... # => rows with A=8 => B,C,D replaced by 8
+    >>> 
+    >>> # 2) mask_columns=['C','D'] => only columns C and D are masked
+    >>> res2 = mask_by_reference(df, "A", values=0, fill_value=999,
+    ...                         mask_columns=["C","D"])
+    >>> print(res2)
+    ... # Rows where A=0 => columns C,D replaced by 999, while B remains unchanged
+    >>>
+    """
+    # --- Preliminary checks --- #
+    if ref_col not in data.columns:
+        msg = (f"[mask_by_reference] Column '{ref_col}' not found "
+               f"in the DataFrame.")
+        if error == "raise":
+            raise KeyError(msg)
+        elif error == "warn":
+            warnings.warn(msg)
+            return data  # return as is
+        else:
+            return data  # error=='ignore'
+
+    # Decide whether to operate on a copy or in place
+    df = data if inplace else data.copy()
+
+    # Determine which columns we'll mask
+    if mask_columns is None:
+        # mask all except ref_col
+        mask_cols = [c for c in df.columns if c != ref_col]
+    else:
+        # Convert a single string to list
+        if isinstance(mask_columns, str):
+            mask_columns = [mask_columns]
+
+        # Check that columns exist
+        not_found = [col for col in mask_columns if col not in df.columns]
+        if len(not_found) > 0:
+            msg_cols = (f"[mask_by_reference] The following columns were "
+                        f"not found in DataFrame: {not_found}.")
+            if error == "raise":
+                raise KeyError(msg_cols)
+            elif error == "warn":
+                warnings.warn(msg_cols)
+                # Remove them from mask list if ignoring/warning
+                mask_columns = [c for c in mask_columns if c in df.columns]
+            else:
+                pass  # silently ignore
+        mask_cols = [c for c in mask_columns if c != ref_col]
+
+    if verbose > 1:
+        print(f"[mask_by_reference] Columns to be masked: {mask_cols}")
+
+    # If values is None => mask all rows in mask_cols
+    if values is None:
+        if verbose > 0:
+            print("[mask_by_reference] 'values' is None. Masking ALL rows.")
+        if fill_value == 'auto':
+            # 'auto' doesn't make sense with None => fill with None
+            if verbose > 0:
+                print("[mask_by_reference] 'fill_value=auto' but no values "
+                      "specified. Will use None for fill.")
+            df[mask_cols] = None
+        else:
+            df[mask_cols] = fill_value
+        return df
+
+    # Convert single value to a list
+    if not isinstance(values, (list, tuple, set)):
+        values = [values]
+
+    ref_series = df[ref_col]
+    is_numeric = pd.api.types.is_numeric_dtype(ref_series)
+
+    # If find_closest and ref_series isn't numeric => revert to exact
+    if find_closest and not is_numeric:
+        if verbose > 0:
+            print("[mask_by_reference] 'find_closest=True' but reference "
+                  "column is not numeric. Reverting to exact matching.")
+        find_closest = False
+
+    total_matched_rows = set()  # track distinct row indices matched
+
+    # Loop over each value and find matched rows
+    for val in values:
+        if find_closest:
+            # Approximate match for numeric
+            distances = (ref_series - val).abs()
+            min_dist = distances.min()
+            # If min_dist is inf, no numeric interpretation possible
+            if min_dist == np.inf:
+                matched_idx = []
+            else:
+                matched_idx = distances[distances == min_dist].index
+        else:
+            # Exact match
+            matched_idx = ref_series[ref_series == val].index
+
+        if len(matched_idx) == 0:
+            # No match found for val
+            msg_val = (
+                f"[mask_by_reference] No matching value found for '{val}'"
+                f" in column '{ref_col}'. Ensure '{val}' exists in "
+                f"'{ref_col}' before applying the mask, or set"
+                " ``find_closest=True`` to select the closest match."
+            )
+            if find_closest:
+                msg_val = (f"[mask_by_reference] Could not approximate '{val}' "
+                           f"in numeric column '{ref_col}'.")
+            if error == "raise":
+                raise ValueError(msg_val)
+            elif error == "warn":
+                warnings.warn(msg_val)
+                continue  # skip
+            else:
+                continue  # error=='ignore'
+        else:
+            # Decide the actual fill we use for these matches
+            if fill_value == 'auto':
+                fill = val
+            else:
+                fill = fill_value
+
+            # Mask these matched rows
+            df.loc[matched_idx, mask_cols] = fill
+
+            # Accumulate matched indices
+            total_matched_rows.update(matched_idx)
+
+    if verbose > 0:
+        distinct_count = len(total_matched_rows)
+        print(f"[mask_by_reference] Distinct matched rows: {distinct_count}")
+
+    return df
+
+@SaveFile 
+@isdf 
+def filter_by_isin(
+    df: pd.DataFrame,
+    *other_dfs: pd.DataFrame,
+    main_col: str,
+    columns: Optional[Union[str, List[str]]] = None,
+    how: str = "union",
+    invert: bool = False, 
+    savefile=None, 
+) -> pd.DataFrame:
+    """
+    Filter a DataFrame by checking whether values in one of its columns
+    appear (or do not appear) in one or more other DataFrames.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The main DataFrame to be filtered.
+    *other_dfs : pd.DataFrame
+        One or more additional DataFrames that provide the reference
+        values for the filtering.
+    main_col : str
+        Column in `df` whose values will be checked against the other
+        DataFrames.
+    columns : str or List[str], optional
+        Column names in the other DataFrames to use for collecting
+        reference values. If a single string is given, it applies
+        to all DataFrames in `other_dfs`. If a list of strings is
+        provided, it must match the number of DataFrames passed.
+        Defaults to None, in which case `main_col` is also used
+        for all DataFrames.
+    how : {'union', 'intersection'}, optional
+        How to combine the sets of valid values collected from the
+        other DataFrames:
+          - "union":  A value is valid if it appears in at least
+                      one of the other DataFrames.
+          - "intersection": A value is valid only if it appears
+                            in *all* the other DataFrames.
+        Defaults to "union".
+    invert : bool, optional
+        If True, invert the filtering so that rows are returned
+        only when the value in `main_col` is *not* in the
+        collected set. Defaults to False.
+
+    Returns
+    -------
+    pd.DataFrame
+        A filtered subset of `df` where `main_col` is (or is not)
+        found in the reference columns of the other DataFrames,
+        depending on the `invert` parameter and `how` mode.
+
+    Raises
+    ------
+    ValueError
+        If `columns` is a list but its length does not match
+        the number of `other_dfs`, or if `how` is not one
+        of the supported options.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.utils.data_utils import filter_by_isin
+    >>> # Suppose we have a main DataFrame:
+    ... df_main = pd.DataFrame({
+    ...     'subsidence': [40.49, 10.58, 8.01, 42.50, 25.97, 999.99],
+    ...     'other_col': ['A', 'B', 'C', 'D', 'E', 'F']
+    ... })
+    >>> # And another DataFrame with actual subsidence data:
+    ... df_ref = pd.DataFrame({
+    ...     'subsidence_actual': [40.49, 8.01, 25.97]
+    ... })
+    >>> # We can filter df_main to keep only rows whose
+    ... # 'subsidence' values appear in df_ref's 'subsidence_actual':
+    ... result = filter_by_isin(
+    ...     df_main,
+    ...     df_ref,
+    ...     main_col='subsidence',
+    ...     columns='subsidence_actual'
+    ... )
+    >>> result
+       subsidence other_col
+    0       40.49         A
+    2        8.01         C
+    4       25.97         E
+
+    >>> # If we invert the filtering:
+    ... result_inverted = filter_by_isin(
+    ...     df_main,
+    ...     df_ref,
+    ...     main_col='subsidence',
+    ...     columns='subsidence_actual',
+    ...     invert=True
+    ... )
+    >>> result_inverted
+       subsidence other_col
+    1       10.58         B
+    3       42.50         D
+    5      999.99         F
+    """
+    # Validate how parameter.
+    valid_how = {"union", "intersection"}
+    if how not in valid_how:
+        raise ValueError(
+            f"`how` must be one of {valid_how}, got '{how}' instead."
+        )
+    
+    exist_features(df, features= main_col, name="Main col")
+    
+    other_dfs = are_all_frames_valid(
+        *other_dfs, 
+        to_df =True,
+        ops="validate"
+        )
+    # Handle columns parameter (broadcast if needed).
+    if columns is None:
+        # Use `main_col` for all
+        columns_list = [main_col] * len(other_dfs)
+    elif isinstance(columns, str):
+        # Same single string for all other_dfs
+        columns_list = [columns] * len(other_dfs)
+    else:
+        # columns should be a list of strings
+        if len(columns) != len(other_dfs):
+            raise ValueError(
+                f"Number of items in `columns` ({len(columns)}) does not "
+                f"match the number of `other_dfs` ({len(other_dfs)})."
+            )
+        columns_list = columns
+
+    # Collect sets of valid values from each reference DataFrame.
+    sets_of_values = []
+    for ref_df, ref_col in zip(other_dfs, columns_list):
+        ref_values = set(ref_df[ref_col].dropna().unique())
+        sets_of_values.append(ref_values)
+
+    # Combine sets by union or intersection.
+    if not sets_of_values:
+        # If no other_dfs were provided, no filtering needed.
+        valid_values = set()
+    else:
+        if how == "union":
+            valid_values = set.union(*sets_of_values)
+        else:  # how == "intersection"
+            valid_values = set.intersection(*sets_of_values)
+
+    # Perform the filtering in df
+    mask = df[main_col].isin(valid_values)
+    if invert:
+        mask = ~mask
+
+    return df[mask].copy()

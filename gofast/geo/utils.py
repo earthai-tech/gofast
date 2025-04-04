@@ -15,7 +15,7 @@ import pandas as pd
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 
-from ..api.types import  Tuple,  Any, Optional, Union 
+from ..api.types import List, Tuple,  Any, Optional, Union 
 from ..api.types import  _F, ArrayLike, DataFrame 
 from ..exceptions import  DepthError 
 from ..api.property import GeoscienceProperties 
@@ -29,8 +29,421 @@ from .._gofastlog import gofastlog
 _logger = gofastlog().get_gofast_logger(__name__ )
 
 __all__=["correct_data_location", "make_coords", "compute_azimuth", 
-         "calculate_bearing", ]
+         "calculate_bearing","enriched_landslide_samples" ]
 
+
+def enriched_landslide_samples(
+    landslide_events: Union[List[dict], pd.DataFrame],
+    station_data: Union[List[dict], pd.DataFrame],
+    n_stations_per_event: int = 3,
+    rainfall_days: int = 5,
+    base_name: Optional[str] = None,
+    station_id_name: str = 'station_id',
+    rainfall_col: str = 'rainfall',
+    seed: Optional[int] = None,
+    verbose: int = 0
+) -> pd.DataFrame:
+    """Augments landslide event data with rainfall from multiple nearby stations.
+
+    This function creates an "enriched" dataset suitable for machine
+    learning by simulating multiple perspectives on each landslide
+    event. For every landslide event provided, it randomly selects a
+    specified number (`n_stations_per_event`) of rainfall stations
+    from the `station_data`. It then generates a new data sample (row)
+    for each unique pairing of a landslide event and one of its
+    selected stations. This new sample combines the original event's
+    features with the rainfall sequence from the paired station. The
+    rainfall sequence is unpacked into distinct columns, one for each
+    day specified by `rainfall_days`.
+
+    This process effectively multiplies the number of samples, allowing
+    models to learn from different potential rainfall scenarios associated
+    with each landslide. The selection of stations is performed randomly
+    without replacement using ``pandas.DataFrame.sample``, seeded by the
+    `seed` parameter for reproducibility.
+
+    Parameters
+    ----------
+    landslide_events : list of dict or pd.DataFrame
+        A collection of landslide events. Each event must contain at
+        least an identifier, location, and date, though other features
+        are preserved. If a list of dictionaries, each dictionary
+        represents one event. If a DataFrame, each row represents an
+        event. Mandatory conceptual fields: 'id', 'lat', 'lon', 'date'.
+
+    station_data : list of dict or pd.DataFrame
+        A collection of rainfall station records. Each record must
+        include a unique station identifier (specified by
+        `station_id_name`) and the associated rainfall data (specified
+        by `rainfall_col`). The rainfall data must be a list or NumPy
+        array of numerical values with a length equal to or greater
+        than `rainfall_days`.
+
+    n_stations_per_event : int, default=3
+        The target number of distinct rainfall stations to associate
+        with *each* landslide event. The function will randomly select
+        up to this many stations from `station_data` for each event,
+        without replacement. If `station_data` contains fewer stations
+        than this number, all available stations will be used for each
+        event.
+
+    rainfall_days : int, default=5
+        The number of consecutive rainfall days to extract from each
+        selected station's rainfall sequence (`rainfall_col`). The
+        rainfall sequence in `station_data` must contain at least this
+        many values. These values will be placed into new columns in
+        the output DataFrame.
+
+    base_name : str, optional
+        A prefix used to name the new rainfall columns generated in the
+        output DataFrame. The columns will be named following the
+        pattern: ``f"{base_name}_day_{i}"`` (where `i` ranges from 1
+        to `rainfall_days`). If ``None`` (the default), the value of
+        the `rainfall_col` parameter is used as the base name. For
+        example, if `base_name` is ``'precip'`` and `rainfall_days`
+        is ``3``, the new columns will be ``'precip_day_1'``,
+        ``'precip_day_2'``, ``'precip_day_3'``.
+
+    station_id_name : str, default='station_id'
+        The exact column name in `station_data` that holds the unique
+        identifier for each rainfall station. This identifier will be
+        added to the enriched samples. Example: ``'station_code'``.
+
+    rainfall_col : str, default='rainfall'
+        The exact column name in `station_data` that contains the list
+        or array of rainfall measurements for each station. The length
+        of this list/array must be >= `rainfall_days`. Example: ``'rain'``.
+
+    seed : int, optional
+        A seed for the random number generator (used by ``np.random.seed``
+        and subsequently by ``pd.DataFrame.sample``). Providing an
+        integer ensures that the random selection of stations is
+        reproducible across runs. If ``None``, the selection will be
+        non-deterministic.
+
+    verbose : int, default=0
+        Controls the level of messages printed during execution:
+        - ``0``: Silent operation. No messages are printed.
+        - ``1``: Prints a summary message indicating the total number
+          of enriched samples generated.
+        - ``2`` or higher: Prints the summary message (from level 1)
+          and also displays the ``.head()`` of the newly created
+          rainfall columns and the station ID column in the resulting
+          DataFrame for quick inspection.
+
+    Returns
+    -------
+    pd.DataFrame
+        An enriched DataFrame where each original landslide event is
+        potentially represented multiple times (up to
+        `n_stations_per_event` times), each time paired with rainfall
+        data from a different, randomly selected station. The DataFrame
+        includes all original columns from `landslide_events`, the
+        `station_id_name` column, and `rainfall_days` new columns
+        containing the unpacked rainfall data.
+
+    Raises
+    ------
+    ValueError
+        - If `station_data` does not contain the required columns
+          specified by `station_id_name` or `rainfall_col`.
+        - If the rainfall data found in `station_data` under
+          `rainfall_col` is not a list or NumPy array for any station.
+        - If the rainfall sequence for any selected station has fewer
+          than `rainfall_days` elements.
+    TypeError
+        - If `landslide_events` or `station_data` are not list/dict or
+          DataFrame formats. (Implicitly raised by pandas if conversion fails).
+
+    See Also
+    --------
+    pandas.DataFrame.sample : Method used for random station selection.
+    numpy.random.seed : Used to control reproducibility.
+    # (Potentially add links to functions that find nearby stations if available)
+    # e.g., find_nearest_stations, calculate_distance
+
+    Notes
+    -----
+    - The selection of stations for each event is random and performed
+      *without* considering the geographical proximity between the event
+      and the stations unless the `station_data` provided has already
+      been pre-filtered based on proximity.
+    - The function assumes the rainfall data in `station_data` is aligned
+      correctly (e.g., the list represents rainfall for the relevant
+      days leading up to potential events). No date matching is performed
+      internally between `landslide_events` 'date' and the rainfall data.
+    - The total number of rows in the output DataFrame will be exactly
+      `len(landslide_events) * min(n_stations_per_event, len(station_data))`.
+    
+    Let :math:`E` be the set of input landslide events, and :math:`S` be
+    the set of input rainfall stations. Each event :math:`e \in E` has
+    attributes :math:`A_e`, and each station :math:`s \in S` has an ID
+    :math:`id_s` (from `station_id_name`) and a rainfall sequence
+    :math:`R_s` of length `rainfall_days` (from `rainfall_col`).
+
+    For each event :math:`e \in E`:
+      1. Randomly select a subset of stations :math:`S_e \subseteq S`
+         such that :math:`|S_e| = k = \min(\text{n\_stations\_per\_event}, |S|)`.
+         This selection is done without replacement.
+         .. math::
+             S_e = \text{RandomSample}(S, k, \\text{seed}=\\text{seed})
+
+      2. For each station :math:`s \in S_e`:
+         a. Create a new enriched sample :math:`d_{e,s}`.
+         b. Copy attributes from event :math:`e`: :math:`d_{e,s}[a] = A_e[a]`
+            for all attributes :math:`a` of :math:`e`.
+         c. Add station ID: :math:`d_{e,s}[\text{station\_id\_name}] = id_s`.
+         d. Unpack rainfall sequence :math:`R_s = [r_1, r_2, ..., r_m]`
+            (where :math:`m=\text{rainfall\_days}`):
+            .. math::
+                d_{e,s}[\text{colname}_i] = r_i \quad \text{for } i = 1, \dots, m
+            Where :math:`\text{colname}_i = \text{f"{base\_name}\_day\_{i}"}`.
+            If `base_name` is ``None``, it defaults to the value of
+            `rainfall_col`.
+
+    The final output is a DataFrame containing all generated samples:
+    :math:`D_{enriched} = \{ d_{e,s} \mid e \in E, s \in S_e \}`.
+    The total number of rows will be :math:`|E| \times k`.
+
+    The function internally uses ``pandas.DataFrame`` for data handling,
+    ``.iterrows()`` for looping, and ``.sample()`` for station selection.
+
+
+    References
+    ----------
+    .. [1] Pedregosa, F. et al., "Scikit-learn: Machine Learning in Python",
+           Journal of Machine Learning Research, 12, pp. 2825-2830, 2011.
+           (While not directly used, scikit-learn principles often guide
+           such data preparation techniques).
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> from gofast.geo.utils import enriched_landslide_samples # Use actual path
+
+    >>> # Define sample landslide events
+    >>> events = [
+    ...     {"id": "LS-001", "latitude": 24.8, "longitude": 113.5, "date": "2022-06-15"},
+    ...     {"id": "LS-002", "latitude": 24.9, "longitude": 113.7, "date": "2022-07-20"}
+    ... ]
+
+    >>> # Define sample station data with rainfall lists
+    >>> stations = [
+    ...     {"station_code": "S1", "rain": [20, 30, 25, 10, 5]}, # 5 days data
+    ...     {"station_code": "S2", "rain": [15, 18, 22, 16, 12]}, # 5 days data
+    ...     {"station_code": "S3", "rain": [30, 35, 40, 20, 15]}  # 5 days data
+    ... ]
+
+    >>> # Enrich the landslide events
+    >>> enriched_df = enriched_landslide_samples(
+    ...     landslide_events=events,
+    ...     station_data=stations,
+    ...     n_stations_per_event=2,   # Link each event to 2 random stations
+    ...     rainfall_days=5,          # Use 5 days of rainfall
+    ...     base_name='precip',       # Name new columns 'precip_day_X'
+    ...     station_id_name='station_code', # Station ID column is 'station_code'
+    ...     rainfall_col='rain',      # Rainfall list column is 'rain'
+    ...     seed=42,                  # For reproducible random selection
+    ...     verbose=1                 # Print summary info
+    ... )
+    [INFO] Generated 4 enriched samples.
+
+    >>> print("\\nEnriched DataFrame:")
+    >>> print(enriched_df)
+
+    Enriched DataFrame:
+         id  latitude  longitude        date station_code  precip_day_1  \
+    0  LS-001      24.8      113.5  2022-06-15           S3            30 
+    1  LS-001      24.8      113.5  2022-06-15           S2            15 
+    2  LS-002      24.9      113.7  2022-07-20           S2            15
+    3  LS-002      24.9      113.7  2022-07-20           S1            20
+
+         precip_day_2  precip_day_3  precip_day_4  precip_day_5
+    0              35            40            20            15
+    1              18            22            16            12
+    2              18            22            16            12
+    3              30            25            10             5
+    
+    >>> # Example using default base_name (derived from rainfall_col)
+    >>> enriched_df_default = enriched_landslide_samples(
+    ...     landslide_events=events[0], # Single event
+    ...     station_data=stations,
+    ...     n_stations_per_event=3,
+    ...     rainfall_days=3,          # Only use 3 days
+    ...     station_id_name='station_code',
+    ...     rainfall_col='rain',      # Base name will be 'rain'
+    ...     seed=123
+    ... )
+    >>> print("\\nEnriched DataFrame (Default base_name, 3 days):")
+    >>> print(enriched_df_default)
+ 
+    Enriched DataFrame (Default base_name, 3 days):
+         id  latitude  longitude        date station_code  \
+    0  LS-001      24.8      113.5  2022-06-15           S2          
+    1  LS-001      24.8      113.5  2022-06-15           S3          
+    2  LS-001      24.8      113.5  2022-06-15           S1          
+
+
+           rain_day_1  rain_day_2  rain_day_3
+    0            15          18          22
+    1            30          35          40
+    2            20          30          25
+    """
+    # Set seed for reproducibility if provided
+    if seed is not None:
+        np.random.seed(seed)
+
+    # --- Input Normalization ---
+    # Convert list of dicts to DataFrame if necessary
+    if isinstance(landslide_events, dict):
+        # Handle single dictionary case
+        landslide_events = [landslide_events]
+    if isinstance(landslide_events, list):
+        try:
+            landslide_events = pd.DataFrame(landslide_events)
+        except Exception as e:
+            raise TypeError(
+                "Could not convert landslide_events list/dict to DataFrame. "
+                f"Original error: {e}"
+            ) from e
+    elif not isinstance(landslide_events, pd.DataFrame):
+        raise TypeError(
+            "landslide_events must be a list of dicts or a pandas DataFrame."
+            )
+
+    if isinstance(station_data, dict):
+        # Handle single dictionary case
+        station_data = [station_data]
+    if isinstance(station_data, list):
+        try:
+            station_data = pd.DataFrame(station_data)
+        except Exception as e:
+            raise TypeError(
+                "Could not convert station_data list/dict to DataFrame. "
+                f"Original error: {e}"
+                ) from e
+    elif not isinstance(station_data, pd.DataFrame):
+         raise TypeError(
+             "station_data must be a list of dicts or a pandas DataFrame."
+             )
+
+    # --- Input Validation ---
+    # Check for required columns in station_data
+    if station_id_name not in station_data.columns:
+        raise KeyError(
+            f"station_data DataFrame missing required station ID column: "
+            f"'{station_id_name}'"
+        )
+    if rainfall_col not in station_data.columns:
+         raise KeyError(
+             f"station_data DataFrame missing required rainfall column: "
+             f"'{rainfall_col}'"
+         )
+    if len(station_data) == 0:
+        raise ValueError("station_data cannot be empty.")
+    if len(landslide_events) == 0:
+        raise ValueError("landslide_events cannot be empty.")
+
+    # Determine the base name for new rainfall columns
+    # Use rainfall_col if base_name is not provided or is an empty string
+    effective_base_name = base_name if base_name else rainfall_col
+
+    # --- Enrichment Process ---
+    enriched_samples = [] # List to store the new enriched sample dicts
+
+    # Iterate through each landslide event
+    for _, event_row in landslide_events.iterrows():
+        # Randomly select 'n_stations_per_event' stations for this event
+        # Use min() to handle cases where fewer stations are available
+        num_to_sample = min(n_stations_per_event, len(station_data))
+
+        if num_to_sample > 0:
+            selected_stations = station_data.sample(
+                n=num_to_sample,
+                replace=False, # Ensure unique stations per event
+                # Use seeded generator if available
+                random_state=np.random.default_rng(seed) if seed else None 
+            )
+        else:
+            # Should not happen if len(station_data)>0, but handle defensively
+            continue # Skip event if no stations can be sampled
+
+        # Create a new sample for each selected station paired with the event
+        for _, station_row in selected_stations.iterrows():
+            # Get the rainfall sequence for the current station
+            rain_values = station_row[rainfall_col]
+
+            # Validate the rainfall data format and length
+            if not isinstance(rain_values, (list, np.ndarray)):
+                raise ValueError(
+                    f"Rainfall data in column '{rainfall_col}' for station "
+                    f"'{station_row[station_id_name]}' must be a list or "
+                    f"numpy array. Found: {type(rain_values)}"
+                )
+            if len(rain_values) < rainfall_days:
+                raise ValueError(
+                    f"Station '{station_row[station_id_name]}' has only "
+                    f"{len(rain_values)} rainfall days recorded in "
+                    f"'{rainfall_col}', but {rainfall_days} days are required."
+                )
+
+            # Create the base sample dictionary from the event data
+            # Using .to_dict() preserves original event features
+            sample = event_row.to_dict()
+
+            # Add the station identifier to the sample
+            sample[station_id_name] = station_row[station_id_name]
+
+            # Unpack the rainfall values into separate columns
+            for i in range(rainfall_days):
+                colname = f"{effective_base_name}_day_{i+1}"
+                # Access the i-th rainfall value (0-indexed)
+                sample[colname] = rain_values[i]
+
+            # Add the completed enriched sample to our list
+            enriched_samples.append(sample)
+
+    # Convert the list of enriched sample dictionaries into a DataFrame
+    if not enriched_samples:
+        # Return an empty DataFrame with expected columns if no samples generated
+        # Construct expected columns dynamically
+        if verbose : 
+            print(
+                 "Warning: No enriched samples were generated."
+                 " Returning empty DataFrame."
+                )
+        example_event_cols = list(landslide_events.columns)
+        rainfall_cols = [
+            f"{effective_base_name}_day_{i+1}" for i in range(rainfall_days)
+            ]
+        all_expected_cols = example_event_cols + [station_id_name] + rainfall_cols
+        # Remove duplicates if station_id_name was already in event columns
+        all_expected_cols = sorted(
+            list(set(all_expected_cols)), key=all_expected_cols.index)
+        
+        return pd.DataFrame(columns=all_expected_cols)
+
+    df_enriched = pd.DataFrame(enriched_samples)
+
+    # --- Verbose Output ---
+    if verbose >= 1:
+        print(f"[INFO] Generated {len(df_enriched)} enriched samples from "
+              f"{len(landslide_events)} events and {len(station_data)} stations.")
+    if verbose >= 2:
+        # Construct the list of new columns for concise head display
+        new_cols_to_show = [station_id_name] + [
+            f"{effective_base_name}_day_{i+1}" for i in range(rainfall_days)
+        ]
+        # Ensure columns exist before trying to display them
+        cols_present = [col for col in new_cols_to_show if col in df_enriched.columns]
+        if cols_present:
+             print("[INFO] Head of new/key columns in the enriched DataFrame:")
+             print(df_enriched[cols_present].head())
+        else:
+             print("[INFO] No new/key columns generated to display.")
+
+
+    return df_enriched
 
 def make_coords(
     reflong: Union[str, Tuple[float, float]],

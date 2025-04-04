@@ -17,7 +17,7 @@ import numpy as np
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error 
 from sklearn.metrics import r2_score, accuracy_score
-from sklearn.model_selection import TimeSeriesSplit
+from sklearn.model_selection import TimeSeriesSplit, KFold 
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from ..api.types import _Tensor,  _Optimizer
@@ -27,15 +27,16 @@ from ..api.types import ArrayLike, Callable, Any, Generator
 from ..core.array_manager import denormalize
 from ..utils.deps_utils import ensure_pkg 
 from ..utils.validator import check_X_y, check_consistent_length
-from ..utils.validator import validate_keras_model
 
 from . import KERAS_DEPS, KERAS_BACKEND, dependency_message
+from .keras_validator import validate_keras_model
 
 if KERAS_BACKEND:
     Adam = KERAS_DEPS.Adam
     RMSprop = KERAS_DEPS.RMSprop
     SGD = KERAS_DEPS.SGD
     load_model = KERAS_DEPS.load_model
+    Model=KERAS_DEPS.Model
     mnist = KERAS_DEPS.mnist
     Loss = KERAS_DEPS.Loss
     Sequential = KERAS_DEPS.Sequential
@@ -43,6 +44,7 @@ if KERAS_BACKEND:
     reduce_mean = KERAS_DEPS.reduce_mean
     GradientTape = KERAS_DEPS.GradientTape
     square = KERAS_DEPS.square
+    
     
 __all__=[
      'calculate_validation_loss',
@@ -55,7 +57,8 @@ __all__=[
      'train_and_evaluate',
      'train_and_evaluate2',
      'train_epoch',
-     'train_model'
+     'train_model', 
+     'plot_keras_cv'
  ]
 
 DEP_MSG=dependency_message('train')
@@ -176,6 +179,121 @@ def plot_history(
     KERAS_BACKEND or "keras",
     extra=DEP_MSG
 )
+def plot_keras_cv(
+    model_fn: Callable[[], 'Model'],
+    X: np.ndarray,
+    y: np.ndarray,
+    n_splits: int = 5,
+    epochs: int = 10,
+    metric: str = 'accuracy'
+) -> None:
+    """
+    Performs cross-validation and plots the performance metric across
+    epochs for each fold. This function is particularly useful for 
+    evaluating the consistency and stability of neural network models
+    across different subsets of data.
+
+    Parameters
+    ----------
+    model_fn : `Callable[[], keras.Model]`
+        A function that returns a compiled neural network model. The
+        function should not take any arguments and must return a compiled
+        Keras model.
+
+    X : `np.ndarray`
+        Training features, typically an array of shape (n_samples, n_features).
+
+    y : `np.ndarray`
+        Training labels or target values, typically an array of shape
+        (n_samples,) or (n_samples, n_outputs).
+
+    n_splits : `int`, optional
+        Number of splits for the K-Fold cross-validation. Default is 5.
+
+    epochs : `int`, optional
+        Number of epochs for training each model during the cross-validation.
+        Default is 10.
+
+    metric : `str`, optional
+        The performance metric to plot. Common choices are 'accuracy', 'loss',
+        or any other metric included in the compiled model. Default is 'accuracy'.
+
+    Examples
+    --------
+    >>> from keras.models import Sequential
+    >>> from keras.layers import Dense
+    >>> from gofast.plot.mlviz import plot_cv 
+    >>> def create_model():
+    ...     model = Sequential([
+    ...         Dense(10, activation='relu', input_shape=(10,)),
+    ...         Dense(1, activation='sigmoid')
+    ...     ])
+    ...     model.compile(optimizer='adam', loss='binary_crossentropy',
+    ...                   metrics=['accuracy'])
+    ...     return model
+    ...
+    >>> X = np.random.rand(100, 10)
+    >>> y = np.random.randint(2, size=(100,))
+    >>> plot_cv(create_model, X, y, n_splits=3, epochs=5)
+
+    Notes
+    -----
+    This function utilizes `KFold` from `sklearn.model_selection` to create training and 
+    validation splits. It is essential that the model function provided 
+    compiles the model with the necessary metrics as they are used to 
+    monitor training performance.
+
+    The cross-validation process involves splitting the data into `n_splits`
+    folds, training the model on `n_splits - 1` folds, and validating it on
+    the remaining fold. This process is repeated for each fold, and the
+    performance metric is recorded for each epoch.
+
+    The performance metric for each fold is then plotted to visualize the
+    consistency and stability of the model across different subsets of the
+    data.
+
+    See Also
+    --------
+    `sklearn.model_selection.KFold` : Provides cross-validation iterator.
+    
+    References
+    ----------
+    .. [1] Chollet, F. (2015). Keras. https://github.com/fchollet/keras
+    .. [2] Pedregosa et al., "Scikit-learn: Machine Learning in Python", JMLR 12, 
+           pp. 2825-2830, 2011.
+    """
+
+    kf = KFold(n_splits=n_splits)
+    fold_performance = []
+    validate_keras_model(model_fn, raise_exception= True )
+    for fold, (train_index, val_index) in enumerate(kf.split(X), 1):
+        # Split data
+        X_train, X_val = X[train_index], X[val_index]
+        y_train, y_val = y[train_index], y[val_index]
+
+        # Create a new instance of the model
+        model = model_fn()
+
+        # Train the model
+        history = model.fit(
+            X_train, y_train, validation_data=(X_val, y_val),
+            epochs=epochs, verbose=0)
+
+        # Store the metrics for this fold
+        fold_performance.append(history.history[metric])
+
+    # Plot the results
+    plt.figure(figsize=(12, 6))
+    for i, performance in enumerate(fold_performance, 1):
+        plt.plot(performance, label=f'Fold {i}')
+
+    plt.title(f'Cross-Validation {metric.capitalize()}')
+    plt.xlabel('Epochs')
+    plt.ylabel(metric.capitalize())
+    plt.legend()
+    plt.show()
+    
+
 def train_and_evaluate2(
     model_config: Dict[str, Any], 
     resource: int, 

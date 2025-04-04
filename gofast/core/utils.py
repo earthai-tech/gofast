@@ -2983,14 +2983,6 @@ def error_policy(
     modes, allowing for strict or flexible behavior depending on the
     ``policy`` and ``base`` settings.
 
-    .. math::
-       \\text{error\\_policy}:
-       \\begin{cases}
-         \\text{'warn'}, & \\text{issue a warning} \\\\
-         \\text{'raise'}, & \\text{raise an exception} \\\\
-         \\text{'ignore'}, & \\text{do nothing}
-       \\end{cases}
-
     Parameters
     ----------
     error : str or None
@@ -3042,6 +3034,16 @@ def error_policy(
     - When `error=None`, the behavior depends on the `policy` and
       `base` parameters. Setting `policy='strict'` disallows `None`
       for `error`.
+      
+      
+    .. math::
+       \\text{error\\_policy}:
+       \\begin{cases}
+         \\text{'warn'}, & \\text{issue a warning} \\\\
+         \\text{'raise'}, & \\text{raise an exception} \\\\
+         \\text{'ignore'}, & \\text{do nothing}
+       \\end{cases}
+
 
     Examples
     --------

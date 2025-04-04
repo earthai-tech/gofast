@@ -24,7 +24,14 @@ from scipy.spatial import cKDTree
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch, Circle
+import seaborn as sns
 
+from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
+from sklearn.neighbors import NearestNeighbors
+from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import StandardScaler
+ 
 from ._arraytools import axis_slice
 from ..api.box import KeyBox
 from ..api.docstring import refglossary
@@ -35,6 +42,7 @@ from ..api.types import (
     Series, 
     Tuple, 
     Union, 
+    List,
     _F, 
     _SP, 
     _T,
@@ -48,19 +56,29 @@ from ..core.checks import (
     exist_features, 
     assert_ratio, 
     are_all_frames_valid, 
+    check_spatial_columns
     )
 from ..core.handlers import columns_manager, resolve_label  
 from ..core.io import SaveFile, is_data_readable 
-from ..core.utils import ellipsis2false, smart_format 
+from ..core.utils import ellipsis2false, smart_format
+from ..core.plot_manager import set_axis_grid  
 from ..decorators import Deprecated, AppendDocReferences, isdf 
-
+from .generic_utils import find_id_column 
 from .validator import ( 
     _is_arraylike_1d, 
     assert_xy_in, check_y, 
     validate_positive_integer, 
-    validate_length_range 
+    validate_length_range , 
+    filter_valid_kwargs, 
+    parameter_validator
     )
 
+HAS_TQDM=True 
+try: 
+    from tqdm import tqdm 
+except: 
+    HAS_TQDM = False 
+    
 __all__ = [
      'adaptive_moving_average',
      'assert_doi',
@@ -92,7 +110,1896 @@ __all__ = [
      'batch_spatial_sampling', 
      'make_mxs_labels',
      'extract_zones_from', 
+     'filter_position', 
+     'create_spatial_clusters', 
+     'gen_negative_samples', 
+     'gen_buffered_negative_samples', 
+     'gen_negative_samples_plus', 
+     
  ]
+
+@SaveFile 
+@isdf  
+def gen_negative_samples_plus(
+    df: pd.DataFrame,
+    target_col: str,
+    spatial_cols: Tuple[str, str] = (
+        'longitude',
+        'latitude'
+    ),
+    feature_cols: Optional[List[str]] = None,
+    buffer_km: float = 10,
+    neg_feature_range: Tuple[float, float] = (
+        0, 5
+    ),
+    num_neg_per_pos: int = 1,
+    strategy: str = 'landslide',  # or gauge,
+                                 # random_global, etc.
+    gauge_data: Optional[pd.DataFrame] = None,
+    elevation_data: Optional[pd.DataFrame] = None,
+    similarity_features: Optional[
+        List[str]
+    ] = None,
+    time_col: Optional[str] = None,
+    cluster_method: str = 'kmeans',  # or dbscan
+    use_gpd: Union[bool, str] = 'auto',
+    id_col='auto',
+    view: bool = False,
+    savefile: Optional[str] = None,
+    verbose: int = 1,
+    seed: Optional[int] = None
+) -> pd.DataFrame:
+    """
+    Generates negative samples for modeling in spatial scenarios,
+    offering multiple strategies. The function calls
+    `gen_buffered_negative_samples` when the ``strategy`` argument
+    is ``'landslide'``, ``'event'``, or ``'gauge'``. It also calls
+    `generate_negative_samples` partially in the ``'hybrid'``
+    strategy. Internally, each sample is augmented to produce
+    negative instances according to a chosen method.
+    
+    .. math::
+       \\text{buffer_deg} = \\frac{\\text{buffer_km}}{111.0}
+    
+    The above formula approximates degrees from kilometers near
+    the equator. The output is a combined dataset containing
+    original positives and generated negatives. The ratio of
+    negatives per positive is controlled by
+    ``num_neg_per_pos``.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input data containing spatial coordinates and features.
+    target_col : str
+        Name of the classification target column. Positive
+        samples in `df` are labeled, negatives will be generated.
+    spatial_cols : tuple of str, optional
+        Columns representing longitude and latitude in `df`.
+    feature_cols : list of str, optional
+        Additional feature columns used to drive or constrain
+        negative sampling processes.
+    buffer_km : float, optional
+        Radius in kilometers for local negative sampling. Used
+        to compute buffer degrees.
+    neg_feature_range : tuple of float, optional
+        Lower and upper range for continuous features in random
+        negative generation.
+    num_neg_per_pos : int, optional
+        Number of negatives to generate per positive instance.
+    strategy : str, optional
+        Defines the sampling approach. Options include
+        ``'landslide'``, ``'gauge'``, ``'random_global'``,
+        ``'temporal_shift'``, ``'clustered_negatives'``,
+        ``'environmental_similarity'``, ``'elevation_based'``,
+        and ``'hybrid'``.
+    gauge_data : pandas.DataFrame, optional
+        Reference data for gauge-based or hybrid strategies.
+    elevation_data : pandas.DataFrame, optional
+        Elevation records, used if ``strategy='elevation_based'``.
+    similarity_features : list of str, optional
+        Columns for nearest neighbor computation in
+        ``'environmental_similarity'``.
+    time_col : str, optional
+        Name of the time column for ``'temporal_shift'``. Required
+        if using that strategy.
+    cluster_method : str, optional
+        Clustering algorithm for ``'clustered_negatives'``. Default
+        is ``'kmeans'``.
+    use_gpd : bool or str, optional
+        Indicator for whether geopandas is used in buffer-based
+        processes.
+    id_col : str, optional
+        Column name used as an identifier. If `'auto'`, a default is
+        used.
+    view : bool, optional
+        Flag for visualizing or previewing the results.
+    savefile : str, optional
+        Path to save the output dataset. If None, no file is saved.
+    verbose : int, optional
+        Verbosity level. Higher values yield more logs.
+    seed : int, optional
+        Random seed for reproducibility. If None, randomness is not
+        fixed.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        A combined DataFrame containing the original positive samples
+        labeled as 1 and newly generated negative samples labeled 0.
+    
+    Notes
+    -----
+    When ``strategy='hybrid'``, partial sets of negatives come from
+    two distinct calls to `generate_negative_samples` for
+    ``'landslide'`` and ``'gauge'`` sub-strategies, then merged.
+    
+    Examples
+    --------
+    >>> from gofast.utils.spatial_utils import gen_negative_samples_plus
+    >>> import pandas as pd
+    >>> df_example = pd.DataFrame({
+    ...     "longitude": [10.1, 10.2, 10.3],
+    ...     "latitude":  [45.1, 45.2, 45.3],
+    ...     "feature":   [3.4, 2.1, 6.7],
+    ...     "target":    [1, 1, 1]
+    ... })
+    >>> gauge_data = pd.DataFrame({
+    ...     'gauge_id': ['G1', 'G2', 'G3'],
+    ...     'latitude': np.random.uniform(24.0, 25.0, 3),
+    ...     'longitude': np.random.uniform(113.0, 114.0, 3)
+    ... })
+    >>> # Generate random global negatives
+    >>> result = gen_negative_samples_plus(
+    ...     df_example,
+    ...     target_col="target",
+    ...     strategy="random_global"
+    ... )
+    >>> print(result.head())
+    
+    See Also
+    --------
+    gen_buffered_negative_samples : Generates negative samples
+        within a buffer region around reference events or gauges.
+    generate_negative_samples : A simpler negative sampling
+        utility for certain strategies.
+    
+    References
+    ----------
+    .. [1] P. Goovaerts, "Geostatistics for Natural Resources
+       Evaluation," Oxford University Press, 1997.
+    """
+
+    # If the strategy is one of the recognized
+    # types (landslide, event, gauge), we
+    # directly call gen_buffered_negative_samples.
+    if str(strategy).lower() in (
+        'landslide',
+        'event',
+        'gauge'
+    ):
+        return gen_buffered_negative_samples(
+            df=df,
+            target_col=target_col,
+            spatial_cols=spatial_cols,
+            feature_cols=feature_cols,
+            buffer_km=buffer_km,
+            neg_feature_range=neg_feature_range,
+            num_neg_per_pos=num_neg_per_pos,
+            strategy=strategy,
+            gauge_data=gauge_data,
+            use_gpd=use_gpd,
+            view=view,
+            id_col=id_col,
+            savefile=savefile,
+            seed=seed, 
+            verbose=verbose
+        )
+
+    # If not in the above categories, we proceed
+    # with advanced strategies.
+    np.random.seed(seed)
+
+    # Validate columns and parameters via the
+    # _validate_negative_sampling utility.
+    checked_values = _validate_negative_sampling(
+        df=df,
+        target_col=target_col,
+        spatial_cols=spatial_cols,
+        feature_cols=feature_cols,
+        neg_feature_range=neg_feature_range,
+        num_neg_per_pos=num_neg_per_pos,
+        verbose=verbose,
+        id_col=id_col
+    )
+    (
+        spatial_cols,
+        feature_cols,
+        neg_feature_range,
+        num_neg_per_pos
+    ) = checked_values
+
+    # Extract column names for lon/lat.
+    lon_col, lat_col = spatial_cols
+
+    # Convert buffer kilometers to degrees,
+    # approximating 1 deg ~ 111 km.
+    buffer_deg = buffer_km / 111.0
+
+    # Additional advanced strategy options.
+    add_strategies = [
+        'random_global',
+        'temporal_shift',
+        'clustered_negatives',
+        'environmental_similarity',
+        'elevation_based',
+        'hybrid'
+    ]
+
+    # Validate the selected strategy from
+    # the advanced list.
+    strategy = parameter_validator(
+        'strategy',
+        target_strs=add_strategies,
+        deep=True
+    )(strategy)
+
+    # Collect negative samples in a list.
+    negatives = []
+
+    # -----------------------
+    # RANDOM_GLOBAL strategy:
+    # Generate uniform random coordinates
+    # across the bounding box of df.
+    # -----------------------
+    if strategy == 'random_global':
+        lon_min, lon_max = (
+            df[lon_col].min(),
+            df[lon_col].max()
+        )
+        lat_min, lat_max = (
+            df[lat_col].min(),
+            df[lat_col].max()
+        )
+        for _ in range(len(df) * num_neg_per_pos):
+            sample = {
+                lon_col: np.random.uniform(
+                    lon_min,
+                    lon_max
+                ),
+                lat_col: np.random.uniform(
+                    lat_min,
+                    lat_max
+                ),
+                target_col: 0
+            }
+            for col in feature_cols:
+                sample[col] = np.random.uniform(
+                    *neg_feature_range
+                )
+            negatives.append(sample)
+
+    # -----------------------
+    # TEMPORAL_SHIFT strategy:
+    # Shift time backward (e.g. 30 days)
+    # and mark as negative samples.
+    # -----------------------
+    elif strategy == 'temporal_shift':
+        if time_col is None:
+            raise ValueError(
+                "Time column must be provided "
+                "for 'temporal_shift'."
+            )
+        df_shifted = df.copy()
+        df_shifted[time_col] = pd.to_datetime(
+            df_shifted[time_col]
+        ) - pd.Timedelta(days=30)
+        for _, row in df_shifted.iterrows():
+            sample = row.to_dict()
+            sample[target_col] = 0
+            negatives.append(sample)
+
+    # -----------------------
+    # CLUSTERED_NEGATIVES:
+    # Apply KMeans to cluster data,
+    # then generate negative samples
+    # around cluster centers.
+    # -----------------------
+    elif strategy == 'clustered_negatives':
+        coords = df[
+            [lon_col, lat_col]
+        ].values
+        kmeans = KMeans(
+            n_clusters=max(
+                2,
+                len(df) // 10
+            ),
+            random_state=seed
+        ).fit(coords)
+        centers = kmeans.cluster_centers_
+        for center in centers:
+            for _ in range(num_neg_per_pos):
+                lat_offset = np.random.uniform(
+                    -buffer_deg,
+                    buffer_deg
+                )
+                lon_offset = np.random.uniform(
+                    -buffer_deg,
+                    buffer_deg
+                )
+                sample = {
+                    lat_col: center[1] + lat_offset,
+                    lon_col: center[0] + lon_offset,
+                    target_col: 0
+                }
+                for col in feature_cols:
+                    sample[col] = np.random.uniform(
+                        *neg_feature_range
+                    )
+                negatives.append(sample)
+
+    # -----------------------
+    # ENVIRONMENTAL_SIMILARITY:
+    # Nearest neighbor approach on
+    # specific feature vectors.
+    # -----------------------
+    elif strategy == 'environmental_similarity':
+        if similarity_features is None:
+            raise ValueError(
+                "Specify similarity_features for "
+                "'environmental_similarity'."
+            )
+        nn = NearestNeighbors(n_neighbors=1)
+        nn.fit(df[similarity_features])
+        for _ in range(len(df) * num_neg_per_pos):
+            random_vector = np.random.uniform(
+                0, 1,
+                size=len(similarity_features)
+            )
+            dist, idx = nn.kneighbors([
+                random_vector
+            ])
+            ref = df.iloc[idx[0][0]]
+            sample = ref.copy()
+            sample[target_col] = 0
+            sample[lon_col] += np.random.uniform(
+                -buffer_deg,
+                buffer_deg
+            )
+            sample[lat_col] += np.random.uniform(
+                -buffer_deg,
+                buffer_deg
+            )
+            negatives.append(
+                sample.to_dict()
+            )
+
+    # -----------------------
+    # ELEVATION_BASED:
+    # Pick negative samples from
+    # low slope areas, etc.
+    # -----------------------
+    elif strategy == 'elevation_based':
+        if elevation_data is None:
+            raise ValueError(
+                "Provide elevation data for "
+                "'elevation_based' strategy."
+            )
+        low_slope_areas = elevation_data[
+            elevation_data['slope'] < buffer_km
+        ]
+        sample_count = min(
+            len(df) * num_neg_per_pos,
+            len(low_slope_areas)
+        )
+        for _, row in low_slope_areas.sample(
+            n=sample_count
+        ).iterrows():
+            sample = row.to_dict()
+            sample[target_col] = 0
+            negatives.append(sample)
+
+    # -----------------------
+    # HYBRID:
+    # Combine partial sets of
+    # negative samples from
+    # different strategies.
+    # -----------------------
+    elif strategy == 'hybrid':
+        part1 = gen_buffered_negative_samples(
+            df,
+            target_col,
+            spatial_cols,
+            feature_cols,
+            buffer_km,
+            neg_feature_range,
+            num_neg_per_pos // 2,
+            strategy='landslide',
+            gauge_data=None,
+            seed=seed,
+            verbose=0
+        )
+        part2 = gen_buffered_negative_samples(
+            df,
+            target_col,
+            spatial_cols,
+            feature_cols,
+            buffer_km,
+            neg_feature_range,
+            num_neg_per_pos // 2,
+            strategy='gauge',
+            gauge_data=gauge_data,
+            seed=seed,
+            verbose=0
+        )
+        combined = pd.concat([part1, part2], ignore_index=True)
+
+        # Deduplicate based on spatial + feature + target columns
+        dedup_cols = spatial_cols + (feature_cols or []) + [target_col]
+        combined = combined.drop_duplicates(subset=dedup_cols)
+    
+        if verbose >= 1:
+            print(
+                "[INFO] Final dataset after deduplication:"
+                f" {len(combined)} samples"
+            )
+            
+        if view:
+            _visualize_negative_sampling(
+                df_combined=combined,
+                base_points= df if strategy == 'landslide' else gauge_data,
+                strategy=strategy,
+                spatial_cols=spatial_cols,
+                target_col=target_col,
+                buffer_km=buffer_km, 
+                title="Sample Generation via Hybrid Strategy",
+            )
+        return combined
+
+    # Create DataFrame of negative samples.
+    df_neg = pd.DataFrame(negatives)
+
+    # Copy df for positive samples.
+    df_pos = df.copy()
+    df_pos[target_col] = 1
+
+    # Combine positives and negatives.
+    combined = pd.concat(
+        [df_pos, df_neg],
+        ignore_index=True
+    )
+    
+    if view:
+        _visualize_negative_sampling(
+            df_combined=combined,
+            base_points= df,
+            strategy=strategy,
+            spatial_cols=spatial_cols,
+            target_col=target_col,
+            buffer_km=buffer_km, 
+        )
+        
+    # Optionally print info about the results.
+    if verbose >= 1:
+        print(
+            f"[INFO] Generated {len(df_neg)} negative "
+            f"samples using strategy '{strategy}'"
+        )
+        print(
+            f"[INFO] Total dataset: {len(combined)} "
+            "samples"
+        )
+
+    return combined
+
+@SaveFile 
+@isdf          
+def gen_buffered_negative_samples(
+    df: pd.DataFrame,
+    target_col: str,
+    spatial_cols: Tuple[str, str] = ('longitude', 'latitude'),
+    feature_cols: Optional[List[str]] = None,
+    buffer_km: float = 10,
+    neg_feature_range: Tuple[float, float] = (0, 5),
+    num_neg_per_pos: int = 1,
+    strategy: str = 'landslide',  
+    gauge_data: Optional[pd.DataFrame] = None,
+    use_gpd: Union[bool, str] = 'auto',
+    id_col='auto', 
+    view: bool = False,
+    savefile: Optional[str] = None,
+    seed: Optional[int] = None, 
+    verbose: int = 1,
+) -> pd.DataFrame:
+    
+    """
+    Generate buffer-based negative samples around existing
+    points or gauge stations.
+    
+    This function creates additional negative samples
+    for binary spatial events. It either takes an existing
+    landslide dataset (when `strategy` is `'landslide'`)
+    or a separate gauge dataset (if `strategy` is
+    `'gauge'`) to serve as the base points for generating
+    negatives within a circular buffer. The function
+    validates input columns and parameters via
+    `_validate_negatives_sampling` before constructing
+    synthetic samples [1]_.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame containing positive event samples
+        (e.g., landslides). Must include `<target_col>`
+        and `<spatial_cols>`.
+    target_col : str
+        Name of the binary target column (1 for event,
+        0 for no event).
+    spatial_cols : tuple of str, default ('longitude', 'latitude')
+        Indicates which columns hold `<longitude>` and
+        `latitude` in `df`.
+    feature_cols : list of str, optional
+        Additional feature columns to simulate or copy
+        for negatives. If ``None``, all columns except
+        `<spatial_cols>` and `target_col` are used.
+    buffer_km : float, default 10
+        The radial distance in kilometers for sampling
+        negative points around each base point.
+    neg_feature_range : tuple of float, default (0, 5)
+        A numeric range from which feature values are
+        drawn for negative samples if the column
+        is numeric.
+    num_neg_per_pos : int, default 1
+        Number of negatives to generate per positive
+        (landslide) or gauge point.
+    strategy : str, default 'landslide'
+        Defines the base from which negative samples
+        are generated:
+          - `'landslide'` or ``'event'``: Use rows from `df`
+            as base. 
+          - `'gauge'`: Use rows from `<gauge_data>` as base.
+    gauge_data : pandas.DataFrame, optional
+        Required if `<strategy>` is `'gauge'`. Must
+        contain `<spatial_cols>`.
+    use_gpd : bool or 'auto', default 'auto'
+        If `'auto'`, attempts to use GeoPandas for
+        visualization if installed. Otherwise,
+        falls back to Matplotlib. This parameter
+        is forwarded to the underlying visualization
+        function.
+    id_col : str or list of str, default 'auto'
+        Column(s) representing IDs in `<df>`. If
+        `'auto'`, the function tries to detect
+        possible ID columns. Used by
+        `_validate_negatives_sampling`.
+    view : bool, default False
+        Whether to visualize the sampled negatives
+        around the base points.
+    savefile : str, optional
+        If provided, saves the final combined dataset
+        (positives and negatives) to a CSV file at the
+        specified path.
+    seed : int, optional
+        Seed for NumPy's random generator, ensuring
+        reproducible offsets in negative sampling.
+    verbose : int, default 1
+        Controls console messages: `1` for minimal,
+        `2` for more detailed logs.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The combined dataset containing both the original
+        (positive) rows, labeled with `target_col`=1,
+        and the newly generated negative rows, labeled
+        `target_col`=0.
+    
+    Methods
+    -------
+    `_validate_negatives_sampling`
+        Validates required columns and parameters,
+        including `<num_neg_per_pos>` and
+        `<neg_feature_range>`.
+    `visualize_negative_sampling`
+        Generates a plot showing the negative samples
+        around the base points if `<view>` is True.
+    
+    Notes
+    -----
+    - If `strategy` is `'gauge'`, `gauge_data` must
+      be provided and contain columns `longitude` and
+      `latitude`.
+    - When `<view>` is True, circles are drawn to
+      illustrate the buffer radius.
+    - The ratio of 1° ~ 111 km is approximate and can
+      vary slightly by latitude [1]_.
+      
+    Formally, a buffer in degrees
+    :math:`\\Delta` is computed by:
+    
+    .. math::
+       \\Delta = \\frac{\\text{buffer\\_km}}{111},
+    
+    where :math:`111` is an approximate km-per-degree
+    conversion factor. Each base point
+    :math:`(lat, lon)` spawns :math:`n` negatives, each
+    offset by :math:`\\delta_{lat}`, :math:`\\delta_{lon}`
+    drawn from :math:`U(-\\Delta, \\Delta)`.
+    
+    
+    Examples
+    --------
+    Below is an illustration of how to generate negative samples
+    around both existing event locations (strategy=`landslide`)
+    and separate gauge stations (strategy=`gauge`) using
+    ``gen_buffered_negative_samples``.
+    
+    First, we simulate a small DataFrame of positive
+    landslide samples with rainfall attributes, as well
+    as a separate DataFrame for gauge stations:
+    
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> np.random.seed(42)
+    
+    >>> positive_samples = pd.DataFrame({
+    ...     'id': [1, 2, 3, 4, 5],
+    ...     'latitude': np.random.uniform(24.0, 25.0, 5),
+    ...     'longitude': np.random.uniform(113.0, 114.0, 5),
+    ...     'rainfall_day_1': np.random.randint(10, 30, 5),
+    ...     'rainfall_day_2': np.random.randint(10, 30, 5),
+    ...     'rainfall_day_3': np.random.randint(10, 30, 5),
+    ...     'rainfall_day_4': np.random.randint(10, 30, 5),
+    ...     'rainfall_day_5': np.random.randint(10, 30, 5),
+    ...     'landslide': [1]*5
+    ... })
+    
+    >>> gauge_data = pd.DataFrame({
+    ...     'gauge_id': ['G1', 'G2', 'G3'],
+    ...     'latitude': np.random.uniform(24.0, 25.0, 3),
+    ...     'longitude': np.random.uniform(113.0, 114.0, 3)
+    ... })
+    
+    We then call ``gen_buffered_negative_samples`` to
+    produce negatives around these data using two
+    different strategies:
+    
+    >>> from gofast.utils.spatial_utils import gen_buffered_negative_samples
+    
+    >>> # Generate negatives around landslide points
+    >>> results_landslide = generate_negative_samples_with(
+    ...     df=positive_samples,
+    ...     target_col='landslide',
+    ...     spatial_cols=('longitude', 'latitude'),
+    ...     feature_cols=[f'rainfall_day_{i+1}' for i in range(5)],
+    ...     buffer_km=10,
+    ...     num_neg_per_pos=1,
+    ...     strategy='landslide',
+    ...     verbose=1
+    ... )
+    
+    >>> # Generate negatives around the gauge stations
+    >>> results_gauge = gen_buffered_negative_samples(
+    ...     df=positive_samples,
+    ...     target_col='landslide',
+    ...     spatial_cols=('longitude', 'latitude'),
+    ...     feature_cols=[f'rainfall_day_{i+1}' for i in range(5)],
+    ...     buffer_km=10,
+    ...     num_neg_per_pos=1,
+    ...     strategy='gauge',
+    ...     gauge_data=gauge_data,
+    ...     verbose=1
+    ... )
+
+    
+    See Also
+    --------
+    generate_negative_samples: 
+        Generate synthetic negative samples for spatial 
+        binary classification tasks.
+    _validate_negatives_sampling: 
+        Ensures inputs and parameters are correct.
+    visualize_negative_sampling : 
+        Plots the positive and negative points for inspection.
+    
+    References
+    ----------
+    .. [1] "What is a degree of Latitude/Longitude?"
+           US National Geodetic Survey (NGS),
+           https://www.ngs.noaa.gov/.
+    """
+    # See for reproducibility 
+    strategy = ( 
+        'landslide' if strategy.lower() in ('landslide','event')
+        else strategy
+    )
+    np.random.seed(seed)
+
+    # Validate input and columns
+    checked_values = _validate_negative_sampling (
+        df=df, 
+        target_col=target_col, 
+        spatial_cols= spatial_cols, 
+        feature_cols= feature_cols, 
+        neg_feature_range=neg_feature_range, 
+        num_neg_per_pos= num_neg_per_pos, 
+        verbose=verbose, 
+        id_col=id_col, 
+        )
+    ( 
+     spatial_cols, feature_cols,
+     neg_feature_range, num_neg_per_pos
+     ) = checked_values  
+    
+    lon_col, lat_col = spatial_cols 
+
+    if verbose >= 1:
+        print(f"[INFO] Generating negative samples using strategy: {strategy}")
+
+    buffer_deg = buffer_km / 111.0
+    negatives = []
+    
+    if strategy == 'gauge':
+        if gauge_data is None:
+            raise ValueError(
+                "Gauge data must be provided for 'gauge' strategy."
+                )
+
+    base_points = df if strategy == 'landslide' else gauge_data
+
+    if (base_points is None
+       or not all(c in base_points.columns for c in spatial_cols)):
+        raise ValueError(
+            "Missing gauge data or invalid spatial columns."
+        )
+
+    for _, point in base_points.iterrows():
+        for _ in range(num_neg_per_pos):
+            lat_offset = np.random.uniform(
+                -buffer_deg,
+                buffer_deg
+            )
+            lon_offset = np.random.uniform(
+                -buffer_deg,
+                buffer_deg
+            )
+            new_lat = point[lat_col] + lat_offset
+            new_lon = point[lon_col] + lon_offset
+
+            sample = {
+                lat_col: new_lat,
+                lon_col: new_lon,
+                target_col: 0
+            }
+
+            for col in feature_cols:
+                sample[col] = np.random.uniform(
+                    *neg_feature_range
+                )
+
+            negatives.append(sample)
+
+    df_neg = pd.DataFrame(negatives)
+    df_pos = df.copy()
+    df_pos[target_col] = 1
+
+    combined = pd.concat(
+        [df_pos, df_neg],
+        ignore_index=True
+    )
+
+    if verbose >= 1:
+        print(f"[INFO] Generated {len(df_neg)} negative samples")
+        print(f"[INFO] Total dataset: {len(combined)} samples")
+
+    if view:
+        _visualize_negative_sampling(
+            df_combined=combined,
+            base_points=base_points,
+            strategy=strategy,
+            spatial_cols=spatial_cols,
+            target_col=target_col,
+            buffer_km=buffer_km
+        )
+
+    return combined
+
+def _visualize_negative_sampling(
+        df_combined, base_points, strategy, spatial_cols, 
+        target_col, buffer_km=10, s=50, title=None, 
+        ):
+    import matplotlib.pyplot as plt
+    
+
+    lon_col, lat_col = spatial_cols
+    buffer_deg = buffer_km / 111.0
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    colors = {1: 'red', 0: 'green'}
+    labels = {1: 'Positive', 0: 'Negative'}
+
+    for val in [1, 0]:
+        subset = df_combined[df_combined[target_col] == val]
+        ax.scatter(subset[lon_col], subset[lat_col],
+                   color=colors[val], label=f"{labels[val]} Samples", s=s)
+
+    for _, row in base_points.iterrows():
+        circle = Circle(
+            (row[lon_col], row[lat_col]),
+            buffer_deg,
+            color='blue',
+            alpha=0.2
+        )
+        ax.add_patch(circle)
+
+    if strategy == 'gauge':
+        ax.scatter(base_points[lon_col], base_points[lat_col], 
+                   color='blue', label='Gauges',
+                   marker='x', s=+20
+                   )
+    if strategy == 'clustered_negatives':
+        ax.scatter(base_points[lon_col], base_points[lat_col],
+                   color='blue', label='Cluster Centers',
+                   marker='P', s=s +30
+                   )
+        
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    ax.set_title(title or f"Negative Sample Generation Strategy: {strategy}")
+    ax.legend(handles=[
+        Patch(color='red', label='Positive Samples'),
+        Patch(color='green', label='Negative Samples'),
+        Patch(color='blue', alpha=0.2, label=f'{buffer_km} km Buffer')
+    ])
+    set_axis_grid(ax, show_grid= True )
+    plt.tight_layout()
+    plt.show()
+
+@SaveFile
+@isdf
+def gen_negative_samples(
+    df: DataFrame,
+    target_col: str,
+    spatial_cols: Tuple [str, str]=('longitude', 'latitude'),
+    feature_cols: Optional[List[str]]=None,
+    buffer_km: float=10,
+    neg_feature_range: Tuple[float, float]=(0, 5),
+    num_neg_per_pos: int=1,
+    use_gpd: Union [bool, str]='auto',
+    view: bool=False,
+    savefile: Optional[str] = None, 
+    verbose: int=1
+):
+    r"""
+    Generate synthetic negative samples for spatial binary
+    classification tasks.
+    
+    This function creates additional samples labeled as
+    non-events within a specified spatial buffer around
+    the positive (event) observations. The main idea is to
+    generate negative examples that reflect realistic
+    conditions but have not triggered an event, thereby
+    assisting models in distinguishing occurrences from
+    non-occurrences [1]_.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input DataFrame containing the positive samples
+        (events). Must include both the target column
+        and the specified spatial columns.
+    target_col : str
+        Column name for the binary target (e.g.
+        `landslide`). Rows where this column is
+        1 (or True) are considered positive samples.
+    spatial_cols : tuple of str, default ('longitude', 'latitude')
+        Tuple specifying the longitude> and latitude
+        column names in `df`.
+    feature_cols : list of str or None, default None
+        List of feature columns to use or to simulate
+        for generated negatives. If ``None``, the
+        function automatically detects numeric and
+        categorical columns excluding `spatial_cols`
+        and `target_col`.
+    buffer_km : float, default 10
+        Spatial buffer in kilometers used to define
+        the radius around each positive sample
+        within which negative samples are created.
+    neg_feature_range : tuple of int, default (0, 5)
+        Value range (minimum, maximum) used for
+        simulating numeric feature values in negative
+        samples if the corresponding feature column
+        does not exist in `<df>`.
+    num_neg_per_pos : int, default 1
+        Number of negative samples to generate
+        per positive sample. For instance, if
+        ``num_neg_per_pos=2``, each positive sample
+        spawns two negatives.
+    use_gpd : str, default 'auto'
+        If set to 'auto', the function tries to
+        import GeoPandas for visualization. If
+        `'none'`, no GeoPandas usage will occur.
+    view : bool, default False
+        Whether to visualize the generated samples
+        on a map. Attempts to use `geopandas` if
+        installed; falls back to `matplotlib` if
+        `'auto'` is chosen and GeoPandas is not
+        available.
+    savefile : str or None, default None
+        Path to which the resulting DataFrame is
+        saved if provided. Handled by the decorator
+        that wraps this function.
+    verbose : int, default 1
+        Verbosity level. `0` for silent,
+        `1` for progress indication, `2` for
+        more messages, `3` for debugging output.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        Combined DataFrame with both original positive
+        samples and newly generated negative samples. The
+        `<target_col>` is 1 for positives and 0 for negatives.
+    
+    Methods
+    -------
+    `columns_manager`
+        This internal function is used to handle the
+        processing of columns for features and
+        spatial parameters.
+    
+    Notes
+    -----
+    - If a feature column exists in `df`, the negative
+      samples will copy or randomly select categories for
+      categorical columns, and sample integers within
+      ``neg_feature_range`` for numeric columns.
+    - If `feature_cols` is empty or does not exist
+      in `df`, the function simulates all values for
+      negative samples.
+    - When `view=True`, circles depicting the buffer
+      zone around each positive sample are drawn for
+      visualization.
+    - The approximation of 1° ~ 111 km varies slightly
+      depending on latitude [1]_.
+    
+    Mathematically, we define the spatial buffer in degrees
+    as:
+    
+    .. math::
+       \\Delta = \\frac{\\text{buffer_km}}{111.0},
+    
+    where :math:`111.0` km approximates the distance of
+    one degree of latitude or longitude [1]_. For each
+    positive sample at location :math:`(lat, lon)`,
+    we generate :math:`n` new points with offsets
+    :math:`\\delta_{lat}` and :math:`\\delta_{lon}`, each
+    drawn from a uniform distribution
+    :math:`U(-\\Delta, \\Delta)`:
+    
+    .. math::
+       \\begin{aligned}
+       &lat_{new} = lat + \\delta_{lat},\\\\
+       &lon_{new} = lon + \\delta_{lon}.
+       \\end{aligned}
+    
+    Combined with randomly sampled or inferred feature
+    values, these new samples serve as negative examples
+    for modeling tasks such as landslide prediction.
+    
+    Examples
+    --------
+    >>> from gofast.utils.spatial_utils import gen_negative_samples
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> df_pos = pd.DataFrame({
+    ...        'latitude': np.random.uniform(24.0, 25.0, 5),
+    ...        'longitude': np.random.uniform(113.0, 114.0, 5),
+    ...        'rainfall_day_1': np.random.randint(10, 30, 5),
+    ...        'rainfall_day_2': np.random.randint(10, 30, 5),
+    ...        'rainfall_day_3': np.random.randint(10, 30, 5),
+    ...        'rainfall_day_4': np.random.randint(10, 30, 5),
+    ...        'rainfall_day_5': np.random.randint(10, 30, 5),
+    ...        'landslide': 1
+    ...    })
+    >>> combined = gen_negative_samples(
+    ...     df=df_pos,
+    ...     target_col='landslide',
+    ...     buffer_km=10,
+    ...     num_neg_per_pos=2,
+    ...     view=False,
+    ...     verbose=2
+    ... )
+    >>> print(combined.head())
+    
+    See Also
+    --------
+    check_spatial_columns : Ensures the existence of
+                              required spatial columns.
+    exist_features : Verifies the presence of
+                       specified features in `<df>`.
+    columns_manager : Handles both feature and spatial
+                        columns for processing.
+    
+    References
+    ----------
+    .. [1] US National Geodetic Survey (NGS). "What is a
+           degree of Latitude/Longitude?"
+           (https://www.ngs.noaa.gov/).
+    """
+    # Validate input and columns
+    checked_values = _validate_negative_sampling (
+        df=df, 
+        target_col=target_col, 
+        spatial_cols= spatial_cols, 
+        feature_cols= feature_cols, 
+        neg_feature_range=neg_feature_range, 
+        num_neg_per_pos= num_neg_per_pos, 
+        verbose=verbose 
+        )
+    ( 
+     spatial_cols, feature_cols,
+     neg_feature_range, num_neg_per_pos
+     ) = checked_values  
+    
+    lon_col, lat_col = spatial_cols 
+    
+    # Check GeoPandas
+    HAS_GPD = False
+    try:
+        import geopandas as gpd
+        from shapely.geometry import Point
+        HAS_GPD = True
+    except ImportError:
+        HAS_GPD = False
+
+
+    # Buffer conversion (km -> deg)
+    buffer_deg = buffer_km / 111.0
+
+    if verbose >= 2:
+        print(f"[INFO] Generating negative samples within "
+              f"{buffer_km} km buffer zones.")
+    if verbose >= 3:
+        print(f"[DEBUG] Buffer in degrees: {buffer_deg:.4f}")
+
+    # Generate negative samples per row
+    negative_samples = []
+    iterator = df.iterrows()
+    if verbose >= 1 and HAS_TQDM:
+        iterator = tqdm(
+            iterator,
+            total=len(df),
+            desc="Generating negatives"
+        )
+
+    for _, row in iterator:
+        for _ in range(num_neg_per_pos):
+            lat_offset = np.random.uniform(-buffer_deg,
+                                           buffer_deg)
+            lon_offset = np.random.uniform(-buffer_deg,
+                                           buffer_deg)
+            new_lat = row[lat_col] + lat_offset
+            new_lon = row[lon_col] + lon_offset
+
+            sample = {
+                lat_col: new_lat,
+                lon_col: new_lon,
+                target_col: 0
+            }
+
+            # Simulate or copy feature columns for negs
+            for col in feature_cols:
+                # Categorical features
+                if (df[col].dtype == 'object'
+                   or df[col].dtype.name == 'category'):
+                    unique_vals = (df[col].dropna()
+                                      .unique())
+                    if len(unique_vals) > 0:
+                        sample[col] = np.random.choice(
+                                          unique_vals
+                                       )
+                    else:
+                        sample[col] = None
+                # Numeric features
+                elif np.issubdtype(df[col].dtype,
+                                   np.number):
+                    sample[col] = np.random.randint(
+                        neg_feature_range[0],
+                        neg_feature_range[1] + 1
+                    )
+                else:
+                    sample[col] = None
+
+            negative_samples.append(sample)
+
+    df_negative = pd.DataFrame(negative_samples)
+
+    # Label positive set and combine
+    df_positive = df.copy()
+    df_positive[target_col] = 1
+
+    combined = pd.concat([df_positive, df_negative],
+                         ignore_index=True)
+
+    if verbose >= 2:
+        print(f"\n[INFO] Final dataset: {len(df_positive)} "
+              f"positive and {len(df_negative)} negative "
+              f"samples.")
+
+
+    # Optional View/Plot
+    if view:
+        if (use_gpd == 'auto') and HAS_GPD:
+            if verbose >= 2:
+                print("[INFO] Visualizing with GeoPandas.")
+
+            geometry = [
+                Point(xy) for xy in zip(
+                    combined[lon_col],
+                    combined[lat_col]
+                )
+            ]
+            gdf = gpd.GeoDataFrame(combined,
+                                   geometry=geometry)
+
+            fig, ax = plt.subplots(figsize=(10, 8))
+            for label, color, name in zip(
+                [1, 0],
+                ['red', 'green'],
+                ['Positive', 'Negative']
+            ):
+                gdf[gdf[target_col] == label].plot(
+                    ax=ax,
+                    color=color,
+                    label=f"{name} Sample",
+                    markersize=50
+                )
+
+            for _, row in df_positive.iterrows():
+                circle = plt.Circle(
+                    (row[lon_col], row[lat_col]),
+                    buffer_deg,
+                    color='blue',
+                    alpha=0.2
+                )
+                ax.add_patch(circle)
+
+        else:
+            if verbose >= 2:
+                print("[INFO] Visualizing with Matplotlib.")
+
+            fig, ax = plt.subplots(figsize=(10, 8))
+            for label, color, name in zip(
+                [1, 0],
+                ['red', 'green'],
+                ['Positive', 'Negative']
+            ):
+                subset = combined[combined[target_col]
+                                  == label]
+                ax.scatter(subset[lon_col],
+                           subset[lat_col],
+                           color=color,
+                           label=f"{name} Sample",
+                           s=50)
+
+            for _, row in df_positive.iterrows():
+                circle = plt.Circle(
+                    (row[lon_col], row[lat_col]),
+                    buffer_deg,
+                    color='blue',
+                    alpha=0.2
+                )
+                ax.add_patch(circle)
+
+        ax.set_title("Negative Sample Generation with "
+                     "Spatial Buffers")
+        ax.set_xlabel("Longitude")
+        ax.set_ylabel("Latitude")
+        ax.legend(handles=[
+            Patch(color='red', label='Positive Samples'),
+            Patch(color='green', label='Negative Samples'),
+            Patch(color='blue', alpha=0.2,
+                  label=f"{buffer_km} km Buffer")
+        ])
+        set_axis_grid(ax, show_grid=True )
+        plt.tight_layout()
+        plt.show()
+
+    return combined
+
+def _validate_negative_sampling(
+    df: DataFrame,
+    target_col: str,
+    spatial_cols: Tuple[str, str] = ('longitude', 'latitude'),
+    feature_cols: Optional[List[str]] = None,
+    neg_feature_range: Tuple[float, float] = (0, 5),
+    num_neg_per_pos: int = 1,
+    id_col: Optional [str]="auto",
+    verbose: int=0
+):
+    """
+    Helper that validates input parameters and column configurations
+    for the generation of negative samples. Ensures required columns exist,
+    processes feature and spatial columns, and checks numeric parameters
+    like `<neg_feature_range>` and `<num_neg_per_pos>`.
+    """
+    # Validate input and columns
+    exist_features(df,features=target_col,
+                   name=f"Target '{target_col}'")
+
+    feature_cols = columns_manager(feature_cols)
+    spatial_cols = columns_manager(spatial_cols)
+ 
+    check_spatial_columns(df, spatial_cols=spatial_cols)
+    exist_features(df,features=spatial_cols,
+                   name="Spatial columns")
+    neg_feature_range= validate_length_range(
+        neg_feature_range, 
+        param_name="neg_feature_range"
+    )
+    num_neg_per_pos= validate_positive_integer(
+        num_neg_per_pos, 
+        "num_neg_per_pos", 
+    )
+    # detect id columns if auto 
+    if str(id_col).lower() =='auto': 
+        id_col = find_id_column(
+            df, strategy= 'naive', 
+            errors='ignore'
+        )
+    
+    id_col= columns_manager( id_col, empty_as_none= False ) 
+    # If no feature_cols provided, auto-detect from remaining columns
+    # including 
+    if feature_cols is None:
+        excluded_cols = list(spatial_cols) + [target_col] + id_col
+        feature_cols = [
+            col for col in df.columns
+            if col not in excluded_cols
+        ]
+        if verbose >= 2:
+            print(f"[INFO] Auto-detected feature_cols:"
+                  f" {feature_cols}")
+
+    feature_cols = columns_manager(
+        feature_cols,
+        empty_as_none=False
+    )
+
+    if len(feature_cols) == 0:
+        raise ValueError("No feature columns found. Please "
+                         "specify `feature_cols` explicitly.")
+
+    # Warn if a feature column does not exist in df
+    for col in feature_cols:
+        if col not in df.columns and verbose >= 2:
+            print(f"[WARN] Feature column '{col}' not "
+                  "found in df; it will be simulated.")
+            
+    return ( 
+        spatial_cols, 
+        feature_cols,
+        neg_feature_range, 
+        num_neg_per_pos, 
+     )
+
+@SaveFile 
+@isdf 
+def create_spatial_clusters(
+    df: pd.DataFrame,
+    spatial_cols: Optional[List[str]] = None ,
+    cluster_col: str = 'region',
+    n_clusters: Optional[int] = None,
+    algorithm: str = 'kmeans',
+    view: bool = True,
+    figsize: tuple = (14, 10),
+    s: int=60, 
+    plot_style: str = 'seaborn',
+    cmap: str = 'tab20',
+    show_grid: bool=True, 
+    grid_props: dict =None, 
+    auto_scale: bool = True,
+    savefile: Optional[str]=None, 
+    verbose: int = 1,
+    **kwargs
+) -> pd.DataFrame:
+    """
+    Cluster 2D spatial data in ``df`` using `<algorithm>`
+    and optionally plot the results.
+
+    This function, `<create_spatial_clusters>`, extracts
+    two coordinate columns from `<df>` to form clusters
+    via methods such as 'kmeans', 'dbscan', or 'agglo'
+    (agglomerative). It uses the function
+    `filter_valid_kwargs` (when relevant) to strip out
+    invalid parameters for certain estimators, and
+    writes cluster labels into `<cluster_col>`.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input DataFrame holding spatial coordinates
+        and optional other fields.
+    spatial_cols : list of str, optional
+        Two-column list for x and y coordinates.
+        Defaults to ``['longitude','latitude']`` if
+        None.
+    cluster_col : str, default='region'
+        Name of the column to store the assigned
+        cluster labels.
+    n_clusters : int, optional
+        Number of clusters to form. If not provided
+        for KMeans, it is auto-detected. For DBSCAN
+        or Agglomerative, a warning is issued if not
+        set.
+    algorithm : str, default='kmeans'
+        Choice of clustering algorithm among
+        ``['kmeans','dbscan','agglo']``.
+    view : bool, default=True
+        If True, displays a scatterplot of the final
+        clusters.
+    figsize : tuple, default=(14, 10)
+        Size of the displayed figure for the
+        cluster plot.
+    s : int, default=60
+        Marker size in the scatterplot.
+    plot_style : str, default='seaborn'
+        Matplotlib style used for the plot.
+    cmap : str, default='tab20'
+        Colormap name used to differentiate clusters.
+    show_grid : bool, default=True
+        Toggles grid lines on or off.
+    grid_props : dict, optional
+        Additional keyword arguments controlling
+        the grid style.
+    auto_scale : bool, default=True
+        If True, standardize coordinates before
+        clustering.
+    savefile : str, optional
+        File path to save the data with an additional
+        `<cluster_col>` storing the assigned
+        cluster labels if desired.
+    verbose : int, default=1
+        Controls console logs. Higher values yield
+        more details about scaling and cluster
+        detection.
+    **kwargs
+        Additional keyword arguments passed to the
+        chosen algorithm (filtered by
+        `filter_valid_kwargs` for KMeans, DBSCAN,
+        AgglomerativeClustering ).
+
+    Returns
+    -------
+    pandas.DataFrame
+        A copy of `<df>` with an additional
+        `<cluster_col>` storing the assigned
+        cluster labels.
+
+    Notes
+    -----
+    If `<auto_scale>` is True, it uses a standard
+    scaler to normalize the coordinate columns. The
+    scatterplot is generated using the library
+    seaborn for enhanced styling.
+    
+    By default, for `<algorithm>` = "kmeans", the model
+    attempts to minimize:
+
+    .. math::
+       J = \\sum_{i=1}^{N} \\min_{\\mu_j} \\lVert x_i
+       - \\mu_j \\rVert^2
+
+    where :math:`x_i` are the scaled or raw 2D
+    coordinates in `<df>`. The function can optionally
+    auto-detect ``n_clusters`` using a silhouette and
+    elbow analysis if not provided.
+
+    Examples
+    --------
+    >>> from gofast.utils.spatial_utils import create_spatial_clusters
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     "longitude": [0.1, 0.2, 2.2, 2.3],
+    ...     "latitude": [1.0, 1.1, 2.1, 2.2]
+    ... })
+    >>> # KMeans with auto scale and auto-detect k
+    >>> result = create_spatial_clusters(
+    ...     df=df,
+    ...     algorithm="kmeans",
+    ...     view=True
+    ... )
+    >>> # DBSCAN with custom arguments
+    >>> result_db = create_spatial_clusters(
+    ...     df=df,
+    ...     algorithm="dbscan",
+    ...     eps=0.5,
+    ...     min_samples=2
+    ... )
+
+    See Also
+    --------
+    filter_valid_kwargs : Helps discard unsupported
+        keyword arguments for chosen estimators.
+
+    References
+    ----------
+    .. [1] Pedregosa et al. *Scikit-learn:
+       Machine Learning in Python*, JMLR 12,
+       pp. 2825-2830, 2011.
+    """
+    # Confirm required columns exist in DataFrame
+    # This prevents missing key data issues
+    if spatial_cols is None: 
+        spatial_cols = ['longitude', 'latitude']
+        
+    assert all(col in df.columns for col in spatial_cols), (
+        "Missing spatial columns"
+    )
+    assert len(spatial_cols) == 2, (
+        f"Need exactly 2 spatial columns. Got {len(spatial_cols)}"
+    )
+    assert algorithm in ['kmeans', 'dbscan', 'agglo'], (
+        "Invalid algorithm. Expect one of ['kmeans', 'dbscan', 'agglo']."
+    )
+
+    # Use requested plotting style
+    plt.style.use(plot_style)
+
+    # Copy DataFrame to avoid modification
+    local_df = df.copy()
+
+    # Extract coordinates from the spatial columns
+    coords = local_df[spatial_cols].values
+
+    # Debug info about data shape if verbosity is high
+    if verbose >= 2:
+        print(f"DataFrame shape: {local_df.shape}")
+        print("Initial coords sample:", coords[:5])
+
+    # Scale coordinates to standardize range, if requested
+    if auto_scale:
+        if verbose >= 1:
+            print("Scaling coordinates...")
+        scaler = StandardScaler()
+        coords = scaler.fit_transform(coords)
+
+        # Debug info about scaled coords if verbosity is high
+        if verbose >= 2:
+            print("Scaled coords sample:", coords[:5])
+
+    # Determine an optimal number of clusters if none provided
+    if n_clusters is None:
+        if algorithm == 'kmeans':
+            if verbose >= 1:
+                print("Auto-detecting optimal number of clusters...")
+            n_clusters = _auto_detect_k(
+                coords=coords,
+                verbose=verbose,
+                show_grid=show_grid, 
+                grid_props=grid_props 
+            )
+        else:
+            # Warn if user expects auto-detection with non-kmeans
+            warnings.warn(
+                "Auto-cluster detection only supported for KMeans"
+            )
+
+    # Notify user about the clustering approach
+    if verbose >= 1:
+        print(f"Clustering with {algorithm.upper()}...")
+
+    # Initialize the selected clustering algorithm
+    if algorithm == 'kmeans':
+        kwargs = filter_valid_kwargs(KMeans, kwargs)
+        clusterer = KMeans(
+            n_clusters=n_clusters,
+            random_state=42,
+            **kwargs
+        )
+    elif algorithm == 'dbscan':
+        kwargs = filter_valid_kwargs (DBSCAN, kwargs)
+        clusterer = DBSCAN(**kwargs)
+    else:  # algorithm == 'agglo'
+        kwargs = filter_valid_kwargs (AgglomerativeClustering, kwargs)
+        clusterer = AgglomerativeClustering(
+            n_clusters=n_clusters,
+            **kwargs
+        )
+
+    # Fit the model and predict cluster labels
+    labels = clusterer.fit_predict(coords)
+    local_df[cluster_col] = labels
+
+    # Debug info about clustering output if verbosity is high
+    if verbose >= 2:
+        unique_labels = np.unique(labels)
+        print(f"Unique cluster labels: {unique_labels}")
+
+    # Plot the clusters if requested
+    if view:
+        _plot_clusters(
+            df=local_df,
+            spatial_cols=spatial_cols,
+            cluster_col=cluster_col,
+            figsize=figsize,
+            cmap=cmap,
+            algorithm=algorithm, 
+            s=s, 
+            show_grid=show_grid, 
+            grid_props=grid_props, 
+        )
+
+    # Return the DataFrame with assigned cluster labels
+    return local_df
+
+def _auto_detect_k(
+    coords: np.ndarray,
+    verbose: int,
+    max_k: int = 10, 
+    show_grid: bool=True, 
+    grid_props: dict=None, 
+) -> int:
+    # Evaluate multiple k values using
+    # elbow (distortion) and silhouette scores
+    distortions = []
+    silhouettes = []
+    K_range = range(2, max_k + 1)
+
+    if verbose >= 1:
+        print(f"Evaluating k from 2 to {max_k}...")
+
+    for k in K_range:
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init='auto')
+        kmeans.fit(coords)
+        distortions.append(kmeans.inertia_)
+        silhouettes.append(
+            silhouette_score(coords, kmeans.labels_)
+        )
+
+        # Detailed iteration log if verbosity is high
+        if verbose >= 2:
+            output = "k={0:<5} | Distortion={1:^28} | Silhouette={2:^20}".format(
+                k, f'{distortions[-1]:.3f}', f'{silhouettes[-1]:.3f}')
+            print(output)
+            
+    # Plot elbow and silhouette analyses
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    ax1.plot(K_range, distortions, 'bo-')
+    ax1.set(
+        xlabel='Number of clusters',
+        ylabel='Distortion',
+        title='Elbow Method'
+    )
+
+    ax2.plot(K_range, silhouettes, 'go-')
+    ax2.set(
+        xlabel='Number of clusters',
+        ylabel='Silhouette Score',
+        title='Silhouette Analysis'
+    )
+
+    # Enable gridlines
+    if grid_props is None: 
+        grid_props= {"linestyle": ':', 'alpha': .7}
+        
+    if show_grid: 
+        ax1.grid(show_grid, **grid_props)
+    else: 
+        ax1.grid(show_grid)
+        
+    if show_grid: 
+        ax2.grid(show_grid, **grid_props)
+    else: 
+        ax2.grid(show_grid)
+        
+    plt.tight_layout()
+    plt.show()
+
+    # Use silhouette score peak to suggest optimal k
+    optimal_k = np.argmax(silhouettes) + 2
+    if verbose >= 1:
+        print(f"Suggested optimal k: {optimal_k}")
+
+    return optimal_k
+
+def _plot_clusters(
+    df: pd.DataFrame,
+    spatial_cols: List[str],
+    cluster_col: str,
+    figsize: tuple,
+    cmap: str,
+    s: int, 
+    algorithm: str, 
+    show_grid: bool=True, 
+    grid_props: dict=None, 
+) -> None:
+    # Create a scatterplot to visualize clustered data
+    plt.figure(figsize=figsize)
+
+    ax = sns.scatterplot(
+        x=spatial_cols[0],
+        y=spatial_cols[1],
+        hue=cluster_col,
+        palette=cmap,
+        data=df,
+        s=s,
+        edgecolor='k',
+        linewidth=0.5,
+        alpha=0.8,
+        legend='auto'
+    )
+
+    # Professional labeling and presentation
+    plt.title(
+        f"{algorithm.upper()} Clustering - "
+        f"{df[cluster_col].nunique()} Clusters",
+        fontsize=14, pad=20
+    )
+    plt.xlabel(spatial_cols[0], fontsize=12)
+    plt.ylabel(spatial_cols[1], fontsize=12)
+
+    # Enable gridlines
+    if show_grid: 
+        plt.grid(show_grid, **( grid_props or {"linestyle": ':', 'alpha': .7}))
+    else: 
+        plt.grid(show_grid)
+
+    # Adjust and position legend
+    plt.legend(
+        title='Cluster',
+        bbox_to_anchor=(1.05, 1),
+        loc='upper left'
+    )
+
+    # Annotate cluster labels near their median positions
+    for cluster in df[cluster_col].unique():
+        # Skip noise cluster (-1) for DBSCAN
+        if cluster == -1:
+            continue
+        median_position = df[df[cluster_col] == cluster][
+            spatial_cols
+        ].median()
+        plt.text(
+            median_position[0],
+            median_position[1],
+            str(cluster),
+            fontdict=dict(weight='bold', size=10),
+            bbox=dict(
+                facecolor='white',
+                alpha=0.8,
+                edgecolor='none'
+            )
+        )
+
+    # Hide top/right spines, tighten layout
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.figure.tight_layout()
+
+    # Display the final clustering plot
+    plt.show()
+    
+    
+@validate_params ({ 
+    'threshold':[Interval(Real, 0, 1, closed='neither')], 
+    'error': [StrOptions({'raise', 'warn', 'ignore'})], 
+    'pos': [Real, 'array-like']
+    })
+@isdf
+def filter_position(
+    df,
+    pos,
+    pos_cols=None,
+    find_closest=True,
+    threshold=0.01,
+    error='raise',
+    verbose=0
+   ):
+    """
+    filter_position is a utility that filters a
+    pandas.DataFrame based on user-specified spatial
+    positions. It can match positions exactly or compute
+    distances to find the closest points within a threshold.
+    
+    For a single dimension, the distance is computed as:
+    
+    .. math::
+       d = |x - p|
+    
+    For multi-dimensional data with n coordinates, the
+    Euclidean distance is computed as:
+    
+    .. math::
+       d = \\sqrt{\\sum_{i=1}^n (x_i - p_i)^2}
+    
+    Parameters
+    ------------
+    df : pandas.DataFrame
+        The DataFrame that will be filtered. This parameter
+        is essential and must contain columns referenced by
+        `pos_cols` if ``pos_cols`` is not None.
+    
+    pos : float or tuple of floats
+        The reference position(s) to match or approximate.
+        When `pos_cols` is None, `pos` is interpreted as an
+        index value. Otherwise, each value in `pos` aligns
+        with a specific column in `pos_cols`.
+    
+    pos_cols : str or tuple of str, optional
+        Name(s) of the column(s) in `df` to match against
+        `pos`. If ``pos_cols=None``, then `pos` is treated
+        as an index filter. If multiple columns are given
+        (e.g., latitude and longitude), each coordinate in
+        `pos` should correspond to one column in `pos_cols`.
+    
+    find_closest : bool, optional
+        If True, nearest-neighbor filtering is performed
+        within the distance `threshold`. If False, exact
+        matches are used.
+    
+    threshold : float, optional
+        The maximum distance within which points are
+        considered a match if `find_closest` is True. The
+        unit corresponds to the column data (e.g., degrees
+        for geographic lat/lon).
+    
+    error : {'raise', 'warn', 'ignore'}, optional
+        Specifies how to handle dimension mismatches or
+        missing values. If ``'raise'``, a ValueError will be
+        raised. If ``'warn'``, a warning is printed and extra
+        values are ignored. If ``'ignore'``, mismatches are
+        silently ignored.
+    
+    verbose : int, optional
+        Controls the level of output messages:
+        - 0: No output
+        - 1: Basic info
+        - 2: Additional details
+        - >=3: Comprehensive summary
+    
+    Returns
+    -------
+    pandas.DataFrame
+        A new DataFrame that contains only rows matching or
+        approximating the specified position(s) within the
+        given threshold if `find_closest` is True.
+    
+    Notes
+    -----
+    When `pos_cols` is None, the function attempts to filter
+    by DataFrame index using the first element of `pos`. This
+    approach may fail for multi-level indexes unless
+    ``error='warn'`` or ``error='ignore'`` is used to bypass
+    the dimension mismatch. See [1]_ for further discussion
+    on multi-dimensional indexing.
+    
+    Examples
+    --------
+    >>> from gofast.utils.spatial_utils import filter_position
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'lat': [113.309998, 113.310001],
+    ...     'lon': [22.831362, 22.831364]
+    ... })
+    >>> # Exact match
+    >>> result_exact = filter_position(df, pos=(113.309998,
+    ...                                         22.831362),
+    ...                                pos_cols=('lat', 'lon'),
+    ...                                find_closest=False)
+    >>> # Nearest match with threshold
+    >>> result_close = filter_position(df,
+    ...                                pos=(113.31,
+    ...                                     22.83),
+    ...                                pos_cols=('lat',
+    ...                                          'lon'),
+    ...                                find_closest=True,
+    ...                                threshold=0.01)
+    
+    See Also
+    --------
+    gofast.utils.data_utils.truncate_data: 
+        Truncate multiple DataFrames based on spatial 
+        coordinates or index alignment with a base DataFrame.
+    
+    References
+    ----------
+    .. [1] Smith, J., & Doe, A. (2020). Multi-dimensional
+       indexing in big data. Journal of Spatial Computing,
+       15(3), 200-210.
+    """
+    # Initialize filtered_df as the original DataFrame
+    filtered_df = df.copy()
+
+    # Convert pos to tuple if it's not already
+    if not isinstance(pos, (tuple, list)):
+        pos = (pos,)
+
+    # Helper function to handle errors
+    def _handle_error(msg, ex_msg=''):
+        if error == 'raise':
+            raise ValueError(msg)
+        elif error == 'warn':
+            warnings.warn(f"{msg}{ex_msg}")
+        # if error == 'ignore', do nothing
+
+    # If no position columns specified,
+    # treat pos as DataFrame index
+    if pos_cols is None:
+        if len(pos) > 1:
+            _handle_error(
+                "Multiple position values provided but no pos_cols. "
+                "Unable to match multi-level index. ",
+                "Using the first position value only."
+            )
+        idx = pos[0]  # Consider only the first if multiple are given
+        if idx not in df.index:
+            _handle_error(
+                f"Index '{idx}' not found in DataFrame. ",
+                "Returning empty DataFrame."
+            )
+            return filtered_df.iloc[0:0]  # Return empty DF if not found
+        # Filter by index
+        filtered_df = filtered_df.loc[[idx]]
+        return filtered_df
+
+    # Ensure pos_cols is tuple for consistency
+    if not isinstance(pos_cols, (tuple, list)):
+        pos_cols = (pos_cols,)
+    
+    pos_cols = columns_manager(pos_cols) 
+    
+    # Check dimension match between pos and pos_cols
+    if len(pos) != len(pos_cols):
+        # If mismatch, handle based on error param
+        _handle_error(
+            f"pos ({len(pos)}) and pos_cols ({len(pos_cols)}) lengths "
+            "do not match.", " Extra values or columns will be ignored."
+        )
+        # If ignoring or warning, align up to the shortest length
+        min_len = min(len(pos), len(pos_cols))
+        pos = pos[:min_len]
+        pos_cols = pos_cols[:min_len]
+
+    # If find_closest is disabled, do exact matching
+    if not find_closest:
+        # Build query for exact match
+        mask = True
+        for p_val, col in zip(pos, pos_cols):
+            mask &= (filtered_df[col] == p_val)
+        filtered_df = filtered_df[mask]
+        return filtered_df
+
+    # If find_closest is enabled, use threshold-based filtering
+    # Compute distance (Euclidean if multiple columns, absolute if single)
+    if len(pos_cols) == 1:
+        # Single dimension: absolute difference
+        col = pos_cols[0]
+        distance = (filtered_df[col] - pos[0]).abs()
+        filtered_df = filtered_df[distance <= threshold]
+    else:
+        # Multi-dimensional: Euclidean distance
+        # Summation of squared diffs for each column
+        squared_diff = 0
+        for p_val, col in zip(pos, pos_cols):
+            squared_diff += (filtered_df[col] - p_val) ** 2
+        distance = squared_diff ** 0.5
+        filtered_df = filtered_df[distance <= threshold]
+
+    # If verbose, provide basic info
+    if verbose >= 1:
+        print(f"Filtered {len(df)} rows to {len(filtered_df)} rows "
+              f"within threshold {threshold}.")
+
+    # If verbose >= 2, show sample of distance
+    if verbose >= 2 and not filtered_df.empty:
+        print("Example distance values within threshold:")
+        print(distance[distance <= threshold].head())
+
+    return filtered_df
 
 @is_data_readable(data_to_read='data')
 @SaveFile
@@ -258,9 +2165,7 @@ def extract_zones_from(
     if data is not None:
         z, x, y = extract_array_from(
             data,
-            z,
-            x,
-            y,
+            z, x, y,
             handle_unknown='raise',  # raise if columns not found
             error='raise',
             check_size=True,         # ensure x,y,z have same length
@@ -837,15 +2742,22 @@ def get_xy_coordinates(
     return  xy , df , xynames 
 
 @is_data_readable 
+@validate_params ({ 
+    'data': ['array-like'], 
+    'method': [StrOptions({"abs", "absolute",  "relative"}), None], 
+    })
 @isdf
 def batch_spatial_sampling(
     data,
     sample_size=0.1,
     n_batches=10,
-    stratify_by=['year'],
+    stratify_by=None,
     spatial_bins=10,
     spatial_cols=None,
-    random_state=42
+    method="abs", 
+    min_relative_ratio=.01, 
+    random_state=42, 
+    verbose=1, 
 ):
     """
     Batch resample spatial data with stratification over spatial and
@@ -878,11 +2790,10 @@ def batch_spatial_sampling(
         samples are divided as evenly as possible among the batches. The
         default is ``10``.
 
-    stratify_by : list of str, optional
+    stratify_by : str, list of str, optional
         A list of column names in `data` to use for stratification. The
         sampling will ensure that the distribution of these columns in
-        each batch matches the distribution in the original dataset. The
-        default is ``['year']``.
+        each batch matches the distribution in the original dataset.
 
     spatial_bins : int or tuple/list of int, optional
         The number of bins to divide the spatial coordinates into for
@@ -901,11 +2812,49 @@ def batch_spatial_sampling(
         providing both spatial columns is recommended for more accurate
         sampling. If more than two columns are provided, an error is
         raised.
+    
+    method : str, {'abs', 'relative'}, default='abs'
+        Defines how the sample size is determined:
+        - ``'abs'`` or ``'absolute'``: Uses a **fixed** sampling proportion
+          based on `sample_size`.
+        - ``'relative'``: Dynamically **scales** sampling based on dataset
+          stratification, ensuring that all stratification groups receive
+          a proportional sample while maintaining a minimum sampling ratio
+          (controlled by `min_relative_ratio`).
+        
+        When ``method='relative'``, the function ensures that even small
+        stratification groups receive a sufficient sample by applying
+        `min_relative_ratio`.
 
+    min_relative_ratio : float, default=0.01
+        Controls the **minimum allowable fraction** of records that 
+        must be sampled when ``method='relative'``.
+
+        - Ensures that no group is **undersampled** to zero, even if
+          its natural proportion in the dataset is very small.
+        - Must be a value between ``0`` and ``1``.
+        - The default value (``0.01``) means that at **least 1% of the
+          total dataset** will be sampled from each stratification group,
+          regardless of its relative size.
+        
+        **Example Scenarios:**
+        
+        - If `min_relative_ratio=0.05`, then each group **must** 
+          contribute **at least 5%** of the total dataset size (if possible).
+        - If a group is too small to reach this minimum, its entire
+          subset is sampled instead.
+        - This ensures that no group receives **less than
+        ``min_relative_ratio × total samples**``.
+        
     random_state : int, optional
         Controls the randomness of the sampling for reproducibility. This
         integer seed is used to initialize the random number generator.
         The default is ``42``.
+    
+    verbose: bool, default=False, 
+       If `True`, displays a progress bar and detailed status messages
+       during execution. Useful for monitoring the process, especially
+       when working with large datasets.
 
     Returns
     -------
@@ -956,22 +2905,82 @@ def batch_spatial_sampling(
 
     Examples
     --------
-    >>> from gofast.utils.spatialutils import batch_spatial_sampling
+    Examples
+    --------
+    **Case 1: Stratified Sampling (Using 'year' and 'geological_category')**
+    
+    >>> from gofast.utils.spatial_utils import batch_spatial_sampling
+    >>> import pandas as pd
+    >>> import numpy as np
+    
+    >>> # Create a sample dataset
+    >>> np.random.seed(42)
+    >>> df = pd.DataFrame({
+    ...     "id": np.arange(10_000),
+    ...     "longitude": np.random.uniform(-180, 180, 10_000),  # Geographic range
+    ...     "latitude": np.random.uniform(-90, 90, 10_000),     # Geographic range
+    ...     "year": np.random.randint(1990, 2025, 10_000),  # Temporal feature
+    ...     "geological_category": np.random.choice(
+    ...         ["Sedimentary", "Metamorphic", "Igneous"], 10_000
+    ...     ),
+    ...     "value": np.random.randn(10_000)  # Random numerical data
+    ... })
+    
+    >>> # Perform stratified batch sampling
     >>> sampled_batches = batch_spatial_sampling(
     ...     data=df,
-    ...     sample_size=0.05,
+    ...     sample_size=0.05,  # 5% of total data
     ...     n_batches=5,
-    ...     stratify_by=['year', 'geological_category'],
+    ...     stratify_by=['year', 'geological_category'],  # Stratify by year & geology type
     ...     spatial_bins=(10, 15),
     ...     spatial_cols=['longitude', 'latitude'],
     ...     random_state=42
     ... )
+    
     >>> for i, batch in enumerate(sampled_batches):
     ...     print(f"Batch {i+1}: {batch.shape}")
+    
+    Creating 5 stratified batches with a total of 500 samples...
+    Batch Sampling Progress: 100%|██████████| 5/5 [00:01<00:00,  4.43it/s]
+    Batch sampling completed. 5 batches created.
+    
+    **Stratified Sampling Results:**
+    Batch 1: (100, 6)
+    Batch 2: (100, 6)
+    Batch 3: (100, 6)
+    Batch 4: (100, 6)
+    Batch 5: (100, 6)
+    
+    **Case 2: Random Sampling (Without Stratification)**
+    
+    >>> sampled_batches = batch_spatial_sampling(
+    ...     data=df,
+    ...     sample_size=0.05,
+    ...     n_batches=5,
+    ...     stratify_by=None,  # No stratification
+    ...     spatial_bins=(10, 15),
+    ...     spatial_cols=['longitude', 'latitude'],
+    ...     random_state=42
+    ... )
+    
+    >>> for i, batch in enumerate(sampled_batches):
+    ...     print(f"Batch {i+1}: {batch.shape}")
+    
+    Creating 5 random batches with a total of 500 samples...
+    Batch Sampling Progress: 100%|██████████| 5/5 [00:00<00:00, 247.27it/s]
+    Batch sampling completed. 5 batches created.
+    
+    **Random Sampling Results:**
+    Batch 1: (100, 6)
+    Batch 2: (100, 6)
+    Batch 3: (100, 6)
+    Batch 4: (100, 6)
+    Batch 5: (100, 6)
+
 
     See Also
     --------
-    resample_spatial_data : Perform stratified sampling without batching.
+    spatial_sampling : Perform stratified sampling without batching.
 
     References
     ----------
@@ -980,7 +2989,6 @@ def batch_spatial_sampling(
            Journal of Computer Science*, 1(2), 111-117.
 
     """
-
     data = data.copy()
     total_samples = sample_size
     if isinstance(sample_size, float):
@@ -1008,6 +3016,7 @@ def batch_spatial_sampling(
     rng = np.random.RandomState(random_state)
 
     # Set default spatial columns if not specified
+    spatial_cols = columns_manager(spatial_cols) 
     if spatial_cols is None:
         spatial_cols = []
         if 'longitude' in data.columns:
@@ -1071,13 +3080,25 @@ def batch_spatial_sampling(
             duplicates='drop'
         )
     # Create combined stratification key in original data
-    strat_columns = stratify_by + [
-        axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]
-    ]
-    data['strat_key'] = data[strat_columns].apply(
-        lambda row: '_'.join(row.values.astype(str)),
-        axis=1
-    )
+    # Create combined stratification key
+    if stratify_by is not None:
+        strat_columns = stratify_by + [
+            axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]
+        ]
+        if verbose and len(data) > 10_000:
+            print(f"\nGenerating stratification keys for {len(data):,}"
+                  " records...")
+            print(" This may take some time. Please be patient...")
+
+        # Optimized vectorized concatenation
+        data['strat_key'] = data[strat_columns].astype(str).agg('_'.join, axis=1)
+
+        if verbose and len(data) > 10_000:
+            print("Stratification keys generated"
+                  f" successfully for {len(data):,} records.")
+    else:
+        data['strat_key'] = 'all_data'  # Single group for random sampling
+        
     # Initialize remaining data
     remaining_data = data.copy()
     batches = []
@@ -1085,26 +3106,59 @@ def batch_spatial_sampling(
     # Set initial random state
     rng = np.random.RandomState(random_state)
 
+    if verbose:
+        print(f"\nCreating {n_batches} stratified batches with"
+              f" a total of {total_samples:,} samples...")
+
+    # TQDM progress bar
+    if verbose and HAS_TQDM:
+        progbar = tqdm(
+            range(n_batches),
+            total=n_batches,
+            ascii=True,
+            ncols=80,
+            desc="Batch Sampling Progress"
+        )
+    
+    if method=="relative": 
+        min_relative_ratio= assert_ratio(
+            min_relative_ratio, bounds=(0, 1), 
+            excludes = (0, 1), 
+            name="`min_relative_ratio`"
+        )
     for batch_idx in range(n_batches):
-        # Adjust sample size for batches if total_samples is not divisible by n_batches
+        # Adjust sample size for batches if total_samples
+        # is not divisible by n_batches
         if batch_idx < leftover:
             batch_sample_size = sample_size_per_batch + 1
         else:
             batch_sample_size = sample_size_per_batch
 
-        if batch_sample_size > len(remaining_data):
-            batch_sample_size = len(remaining_data)
-
+        # if batch_sample_size > len(remaining_data):
+        #     batch_sample_size = len(remaining_data)
+        batch_sample_size = min(batch_sample_size, len(remaining_data))
+        
         # Group remaining data by stratification key
         grouped = remaining_data.groupby('strat_key')
         # Calculate number of samples per group
         group_sizes = grouped.size()
         total_size = group_sizes.sum()
-        group_sample_sizes = (
-            (group_sizes / total_size * batch_sample_size)
-            .round()
-            .astype(int)
-        )
+        
+        if method in ["abs", "absolute"]:
+            group_sample_sizes = (
+                (group_sizes / total_size * batch_sample_size)
+                .round()
+                .astype(int)
+            )
+        else:  # "relative"
+            relative_scale = np.clip(batch_sample_size / len(
+                remaining_data), min_relative_ratio, 1)
+            group_sample_sizes = (
+                (group_sizes * relative_scale)
+                .round()
+                .astype(int)
+            )
+    
         # Sample data from each group
         sampled_indices = []
         for strat_value, group in grouped:
@@ -1118,23 +3172,59 @@ def batch_spatial_sampling(
         # Create the sampled DataFrame
         batch_sampled_data = remaining_data.loc[sampled_indices]
         batches.append(batch_sampled_data.drop(
-            columns=['strat_key'] + [axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]]))
+            columns=['strat_key'] + [axis for axis in [
+                'x_bin', 'y_bin'][:len(spatial_cols)]]))
         # Remove sampled data from remaining_data
         remaining_data = remaining_data.drop(index=sampled_indices)
         if len(remaining_data) == 0:
             break  # No more data to sample
+        
+        if verbose and HAS_TQDM:
+            progbar.update(1)
 
+    if verbose and HAS_TQDM:
+        progbar.close()
+    
+    if verbose:
+        print(f"\nBatch sampling completed. {len(batches)} batches created.")
+    
+    has_empty_batches = any([ b.empty for b in batches])
+    
+    if verbose and has_empty_batches:
+        warnings.warn(
+            "\nNo records were sampled. This is likely due to"
+            " insufficient data for the specified stratification"
+            f" columns {stratify_by}. To resolve this, consider:\n"
+            " • Using a different stratification method.\n"
+            " • Increasing the dataset size to include more"
+            " representative data.\n"
+            " • Adjusting the sample size to ensure sufficient"
+            " records per group.\n"
+            " • Or, setting `stratify_by=None` to perform"
+            " random sampling instead."
+        )
+        
     return batches
 
+@SaveFile
 @is_data_readable 
+@validate_params ({ 
+    'data': ['array-like'], 
+    'method': [StrOptions({"abs", "absolute",  "relative"}), None], 
+    })
 @isdf
 def spatial_sampling(
     data,
     sample_size=0.01,
-    stratify_by=['year'],
+    stratify_by=None,
     spatial_bins=10,
     spatial_cols=None,
-    random_state=42
+    method='abs', 
+    min_relative_ratio=.01, 
+    random_state=42, 
+    savefile=None, 
+    verbose=1,
+    
 ):
     """
     Sample spatial data intelligently to represent the distribution
@@ -1159,7 +3249,7 @@ def spatial_sampling(
         If int, represents the absolute number of samples to select.
         Default is ``0.01`` (1% of the data).
     stratify_by : list of str, optional
-        List of column names to stratify by. Default is ``['year']``.
+        List of column names to stratify by.
     spatial_bins : int or tuple/list of int, optional
         Number of bins to divide the spatial coordinates into.
         If an integer, the same number of bins is used for all spatial
@@ -1173,8 +3263,47 @@ def spatial_sampling(
         column is provided or found, a warning is issued, suggesting that
         providing both spatial columns is recommended for more accurate
         sampling. If more than two columns are provided, an error is raised.
+        
+    method : str, {'abs', 'relative'}, default='abs'
+        Defines how the sample size is determined:
+        - ``'abs'`` or ``'absolute'``: Uses a **fixed** sampling proportion
+          based on `sample_size`.
+        - ``'relative'``: Dynamically **scales** sampling based on dataset
+          stratification, ensuring that all stratification groups receive
+          a proportional sample while maintaining a minimum sampling ratio
+          (controlled by `min_relative_ratio`).
+        
+        When ``method='relative'``, the function ensures that even small
+        stratification groups receive a sufficient sample by applying
+        `min_relative_ratio`.
+
+    min_relative_ratio : float, default=0.01
+        Controls the **minimum allowable fraction** of records that 
+        must be sampled when ``method='relative'``.
+
+        - Ensures that no group is **undersampled** to zero, even if
+          its natural proportion in the dataset is very small.
+        - Must be a value between ``0`` and ``1``.
+        - The default value (``0.01``) means that at **least 1% of the
+          total dataset** will be sampled from each stratification group,
+          regardless of its relative size.
+        
+        **Example Scenarios:**
+        
+        - If `min_relative_ratio=0.05`, then each group **must** 
+          contribute **at least 5%** of the total dataset size (if possible).
+        - If a group is too small to reach this minimum, its entire
+          subset is sampled instead.
+        - This ensures that no group receives **less than
+        ``min_relative_ratio × total samples**``.
+
     random_state : int, optional
         Random seed for reproducibility. Default is ``42``.
+        
+    verbose: bool, default=False, 
+       If `True`, displays a progress bar and detailed status messages
+       during execution. Useful for monitoring the process, especially
+       when working with large datasets.
 
     Returns
     -------
@@ -1215,7 +3344,7 @@ def spatial_sampling(
 
     Examples
     --------
-    >>> from gofast.utils.spatialutils import spatial_sampling
+    >>> from gofast.utils.spatial_utils import spatial_sampling
     >>> import pandas as pd
     >>> # Assume 'df' is a pandas DataFrame with columns
     >>> # 'longitude', 'latitude', 'year', and other data.
@@ -1233,6 +3362,7 @@ def spatial_sampling(
     --------
     pandas.qcut : Quantile-based discretization function used for binning.
     sklearn.model_selection.StratifiedShuffleSplit : For stratified sampling.
+    batch_spatial_sampling: Resample spatial data with batching. 
 
     References
     ----------
@@ -1241,9 +3371,10 @@ def spatial_sampling(
            Journal of Computer Science*, 1(2), 111-117.
 
     """
-
     data = data.copy()
     # Set default spatial columns if not specified
+    spatial_cols= columns_manager(spatial_cols)
+
     if spatial_cols is None:
         spatial_cols = []
         if 'longitude' in data.columns:
@@ -1305,23 +3436,51 @@ def spatial_sampling(
         raise ValueError(
             "spatial_bins must be int or tuple/list of int."
         )
+    
+    # if verbose and HAS_TQDM are True.
+    if verbose and HAS_TQDM:
+        progbar = tqdm(
+            zip(spatial_cols, n_bins_list, ['x_bin', 'y_bin']),
+            total=len(spatial_cols),
+            ascii=True,
+            ncols=77,
+            desc=f"{'Creating spat. bins: ' + str(len(spatial_cols)):<20}"
+        )
     # Create spatial bins
     for col, n_bins, axis in zip(
-        spatial_cols, n_bins_list, ['x_bin', 'y_bin']
-    ):
+            spatial_cols, n_bins_list, ['x_bin', 'y_bin']):
         data[axis] = pd.qcut(
             data[col],
             q=n_bins,
             duplicates='drop'
         )
+        if verbose and HAS_TQDM:
+            progbar.update(1)
+    
+    if verbose and HAS_TQDM:
+        progbar.close()
+
+    stratify_by= columns_manager(stratify_by, empty_as_none=False )
     # Create combined stratification key
     strat_columns = stratify_by + [
         axis for axis in ['x_bin', 'y_bin'][:len(spatial_cols)]
     ]
-    data['strat_key'] = data[strat_columns].apply(
-        lambda row: '_'.join(row.values.astype(str)),
-        axis=1
-    )
+    if verbose and len(data) > 10_000:
+        print("\nGenerating stratification keys...") 
+        print(f"This may take some time for {len(data):,}"
+              " records. Please be patient...")
+              
+    # data['strat_key'] = data[strat_columns].apply(
+    #     lambda row: '_'.join(row.values.astype(str)),
+    #     axis=1
+    # )
+    # Using .agg and .astype(str) for vectorized string concatenation
+    data['strat_key'] = data[strat_columns].astype(str).agg('_'.join, axis=1)
+
+    # Verbose message when done
+    if verbose and len(data)> 10_000:
+        print("Stratification keys generated successfully"
+              f" for {len(data):,} records.")
     # Determine total number of samples
     if isinstance(sample_size, float):
         if not 0 < sample_size < 1:
@@ -1340,30 +3499,72 @@ def spatial_sampling(
         )
     # Group data by stratification key
     grouped = data.groupby('strat_key')
-    # Calculate number of samples per group
-    group_sizes = grouped.size()
-    total_size = group_sizes.sum()
-    group_sample_sizes = (
-        (group_sizes / total_size * n_samples)
-        .round()
-        .astype(int)
-    )
-    # Sample data from each group
-    sampled_indices = []
-    np.random.seed(random_state)
-    for strat_value, group in grouped:
-        n = group_sample_sizes.loc[strat_value]
-        if n > 0 and len(group) > 0:
-            sampled_group = group.sample(
-                n=min(n, len(group)),
-                random_state=np.random.randint(
-                    0,
-                    10000
+    if verbose:
+        print(f"Data grouped into {len(grouped):,} stratified bins.")
+        
+    # Apply stratification if stratify_by is provided
+    if stratify_by is not None:
+        # Calculate number of samples per group
+        group_sizes = grouped.size()
+        total_size = group_sizes.sum()
+        
+        if method in ["abs", "absolute"]:
+            group_sample_sizes = (
+                (group_sizes / total_size * n_samples)
+                .round()
+                .astype(int)
+            )
+        else:  # "relative"
+            min_relative_ratio = assert_ratio(
+                min_relative_ratio, bounds=(0, 1), 
+                exclude_values= [0, 1], 
+                name="`min_relative_ratio`"
+            ) 
+            relative_scale = np.clip(
+                n_samples / len(data), min_relative_ratio, 1)  
+            group_sample_sizes = (
+                (group_sizes * relative_scale)
+                .round()
+                .astype(int)
+            )
+        
+        # Sample data from each group
+        sampled_indices = []
+        np.random.seed(random_state)
+        # Use tqdm to wrap the grouped iterator 
+        # if verbose and HAS_TQM are True.
+        if verbose and HAS_TQDM:
+            progbar = tqdm(
+                grouped,
+                total=len(grouped),
+                ascii=True,
+                ncols=77,
+                desc=f"Sampling {n_samples:,} records"
+            )
+        
+        for strat_value, group in grouped:
+            n = group_sample_sizes.loc[strat_value]
+            if n > 0 and len(group) > 0:
+                sampled_group = group.sample(
+                    n=min(n, len(group)),
+                    random_state=np.random.randint(
+                        0, 10_000
+                    )
                 )
-            )
-            sampled_indices.extend(
-                sampled_group.index
-            )
+                sampled_indices.extend(
+                    sampled_group.index
+                )
+            if verbose and HAS_TQDM:
+                progbar.update(1)
+                
+        if verbose and HAS_TQDM:
+            progbar.close() 
+    else: 
+        sampled_indices = np.random.choice(
+            data.index, size=n_samples,
+            replace=False
+        )
+        
     # Create the sampled DataFrame
     sampled_data = data.loc[
         sampled_indices
@@ -1375,9 +3576,28 @@ def spatial_sampling(
     sampled_data = sampled_data.drop(
         columns=cols_to_drop
     )
+    if verbose:
+        print(f"\nSampling completed: {len(sampled_indices):,}"
+              " records selected.")
+    
+    if verbose and sampled_data.empty:
+        warnings.warn(
+            "\nNo records were sampled. This is likely due to"
+            " insufficient data for the specified stratification"
+            f" columns {stratify_by}. To resolve this, consider:\n"
+            " • Using a different stratification method.\n"
+            " • Increasing the dataset size to include more"
+            " representative data.\n"
+            " • Adjusting the sample size to ensure sufficient"
+            " records per group.\n"
+            " • Or, setting `stratify_by=None` to perform"
+            " random sampling instead."
+        )
+
     return sampled_data.reset_index(
         drop=True
     )
+
 
 @validate_params({ 
     'y': ['array-like'], 
@@ -1530,7 +3750,7 @@ def savgol_coeffs(window_length, polyorder, deriv=0, delta=1.0, pos=None,
 
     Examples
     --------
-    >>> from gofast.exmath.signal import savgol_coeffs
+    >>> from gofast.utils.spatial_utils import savgol_coeffs
     >>> savgol_coeffs(5, 2)
     array([-0.08571429,  0.34285714,  0.48571429,  0.34285714, -0.08571429])
     >>> savgol_coeffs(5, 2, deriv=1)
@@ -2245,7 +4465,7 @@ def extract_coordinates2(X, Xt=None, columns=None):
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.utils.spatialutils import extract_coordinates
+    >>> from gofast.utils.spatial_utils import extract_coordinates
     >>> X = np.array([[1, 2], [3, 4]])
     >>> Xt = np.array([[5, 6], [7, 8]])
     >>> extract_coordinates(X, Xt )

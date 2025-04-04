@@ -11,7 +11,7 @@ ensuring proper data types, and handling various validation scenarios.
 """
 
 from functools import wraps
-from typing import Any, Dict, Callable, Optional, Union, List
+from typing import Any, Dict, Optional, Union, Tuple, List, Literal
 from collections.abc import Iterable
 import re
 import inspect 
@@ -24,6 +24,7 @@ from datetime import datetime
 from contextlib import suppress
 
 import numpy as np
+from numpy.typing import ArrayLike
 import pandas as pd
 from numpy.core.numeric import ComplexWarning  
 import scipy.sparse as sp
@@ -45,6 +46,7 @@ __all__=[
      'check_classification_targets',
      'check_consistency_size',
      'check_consistent_length',
+     'check_donut_inputs', 
      'check_epsilon',
      'check_has_run_method',
      'check_is_fitted',
@@ -70,15 +72,14 @@ __all__=[
      'is_categorical',
      'is_frame',
      'is_installed',
-     'is_keras_model',
      'is_normalized',
      'is_square_matrix',
      'is_time_series',
      'is_valid_policies',
      'normalize_array',
      'parameter_validator',
+     'process_y_pairs', 
      'to_dtype_str',
-     'to_iterable',
      'validate_and_adjust_ranges',
      'validate_batch_size', 
      'validate_comparison_data',
@@ -88,7 +89,6 @@ __all__=[
      'validate_dtype_selector',
      'validate_estimator_methods',
      'validate_fit_weights',
-     'validate_keras_model',
      'validate_length_range',
      'validate_multiclass_target',
      'validate_multioutput',
@@ -104,6 +104,489 @@ __all__=[
      'validate_weights',
      'validate_yy'
  ]
+ 
+
+def process_y_pairs(
+    *ys: 'ArrayLike',
+    error: Literal["raise", "warn", "ignore"] = "warn",
+    solo_return: bool = False,
+    ops: Literal["check_only", "validate"] = "check_only"
+) -> Union[
+    Tuple['ArrayLike', 'ArrayLike'],
+    Tuple[List['ArrayLike'], List['ArrayLike']]
+]:
+    r"""
+    Process and validate paired arrays of ground truth (``y_true``) and 
+    predicted values (``y_pred``) for machine learning evaluation.
+
+    Parameters
+    ----------
+    *ys : ArrayLike
+        Variable-length sequence of array-likes containing alternating 
+        (``y_true``, ``y_pred``) pairs. Must contain even number of inputs.
+    error : {'raise', 'warn', 'ignore'}, default='warn'
+        Handling strategy for validation errors:
+        - ``'raise'``: Immediately raise ValueError
+        - ``'warn'``: Issue UserWarning but continue processing
+        - ``'ignore'``: Silently skip invalid pairs
+    solo_return : bool, default=False
+        When processing single pair, return as individual arrays instead of 
+        length-1 lists.
+    ops : {'check_only', 'validate'}, default='check_only'
+        Processing mode:
+        - ``'check_only'``: Verify pair lengths without modification
+        - ``'validate'``: Clean data (remove NaNs) and validate dtypes
+
+    Returns
+    -------
+    Tuple[List[ArrayLike], List[ArrayLike]] or Tuple[ArrayLike, ArrayLike]
+        Processed pairs as (``y_trues``, ``y_preds``) tuple. Return type 
+        depends on ``solo_return`` and number of valid pairs.
+
+    Raises
+    ------
+    ValueError
+        - If input count is odd and ``error='raise'``
+        - Length mismatch in pairs when ``error='raise'``
+        - Invalid ``error`` or ``ops`` values
+
+    UserWarning
+        - When odd input count and ``error='warn'``
+        - Length mismatches when ``error='warn'``
+
+    Examples
+    --------
+    Basic usage with valid pairs:
+
+    >>> from gofast.utils.validator  import process_y_pairs
+    >>> y_true1 = [1.2, 2.3, 3.4]
+    >>> y_pred1 = [1.1, 2.4, 3.3]
+    >>> y_true2 = [4.5, 5.6]
+    >>> y_pred2 = [4.4, 5.7]
+    >>> process_y_pairs(y_true1, y_pred1, y_true2, y_pred2)
+    ([[1.2, 2.3, 3.4], [4.5, 5.6]], [[1.1, 2.4, 3.3], [4.4, 5.7]])
+
+    Handling mismatched pair with warnings:
+
+    >>> y_bad = [1, 2, 3]
+    >>> p_bad = [1, 2]
+    >>> process_y_pairs(y_bad, p_bad, error='warn')  # doctest: +SKIP
+    UserWarning: Length mismatch in pair 0: 3 vs 2
+    ([], [])
+
+    Full validation pipeline:
+
+    >>> import numpy as np
+    >>> y_clean, p_clean = process_y_pairs(
+    ...     [1, np.nan, 3], [np.nan, 2.1, 3.2],
+    ...     ops='validate', solo_return=True
+    ... )
+    >>> y_clean
+    array([3.])
+    >>> p_clean
+    array([3.2])
+
+    Notes
+    -----
+    Ensures input pairs meet requirements for downstream analysis through:
+    
+    .. math::
+        \forall i \in \{0,2,4,...\},\ (y_{true}^i, y_{pred}^i) \rightarrow 
+        (\tilde{y}_{true}^i, \tilde{y}_{true}^i)\ \text{where}
+        
+        \text{len}(\tilde{y}_{true}^i) = \text{len}(\tilde{y}_{pred}^i)
+        
+        \text{and}\ \tilde{y}_{true}^i \in \mathbb{R}^{n},\ 
+        \tilde{y}_{pred}^i \in \mathbb{R}^{n}
+        
+    1. Uses ``drop_nan_in`` for NaN removal and index resetting during 
+       validation
+    2. Applies ``validate_yy`` for dtype consistency checks and array 
+       flattening
+    3. Forward references for ``ArrayLike`` allow flexibility - accepts any 
+       array-like structure (list, numpy array, pandas Series, etc.)
+
+    See Also
+    --------
+    drop_nan_in : Core NaN removal and index resetting function
+    validate_yy : Array validation and dtype consistency checker
+    sklearn.utils.check_consistent_length : Scikit-learn's length validation
+
+    References
+    ----------
+    .. [1] Van Rossum, G. & Drake, F.L. Python Reference Manual. 
+       Amsterdam: CWI (2001)
+    .. [2] Harris, C.R. et al. Array programming with NumPy. Nature 585, 
+       357-362 (2020)
+    """
+    from ..core.array_manager import drop_nan_in 
+    # Validate error handling mode using direct string comparison for 
+    # performance
+    if error not in ("raise", "warn", "ignore"):
+        raise ValueError(
+            f"Invalid error mode '{error}'. Valid options: 'raise', "
+            "'warn', 'ignore'")
+
+    # Check pair parity using bitwise AND for efficient even/odd check
+    if len(ys) % 2 != 0:
+        msg = (f"Received {len(ys)} array-likes - requires even count for "
+               "paired processing")
+        if error == "raise":
+            raise ValueError(msg)
+        elif error == "warn":
+            warnings.warn(msg + ". Truncating to last even pair.", 
+                        UserWarning)
+        ys = ys[:len(ys)//2 * 2]  # Floor division for index calculation
+
+    y_trues, y_preds = [], []
+    for i in range(0, len(ys), 2):  # Process pairs in steps of 2
+        y_true, y_pred = ys[i], ys[i+1]
+
+        if ops == "validate":
+            # Simultaneous NaN removal with index alignment
+            y_true, y_pred = drop_nan_in(y_true, y_pred, error=error)
+            
+            # Type validation and array conversion
+            y_true, y_pred = validate_yy(
+                y_true, y_pred, 
+                expected_type="continuous",
+                flatten="auto"
+            )
+        elif ops == "check_only":
+            # Length check using exception-free comparison
+            if len(y_true) != len(y_pred):
+                msg = (f"Pair {i//2} length mismatch: "
+                       f"{len(y_true)} vs {len(y_pred)}")
+                if error == "raise":
+                    raise ValueError(msg)
+                elif error == "warn":
+                    warnings.warn(msg, UserWarning)
+        else:  # Guard against invalid ops values
+            raise ValueError(f"Invalid operation mode '{ops}'. "
+                             "Choose 'check_only' or 'validate'.")
+           
+        y_trues.append(y_true)
+        y_preds.append(y_pred)
+
+    # Return type handling using boolean short-circuiting
+    # # Extract y_trues and y_preds from processed_pairs
+    # y_trues, y_preds = map(list, zip(*processed_pairs))
+    
+    return (
+        (y_trues[0], y_preds[0]) 
+        if (solo_return and len(y_trues) == 1)
+        else (y_trues, y_preds)
+    )
+
+def check_donut_inputs(
+    values=None,
+    data=None,
+    labels=None,
+    ops="check",       
+    labels_as_index=True,
+    index=None,         
+    origin_index="drop",  
+    value_name="auto"
+):
+    r"""
+    Validate and/or build inputs for donut chart plotting.
+
+    This function accepts inputs in various forms and returns a pair
+    of numeric values and labels or builds a new :math:`n \\times 1`
+    DataFrame from them. The function supports two modes:
+
+    - In ``ops="check"``, it returns a tuple ``(values, labels)``
+      after validating that the numeric values are appropriate for
+      plotting.
+    - In ``ops="build"``, it returns a pandas DataFrame constructed
+      from the inputs. If ``labels_as_index`` is ``True``, the labels
+      become the DataFrame index; otherwise, they form a separate
+      column. If an ``index`` is provided, it is used to reset the
+      DataFrame index and the original index is either dropped or
+      kept based on ``origin_index``.
+
+    The function also accepts inputs through a DataFrame or Series
+    (``data``). In such cases, if ``values`` is a :math:`\\text{str}`,
+    it is interpreted as a column name of the DataFrame. Similarly,
+    if ``labels`` is a :math:`\\text{str}`, it is used to fetch the
+    label column.
+
+    .. math::
+       S = \\{ x_i \\}_{i=1}^{n} \\quad \\text{and} \\quad L =
+       \\{ l_i \\}_{i=1}^{n}
+
+    where :math:`S` denotes the numeric values and :math:`L` denotes
+    the corresponding labels.
+
+    Parameters
+    ----------
+    values : array-like or ``str``, optional
+        Numeric values for the donut slices. If ``data`` is a DataFrame
+        and ``values`` is a double backtick string`` (``"colname"``),
+        then the column ``"colname"`` is used. If ``data`` is a Series
+        and ``values`` is not provided, the series values are used.
+    data : pandas.Series or pandas.DataFrame, optional
+        Data source from which to fetch ``values`` and ``labels``. If
+        provided, the function extracts the corresponding numeric data.
+        For a DataFrame, if ``values`` (or ``labels``) is a double
+        backtick string`` (``"colname"``), the function fetches the
+        column named ``"colname"``.
+    labels : array-like or ``str``, optional
+        Labels for the donut slices. If ``data`` is provided and
+        ``labels`` is a double backtick string`` (``"colname"``), then
+        the function uses the specified column as labels. If omitted,
+        the function uses the index of the DataFrame or Series.
+    ops : ``"check"`` or ``"build"``, optional
+        Operation mode of the function. In ``"check"`` mode, the
+        function returns a tuple ``(values, labels)`` after validation.
+        In ``"build"`` mode, it returns a new DataFrame built from the
+        inputs. The default is ``"check"``.
+    labels_as_index : bool, optional
+        If ``ops="build"``, this flag determines whether the labels are
+        used as the DataFrame index. If ``True``, the labels become the
+        index; if ``False``, they form a separate column. The default
+        is ``True``.
+    index : array-like or ``str``, optional
+        New index to assign in ``"build"`` mode. If a double backtick
+        string`` is provided, it must correspond to a column in the
+        DataFrame and that column is used as the new index. If a list
+        is provided, it directly replaces the DataFrame index. In case
+        the original index is to be retained, see ``origin_index``.
+    origin_index : ``"drop"`` or ``"keep"``, optional
+        Specifies whether to drop or retain the original index when
+        resetting the DataFrame index. If set to ``"keep"``, the
+        original index is saved in a new column named ``origin_index``.
+        The default is ``"drop"``.
+    value_name : ``"auto"`` or ``str``, optional
+        Name to use for the numeric values in the built DataFrame (when
+        ``ops="build"``). If set to ``"auto"`` (or ``None``), the default
+        name ``"Value"`` is used unless overridden by the source data.
+        Otherwise, the provided double backtick string`` (e.g.,
+        ``"Total"``) is used as the column name.
+
+    Returns
+    -------
+    tuple of (ndarray, list) or pandas.DataFrame
+        - If ``ops="check"``, returns a tuple ``(values, labels)``
+          where ``values`` is a NumPy array of numeric values and
+          ``labels`` is a list of labels.
+        - If ``ops="build"``, returns a pandas DataFrame constructed
+          from the inputs. If ``labels_as_index`` is ``True``, the
+          DataFrame index is set to the provided labels (or the new
+          index if ``index`` is specified). Otherwise, the DataFrame
+          contains separate columns for the labels and numeric values.
+
+    Examples
+    --------
+    Build inputs from a DataFrame with explicit column names:
+
+    >>> from gofast.utils.validator import check_donut_inputs
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     "Sales": [100, 200, 150],
+    ...     "Country": ["USA", "Canada", "Mexico"]
+    ... })
+    >>> # Build a DataFrame using "Sales" as values and "Country" as index
+    >>> new_df = check_donut_inputs(
+    ...     values="Sales",
+    ...     data=df,
+    ...     labels="Country",
+    ...     ops="build",
+    ...     labels_as_index=True,
+    ...     index="Country",
+    ...     origin_index="drop"
+    ... )
+    >>> new_df
+            Sales
+    USA      100
+    Canada   200
+    Mexico   150
+
+    Check inputs when only numeric values are provided:
+
+    >>> values, labs = check_donut_inputs(
+    ...     values=[10, 20, 30],
+    ...     labels=["A", "B", "C"],
+    ...     ops="check"
+    ... )
+    >>> values
+    array([10., 20., 30.])
+    >>> labs
+    ['A', 'B', 'C']
+
+    Notes
+    -----
+    The function internally calls the inline helper 
+    ``check_numeric_dtype`` to ensure that the provided 
+    numeric data satisfies the necessary type constraints.
+    The function supports grouping or multiple donut charts by 
+    using the input DataFrame directly. See also 
+    :func:`~gofast.core.checks.check_numeric_dtype` for numeric 
+    type validation.
+
+    Formulation
+    -------------
+    The function processes inputs :math:`S` and :math:`L` as follows:
+
+    .. math::
+       S = \\{x_i\\}_{i=1}^{n}, \\quad L = \\{l_i\\}_{i=1}^{n}
+
+    and, in build mode, constructs a DataFrame :math:`D` such that
+
+    .. math::
+       D = \\begin{bmatrix} l_1 & x_1 \\\\ \\vdots & \\vdots \\\\
+       l_n & x_n \\end{bmatrix}
+
+    where :math:`l_i` is set as the index if ``labels_as_index`` is 
+    ``True``. The new index may also be reset using the provided 
+    ``index`` parameter.
+
+    See Also
+    --------
+    gofast.core.checks.check_numeric_dtype` : 
+        Validate numeric types in arrays.  
+    gofast.core.parameter_validator: Validate string parameters.
+
+    """
+    from ..core.checks import check_numeric_dtype
+
+    ops = parameter_validator(
+        "mode", target_strs={"check", "build", "make"}, 
+        error_msg=f"Invalid mode {ops!r}. Use 'check' or 'build'."
+        )(ops)
+    
+    value_name="Value" if value_name in (
+        "auto", None) else value_name # use in build mode 
+    
+    # Helper: check if x is array-like (but not a string)
+    def is_arraylike(x):
+        return (hasattr(x, '__iter__') and not isinstance(x, str))
+
+    # -------------------- A) Data Provided --------------------
+    if data is not None:
+        # A.1) Data is a Series
+        if isinstance(data, pd.Series):
+            if values is None:
+                values = data.values
+                
+                if labels is None:
+                    labels = data.index
+            else:
+                raise ValueError(
+                    "When 'data' is a Series and 'values' is specified, "
+                    "usage is ambiguous. Remove 'values' or"
+                    " convert to DataFrame."
+                )
+            if labels is None:
+                labels = data.index
+            
+            if value_name=="Value":
+                value_name= data.name 
+            
+        # A.2) Data is a DataFrame
+        elif isinstance(data, pd.DataFrame):
+            # If values is a string, use it as column name
+            if isinstance(values, str):
+                if values not in data.columns:
+                    raise ValueError(
+                        f"Column '{values}' not found in DataFrame."
+                    )
+                if value_name=="Value":
+                    value_name=values # keep for build purpose 
+                    
+                values = data[values].values
+            elif values is None:
+                if ops == "check":
+                    raise ValueError(
+                        "When 'data' is a DataFrame, specify the column for "
+                        "'values' (e.g., values='my_numeric_col')."
+                    )
+                else:
+                    values = data.copy()
+            else:
+                if len(values) != len(data):
+                    raise ValueError(
+                        "'values' length does not match number of rows."
+                    )
+
+            # Process labels from DataFrame: if string, use as column name
+            if isinstance(labels, str):
+                if labels not in data.columns:
+                    raise ValueError(
+                        f"Column '{labels}' not found in DataFrame."
+                    )
+                labels = data[labels].values
+            elif labels is None:
+                labels = data.index
+        else:
+            raise TypeError(
+                "The 'data' parameter must be a pandas Series or DataFrame."
+            )
+    # -------------------- B) No Data Provided --------------------
+    else:
+        if values is None:
+            raise ValueError(
+                "No 'data' provided and 'values' is None. Cannot plot."
+            )
+        if labels is None:
+            labels = [f"Slice {i+1}" for i in range(len(values))]
+
+    # -------------------- C) Numeric Check on Values --------------------
+    values = check_numeric_dtype(
+        values, ops="validate",
+        param_names={"X": "Value"},
+        coerce=True,
+    )
+
+    if not is_arraylike(labels):
+        labels = [labels]
+    else:
+        labels = list(labels)
+
+    # -------------------- D) Return Based on Mode --------------------
+    if ops == "check":
+        return values, labels
+
+    elif ops == "build":
+        # Case 1: Data provided and is a DataFrame.
+        if data is not None and isinstance(data, pd.DataFrame):
+            df = data.copy()
+
+            # If an index is provided, reset the DataFrame's index.
+            if index is not None:
+                if isinstance(index, str):
+                    if index not in df.columns:
+                        raise ValueError(
+                            f"Index column '{index}' not found in DataFrame."
+                        )
+                    df = df.set_index(
+                        index, drop=(origin_index == "drop")
+                    )
+                elif is_arraylike(index):
+                    df.index = index
+                    if origin_index == "keep":
+                        df["origin_index"] = data.index
+            else:
+                # If no index is provided and labels_as_index is True,
+                # reset index using labels.
+                if labels_as_index:
+                    df.index = labels
+            try:
+                # Build new DataFrame with numeric 'Value' and current index.
+                new_df = pd.DataFrame({value_name: values}, index=df.index)
+            except: 
+                # otherwise return df 
+                return df 
+            
+            return new_df
+
+        # Case 2: Data is None; build DataFrame from values and labels.
+        else:
+            if labels_as_index:
+                df = pd.DataFrame({value_name: values}, index=labels)
+            else:
+                df = pd.DataFrame({"Label": labels, value_name: values})
+            return df
 
 def validate_strategy(
     strategy: Optional[Union[str, Dict[str, str]]] = None,
@@ -676,108 +1159,6 @@ def check_is_runned(estimator, attributes=None, *, msg=None, all_or_any=all):
 
     if not is_runned:
         raise NotRunnedError(msg % {"name": type(estimator).__name__})
-
-
-def validate_quantiles(quantiles, asarray=False):
-    """
-    Validates the input quantiles and optionally returns the output as a 
-    numpy array or list.
-
-    Quantiles are numerical values used in statistical analysis to 
-    divide a distribution into intervals. They must lie within the 
-    range [0, 1] as they represent proportions of data [1]_.
-
-    Parameters
-    ----------
-    quantiles : list or numpy.ndarray
-        Input array-like containing quantile values to be validated. 
-        The values must be numeric and within the range [0, 1].
-        
-    asarray : bool, optional
-        Determines the output format. If `True`, the validated 
-        quantiles are returned as a numpy array. If `False`, they 
-        are returned as a list. Default is `False`.
-
-    Returns
-    -------
-    list or numpy.ndarray
-        A list or numpy array of validated quantile values, depending 
-        on the value of `asarray`.
-
-    Raises
-    ------
-    TypeError
-        If the input `quantiles` is not a list or numpy array.
-
-    ValueError
-        If any element of `quantiles` is not numeric or lies outside 
-        the range [0, 1].
-
-    Notes
-    -----
-    Quantiles, denoted as :math:`q \in [0, 1]`, represent the fraction 
-    of observations below a certain value in a distribution:
-    
-    .. math::
-
-        Q(q) = \inf \{ x \in \mathbb{R} : P(X \leq x) \geq q \}
-
-    where :math:`Q(q)` is the quantile function, and :math:`q` is the 
-    proportion [2]_.
-
-    This function ensures that all values in `quantiles` adhere to 
-    this definition by checking:
-    
-    1. The type of `quantiles`.
-    2. The numerical nature of its elements.
-    3. The range of its values.
-
-    Examples
-    --------
-    >>> from gofast.utils.validator import validate_quantiles
-    >>> validate_quantiles([0.1, 0.2, 0.5])
-    [0.1, 0.2, 0.5]
-
-    >>> validate_quantiles(np.array([0.3, 0.7, 0.9]), asarray=True)
-    array([0.3, 0.7, 0.9])
-
-    >>> validate_quantiles([0.5, 1.2])
-    ValueError: All quantile values must be in the range [0, 1].
-
-    See Also
-    --------
-    numpy.percentile : Computes the nth percentile of an array.
-    numpy.quantile : Computes the qth quantile of an array.
-
-    References
-    ----------
-    .. [1] Hyndman, R. J., & Fan, Y. (1996). Sample quantiles in 
-           statistical packages. The American Statistician, 50(4), 361-365.
-    .. [2] Weiss, N. A. (2015). Introductory Statistics. Pearson.
-
-    """
-    quantiles = to_iterable(quantiles, transform=True, flatten=True )
-  
-    # Validate input type: must be list or numpy array
-    if not isinstance(quantiles, (list, np.ndarray)):
-        raise TypeError(
-            "Quantiles must be a list or numpy array. Received "
-            f"{type(quantiles).__name__}."
-        )
-    
-    # Convert input to numpy array for consistent processing
-    quantiles = np.array(quantiles, dtype=np.float32)
-    
-    # Validate that all elements are numeric
-    if not np.issubdtype(quantiles.dtype, np.number):
-        raise ValueError("All quantile values must be numeric.")
-    
-    # Validate that all values are within the range [0, 1]
-    if not np.all((quantiles >= 0) & (quantiles <= 1)):
-        raise ValueError("All quantile values must be in the range [0, 1].")
-    
-    # Return quantiles in the desired format
-    return quantiles if asarray else quantiles.tolist()
 
 def check_has_run_method(estimator, msg=None, method_name="run"):
     """
@@ -2802,7 +3183,8 @@ def is_categorical(data, column, strict=False, error='raise'):
     if strict:
         return pd.api.types.is_categorical_dtype(col_type)
     else:
-        return pd.api.types.is_categorical_dtype(col_type) or pd.api.types.is_object_dtype(col_type)
+        return pd.api.types.is_categorical_dtype(
+            col_type) or pd.api.types.is_object_dtype(col_type)
 
 def parameter_validator(
         param_name, target_strs, match_method='contains',
@@ -2873,7 +3255,8 @@ def parameter_validator(
             return normalize_string(
                 param_value, target_strs=target_strs,
                 return_target_only=True,
-                match_method=match_method, raise_exception=raise_exception, 
+                match_method=match_method, 
+                raise_exception=raise_exception, 
                 **kws
             )
         return param_value  # Return the original value if it's None or empty
@@ -2979,7 +3362,7 @@ def validate_length_range(length_range, sorted_values=True, param_name=None):
     Parameters:
     ----------
     length_range : tuple
-        A tuple containing two integers that represent the minimum and maximum
+        A tuple containing two values that represent the minimum and maximum
         lengths of reviews.
     sorted_values: bool, default=True 
         If True, the function expects the input length range to be sorted in 
@@ -3016,7 +3399,7 @@ def validate_length_range(length_range, sorted_values=True, param_name=None):
 
     if not all(isinstance(x, ( float, int, np.integer, np.floating)
                           ) for x in length_range):
-        raise ValueError(f"Both elements in {param_name} must be integers.")
+        raise ValueError(f"Both elements in {param_name} must be numeric.")
     
     if sorted_values: 
         length_range  = tuple  (sorted ( [min_length, max_length] )) 
@@ -3894,25 +4277,7 @@ def check_mixed_data_types(data ) -> bool:
     
     return has_numerical and has_categorical
 
-def is_keras_model(model: Any) -> bool:
-    """
-    Determine whether the provided object is an instance of a Keras model.
 
-    Parameters
-    ----------
-    model : Any
-        The object to be checked.
-
-    Returns
-    -------
-    bool
-        True if the object is an instance of `tf.keras.models.Model` or 
-        `tf.keras.Sequential`,False otherwise.
-    """
-    from ._dependency import import_optional_dependency 
-    import_optional_dependency("tensorflow")
-    import tensorflow as tf
-    return isinstance(model, (tf.keras.models.Model, tf.keras.Sequential))
 
 def has_required_attributes(model: Any, attributes: list[str]) -> bool:
     """
@@ -4255,82 +4620,6 @@ def recheck_data_types(
 
     return data
 
-
-def validate_keras_model(
-        model: Any, custom_check: Optional[Callable[[Any], bool]] = None,
-        deep_check: bool = False, raise_exception =False ) -> bool:
-    """
-    Validates whether a given object is a Keras model and optionally performs 
-    additional checks.
-
-    This function provides a mechanism to ensure that an object not only is an 
-    instance of a Keras model but also conforms to additional, user-defined 
-    criteria if specified. It offers an optional deep check that inspects the 
-    model for key Keras methods, enhancing the validation
-    process.
-
-    Parameters
-    ----------
-    model : Any
-        The object to validate as a Keras model.
-    custom_check : Callable[[Any], bool], optional
-        An optional callback function that takes the model as input and returns
-        a boolean indicating whether the model passes custom validation criteria. 
-        If `None`, no custom validation is performed.
-    deep_check : bool, optional
-        If True, performs a deep inspection of the model's attributes to ensure
-        it supports essential Keras functionality (default is False).
-        
-    raise_exception : bool, optional
-        If True, raises a TypeError when the model fails the validation
-        checks, instead of returning False.
-    Returns
-    -------
-    bool
-        True if the object is validated as a Keras model and satisfies any 
-        specified custom validation criteria. False otherwise.
-
-    Raises
-    ------
-    ValueError
-        If the custom check is provided and raises an exception, indicating 
-        failure of the custom validation logic.
-
-    Examples
-    --------
-    >>> from tensorflow.keras.layers import Dense
-    >>> from tensorflow.keras.models import Sequential
-    >>> from gofast.utils.validator import  validate_keras_model
-    >>> model = Sequential([Dense(2)])
-
-    Validate a simple Keras model without additional checks:
-    >>> validate_keras_model(model)
-    True
-
-    Validate with a custom check (e.g., model must have more than 1 layer):
-    >>> custom_layer_check = lambda m: len(m.layers) > 1
-    >>> validate_keras_model(model, custom_check=custom_layer_check)
-    False
-
-    Validate with deep inspection:
-    >>> validate_keras_model(model, deep_check=True)
-    True
-    """
-    if not is_keras_model(model):
-        raise TypeError("Provided model is not a Keras model.")
-
-    if deep_check and not has_required_attributes(
-            model, ['fit', 'predict', 'compile', 'summary']): 
-        raise TypeError("Model does not support essential Keras functionalities.")
-
-    if custom_check:
-        try:
-            custom_check(model)
-        except Exception as e:
-            raise ValueError(f"Custom check failed: {e}")
-   
-    return model
-
 def is_installed(module: str ) -> bool:
     """
     Checks if TensorFlow is installed.
@@ -4575,6 +4864,39 @@ def assert_xy_in (
         
     return ( np.array(x), np.array (y) ) if asarray else (x, y )  
 
+def _validate_input(ignore: str, x, y, _is_arraylike_1d):
+    """
+    Validates that x and y are one-dimensional array-like structures based
+    on the ignore parameter.
+
+    Parameters
+    ----------
+    ignore : str
+        Specifies which variable ('x' or 'y') to ignore during validation.
+    x, y : array-like
+        The variables to be validated.
+    _is_arraylike_1d : function
+        Function to check if the input is array-like and one-dimensional.
+
+    Raises
+    ------
+    ValueError
+        If the non-ignored variable(s) are not one-dimensional array-like structures.
+    """
+    validation_checks = {
+        'x': lambda: _is_arraylike_1d(y),
+        'y': lambda: _is_arraylike_1d(x),
+        'both': lambda: _is_arraylike_1d(x) and _is_arraylike_1d(y)
+    }
+
+    check = validation_checks.get(ignore, validation_checks['both'])
+    if not check():
+        if ignore in ['x', 'y']:
+            raise ValueError(f"Expected '{'y' if ignore == 'x' else 'x'}' to be"
+                             " a one-dimensional array-like structure.")
+        else:
+            raise ValueError("Expected both 'x' and 'y' to be one-dimensional "
+                             "array-like structures.")
 def validate_numeric(
     value, 
     convert_to='float', 
@@ -4753,39 +5075,7 @@ def is_array_like(obj, numpy_check=False):
     return isinstance(obj, Iterable) and not isinstance(obj, str)
 
 
-def _validate_input(ignore: str, x, y, _is_arraylike_1d):
-    """
-    Validates that x and y are one-dimensional array-like structures based
-    on the ignore parameter.
 
-    Parameters
-    ----------
-    ignore : str
-        Specifies which variable ('x' or 'y') to ignore during validation.
-    x, y : array-like
-        The variables to be validated.
-    _is_arraylike_1d : function
-        Function to check if the input is array-like and one-dimensional.
-
-    Raises
-    ------
-    ValueError
-        If the non-ignored variable(s) are not one-dimensional array-like structures.
-    """
-    validation_checks = {
-        'x': lambda: _is_arraylike_1d(y),
-        'y': lambda: _is_arraylike_1d(x),
-        'both': lambda: _is_arraylike_1d(x) and _is_arraylike_1d(y)
-    }
-
-    check = validation_checks.get(ignore, validation_checks['both'])
-    if not check():
-        if ignore in ['x', 'y']:
-            raise ValueError(f"Expected '{'y' if ignore == 'x' else 'x'}' to be"
-                             " a one-dimensional array-like structure.")
-        else:
-            raise ValueError("Expected both 'x' and 'y' to be one-dimensional "
-                             "array-like structures.")
 
 def _is_numeric_dtype (o, to_array =False ): 
     """ Determine whether the argument has a numeric datatype, when
@@ -5684,7 +5974,12 @@ def set_array_back (X, *,  to_frame=False, columns = None, input_name ='X'):
         
     return X, columns 
 
-def convert_array_to_pandas(X, *, to_frame=False, columns=None, input_name='X'):
+def convert_array_to_pandas(
+    X, *, 
+    to_frame=False,
+    columns=None, 
+    input_name='X'
+    ):
     """
     Converts an array-like object to a pandas DataFrame or Series, applying
     provided column names or series name.
@@ -5752,15 +6047,17 @@ def convert_array_to_pandas(X, *, to_frame=False, columns=None, input_name='X'):
                                  f" but columns implied {len(columns)}")
             X = pd.DataFrame(X, columns=columns)
         else:
-            raise ValueError(f"{input_name} cannot be converted to DataFrame with given columns.")
+            raise ValueError(
+                f"{input_name} cannot be converted to DataFrame with given columns.")
 
     return X, columns
 
 def is_frame(
     arr,
     df_only=False,
-    raise_exception=False,
-    objname=None
+    raise_exception=False,  
+    objname=None,
+    error="raise",  
 ):
     r"""
     Check if `arr` is a pandas DataFrame or Series.
@@ -5779,11 +6076,16 @@ def is_frame(
         If True, only verifies that `arr` is a DataFrame. If False,
         checks for either a DataFrame or a Series. Default is False.
     raise_exception : bool, optional
-        If True and `arr` is not a valid frame (depending on `df_only`),
-        a TypeError is raised with a detailed message. Default is False.
+        If True, this will override `error="raise"`. This parameter
+        is deprecated and will be removed soon. Default is False.
+    error : str, optional
+        Determines the action when `arr` is not a valid frame. Can be:
+        - ``"raise"``: Raises a TypeError.
+        - ``"warn"``: Issues a warning.
+        - ``"ignore"``: Does nothing. Default is ``"raise"``.
     objname : str or None, optional
-        A custom name used in the error message if `raise_exception`
-        is True. If None, a generic name is used.
+        A custom name used in the error message if `error` is set to
+        ``"raise"``. If None, a generic name is used.
 
     Returns
     -------
@@ -5794,8 +6096,8 @@ def is_frame(
     Raises
     ------
     TypeError
-        If `raise_exception=True` and `arr` is not a valid frame. The
-        error message guides the user to provide the correct type
+        If `error="raise"` and `arr` is not a valid frame. The error
+        message guides the user to provide the correct type 
         (`DataFrame` or `DataFrame or Series`).
 
     Notes
@@ -5823,13 +6125,23 @@ def is_frame(
     >>> is_frame(s, df_only=True)
     False
 
-    If `raise_exception=True`:
+    If `error="raise"`:
 
-    >>> is_frame(s, df_only=True, raise_exception=True, objname='Input')
+    >>> is_frame(s, df_only=True, error="raise", objname='Input')
     Traceback (most recent call last):
         ...
     TypeError: 'Input' parameter expects a DataFrame. Got 'Series'
     """
+    
+    # Handle deprecation for `raise_exception`
+    if raise_exception and error !="raise":
+        warnings.warn(
+            "'raise_exception' is deprecated and will be replaced by 'error'."
+            " The 'error' parameter is now used for specifying error handling.",
+            category=DeprecationWarning
+        )
+        error = "raise"  # Fall back to 'raise' if raise_exception is True
+
     # Determine if arr qualifies as a frame based on df_only
     if df_only:
         obj_is_frame = (
@@ -5842,14 +6154,21 @@ def is_frame(
             (hasattr(arr, 'name') or hasattr(arr, 'columns'))
         )
 
-    # If not valid and raise_exception is True, raise TypeError
-    if not obj_is_frame and raise_exception:
-        objname = objname or 'Input'
-        objname = f"{objname!r} parameter expects"
-        expected = 'a DataFrame' if df_only else 'a DataFrame or Series'
-        raise TypeError(
-            f"{objname} {expected}. Got {type(arr).__name__!r}"
-        )
+    # If not valid and error is set to 'raise', raise TypeError
+    if not obj_is_frame:
+        if error == "raise":
+            objname = objname or 'Input'
+            objname = f"{objname!r} parameter expects"
+            expected = 'a DataFrame' if df_only else 'a DataFrame or Series'
+            raise TypeError(
+                f"{objname} {expected}. Got {type(arr).__name__!r}"
+            )
+        elif error == "warn":
+            warning_msg = (
+                f"Warning: {objname or 'Input'} expects "
+                f"a DataFrame or Series. Got {type(arr).__name__!r}."
+            )
+            warnings.warn(warning_msg, category=UserWarning)
 
     return obj_is_frame
 
@@ -7250,115 +7569,7 @@ def _assert_all_finite(
             msg_err += f"\n{err_msg}"
             
         raise ValueError(msg_err)
-        
-def to_iterable(
-    obj: Any,
-    exclude_string: bool = False,
-    transform: bool = False,
-    parse_string: bool = False,
-    flatten: bool = False,
-    unique: bool = False,
-    delimiter: str = r'[ ,;|\t\n]+'
-) -> Union[bool, List[Any]]:
-    """
-    Determines if an object is iterable, with options to transform, parse,
-    and modify the input for flexible iterable handling.
-
-    Parameters
-    ----------
-    obj : Any
-        Object to be evaluated or transformed into an iterable.
-    exclude_string : bool, default=False
-        Excludes strings from being considered as iterable objects.
-    transform : bool, default=False
-        Transforms `obj` into an iterable if it isn't already. Defaults to
-        wrapping `obj` in a list.
-    parse_string : bool, default=False
-        If `obj` is a string, splits it into a list based on the specified
-        `delimiter`. Requires `transform=True`.
-    flatten : bool, default=False
-        If `obj` is a nested iterable, flattens it into a single list.
-    unique : bool, default=False
-        Ensures unique elements in the output if `transform=True`.
-    delimiter : str, default=r'[ ,;|\t\n]+'
-        Regular expression pattern for splitting strings when `parse_string=True`.
-
-    Returns
-    -------
-    bool or List[Any]
-        Returns a boolean if `transform=False`, or an iterable if
-        `transform=True`.
-
-    Raises
-    ------
-    ValueError
-        If `parse_string=True` without `transform=True`, or if `delimiter`
-        is invalid.
-
-    Notes
-    -----
-    - When `parse_string` is used, strings are split by `delimiter` to form a
-      list of substrings.
-    - `flatten` and `unique` apply only when `transform=True`.
-    - Using `unique=True` ensures no duplicate values in the output.
-
-    Examples
-    --------
-    >>> from gofast.utils.validator import to_iterable
-    >>> to_iterable("word", exclude_string=True)
-    False
-
-    >>> to_iterable(123, transform=True)
-    [123]
-
-    >>> to_iterable("parse, this sentence", transform=True, parse_string=True)
-    ['parse', 'this', 'sentence']
-
-    >>> to_iterable([1, [2, 3], [4]], transform=True, flatten=True)
-    [1, 2, 3, 4]
-
-    >>> to_iterable("a,b,a,b", transform=True, parse_string=True, unique=True)
-    ['a', 'b']
-    """
-    if parse_string and not transform:
-        raise ValueError("Set 'transform=True' when using 'parse_string=True'.")
-
-    # Check if object is iterable (excluding strings if specified)
-    is_iterable = hasattr(obj, '__iter__') and not (
-        exclude_string and isinstance(obj, str))
-
-    # If transformation is not needed, return the boolean check
-    if not transform:
-        return is_iterable
-
-    # If string parsing is enabled and obj is a string, split it using delimiter
-    if isinstance(obj, str) and parse_string:
-        obj = re.split(delimiter, obj.strip())
-
-    # Wrap non-iterables into a list if they aren't iterable
-    elif not is_iterable:
-        obj = [obj]
-
-    # Flatten nested iterables if flatten=True
-    if flatten:
-        obj = _flatten(obj)
-
-    # Apply unique filtering if requested
-    if unique:
-        obj = list(dict.fromkeys(obj))  # Preserves order while ensuring uniqueness
-
-    return obj
-
-def _flatten(nested_list: Any) -> List[Any]:
-    """ Helper function to recursively flatten a nested list structure. """
-    flattened = []
-    for element in nested_list:
-        if isinstance(element, (list, tuple, set)):
-            flattened.extend(_flatten(element))
-        else:
-            flattened.append(element)
-    return flattened
-     
+          
 def assert_all_finite(
     X,
     *,

@@ -7,7 +7,7 @@ Essential utilities for data processing and analysis, offering functions for
 normalization, interpolation, feature selection, outlier removal, and various 
 data manipulation tasks.
 """
-
+from __future__ import annotations 
 import os
 import re
 import copy
@@ -41,14 +41,14 @@ from ..api.types import (
 from ..compat.pandas import select_dtypes 
 from ..core.array_manager import  ( 
     to_numeric_dtypes, reshape, to_array, array_preserver, 
-    drop_nan_in
+    drop_nan_in, to_series
 )
 from ..core.checks import( 
     _assert_all_types,  is_iterable, exist_features, validate_feature,
-    is_numeric_dtype
+    is_numeric_dtype, check_datetime 
     )
 from ..core.handlers import get_batch_size 
-from ..core.io import is_data_readable 
+from ..core.io import is_data_readable
 from ..core.utils import ellipsis2false, smart_format, error_policy 
 from ..compat.scipy import check_scipy_interpolate
 from ..decorators import Dataify
@@ -59,17 +59,19 @@ from .validator import (
     array_to_frame, build_data_if, _is_numeric_dtype, check_y, 
     check_consistency_size, is_categorical, is_valid_policies, 
     contains_nested_objects, parameter_validator, normalize_array, 
+    is_frame
 )
 
 __all__ = [
     'array2hdf5', 'binning_statistic', 'categorize_target', 
-    'category_count', 'denormalizer', 'detect_categorical_columns', 
+    'category_count', 'detect_categorical_columns', 'normalizer', 
     'extract_target', 'fancier_downloader', 'fillNaN', 'get_target', 
     'interpolate_grid', 'interpolate_data', 'labels_validator', 
-    'make_df', 'normalizer', 'remove_outliers', 'remove_target_from_array', 
+    'make_df', 'remove_outliers', 'remove_target_from_array', 
     'rename_labels_in', 'scale_y', 'select_features', 
     'smooth1d', 'smoothing', 'soft_bin_stat', 'speed_rowwise_process', 
     'nan_to_mode', 'handle_outliers', 'fill_NaN', 'map_values',
+    'validate_target_in', 
 ]
 
 @is_data_readable 
@@ -150,12 +152,12 @@ def map_values(
 
     Examples
     --------
-    >>> from gofast.core.base_utils import map_values
+    >>> from gofast.utils.base_utils import map_values
     >>> import pandas as pd
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': ['X', 'Y', 'Z']})
     >>> mapping = {1: 100, 'X': 'Alpha'}
     >>> # Overwrite columns in df with mapped values
-    >>> mapped_df = map_values(df, mapping, coerce=True)
+    >>> mapped_df = map_values(df, mapping, coerce=False)
     >>> mapped_df
        A      B
     0  100  Alpha
@@ -203,12 +205,14 @@ def map_values(
         data = data.to_frame()
         is_series = True
 
+    df = data.copy() # important to not change the original data 
+    
     # 3) For each column in the DataFrame, attempt to map using `map_dict`.
     #    We'll store mapped results in new_cols dict to assemble after processing.
     new_cols = {}
 
-    for col in data.columns:
-        col_data = data[col]
+    for col in df.columns:
+        col_data = df[col]
 
         # 3a) If coerce=True, try to convert col_data to numeric if possible,
         #     or to string. We'll do a best-effort approach:
@@ -275,15 +279,15 @@ def map_values(
     #    otherwise we replace the old columns with newly mapped columns.
     if action == 'append':
         for nc in new_cols:
-            data[nc] = new_cols[nc]
+            df[nc] = new_cols[nc]
     else:
         # Overwrite only the columns that exist in new_cols
         # if the user had more columns not in the old data,
         # we only keep them if they are in new_cols?
         # but logically we only mapped existing columns, so safe to do:
-        for c in data.columns:
+        for c in df.columns:
             if c in new_cols:
-                data[c] = new_cols[c]
+                df[c] = new_cols[c]
         # If action=None, the user might want to rename columns
         # to old name => we did that above.
 
@@ -292,11 +296,11 @@ def map_values(
     #    We'll do minimal approach: if is_series and not append => return the single col
     if is_series and action != 'append':
         # There's only one column, let's return it as a series
-        col_name = data.columns[0]
-        return data[col_name]
+        col_name = df.columns[0]
+        return df[col_name]
 
     # 6) Return the DataFrame
-    return data
+    return df
 
 @is_data_readable
 def detect_categorical_columns(
@@ -307,6 +311,7 @@ def detect_categorical_columns(
     max_unique_values=None,
     handle_nan=None,
     return_frame=False,
+    consider_dt_as=None, 
     verbose=0
 ):
     r"""
@@ -355,6 +360,20 @@ def detect_categorical_columns(
         If ``True``, returns a DataFrame of detected
         categorical columns; otherwise returns a list of
         column names. Default is ``False``.
+    consider_dt_as : str, optional
+        Indicates how to handle or convert datetime columns when
+        ``ops='validate'``:
+        - `None`: Do not convert; if datetime is not accepted, 
+          handle according to `accept_dt` and `error`.
+        - `'numeric'`: Convert date columns to a numeric format
+          (like timestamps).
+        - `'float'`, `'float32'`, `'float64'`: Convert date columns
+          to float representation.
+        - `'int'`, `'int32'`, `'int64'`: Convert date columns to
+          integer representation.
+        - `'object'` or `'category'`: Convert date columns to Python 
+          objects (strings, etc.). If conversion fails, raise or warn 
+          per `error` policy.
     verbose : int, optional
         Verbosity level. If greater than 0, a summary of
         detected columns is printed.
@@ -435,6 +454,33 @@ def detect_categorical_columns(
     elif handle_nan == 'fill':
         data = fill_NaN(data, method='both')
 
+    #Check if datetime columns exist in the data.
+    has_dt_cols = check_datetime(data, error='ignore')
+    if has_dt_cols: 
+        if consider_dt_as is None: 
+            # If no explicit instruction is provided 
+            # via `consider_dt_as`, warn the user
+            # that datetime columns will be treated
+            # as numeric by default.
+            warnings.warn(
+                "Datetime columns detected. Defaulting"
+                " to treating datetime columns as numeric."
+                " If this behavior is not desired, please "
+                "specify the `consider_dt_as` parameter"
+                " accordingly."
+            )
+        else: 
+            # If `consider_dt_as` is provided and True,
+            # validate datetime columns 
+            # according to the specified handling.
+            data =check_datetime(
+                data, 
+                ops='validate', 
+                accept_dt=True, 
+                consider_dt_as=consider_dt_as, 
+                error="warn", 
+            )
+    
     # user-specified limit might be set to 'auto' or a numeric value
     # store the original for reference
     original_max_unique = max_unique_values
@@ -704,7 +750,7 @@ def handle_outliers(
 
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from gofast.utils.baseutils import handle_outliers
+    >>> from gofast.utils.base_utils import handle_outliers
     >>> data = pd.Series([1, 2, 2, 3, 4, 100])
     >>> clean_data = handle_outliers(data, method='iqr', threshold=1.5)
     >>> print(clean_data)
@@ -1151,7 +1197,7 @@ def remove_outliers(
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.utils.baseutils import remove_outliers 
+    >>> from gofast.utils.base_utils import remove_outliers 
     >>> np.random.seed(42)
     >>> data = np.random.randn(7, 3)
     >>> data_r = remove_outliers(data)
@@ -1277,7 +1323,7 @@ def interpolate_grid(
     Examples
     ---------
     >>> import numpy as np
-    >>> from gofast.utils.baseutils import interpolate_grid 
+    >>> from gofast.utils.base_utils import interpolate_grid 
     >>> x = [28, np.nan, 50, 60] ; y = [np.nan, 1000, 2000, 3000]
     >>> xy = np.vstack ((x, y))._T
     >>> xyi = interpolate_grid (xy, view=True ) 
@@ -1472,9 +1518,9 @@ def fill_NaN(arr, method='ff'):
 
     Parameters
     ----------
-    ``arr`` : array-like, pandas.DataFrame, or pandas.Series
+    arr : array-like, pandas.DataFrame, or pandas.Series
         The input data structure containing NaN values to be filled.
-    ``method`` : str, default ``'ff'``
+    method : str, default ``'ff'``
         The method to use for filling NaN values. Accepted values:
 
         - Forward fill: ``'forward'``, ``'ff'``, ``'fwd'``
@@ -1580,12 +1626,23 @@ def fill_NaN(arr, method='ff'):
                 numeric_cols)
             
             # Apply fillNaN to numeric columns
-            filled_numeric = fillNaN(
-                arr_converted[numeric_cols], method=standardized_method)
+            if numeric_cols: 
+                filled_numeric = fillNaN(
+                    arr_converted[numeric_cols], method=standardized_method)
+            else: 
+                filled_numeric= pd.DataFrame()
             
-            # Retain non-numeric columns as-is
+            # Fill non-numeric columns with forward and backward fill (if requested)
             filled_non_numeric = arr_converted[non_numeric_cols]
-            
+            if non_numeric_cols.any():
+                if 'ff' in standardized_method:
+                    filled_non_numeric = filled_non_numeric.ffill(axis=0)
+                elif 'bf' in standardized_method:
+                    filled_non_numeric = filled_non_numeric.bfill(axis=0) 
+                else: # both 
+                    filled_non_numeric = filled_non_numeric.ffill(axis=0)
+                    filled_non_numeric = filled_non_numeric.bfill(axis=0) 
+                    
             # Combine the filled numeric data with the untouched non-numeric data
             array_filled = pd.concat(
                 [filled_numeric, filled_non_numeric], axis=1)
@@ -1593,15 +1650,25 @@ def fill_NaN(arr, method='ff'):
             array_filled = array_filled[arr_converted.columns]
         
         elif isinstance(arr_converted, pd.Series):
-            # If the Series is not numeric, return it unchanged
-            if not is_numeric_dtype(arr_converted):
-                array_filled = arr_converted.copy()
-            else:
-                # If the Series is numeric, apply fillNaN
+            
+            if is_numeric_dtype(arr_converted):
+               # If the Series is numeric, apply fillNaN
                 array_filled = fillNaN(
                     arr_converted, method=standardized_method
                     )
-
+            else:
+                # If the Series is not numeric
+                # Fill non-numeric Series with forward 
+                # and backward fill (if requested)
+                array_filled = arr_converted.copy()
+                if 'ff' in standardized_method:
+                    array_filled = array_filled.ffill()
+                elif 'bf' in standardized_method:
+                    array_filled = array_filled.bfill()
+                else:
+                    array_filled = array_filled.ffill()
+                    array_filled = array_filled.bffill()
+                    
     # Step 5: Attempt to restore the original array
     # structure using the collected properties
     collected['processed'] = [array_filled]
@@ -1620,7 +1687,7 @@ def fill_NaN(arr, method='ff'):
     # Step 6: Return the filled and structure-preserved array
     return array_restored
 
-def fillNaN(
+def fillNaN0(
     arr: Union[ArrayLike, Series, DataFrame], 
     method: str = 'ff'
     ) -> Union[ArrayLike, Series, DataFrame]:
@@ -1662,7 +1729,7 @@ def fillNaN(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.utils.baseutils import fillNaN 
+    >>> from gofast.utils.base_utils import fillNaN 
     >>> arr2d = np.random.randn(7, 3)
     >>> arr2d[[0, 2, 3, 3], [0, 2, 1, 2]] = np.nan
     >>> print(arr2d)
@@ -1691,58 +1758,174 @@ def fillNaN(
     Further details can be found at:
     https://pyquestions.com/most-efficient-way-to-forward-fill-nan-values-in-numpy-array
     """
-    name_or_columns=None 
+
+    # Store column or series name for restoration later if needed
+    name_or_columns = None 
+    
+    # Convert the input array to numpy if it doesn't already support numpy-like operations
     if not hasattr(arr, '__array__'): 
         arr = np.array(arr)
-        
-    arr = to_array (arr) 
-    has_numeric_dtype = is_numeric_dtype(arr, to_array= True )
+    
+    # Convert to a pandas-compatible structure if necessary
+    # and ensure numeric dtype
+    arr = to_array(arr)
+    has_numeric_dtype = is_numeric_dtype(arr, to_array=True)
     
     if not has_numeric_dtype: 
         warnings.warn(
-            "Non-numeric data detected. Note `FillNaN` operates only with"
-            " numeric data. To deal with  non-numeric data or both',"
-            " use 'fill_NaN' instead.")
-        
-    arr = _handle_non_numeric(
-        arr, action ='fill missing values NaN')
+            "Non-numeric data detected. Note `fillNaN` operates only with "
+            "numeric data. To deal with non-numeric data or both,"
+            " use 'fill_NaN' instead."
+        )
     
-    if isinstance (arr, (pd.Series, pd.DataFrame)): 
-        name_or_columns = arr.name if isinstance (
-            arr, pd.Series) else arr.columns 
-        arr = arr.to_numpy() # get numpy array 
-        
-    def ffill (arr): 
-        """ Forward fill."""
-        idx = np.where (~mask, np.arange(mask.shape[1]), 0)
-        np.maximum.accumulate (idx, axis =1 , out =idx )
-        return arr[np.arange(idx.shape[0])[:, None], idx ]
+    # Handle non-numeric data if needed
+    arr = _handle_non_numeric(arr, action='fill missing values NaN')
     
-    def bfill (arr): 
-        """ Backward fill """
-        idx = np.where (~mask, np.arange(mask.shape[1]) , mask.shape[1]-1)
-        idx = np.minimum.accumulate(idx[:, ::-1], axis =1)[:, ::-1]
-        return arr [np.arange(idx.shape [0])[:, None], idx ]
+    # If the array is a pandas DataFrame or Series, store column names for later restoration
+    if isinstance(arr, (pd.Series, pd.DataFrame)): 
+        name_or_columns = arr.name if isinstance(arr, pd.Series) else arr.columns
+        arr = arr.to_numpy()  # Convert to numpy array for easier manipulation
     
+    # Define the forward fill function
+    def ffill(arr): 
+        """ Apply forward fill. """
+        idx = np.where(~mask, np.arange(mask.shape[1]), 0)
+        np.maximum.accumulate(idx, axis=1, out=idx)
+        return arr[np.arange(idx.shape[0])[:, None], idx]
+    
+    # Define the backward fill function
+    def bfill(arr): 
+        """ Apply backward fill. """
+        idx = np.where(~mask, np.arange(mask.shape[1]), mask.shape[1] - 1)
+        idx = np.minimum.accumulate(idx[:, ::-1], axis=1)[:, ::-1]
+        return arr[np.arange(idx.shape[0])[:, None], idx]
+    
+    # Standardize the fill method (i.e., ensure method
+    # is lowercase and stripped of extra spaces)
     method = _select_fill_method(str(method).lower().strip())
     
-    if arr.ndim ==1: 
+    # Reshape if array is one-dimensional
+    if arr.ndim == 1: 
         arr = reshape(arr, axis=1)  
-        
-    mask = np.isnan (arr )  
-    if method =='both': 
-        arr = ffill(arr) ;
-        #mask = np.isnan (arr)  
-        arr = bfill(arr) 
-    if method in ('bf', 'ff'): 
-        arr = ffill(arr) if method =='ff' else bfill(arr)
-        
+    
+    # Create a mask identifying NaN values
+    mask = np.isnan(arr)
+    
+    # Apply both forward and backward fill if requested
+    if method == 'both': 
+        arr = ffill(arr) 
+        arr = bfill(arr)
+    
+    # Apply forward or backward fill depending on the method
+    elif method in ('bf', 'ff'): 
+        arr = ffill(arr) if method == 'ff' else bfill(arr)
+    
+    # Restore the original structure (Series/DataFrame) if necessary
     if name_or_columns is not None: 
-        arr = pd.Series ( arr.squeeze(), name = name_or_columns) if isinstance (
-            name_or_columns, str ) else pd.DataFrame(
-                arr, columns = name_or_columns)
+        if isinstance(name_or_columns, str):
+            arr = pd.Series(arr.squeeze(), name=name_or_columns)
+        else:
+            arr = pd.DataFrame(arr, columns=name_or_columns)
+    
+    return arr
+
+#XXX TODO: FIX NaN 
+def fillNaN(
+    arr: Union[ArrayLike, Series, DataFrame], 
+    method: str = 'ff'
+) -> Union[ArrayLike, Series, DataFrame]:
+    """
+    Fill NaN values in a numpy array, pandas Series, or pandas DataFrame 
+    using specified methods for forward filling, backward filling, or both.
+
+    Parameters
+    ----------
+    arr : Union[np.ndarray, pd.Series, pd.DataFrame]
+        The input data containing NaN values to be filled. This can be a numpy
+        array, pandas Series, or DataFrame expected to contain numeric data.
         
-    return arr 
+    method : str, optional
+        The method used for filling NaN values. Valid options are:
+        - 'ff': forward fill (default)
+        - 'bf': backward fill
+        - 'both': applies both forward and backward fill sequentially
+
+    Returns
+    -------
+    Union[np.ndarray, pd.Series, pd.DataFrame]
+        The array with NaN values filled according to the specified method. 
+        The return type matches the input type (numpy array, Series, or DataFrame).
+    """
+    
+    name_or_columns = None 
+    
+    # Convert to numpy array if it doesn't have numpy-like methods
+    if not hasattr(arr, '__array__'): 
+        arr = np.array(arr)
+    
+    arr = to_array(arr) 
+    has_numeric_dtype = is_numeric_dtype(arr, to_array=True)
+    
+    # Handle non-numeric data and issue a warning if necessary
+    if not has_numeric_dtype:
+        warnings.warn(
+            "Non-numeric data detected. Note `fillNaN`"
+            " operates only with numeric data. "
+            "To deal with non-numeric data or both,"
+            " use 'fill_NaN' instead."
+        )
+        
+    arr = _handle_non_numeric(arr, action='fill missing values NaN')
+
+    if isinstance(arr, (pd.Series, pd.DataFrame)): 
+        # Preserve column names for restoration 
+        # if it's a pandas Series or DataFrame
+        name_or_columns = arr.name if isinstance(
+            arr, pd.Series) else arr.columns
+        # Convert to numpy array for easier manipulation
+        arr = arr.to_numpy()  
+    
+    # Forward fill function
+    def ffill(arr): 
+        """ Apply forward fill. """
+        idx = np.where(~mask, np.arange(mask.shape[1]), 0)
+        np.maximum.accumulate(idx, axis=1, out=idx)
+        return arr[np.arange(idx.shape[0])[:, None], idx]
+    
+    # Backward fill function
+    def bfill(arr): 
+        """ Apply backward fill. """
+        idx = np.where(~mask, np.arange(mask.shape[1]), mask.shape[1] - 1)
+        idx = np.minimum.accumulate(idx[:, ::-1], axis=1)[:, ::-1]
+        return arr[np.arange(idx.shape[0])[:, None], idx]
+    
+    # Standardize method (ensure lowercase and stripped of extra spaces)
+    method = _select_fill_method(str(method).lower().strip())
+    
+    # Reshape if array is one-dimensional
+    if arr.ndim == 1: 
+        arr = reshape(arr, axis=1)  
+    
+    # Create a mask identifying NaN values
+    mask = np.isnan(arr)
+    
+    # Apply both forward and backward fill if requested
+    if method == 'both': 
+        arr = ffill(arr) 
+        arr = bfill(arr)
+    
+    # Apply forward or backward fill depending on the method
+    elif method in ('bf', 'ff'): 
+        arr = ffill(arr) if method == 'ff' else bfill(arr)
+    
+    # Handle DataFrame/Series restoration
+    if name_or_columns is not None: 
+        if isinstance(name_or_columns, str):
+            arr = pd.Series(arr.squeeze(), name=name_or_columns)
+        else:
+            arr = pd.DataFrame(arr, columns=name_or_columns)
+    
+    return arr
 
 def convert_array_dimensions(
         *arrays, target_dim=1, new_shape=None, orient='row'):
@@ -1792,7 +1975,7 @@ def convert_array_dimensions(
         
     Examples
     --------
-    >>> from gofast.utils.baseutils import convert_array_dimensions
+    >>> from gofast.utils.base_utils import convert_array_dimensions
     >>> import numpy as np
 
     # Example 1: Convert a 1D array to a 2D array with a specific shape
@@ -1916,7 +2099,7 @@ def filter_nan_entries(
 
     Examples
     --------
-    >>> from gofast.utils.baseutils import filter_nan_entries
+    >>> from gofast.utils.base_utils import filter_nan_entries
     >>> list1 = [1, 2, np.nan, 4]
     >>> list2 = [np.nan, 2, 3, 4]
     >>> weights = [0.5, 1.0, 1.5, 2.0]
@@ -2078,7 +2261,7 @@ def filter_nan_values(
 
     Examples
     --------
-    >>> from gofast.utils.baseutils import filter_nan_values
+    >>> from gofast.utils.base_utils import filter_nan_values
     >>> list1 = [{2, 3}, {1, 2, np.nan}]
     >>> list2 = [{1, 2, 3}, {1, 2, 3, np.nan}]
     >>> weights = [0.5, 1.0, 1.5, 2.0]
@@ -2183,7 +2366,7 @@ def adjust_weights(
 
     Examples
     --------
-    >>> from gofast.utils.baseutils import adjust_weights
+    >>> from gofast.utils.base_utils import adjust_weights
     >>> weights = [1, 2, 3, 4, 5]
     >>> data_lengths = [3, 4]
     >>> adjust_weights(data_lengths, weights, match_mode='trim')
@@ -2383,7 +2566,7 @@ def filter_nan_from( *listof, sample_weights=None):
 
     Examples
     --------
-    >>> from gofast.utils.baseutils import filter_nan_from
+    >>> from gofast.utils.base_utils import filter_nan_from
     >>> list1 = [[1, 2, np.nan], [4, np.nan, 6]]
     >>> list2 = [[np.nan, 8, 9], [10, 11, np.nan]]
     >>> weights = [0.5, 1.0]
@@ -2469,7 +2652,7 @@ def standardize_input(*arrays):
     Examples
     --------
     >>> from numpy import array
-    >>> from gofast.utils.baseutils import standardize_input
+    >>> from gofast.utils.base_utils import standardize_input
     >>> y_true = [[1, 2], [3]]
     >>> y_pred = array([[2, 1], [3]])
     >>> standardized_inputs = standardize_input(y_true, y_pred)
@@ -2542,7 +2725,7 @@ def smart_rotation(ax):
     >>> import pandas as pd
     >>> import matplotlib.pyplot as plt
     >>> from matplotlib.dates import DateFormatter
-    >>> from gofast.utils.baseutils import smart_rotation
+    >>> from gofast.utils.base_utils import smart_rotation
 
     # Generate a date range and some random data
     >>> dates = pd.date_range(start="2020-01-01", periods=100, freq='D')
@@ -2942,7 +3125,7 @@ def run_shell_command(command, progress_bar_duration=30, pkg=None):
     
     Example 
     -------
-    >>> from gofast.utils.baseutils import run_shell_command 
+    >>> from gofast.utils.base_utils import run_shell_command 
     >>> run_shell_command(["pip", "install", "gofast"])
     """
     def run_command(command):
@@ -2987,7 +3170,7 @@ def download_file(url, filename , dstpath =None ):
        
     Example 
     ---------
-    >>> from gofast.utils.baseutils import download_file
+    >>> from gofast.utils.base_utils import download_file
     >>> url = 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/gofast/datasets/data/h.h5'
     >>> local_filename = 'h.h5'
     >>> download_file(url, local_filename, test_directory)    
@@ -3286,7 +3469,7 @@ def fancier_downloader0(url, filename, dstpath =None ):
        None if the `dstpath` is supplied and `local_filename` otherwise. 
     Example
     --------
-    >>> from gofast.utils.baseutils import fancier_downloader
+    >>> from gofast.utils.base_utils import fancier_downloader
     >>> url = 'https://raw.githubusercontent.com/WEgeophysics/gofast/master/gofast/datasets/data/h.h5'
     >>> local_filename = 'h.h5'
     >>> download_file(url, local_filename)
@@ -3335,7 +3518,7 @@ def move_file(file_path, directory):
     
     Example 
     ---------
-    >>> from gofast.utils.baseutils import move_file
+    >>> from gofast.utils.base_utils import move_file
     >>> file_path = 'path/to/your/file.txt'  # Replace with your file's path
     >>> directory = 'path/to/your/directory'  # Replace with your directory's path
     >>> move_file(file_path, directory)
@@ -3357,7 +3540,7 @@ def check_file_exists(package, resource):
     :return: Boolean indicating if the resource exists.
     
     :example: 
-        >>> from gofast.utils.baseutils import check_file_exists
+        >>> from gofast.utils.base_utils import check_file_exists
         >>> package_name = 'gofast.datasets.data'  # Replace with your package name
         >>> file_name = 'h.h5'    # Replace with your file name
 
@@ -3484,7 +3667,7 @@ def array2hdf5 (
     Examples 
     ----------
     >>> import numpy as np 
-    >>> from gofast.utils.baseutils import array2hdf5
+    >>> from gofast.utils.base_utils import array2hdf5
     >>> data = np.random.randn (100, 27 ) 
     >>> array2hdf5 ('test.h5', data   )
     >>> load_data = array2hdf5 ( 'test.h5', data, task ='load')
@@ -3695,6 +3878,7 @@ def extract_target(
     if isinstance(target, np.ndarray):
         target = np.squeeze(target)
 
+    target = to_series (target, handle_2d="passthrough")
     if return_y_X:
         return target, data
     return target
@@ -3805,7 +3989,7 @@ def categorize_target(
     Examples 
     --------
 
-    >>> from gofast.utils.baseutils import categorize_target 
+    >>> from gofast.utils.base_utils import categorize_target 
     >>> def binfunc(v): 
             if v < 3 : return 0 
             else : return 1 
@@ -3918,7 +4102,7 @@ def rename_labels_in (
 
     
 def _cattarget (ar , labels , order=None): 
-    """ A shadow function of :func:`gofast.utils.baseutils.cattarget`. 
+    """ A shadow function of :func:`gofast.utils.base_utils.cattarget`. 
     
     :param ar: array-like of numerical values 
     :param labels: int or list of int, 
@@ -4041,7 +4225,7 @@ def labels_validator(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.utils.baseutils import labels_validator
+    >>> from gofast.utils.base_utils import labels_validator
     >>> target = np.array([1, 2, 3, 4, 5])
     >>> labels_validator(target, [1, 2, 3])
     [1, 2, 3]
@@ -4083,7 +4267,7 @@ def generate_placeholders(
         the format "{n}", where n is the index of the placeholder.
         
     :Example:
-        >>> from gofast.utils.baseutils import generate_placeholders
+        >>> from gofast.utils.base_utils import generate_placeholders
         >>> generate_placeholders_for_iterable({'ohmS', 'lwi', 'power', 'id', 
         ...                                     'sfi', 'magnitude'})
         ['{0}', '{1}', '{2}', '{3}', '{4}', '{5}']
@@ -4176,7 +4360,7 @@ def find_intersection(
 
     Example
     -------
-    >>> from gofast.utils.baseutils import find_intersection_between_generics
+    >>> from gofast.utils.base_utils import find_intersection_between_generics
     >>> compute_intersection(
     ...     ['ohmS', 'lwi', 'power', 'id', 'sfi', 'magnitude'], 
     ...     {'ohmS', 'lwi', 'power'}
@@ -4333,7 +4517,7 @@ def control_existing_estimator(
 
     Example
     -------
-    >>> from gofast.utils.baseutils import control_existing_estimator
+    >>> from gofast.utils.base_utils import control_existing_estimator
     >>> test_est = control_existing_estimator('svm')
     >>> print(test_est)
     ('svc', 'SupportVectorClassifier')
@@ -4437,7 +4621,7 @@ def get_target(df, tname, inplace=True):
     Examples
     --------
     >>> from sklearn.datasets import load_iris
-    >>> from gofast.baseutils import get_target 
+    >>> from gofast.base_utils import get_target 
     >>> data = load_iris(as_frame=True).frame
     >>> targets, modified_df = get_target(data, 'target', inplace=False)
     >>> print(targets.head())
@@ -4503,7 +4687,7 @@ def binning_statistic(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.utils.baseutils import binning_statistic
+    >>> from gofast.utils.base_utils import binning_statistic
     >>> df = pd.DataFrame({
     ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C'],
     ...     'Value': [1, 2, 3, 4, 5, 6, 7]
@@ -4580,7 +4764,7 @@ def category_count(data,  *categorical_columns, error='raise'):
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.utils.baseutils import category_count
+    >>> from gofast.utils.base_utils import category_count
     >>> df = pd.DataFrame({
     ...     'Fruit': ['Apple', 'Banana', 'Apple', 'Cherry', 'Banana', 'Apple'],
     ...     'Color': ['Red', 'Yellow', 'Green', 'Red', 'Yellow', 'Green']
@@ -4660,7 +4844,7 @@ def soft_bin_stat(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.utils.baseutils import soft_bin_stat
+    >>> from gofast.utils.base_utils import soft_bin_stat
     >>> df = pd.DataFrame({
     ...     'Category': ['A', 'B', 'A', 'C', 'B', 'A', 'C'],
     ...     'Target': [1, 0, 1, 0, 1, 0, 1]
@@ -4734,7 +4918,7 @@ def reshape_to_dataframe(flattened_array, columns, error ='raise'):
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.utils.baseutils import reshape_to_dataframe
+    >>> from gofast.utils.base_utils import reshape_to_dataframe
     >>> data = np.array([1, 2, 3, 4, 5, 6])
     >>> print(reshape_to_dataframe(data, ['A', 'B', 'C']))  # DataFrame with 2 rows and 3 columns
     >>> print(reshape_to_dataframe(data, 'A'))  # Series with 6 elements
@@ -4796,7 +4980,7 @@ def save_figure(fig, filename=None, dpi=300, close=True, ax=None,
     --------
     >>> import matplotlib.pyplot as plt
     >>> import numpy as np
-    >>> from gofast.utils.baseutils import save_figure
+    >>> from gofast.utils.base_utils import save_figure
     >>> fig, ax = plt.subplots()
     >>> x = np.linspace(0, 10, 100)
     >>> y = np.sin(x)
@@ -4983,7 +5167,7 @@ def nan_to_mode(
     Examples
     --------
     >>> import numpy as np
-    >>> from gofast.utils.baseutils import nan_to_mode
+    >>> from gofast.utils.base_utils import nan_to_mode
 
     >>> arr = np.array([1, 2, 2, 3, np.nan, 4, np.nan, 2])
     >>> nan_to_mode(arr)
@@ -5033,142 +5217,6 @@ def nan_to_mode(
 
     return arr
 
-def normalizer(
-    *arrays: tuple[np.ndarray], 
-    method: str = '01', 
-    scaler: str = 'naive', 
-    allow_nan: bool = False, 
-    axis: Optional[int] = None) -> List[np.ndarray]:
-    """
-    Normalize given arrays using a specified method and scaler, optionally 
-    along a specified axis. 
-    
-    Handles non-numeric data and NaNs according to the parameters.
-
-    Parameters
-    ----------
-    arrays : tuple of np.ndarray
-        A tuple containing one or more arrays (either 1D or 2D) to be normalized.
-    method : str, default '01'
-        Specifies the normalization method to apply. Options include:
-        - '01' : Normalizes the data to the range [0, 1].
-        - 'zscore' : Uses Z-score normalization (standardization).
-        - 'sum' : Scales the data so that the sum is 1.
-        Note that the 'sum' method is not compatible with the 'sklearn' scaler.
-    scaler : str, default 'naive'
-        Specifies the type of scaling technique to use. Options include:
-        - 'naive' : Simple mathematical operations based on the method.
-        - 'sklearn' : Utilizes scikit-learn's MinMaxScaler or StandardScaler,
-          depending on the `method` specified.
-    allow_nan : bool, default False
-        Determines how NaN values should be handled. If False, the function 
-        will raise an error if NaN values are present. If True, NaNs will be 
-        replaced with zero or handled by an imputer,
-        depending on the context.
-    axis : int, optional
-        The axis along which to normalize the data. By default (None), the 
-        data is normalized based on all elements. If specified, normalization 
-        is done along the axis for 2D arrays:
-        - axis=0 : Normalize each column.
-        - axis=1 : Normalize each row.
-
-    Returns
-    -------
-    list of np.ndarray
-        A list of normalized arrays. If only one array is provided, a single 
-        normalized array is returned.
-
-    Raises
-    ------
-    ValueError
-        If `allow_nan` is False and NaNs are detected.
-        If an invalid normalization method or combination of scaler and method 
-        is specified.
-
-    Notes
-    -----
-    - The function internally converts pandas DataFrames and Series to numpy 
-      arrays for processing.
-    - Non-numeric data types within arrays are filtered out before normalization.
-    - It's important to consider the scale of values and distribution of data
-      when choosing a normalization method,
-      as each method can significantly affect the outcome and interpretation 
-      of results.
-
-    Examples
-    --------
-    >>> import numpy as np 
-    >>> from gofast.utils.base_utils import normalizer 
-    >>> arr = np.array([10, 20, 30, 40, 50])
-    >>> normalizer(arr, method='01', scaler='naive')
-    array([0. , 0.25, 0.5 , 0.75, 1. ])
-    
-    >>> arr2d = np.array([[1, 2], [3, 4]])
-    >>> normalizer(arr2d, method='zscore', axis=0)
-    array([[-1., -1.], [ 1.,  1.]])
-    """
-    from sklearn.preprocessing import MinMaxScaler, StandardScaler
-
-    def _normalize_array(arr, method, scaler):
-        arr = _nan_checker(arr, allow_nan = allow_nan )
-        if scaler in ['sklearn', 'scikit-learn']:
-            is_array_1d =False 
-            if method == 'sum':
-                raise ValueError("`sum` method is not valid with `scaler`='sklearn'.")
-            scaler_object = MinMaxScaler() if method == '01' else StandardScaler()
-            
-            if arr.ndim ==1: 
-                arr = ( 
-                    np.asarray(arr).reshape(-1, 0) if axis ==0 
-                    else np.asarray(arr).reshape(1, -1)  
-                    )
-                is_array_1d =True 
-            scaled = scaler_object.fit_transform(
-                arr if axis == 0 else arr.T).T if axis == 0 else\
-                scaler_object.fit_transform(arr.T).T
-            if is_array_1d: 
-                scaled = scaled.flatten() 
-        else:  # naive scaling
-            arr, name_or_columns, index  = pandas_manager(arr )
-            if axis is None:
-                arr_min = np.min(arr)
-                arr_max = np.max(arr)
-            else:
-                arr_min = np.min(arr, axis=axis, keepdims=True)
-                arr_max = np.max(arr, axis=axis, keepdims=True)
-
-            if method == '01':
-                scaled = (arr - arr_min) / (arr_max - arr_min)
-            elif method in [ 'z-score', 'zscore']:
-                mean = np.mean(arr, axis=axis, keepdims=True)
-                std = np.std(arr, axis=axis, keepdims=True)
-                scaled = (arr - mean) / std
-            elif method == 'sum':
-                sum_val = np.sum(arr, axis=axis, keepdims=True)
-                scaled = arr / sum_val
-            else:
-                raise ValueError(f"Unknown method '{method}'. Valid methods"
-                                 " are '01', 'zscore', and 'sum'.")
-                
-        # revert back to series or dataframe is given as it 
-        if name_or_columns is not None: 
-            scaled = pandas_manager(
-                scaled, todo='set', 
-                name_or_columns=name_or_columns, 
-                index= index 
-                )
-
-        return scaled
-    # Normalize each array
-    normalized_arrays = []
-    for arr in arrays:
-        if not hasattr(arr, '__array__'):
-            arr = np.asarray(arr)
-        arr = _handle_non_numeric(arr)
-        normalized = _normalize_array(arr, method, scaler)
-        normalized_arrays.append(normalized)
-    
-    return normalized_arrays[0] if len(normalized_arrays) == 1 else normalized_arrays
 
 def smooth1d(
     ar,
@@ -5226,7 +5274,7 @@ def smooth1d(
     Examples 
     ---------
     >>> import numpy as np 
-    >>> from gofast.utils.baseutils  import smooth1d 
+    >>> from gofast.utils.base_utils  import smooth1d 
     >>> # add Guassian Noise 
     >>> np.random.seed (42)
     >>> ar = np.random.randn (20 ) * 20 + np.random.normal ( 20 )
@@ -5360,7 +5408,7 @@ def smoothing (
     Examples 
     ---------
     >>> import numpy as np 
-    >>> from gofast.utils.baseutils  import smoothing
+    >>> from gofast.utils.base_utils  import smoothing
     >>> # add Guassian Noises 
     >>> np.random.seed (42)
     >>> ar = np.random.randn (20, 7 ) * 20 + np.random.normal ( 20, 7 )
@@ -5631,7 +5679,7 @@ def interpolate_data(
     --------
     >>> import numpy as np
     >>> import pandas as pd 
-    >>> from gofast.utils.baseutils import interpolate_data
+    >>> from gofast.utils.base_utils import interpolate_data
     >>> s = pd.Series([1, np.nan, 3, 4, np.nan, 6])
     >>> interpolate_data(s, view=True)
     0    1.0
@@ -5728,129 +5776,144 @@ def interpolate_data(
     
     return result
 
-def denormalizer(
-    data: Union[np.ndarray, pd.Series, pd.DataFrame], 
-    min_value: float, max_value: float, 
+def normalizer(
+    *arrays: tuple[np.ndarray], 
     method: str = '01', 
-    std_dev_factor: float = 3
-    ) -> Union[np.ndarray, pd.Series, pd.DataFrame]:
+    scaler: str = 'naive', 
+    allow_nan: bool = False, 
+    axis: Optional[int] = None) -> List[np.ndarray]:
     """
-    Denormalizes data from a normalized scale back to its original scale.
+    Normalize given arrays using a specified method and scaler, optionally 
+    along a specified axis. 
+    
+    Handles non-numeric data and NaNs according to the parameters.
 
     Parameters
     ----------
-    data : Union[np.ndarray, pd.Series, pd.DataFrame]
-        The data to be denormalized, can be a NumPy array, 
-        pandas Series, or pandas DataFrame.
-    min_value : float
-        The minimum value of the original scale before normalization.
-    max_value : float
-        The maximum value of the original scale before normalization.
-    method : str, optional
-        The normalization method used. Supported methods are:
-        - '01' : Min-Max normalization to range [0, 1].
-        - 'zscore' : Standard score normalization (zero mean, unit variance).
-        - 'sum' : Normalization by sum of elements.
-        Default is '01'.
-    std_dev_factor : float, optional
-        The factor determining the range for standard deviation. 
-        This is used only for 'zscore' method. Default is 3.
+    arrays : tuple of np.ndarray
+        A tuple containing one or more arrays (either 1D or 2D) to be normalized.
+    method : str, default '01'
+        Specifies the normalization method to apply. Options include:
+        - '01' : Normalizes the data to the range [0, 1].
+        - 'zscore' : Uses Z-score normalization (standardization).
+        - 'sum' : Scales the data so that the sum is 1.
+        Note that the 'sum' method is not compatible with the 'sklearn' scaler.
+    scaler : str, default 'naive'
+        Specifies the type of scaling technique to use. Options include:
+        - 'naive' : Simple mathematical operations based on the method.
+        - 'sklearn' : Utilizes scikit-learn's MinMaxScaler or StandardScaler,
+          depending on the `method` specified.
+    allow_nan : bool, default False
+        Determines how NaN values should be handled. If False, the function 
+        will raise an error if NaN values are present. If True, NaNs will be 
+        replaced with zero or handled by an imputer,
+        depending on the context.
+    axis : int, optional
+        The axis along which to normalize the data. By default (None), the 
+        data is normalized based on all elements. If specified, normalization 
+        is done along the axis for 2D arrays:
+        - axis=0 : Normalize each column.
+        - axis=1 : Normalize each row.
 
     Returns
     -------
-    Union[np.ndarray, pd.Series, pd.DataFrame]
-        The denormalized data, converted back to its original scale.
+    list of np.ndarray
+        A list of normalized arrays. If only one array is provided, a single 
+        normalized array is returned.
 
     Raises
     ------
     ValueError
-        If an unsupported normalization method is provided.
+        If `allow_nan` is False and NaNs are detected.
+        If an invalid normalization method or combination of scaler and method 
+        is specified.
 
     Notes
     -----
-    The denormalization process depends on the normalization method:
-    
-    - For Min-Max normalization ('01'):
-     .. math:: 
-         
-         `denormalized\_data = data \cdot (max\_value - min\_value) + min\_value`
-    
-    - For z-score normalization ('zscore'):
-      Assuming the original data follows a normal distribution:
-          
-      .. math:: 
-          `denormalized\_data = data \cdot std\_dev + mean`
-      where 
-      
-      .. math::
-          `mean = \frac{min\_value + max\_value}{2}`
-      and 
-      
-      .. math::
-          `std\_dev = \frac{max\_value - min\_value}{2 \cdot std\_dev\_factor}`
-    
-    - For sum normalization ('sum'):
-        
-      .. math::
-          
-          `denormalized\_data = data \cdot \frac{max\_value - min\_value}{\sum(data)} + min\_value`
+    - The function internally converts pandas DataFrames and Series to numpy 
+      arrays for processing.
+    - Non-numeric data types within arrays are filtered out before normalization.
+    - It's important to consider the scale of values and distribution of data
+      when choosing a normalization method,
+      as each method can significantly affect the outcome and interpretation 
+      of results.
 
     Examples
     --------
-    >>> import numpy as np
-    >>> import pandas as pd
-    >>> from gofast.utils.baseutils import denormalizer 
+    >>> import numpy as np 
+    >>> from gofast.utils.base_utils import normalizer 
+    >>> arr = np.array([10, 20, 30, 40, 50])
+    >>> normalizer(arr, method='01', scaler='naive')
+    array([0. , 0.25, 0.5 , 0.75, 1. ])
     
-    >>> normalized_data = np.array([0, 0.5, 1])
-    >>> min_value = 10
-    >>> max_value = 20
-    >>> denormalized_data = denormalizer(normalized_data, min_value, max_value)
-    >>> print(denormalized_data)
-    [10. 15. 20.]
-
-    >>> normalized_series = pd.Series([0, 0.5, 1])
-    >>> denormalized_series = denormalizer(normalized_series, min_value, max_value)
-    >>> print(denormalized_series)
-    0    10.0
-    1    15.0
-    2    20.0
-    dtype: float64
-
-    >>> normalized_df = pd.DataFrame([[0, 0.5], [1, 0.2]])
-    >>> denormalized_df = denormalizer(normalized_df, min_value, max_value)
-    >>> print(denormalized_df)
-         0     1
-    0  10.0  15.0
-    1  20.0  12.0
+    >>> arr2d = np.array([[1, 2], [3, 4]])
+    >>> normalizer(arr2d, method='zscore', axis=0)
+    array([[-1., -1.], [ 1.,  1.]])
     """
+    from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
-    if isinstance(data, (pd.Series, pd.DataFrame)):
-        data_values = data.to_numpy()
-        is_pandas = True
-    else:
-        data_values = np.asarray(data)
-        is_pandas = False
+    def _normalize_array(arr, method, scaler):
+        arr = _nan_checker(arr, allow_nan = allow_nan )
+        if scaler in ['sklearn', 'scikit-learn']:
+            is_array_1d =False 
+            if method == 'sum':
+                raise ValueError(
+                    "`sum` method is not valid with `scaler`='sklearn'.")
+            scaler_object = MinMaxScaler() if method == '01' else StandardScaler()
+            
+            if arr.ndim ==1: 
+                arr = ( 
+                    np.asarray(arr).reshape(-1, 0) if axis ==0 
+                    else np.asarray(arr).reshape(1, -1)  
+                    )
+                is_array_1d =True 
+            scaled = scaler_object.fit_transform(
+                arr if axis == 0 else arr.T).T if axis == 0 else\
+                scaler_object.fit_transform(arr.T).T
+            if is_array_1d: 
+                scaled = scaled.flatten() 
+        else:  # naive scaling
+            arr, name_or_columns, index  = pandas_manager(arr )
+            if axis is None:
+                arr_min = np.min(arr)
+                arr_max = np.max(arr)
+            else:
+                arr_min = np.min(arr, axis=axis, keepdims=True)
+                arr_max = np.max(arr, axis=axis, keepdims=True)
 
-    if method == '01':
-        denormalized_data = data_values * (max_value - min_value) + min_value
-    elif method == 'zscore':
-        mean = (min_value + max_value) / 2
-        # Adjusting for specified standard deviation factor
-        std_dev = (max_value - min_value) /  (2 * std_dev_factor)  
-        denormalized_data = data_values * std_dev + mean
-    elif method == 'sum':
-        total = np.sum(data_values)
-        denormalized_data = data_values * (max_value - min_value) / total + min_value
-    else:
-        raise ValueError(f"Unsupported normalization method: {method}")
+            if method == '01':
+                scaled = (arr - arr_min) / (arr_max - arr_min)
+            elif method in [ 'z-score', 'zscore']:
+                mean = np.mean(arr, axis=axis, keepdims=True)
+                std = np.std(arr, axis=axis, keepdims=True)
+                scaled = (arr - mean) / std
+            elif method == 'sum':
+                sum_val = np.sum(arr, axis=axis, keepdims=True)
+                scaled = arr / sum_val
+            else:
+                raise ValueError(f"Unknown method '{method}'. Valid methods"
+                                 " are '01', 'zscore', and 'sum'.")
+                
+        # revert back to series or dataframe is given as it 
+        if name_or_columns is not None: 
+            scaled = pandas_manager(
+                scaled, todo='set', 
+                name_or_columns=name_or_columns, 
+                index= index 
+                )
 
-    if is_pandas:
-        if isinstance(data, pd.Series):
-            return pd.Series(denormalized_data, index=data.index, name=data.name)
-        elif isinstance(data, pd.DataFrame):
-            return pd.DataFrame(denormalized_data, index=data.index, columns=data.columns)
-    else:
-        return denormalized_data
+        return scaled
+    # Normalize each array
+    normalized_arrays = []
+    for arr in arrays:
+        if not hasattr(arr, '__array__'):
+            arr = np.asarray(arr)
+        arr = _handle_non_numeric(arr)
+        normalized = _normalize_array(arr, method, scaler)
+        normalized_arrays.append(normalized)
+    
+    return normalized_arrays[0] if len(
+        normalized_arrays) == 1 else normalized_arrays   
 
 def _handle_get_action(
         data: Any, action: str, error: str) -> Union[bool, Tuple[np.ndarray, Any]]:
@@ -5953,7 +6016,7 @@ def pandas_manager(
     --------
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from gofast.utils.baseutils import pandas_manager
+    >>> from gofast.utils.base_utils import pandas_manager
 
     Get action with pandas DataFrame:
     >>> df = pd.DataFrame([[1, 2], [3, 4]], columns=['A', 'B'])
@@ -6058,7 +6121,7 @@ def make_df(
 
     Examples
     --------
-    >>> from gofast.utils.baseutils import make_df
+    >>> from gofast.utils.base_utils import make_df
     >>> X = np.random.rand(90, 5)
     >>> y = np.random.rand(100)
     >>> df = make_df(X, y, coerce=True, error='ignore')
@@ -6210,7 +6273,7 @@ def update_df(
 
     Examples
     --------
-    >>> from gofast.utils.baseutils import update_df
+    >>> from gofast.utils.base_utils import update_df
 
     # Example 1: Return only common columns
     >>> updated_common = update_df(old_df, new_df, return_common_columns=True)
@@ -6312,8 +6375,78 @@ def update_df(
     
     return updated_df
 
+def validate_target_in(df, target, error='raise', verbose=0): 
+    """
+    Validate and process the target variable, ensuring it is consistent
+    with the features in the DataFrame.
+    
+    Parameters:
+    - df: pandas DataFrame
+        The DataFrame containing the features (X) and possibly the target column.
+    - target: str, pandas Series, or pandas DataFrame
+        The target variable to validate and process.
+    - error: {'raise', 'warn', 'ignore'}, optional (default: 'raise')
+        Defines behavior if there are issues with target validation.
+        - 'raise': Raise an error if validation fails.
+        - 'warn': Issue a warning and continue.
+        - 'ignore': Ignore any issues.
+    - verbose: int, optional (default: 0)
+        Verbosity level for logging.
+        - 0: No output.
+        - 1: Basic info.
+        - 2: Detailed info.
 
+    Returns:
+    - target: pandas Series
+        The processed target variable.
+    - df: pandas DataFrame
+        The DataFrame containing the features and target.
+    """
+    is_frame(
+        df, df_only=True, 
+        raise_exception =True,
+        objname="Data 'df'" 
+    )
+    # If target is a string, try to extract
+    # the corresponding column from the DataFrame
+    if isinstance(target, (str, list, tuple)):
+        if verbose >= 1:
+            print(f"Target is a string: Extracting '{target}'"
+                  " column from the DataFrame.")
+        target, df = extract_target(
+            df, target_names=target, 
+            return_y_X=True
+        )
+        
+    # If target is a DataFrame, attempt to convert it 
+    # to a pandas Series (if it has a single column)
+    if isinstance(target, pd.DataFrame):
+        if target.shape[1] == 1:
+            if verbose >= 1:
+                print("Target is a DataFrame with a single column."
+                      " Converting to Series.")
+            target = to_series(target)
+        else:
+            if error == 'raise':
+                raise ValueError("If 'target' is a DataFrame, it"
+                                 " must have a single column.")
+            elif error == 'warn':
+                warnings.warn("Target DataFrame has more than one column."
+                      " Using the first column.")
+                target = target.iloc[:, 0]  # Use the first column as the target
+            else:
+                # Default behavior: use the" first column if there are multiple columns
+                target = target.iloc[:, 0]  
 
+    # If target is a pandas Series, just use it as-is
+    if isinstance(target, pd.Series):
+        if verbose >= 1:
+            print("Target is a pandas Series. Proceeding with it directly.")
+    
+    # Check that the length of the target matches the length of the DataFrame
+    check_consistent_length(df, target)
+    
+    return target, df
 
         
         

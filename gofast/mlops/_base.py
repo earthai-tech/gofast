@@ -19,133 +19,106 @@ from ..utils.validator import check_is_fitted, check_is_runned
 
 logger = gofastlog.get_gofast_logger(__name__)
 
+
 class BaseInference(BaseLearner):
     """
-    Abstract base class for inference processes in gofast.mlops. This class
-    provides a standardized framework for efficient inference workflows
-    across different implementations.
-
+    Abstract base class for inference processes in gofast.mlops. Provides a
+    standardized framework for efficient inference workflows across different
+    implementations.
+    
+    Copy
     Parameters
     ----------
-    model : object
-        The machine learning model to use for inference. It must implement
-        a `predict` method or be callable to perform inference.
-
-    batch_size : int, optional, default=32
-        Number of samples to process in a single batch during batch
-        inference. A higher batch size can improve throughput but may
-        increase memory usage.
-
-    max_workers : int, optional, default=4
-        Number of parallel workers used in inference tasks. This parameter
-        controls the degree of parallelism and should be optimized based on
-        system resources.
-
-    timeout : Optional[float], default=None
-        Specifies a timeout for each inference task in seconds. If set to
-        `None`, no timeout is enforced, potentially leading to indefinite
-        waits if a task is blocked.
-
-    optimize_memory : bool, default=True
-        Enables memory optimization during inference if `True`. This setting
-        is beneficial for large-scale inference tasks where memory usage
-        needs to be minimized.
-
-    gpu_enabled : bool, default=False
-        Enables GPU acceleration for inference tasks. This option requires
-        a compatible environment and framework support for GPU usage.
-
-    enable_padding : bool, default=False
-        If `True`, ensures that input data batches are padded to match
-        `batch_size`, which can be beneficial for certain models that
-        perform better with consistent input sizes.
-
-    log_level : {'INFO', 'DEBUG', 'WARNING', 'ERROR', 'CRITICAL'}, default='INFO'
-        Controls the verbosity of the logging output. Use higher levels,
-        such as 'DEBUG', for more detailed logs useful in debugging.
-
+    batch_size : int, optional (default=32)
+        Number of samples to process in a single batch during inference. 
+        Higher values improve throughput but may increase memory usage.
+    max_workers : int, optional (default=4)
+        Maximum number of parallel workers for inference tasks. Optimize
+        based on available system resources.
+    timeout : Optional[float], optional (default=None)
+        Timeout in seconds for each inference task. None indicates no timeout.
+    optimize_memory : bool, optional (default=True)
+        Enable memory optimization during inference for large-scale tasks.
+    gpu_enabled : bool, optional (default=False)
+        Enable GPU acceleration if supported by the environment.
+    enable_padding : bool, optional (default=False)
+        Pad input batches to match `batch_size` for consistent model inputs.
+    log_level : {'INFO', 'DEBUG', 'WARNING', 'ERROR', 'CRITICAL'}, 
+                optional (default='INFO')
+        Control logging verbosity level.
+    
     Attributes
     ----------
-    model_ : object
-        The fitted model used for inference. This attribute holds the
-        reference to the model instance used across all inference
-        implementations.
-
+    batch_size : int
+        Configured batch size for inference processing.
+    max_workers : int
+        Maximum allowed parallel workers.
+    timeout : Optional[float]
+        Task timeout setting.
+    optimize_memory : bool
+        Memory optimization status.
+    gpu_enabled : bool
+        GPU acceleration status.
+    enable_padding : bool
+        Input padding configuration.
+    log_level : str
+        Current logging level.
+    
     Methods
     -------
-    run(data)
-        Abstract method to be implemented by subclasses for performing
-        inference on the given data.
-
+    run(model, data, **run_kw)
+        Perform inference using the provided model and data. Must be
+        implemented by subclasses.
+    
     Notes
     -----
-    This base class establishes a consistent interface for all inference
-    processes in gofast.mlops. It enforces validation of parameters using
-    the `validate_params` decorator from scikit-learn [1]_. All derived
-    classes should implement the `run` method to specify the exact behavior
-    for inference, e.g., batch or streaming.
-
-
-    Inference is the process of making predictions :math:`\\hat{y}` on new
-    data :math:`X` based on the model learned from training data. Let
-    :math:`f(\\theta, X)` represent the model's prediction function where
-    :math:`\\theta` are the model parameters:
-
+    Implements parameter validation using scikit-learn's `validate_params`.
+    Derived classes must override `run()` with inference logic. The method
+    signature for run should be:
+    
     .. math::
         \\hat{y} = f(\\theta, X)
-
-    The function `run` must define how :math:`f` is applied, including
-    handling batch sizes, parallelism, and memory optimizations as
-    specified.
-
+    
+    where :math:`f` is the model's prediction function, :math:`\\theta` are
+    model parameters, and :math:`X` is input data.
+    
     Examples
     --------
-    >>> from gofast.mlops._base import BaseInference
+    >>> from gofast.mlops import BaseInference
     >>> class MyInference(BaseInference):
-    ...     def run(self, data):
-    ...         return self.model.predict(data)
-    >>> # Example usage with a mock model
-    >>> mock_model = lambda x: x * 2  # Mock model
-    >>> inference = MyInference(mock_model, batch_size=16)
-    >>> inference.run([1, 2, 3])  # Outputs: [2, 4, 6]
-
+    ...     def run(self, model, data):
+    ...         return model.predict(data)
+    >>> mock_model = lambda x: [xi * 2 for xi in x]
+    >>> inference = MyInference(batch_size=16)
+    >>> inference.run(mock_model, [1, 2, 3])
+    [2, 4, 6]
+    
     See Also
     --------
-    BatchInference : Optimizes batch processing for inference tasks.
-    StreamingInference : Efficiently handles streaming data inference.
-    MultiModelServing : Manages inference across multiple models.
-    InferenceParallelizer : Implements parallelized inference for improved
-        performance.
-
-    References
-    ----------
-    .. [1] Pedregosa, F., et al. (2011). Scikit-learn: Machine Learning in
-           Python. Journal of Machine Learning Research, 12, 2825-2830.
+    BatchInference : Optimized batch processing implementation.
+    StreamingInference : Real-time streaming data handling.
     """
 
     @validate_params({
-        'model':         [HasMethods(['predict']), callable],
-        'batch_size':    [Interval(Integral, 1, None, closed='left')],
-        'max_workers':   [Interval(Integral, 1, None, closed='left')],
-        'timeout':       [Interval(Real, 0, None, closed='left'), None],
-        'optimize_memory': [bool],
-        'gpu_enabled':   [bool],
-        'enable_padding': [bool],
-        'log_level':     [StrOptions({'INFO', 'DEBUG', 'WARNING', 'ERROR', 'CRITICAL'})]
-    })
+        "batch_size": [Interval(Integral, 1, None, closed="left")],
+        "max_workers": [Interval(Integral, 1, None, closed="left")],
+        "timeout": [Interval(Real, 0, None, closed="left"), None],
+        "optimize_memory": [bool],
+        "gpu_enabled": [bool],
+        "enable_padding": [bool],
+        "log_level": [StrOptions(
+            {'INFO', 'DEBUG', 'WARNING', 'ERROR', 'CRITICAL'})]
+    }, prefer_skip_nested_validation=True)
     def __init__(
-        self,
-        model: Any,
+        self, 
         batch_size: int = 32,
         max_workers: int = 4,
         timeout: Optional[float] = None,
         optimize_memory: bool = True,
         gpu_enabled: bool = False,
         enable_padding: bool = False,
-        log_level: str = 'INFO'
+        log_level: str = "INFO"
     ):
-
-        self.model = model
         self.batch_size = batch_size
         self.max_workers = max_workers
         self.timeout = timeout
@@ -154,24 +127,37 @@ class BaseInference(BaseLearner):
         self.enable_padding = enable_padding
         self.log_level = log_level
         logger.setLevel(log_level)
-
+    
     @abstractmethod
-    def run(self, data: Any) -> Any:
+    def run(self, model: Any, data: Any, **run_kw: Dict) -> Any:
         """
-        Perform inference on the provided data.
-
+        Execute inference using the provided model and data.
+    
         Parameters
         ----------
+        model : object
+            Machine learning model with prediction capabilities. Must
+            implement `predict` method or be callable.
         data : array-like
-            Input data for performing inference.
-
+            Input data for inference processing.
+        **run_kw : dict
+            Additional keyword arguments for inference configuration.
+    
         Returns
         -------
         Any
-            Result of the inference, which varies depending on the
-            specific implementation in derived classes.
+            Inference results, typically array-like predictions.
+    
+        Notes
+        -----
+        Implementations should handle:
+        - Batch processing with `batch_size`
+        - Parallel execution with `max_workers`
+        - Memory optimization strategies
+        - GPU utilization if enabled
         """
         pass
+
 
 class PipelineOrchestrator(BaseLearner):
     """

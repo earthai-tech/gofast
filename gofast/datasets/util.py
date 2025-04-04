@@ -22,7 +22,7 @@ from ..api.formatter import DescriptionFormatter
 from ..api.structures import Boxspace
 from ..compat.sklearn import train_test_split
 from ..core.checks import is_in_if, is_iterable, validate_ratio
-from ..core.handlers import add_noises_to, generate_id 
+from ..core.handlers import add_noises_to, generate_id, columns_manager 
 from ..core.utils import smart_format
 from .metadata import SimulationMetadata
 
@@ -52,6 +52,7 @@ __all__ = [
     'rename_data_columns',
     'select_location_for_mineral',
     'validate_noise_level',
+    'get_random_soil_and_geology'
 ]
 
 
@@ -1956,166 +1957,256 @@ def generate_ore_infos(countries=None, error='warn'):
     return dict(country_infos)
 
 def manage_data(
-    data, 
-    as_frame= False, 
-    return_X_y= False, 
-    split_X_y= False, 
-    target_names= None, 
-    test_size= 0.3, 
-    noise= None, 
-    seed= None, 
+    data,
+    as_frame=False,
+    return_X_y=False,
+    split_X_y=False,
+    target_names=None,
+    test_size=0.3,
+    noise=None,
+    ex_columns=None,
+    seed=None,
     **kwargs
 ):
-
-    """ Manage the data and setup into an Object 
-    
-    Parameters
-    -----------
-    data: Pd.DataFrame 
-        The dataset to manage 
-
-    as_frame : bool, default=False
-        If True, the data is a pandas DataFrame including columns with
-        appropriate dtypes (numeric). The target is
-        a pandas DataFrame or Series depending on the number of target columns.
-        If `return_X_y` is True, then (`data`, `target`) will be pandas
-        DataFrames or Series as described below.
-
-    return_X_y : bool, default=False
-        If True, returns ``(data, target)`` instead of a Bowlspace object. See
-        below for more information about the `data` and `target` object.
-        
-    split_X_y: bool, default=False,
-        If True, the data is splitted to hold the training set (X, y)  and the 
-        testing set (Xt, yt) with the according to the test size ratio. 
-        
-    target_names: str, optional 
-        the name of the target to retreive. If ``None`` the default target columns 
-        are collected and may be a multioutput `y`. For a singular classification 
-        or regression problem, it is recommended to indicate the name of the target 
-        that is needed for the learning task. 
-        
-    test_size: float, default is {{.3}} i.e. 30% (X, y)
-        The ratio to split the data into training (X, y)  and testing (Xt, yt) set 
-        respectively
-        . 
-    noise : float, Optional
-        The percentage of values to be replaced with NaN in each column. 
-        This must be a number between 0 and 1. Default is None.
-        
-    seed: int, array-like, BitGenerator, np.random.RandomState, \
-        np.random.Generator, optional
-       If int, array-like, or BitGenerator, seed for random number generator. 
-       If np.random.RandomState or np.random.Generator, use as given.
-       
-    Returns 
-    -------
-    data : :class:`~gofast.utils.box.Boxspace` object
-        Dictionary-like object, with the following attributes.
-        data : {ndarray, dataframe} 
-            The data matrix. If ``as_frame=True``, `data` will be a pandas DataFrame.
-        target: {ndarray, Series} 
-            The classification target. If `as_frame=True`, `target` will be
-            a pandas Series.
-        feature_names: list
-            The names of the dataset columns.
-        target_names: list
-            The names of target classes.
-        frame: DataFrame 
-            Only present when `as_frame=True`. DataFrame with `data` and
-            `target`.
-
-    data, target: tuple if `return_X_y` is ``True``
-        A tuple of two ndarray. The first containing a 2D array of shape
-        (n_samples, n_features) with each row representing one sample and
-        each column representing the features. The second ndarray of shape
-        (n_samples,) containing the target samples.
-
-    X, Xt, y, yt: Tuple if `split_X_y` is ``True`` 
-        A tuple of two ndarray (X, Xt). The first containing a 2D array of:
-            
-        .. math:: 
-            
-            \\text{shape}(X, y) =  1-  \\text{test_ratio} *\
-                (n_{samples}, n_{features}) *100
-            
-            \\text{shape}(Xt, yt)= \\text{test_ratio} * \
-                (n_{samples}, n_{features}) *100
-        
-        where each row representing one sample and each column representing the 
-        features. The second ndarray of shape(n_samples,) containing the target 
-        samples.
-    
     """
-    # Ensure the correct data types for the parameters
+    Manage and prepare a dataset, applying optional
+    noise and splitting features and target.
+
+    This function processes the input ``data`` based on
+    user preferences such as returning a Frame, returning
+    features and target separately, or splitting into
+    training and testing sets. It injects random missing
+    values at `noise` proportion in each column
+    (excluding ``ex_columns``) via the method
+    `add_noises_to` [1]_. By default, it returns
+    a Boxspace-like object containing structured
+    information about the dataset unless `return_X_y`
+    or `split_X_y` is used.
+
+    The training vs. testing split occurs with ratio
+    ``test_size``:
+
+    .. math::
+       n_{\\text{train}} = (1 - \\text{test\\_size})
+       \\cdot n_{\\text{samples}}.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The dataset to manage. Must be in a format
+        compatible with typical numeric or categorical
+        operations.
+    as_frame : bool, default False
+        If ``True``, keep `<data>` and `<target>` as
+        pandas objects. If ``False``, they are converted
+        to NumPy arrays.
+    return_X_y : bool, default False
+        If ``True``, returns a tuple ``(data, target)``.
+        If combined with `split_X_y`, returns
+        training and testing splits.
+    split_X_y : bool, default False
+        If ``True``, split the data into training
+        `(X, y)` and testing `(Xt, yt)` according to
+        ``test_size``. Automatically sets `return_X_y`
+        to True.
+    target_names : str or list of str, optional
+        One or more target column names in the
+        original `data`. If multiple are given,
+        they can represent a multioutput target.
+    test_size : float, default 0.3
+        The proportion of data used for the test split.
+        Must be between 0 and 1.
+    noise : float, optional
+        Percentage of each column's values replaced
+        with NaN. Must be in :math:`[0, 1]`.
+        If ``None``, no missing values are introduced.
+    ex_columns : str or list of str, optional
+        Columns excluded from noise injection.
+    seed : int, array-like, BitGenerator,
+           np.random.RandomState, or
+           np.random.Generator, optional
+        Seed controlling reproducibility for random
+        processes such as noise injection and
+        splitting.
+    **kwargs : dict
+        Additional keyword arguments passed to
+        the returned `Boxspace` if
+        `<as_frame>` is False.
+
+    Returns
+    -------
+    Boxspace or (data, target) or split
+        If `return_X_y` is False, returns a
+        `Boxspace` containing:
+          - `data` and `target`
+          - `feature_names` and `<target_names>`
+          - `frame` if `as_frame` is True
+        If `return_X_y` is True, returns
+        ``(data, y)`` as arrays or frames, unless
+        `split_X_y` is also True, in which case
+        the function returns
+        ``(X, Xt, y, yt)``.
+
+    Helpers
+    -------
+    is_iterable
+        Checks if a parameter is an iterable object.
+    is_in_if
+        Compares and filters out target columns from
+        a list.
+    add_noises_to
+        Injects missing values in the data columns
+        based on `<noise>`.
+    train_test_split
+        Splits the features and target into training
+        and testing sets.
+    reorder_columns
+        Adjusts column positions in the DataFrame.
+    Boxspace
+        A dictionary-like container for numeric data
+        and metadata.
+
+    Notes
+    -----
+    - Columns specified by `<ex_columns>` are not
+      subjected to noise injection.
+    - The parameter `split_X_y` automatically
+      implies `return_X_y`.
+    - The function manipulates data in-place if
+      possible but returns a new object or tuple
+      as specified by user parameters.
+
+    Examples
+    --------
+    >>> from gofast.datasets.util import manage_data
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'feature1': [1, 2, 3],
+    ...     'feature2': [4, 5, 6],
+    ...     'label': [0, 1, 0]
+    ... })
+    >>> # Return as a Boxspace without splitting
+    >>> box_obj = manage_data(data=df.copy(),
+    ...                      target_names='label',
+    ...                      as_frame=False)
+    >>> # Now box_obj.frame has the entire dataset
+
+    >>> # Return X, y as arrays
+    >>> X, y = manage_data(data=df.copy(),
+    ...                   target_names='label',
+    ...                   return_X_y=True)
+
+    See Also
+    --------
+    `add_noises_to` : Replace a fraction of values
+                      with missing data.
+    `train_test_split` : Utility for train/test
+                         partitioning.
+    `Boxspace` : Standard container with numeric data,
+                 target, and metadata.
+
+    References
+    ----------
+    .. [1] McKinney, W. "Data Wrangling with Pandas,"
+           PyData, 2015.
+    """
+    # Ensure the correct data types for the parameters.
     as_frame, return_X_y, split_X_y = map(
-        lambda x: bool(x), [as_frame, return_X_y, split_X_y]
+        lambda x: bool(x),
+        [as_frame, return_X_y, split_X_y]
     )
     test_size = float(test_size)
-   
+
+    # Convert 'seed' to int if it is specified.
     if seed is not None:
         seed = int(seed)
-    
-    if target_names: 
-        target_names = is_iterable (
-            target_names, exclude_string=True,transform=True )
+
+    # Process 'target_names' to ensure it is a list.
+    if target_names:
+        target_names = is_iterable(
+            target_names,
+            exclude_string=True,
+            transform=True
+        )
+
+    # Copy the input DataFrame to avoid modifying it.
     frame = data.copy()
 
+    # Identify which columns are features vs. targets.
     feature_names = (
-        is_in_if(list( frame.columns), target_names, return_diff =True )
-        if target_names else list(frame.columns )
+        is_in_if(
+            list(frame.columns),
+            target_names,
+            return_diff=True
+        )
+        if target_names else
+        list(frame.columns)
     )
     y = None
-    
-    if split_X_y:
-        # set to True to get y 
-        return_X_y =True 
- 
-    if return_X_y:
-        y = data [target_names].squeeze ()  
-        data.drop( columns = target_names, inplace =True )
-        
-    # # Apply noises: Noises only in the data not in target
-    # add_gaussian_noise=False 
-    # noise = validate_noise(noise )
-    
-    # if noise=='gaussian': 
-    #     add_gaussian_noise=True 
-    #     #Small value of noise. Do nothing when gaussian noises 
-    #     # is applied, just to skip value error. 
-    #     noise =.1 
-        
-    data = add_noises_to(
-        data, noise=noise, seed=seed)
 
+    # If split_X_y, always set return_X_y to True.
+    if split_X_y:
+        return_X_y = True
+
+    # Add random missing values if noise is provided.
+    frame[feature_names] = add_noises_to(
+        frame[feature_names],
+        noise=noise,
+        seed=seed,
+        ex_columns=ex_columns
+    )
+
+    # If returning X,y, separate them from the frame.
+    if return_X_y:
+        y = data[target_names].squeeze()
+        data.drop(
+            columns=target_names,
+            inplace=True
+        )
+
+    # Convert DataFrame to numpy arrays if needed.
     if not as_frame:
         data = np.asarray(data)
         y = np.squeeze(np.asarray(y))
-    
+
+    # Split into train/test if requested.
     if split_X_y:
-        return train_test_split(data, y, test_size=test_size, random_state=seed)
-    
+        return train_test_split(
+            data,
+            y,
+            test_size=test_size,
+            random_state=seed
+        )
+
+    # If only returning X,y, do so now.
     if return_X_y:
         return data, y
 
-    frame[feature_names] = add_noises_to(
-        frame[feature_names], 
-        noise=noise,
-        seed=seed, 
+    # Otherwise, reorder columns if needed.
+    if target_names:
+        from ..utils.generic_utils import reorder_columns
+        frame = reorder_columns(
+            frame,
+            target_names,
+            pos='end'
         )
 
+    # Return a DataFrame if requested.
     if as_frame:
         return frame
-    
+
+    # Otherwise, return a Boxspace object with
+    # data and metadata.
     return Boxspace(
-        data=data,
-        target=frame[target_names].values if target_names else None,
+        data=frame[feature_names].values,
+        target=frame[target_names].values
+        if target_names else None,
         frame=frame,
-        target_names=[target_names] if target_names else [],
+        target_names=[target_names]
+        if target_names else [],
         feature_names=feature_names,
         **kwargs
     )
-
 
 def get_item_from ( spec , /,  default_items, default_number = 7 ): 
     """ Accept either interger or a list. 
@@ -3023,7 +3114,168 @@ def fetch_simulation_metadata(simulation_name, titles=None):
     
     return formatted_dataset_descr, formatted_feature_descr
     
+def get_random_soil_and_geology(
+    *,
+    soil_types=None,
+    geology_types=None,
+    return_types='both',
+    n=None,
+    seed=None
+):
+    """
+    Retrieve random soil and geology types for demonstration
+    and testing.
     
+    This function draws from a predefined or user-supplied
+    list of soil and geology types to return single or
+    multiple samples. It employs the `sample_list` method
+    internally to uniformly select from the respective
+    lists of soil or geology types, according to:
     
+    .. math::
+       P(x) = \\frac{1}{|X|},
+    
+    where :math:`|X|` is the cardinality of the chosen list.
+    The returned types facilitate quick prototyping and
+    simulation of geological data [1]_.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input DataFrame containing the positive samples
+        (events). Must include both the target column
+        and the specified spatial columns.
+    soil_types : list, optional
+        Custom list of soil types. If ``None``,
+        the default ``SOIL_TYPES`` is used.
+    geology_types : list, optional
+        Custom list of geology types. If ``None``,
+        the default ``GEOLOGY_TYPES`` is used.
+    return_types : str, default 'both'
+        Controls which type(s) of data to return:
+        `<soil>` returns only soil, `<geo>` or `<geology>`
+        returns only geology, and `<both>` returns both.
+    n : int, optional
+        Number of samples to draw for each category.
+        If ``None``, returns a single sample for
+        each requested type.
+    seed : int, optional
+        Random seed for reproducibility. If provided,
+        the function ensures the same samples can be
+        regenerated.
+    
+    Returns
+    -------
+    str | tuple | list | tuple[list, list]
+        Depending on `<return_types>` and ``n``:
+        - `<soil>` or `<geo>`: returns either a single
+          string (if ``n=None``) or a list of strings.
+        - `<both>`: returns a tuple with soil and
+          geology entries either as single values
+          or lists.
+        - If called with multiple samples and both
+          types, returns a tuple of lists.
+    
+    Methods
+    -------
+    `sample_list`
+        This internal helper method implements the
+        random selection or sampling of items from
+        a given list.
+    
+    Notes
+    -----
+    - If `<return_types>` is `'soil'`, only soil data
+      are returned. If `'geo'` or `'geology'`, only
+      geology data are returned. If `'both'`, the
+      function returns both in a tuple.
+    - The parameter `<n>` controls single vs. multiple
+      returned values.
+    - The lists ``soil_types`` and ``geology_types``
+      default to constants defined in the module
+      ``gofast.datasets._globals``.
+    
+    Examples
+    --------
+    >>> from gofast.datasets.util import get_random_soil_and_geology
+    >>> # Single random soil type
+    >>> single_soil = get_random_soil_and_geology(
+    ...     return_types='soil',
+    ...     seed=42
+    ... )
+    >>> print(single_soil)
+    
+    >>> # Two random geology samples
+    >>> two_geo = get_random_soil_and_geology(
+    ...     return_types='geo',
+    ...     n=2,
+    ...     seed=42
+    ... )
+    >>> print(two_geo)
+    
+    See Also
+    --------
+    `random.choices` : Python's built-in method for
+                       repeated sampling.
+    `random.choice` : Python's built-in method for
+                      single-item sampling.
+    
+    References
+    ----------
+    .. [1] Knuth, D.E. (1997). "The Art of Computer
+           Programming: Seminumerical Algorithms,"
+           3rd Edition.
+    """
+
+    from gofast.datasets._globals import SOIL_TYPES, GEOLOGY_TYPES
+    
+    if seed is not None:
+        random.seed(seed)
+        
+    # Use default constants if not provided
+    soil_list = columns_manager(
+        soil_types or SOIL_TYPES.keys()
+        )
+    geology_list = columns_manager( 
+        geology_types or GEOLOGY_TYPES.keys()
+        )
+    
+    if str(n)=="*": 
+        n= min ([ len(soil_list), len(geology_list)])
+        
+    return_types = return_types.lower()
+    if return_types not in ('soil', 'geo', 'geology', 'both'):
+        raise ValueError(
+            f"Invalid return_types='{return_types}'."
+            " Choose from 'soil', 'geo', 'geology', 'both'."
+        )
+
+    is_soil = return_types == 'soil'
+    is_geo = return_types in ('geo', 'geology')
+    is_both = return_types == 'both'
+
+    
+    # Helper for sampling
+    def sample_list(source_list, count):
+        return random.choices(source_list, k=count) if count else random.choice(source_list)
+
+    if is_soil:
+        return sample_list(soil_list, n)
+
+    if is_geo:
+        return sample_list(geology_list, n)
+
+    if is_both:
+        if n:
+            return (
+                sample_list(soil_list, n),
+                sample_list(geology_list, n)
+            )
+        else:
+            return (
+                sample_list(soil_list, None),
+                sample_list(geology_list, None)
+            )
+   
     
     

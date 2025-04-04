@@ -29,6 +29,7 @@ from sklearn.utils.multiclass import type_of_target
 
 from ..api.types import Tuple,_F, ArrayLike, NDArray, Dict, Union, Any
 from ..api.types import  List, Optional, Type, DataFrame, Series 
+from ..api.property import BaseClass 
 from ..api.summary import ModelSummary 
 from ..core.utils import smart_format
 from ..utils.validator import get_estimator_name, check_X_y 
@@ -72,7 +73,7 @@ __all__= [
     "shrink_covariance_cv_score",
   ]
 
-class NoneHandler:
+class NoneHandler(BaseClass):
     """
     A utility class to handle `None` values in hyperparameters for various
     scikit-learn estimators. This class provides a mechanism to assign
@@ -644,7 +645,8 @@ def get_strategy_method(strategy: str) -> Type[BaseEstimator]:
         'GridSearchCV': GridSearchCV,
         'RandomizedSearchCV': RandomizedSearchCV,
     }
-    try: from skopt import BayesSearchCV
+    try: 
+        from skopt import BayesSearchCV
     except: 
         if strategy =='BayesSearchCV': 
             emsg= ("scikit-optimize is required for 'BayesSearchCV'"
@@ -663,7 +665,7 @@ def get_strategy_method(strategy: str) -> Type[BaseEstimator]:
             EvolutionarySearchCV, 
             GradientSearchCV,
             GeneticSearchCV 
-            ) 
+        ) 
         gofast_strategy_dict = { 
             'SwarmSearchCV': SwarmSearchCV,
             'SequentialSearchCV': SequentialSearchCV,
@@ -672,7 +674,10 @@ def get_strategy_method(strategy: str) -> Type[BaseEstimator]:
             'GradientSearchCV': GradientSearchCV,
             'GeneticSearchCV': GeneticSearchCV,
             }
-        standard_strategy_dict ={**standard_strategy_dict,**gofast_strategy_dict }
+        standard_strategy_dict ={
+            **standard_strategy_dict,
+            **gofast_strategy_dict
+        }
         
     # Search for the corresponding strategy class
     return standard_strategy_dict.get(strategy)
@@ -732,13 +737,12 @@ def get_strategy_name(strategy, error='raise'):
        'GridSearchCV': r"\b(grid|GSCV|GridSearchCV)\b",
        'BayesSearchCV': r"\b(bayes|BSCV|BayesSearchCV)\b",
        'AnnealingSearchCV': r"\b(annealing|ASCV|AnnealingSearchCV)\b",
-       'SwarmSearchCV': r"\b(swarm|pso|SWCV|PSOSCV|SwarmSearchCV)\b",
-       'SequentialSearchCV': r"\b(sequential|SSCV|SMBOSearchCV)\b",
-       'EvolutionarySearchCV': r"\b(evolution(?:ary)?|ESCV|EvolutionarySearchCV)\b",
+       'SwarmSearchCV': r"\b(swarm|pso|SWSCV|PSOSCV|SwarmSearchCV)\b",
+       'SequentialSearchCV': r"\b(sequential|SQSCV|SMBOSearchCV)\b",
+       'EvolutionarySearchCV': r"\b(evolution(?:ary)?|EVSCV|EvolutionarySearchCV)\b",
        'GradientSearchCV': r"\b(gradient|GBSCV|GradientBasedSearchCV)\b",
-       'GeneticSearchCV': r"\b(genetic|GASCV|GeneticSearchCV)\b"
+       'GeneticSearchCV': r"\b(genetic|GASCV|GENSCV|GeneticSearchCV)\b"
    }
-    
     strategy_input = str(strategy).lower()
     for key, pattern in opt_dict.items():
         if re.search(pattern.lower(), strategy_input):
@@ -885,7 +889,7 @@ def validate_strategy(strategy: Union[str, _F]) -> str:
         'GeneticSearchCV': ['GENSCV', 'GeneticSearchCV']
     }
 
-    strategy_name = strategy if isinstance(
+    strategy_name = get_strategy_name(strategy) if isinstance(
         strategy, str) else get_estimator_name(strategy)
 
     for key, values in opt_dict.items():
@@ -1236,7 +1240,8 @@ def estimate_confidence_interval(cv_scores, confidence_level=0.95):
     """
     mean_score = np.mean(cv_scores)
     std_error = scipy.stats.sem(cv_scores)
-    margin = std_error * scipy.stats.t.ppf((1 + confidence_level) / 2., len(cv_scores) - 1)
+    margin = std_error * scipy.stats.t.ppf(
+        (1 + confidence_level) / 2., len(cv_scores) - 1)
     return (mean_score - margin, mean_score + margin)
 
 def rank_cv_scores(cv_scores):
@@ -2489,8 +2494,6 @@ def apply_param_types(estimator: BaseEstimator, param_dict: dict) -> dict:
                 pass
             
     return new_param_dict
-
-
 
 def process_performance_data(df, mode='average', on='@data'):
     """

@@ -25,14 +25,23 @@ from sklearn.linear_model import LogisticRegression
 
 from ..api.types import Optional, Tuple,  List, Union 
 from ..api.types import ArrayLike, DataFrame, Series
-from ..api.summary import ReportFactory 
+from ..api.summary import ReportFactory
+from ..compat.sklearn import HasMethods, validate_params 
 from ..core.array_manager import to_numeric_dtypes 
 from ..core.checks import is_iterable 
+from ..core.handlers import extend_values
+from ..core.io import is_data_readable, to_frame_if 
+from ..core.plot_manager import default_params_plot 
 from ..core.utils import fill_nan_in
+from ..decorators import Dataify 
+from ..utils.ext import reorder_importances 
+from ..utils.mathext import compute_importances 
 from ..utils.validator import get_estimator_name
 from ..utils.validator import check_X_y, check_consistent_length
 from ..transformers import SequentialBackwardSelector 
+from ._config import PlotConfig 
 from .utils import _set_sns_style, make_mpl_properties 
+from .utils import make_plot_colors
 
 __all__=[
   'plot_importances_ranking',
@@ -40,12 +49,600 @@ __all__=[
   'plot_feature_interactions',
   'plot_variables',
   'plot_correlation_with',
-  'plot_dependences',
+  'plot_dependence',
   'plot_sbs_feature_selection',
   'plot_permutation_importance',
   'plot_regularization_path',   
+  'plot_feature_importances'
 ]
 
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_feature_importances_plot.png'), 
+    fig_size =None, 
+    dpi=300
+ )
+@is_data_readable 
+@Dataify(
+    enforce_df=True, 
+    auto_columns=True, 
+    prefix="feature_", 
+    fail_silently=True
+)
+def plot_feature_importances(
+    data,                 
+    y=None,               
+    models=None,          
+    precomputed=True,
+    mode='indiv',         
+    kind="bar",      
+    orient='h',           
+    cmap=None,            
+    normalize=True,
+    prefit=False,
+    ascending=False,  
+    max_cols=3,           
+    title=None,
+    annot=True,           
+    in_percent=True,      
+    fmt=".2f",            
+    show_grid=True,
+    fill_btw=True,        
+    bar_space=None,       
+    grid_props=None,
+    line_props=None,
+    explode=0.05,          
+    autopct='%1.1f%%',    
+    fig_size=None,
+    savefig=None          
+):
+    r"""
+    Plot the feature importances across one or multiple
+    models. By default, it will render separate figures
+    per model, but in ``'merge'`` mode, it tries to group
+    bar charts. For importance calculation, either pass
+    precomputed data or supply raw ``data`` and a vector
+    ``y`` with one or more models to be trained for
+    importance scoring.
+
+    In practice, feature importance can be formalized
+    as:
+
+    .. math::
+        I_j = \frac{1}{N} \sum_{k=1}^{N} \Delta_k (j)
+
+    where :math:`\Delta_k (j)` is the drop in the chosen
+    performance metric when feature :math:`j` is removed
+    from the model in iteration :math:`k`. The average
+    effect across multiple runs or sub-samples yields
+    a stable estimate of importance [1]_.
+
+    Parameters
+    ----------
+    data : array-like of shape (n_samples, n_features) or
+        DataFrame
+        Raw input features if not precomputed. If
+        ``precomputed=True``, this must be a DataFrame
+        containing importances indexed by feature.
+
+    y : array-like of shape (n_samples,), optional
+        Target vector for computing importances, used
+        when ``precomputed=False``.
+
+    models : estimator or list of estimators, optional
+        The model(s) used to compute feature importances.
+        Supported estimators include many from scikit-learn.
+        If multiple models are given, each one generates
+        a separate importance column or subplot.
+
+    precomputed : bool, default=True
+        If ``True``, interpret ``data`` as an importance
+        DataFrame. If ``False``, compute importances from
+        scratch using ``models`` and the raw data.
+
+    mode : {'indiv', 'merge'}, default='indiv'
+        If ``'indiv'``, produce one plot per model. If
+        ``'merge'``, combine bar charts across models.
+        Other plot types in merge mode might revert
+        automatically to ``'indiv'``.
+
+    kind : {'bar', 'line', 'donut', 'radar'}, default='bar'
+        The style of plot. A bar chart is typical for
+        importance, but line, donut, or radar charts
+        are also possible.
+
+    orient : {'v', 'h'}, default='h'
+        Orientation for the bar or line charts. ``'v'``
+        plots vertical bars or lines, while ``'h'``
+        plots horizontal.
+
+    cmap : str or Colormap, optional
+        A Matplotlib colormap or a string specifying
+        a recognized colormap. Used to color the
+        bars or donut slices.
+
+    normalize: bool, default=False
+        If ``True``, scale importances to sum up to 1.0.
+        This yields relative importances. If ``False``,
+        keep raw values.
+
+    prefit : bool, default=False
+        If ``True``, indicates that each estimator in
+        ``models`` is already fitted, bypassing any
+        additional training. Ignored if
+        ``precomputed=True``.
+        
+    ascending: bool, default=False, 
+       If ``True``, the importances is displayed from the high  
+       importance to the lowest.
+       
+    max_cols : int, default=3
+        Maximum number of subplot columns when
+        ``mode='indiv'``.
+
+    title : str, optional
+        Main title for the plot if merging. If
+        ``mode='indiv'``, each subplot is titled by
+        its model name or column label.
+
+    annot : bool, default=True
+        If ``True``, annotate bars or line points with
+        their numeric values.
+
+    in_percent : bool, default=True
+        If ``True``, append a '%' symbol to the
+        annotations, interpreting them as percentages.
+
+    fmt : str, default=".2f"
+        String format for numeric annotation, e.g.
+        ``".1f"`` or ``".2%"``.
+
+    show_grid : bool, default=True
+        If ``True``, include a grid on the final
+        plot.
+
+    fill_btw : bool, default=True
+        If plotting a radar chart, fill the area
+        between the radial polygon and the center
+        point.
+
+    bar_space : float, optional
+        Horizontal or vertical spacing for grouped
+        bars when ``mode='merge'``.
+
+    grid_props: dict, optional
+        Dictionary of grid style properties, e.g.
+        ``{"linestyle": ":", "alpha": 0.7}``.
+
+    line_props : dict, optional
+        Dictionary for line styles in line or radar
+        plots, e.g. ``{"marker": "o", "linestyle": "-"}``.
+
+    explode : float, default=0.05
+        Explode factor for donut (pie) slices.
+
+    autopct : str, default='%1.1f%%'
+        Format for slice labels in a donut or pie chart.
+
+    fig_size : tuple, optional
+        Matplotlib figure size, e.g. ``(width, height)``.
+
+    savefig : str, optional
+        File path to save the generated figure.
+        If not provided, the plot is simply shown.
+
+    Notes
+    -----
+    This function provides a flexible way to visualize
+    feature importances. It supports multiple
+    representations (bar, line, donut, radar), either
+    in separate subplots or merged side-by-side [2]_.
+
+    Examples
+    --------
+    >>> from gofast.plot.feature_analysis import plot_feature_importances
+    >>> import pandas as pd
+    >>> # Suppose df_features is your data and y is target
+    >>> # For precomputed usage:
+    >>> importance_df = pd.DataFrame({
+    ...     'ModelA': [0.2, 0.4, 0.1, 0.3],
+    ...     'ModelB': [0.3, 0.1, 0.4, 0.2]},
+    ...     index=['f1','f2','f3','f4'])
+    >>> plot_feature_importances(
+    ...     importance_df,
+    ...     precomputed=True,
+    ...     mode='indiv',
+    ...     kind='bar'
+    ... )
+
+    >>> # If not precomputed, pass raw data and a model
+    >>> # model = RandomForestClassifier()
+    >>> # plot_feature_importances(data=df_features, y=y, models=model)
+
+    See Also
+    --------
+    plot_dependence: Visualize partial dependence for
+        specific features.
+    plot_feature_interactions: Explore pairwise
+        feature interactions.
+    plot_rf_feature_importances : Specialized function
+        for RandomForest importances.
+
+    References
+    ----------
+    .. [1] Breiman, L. (2001). "Random Forests". Machine
+         Learning, 45(1), 5–32.
+    .. [2] Liu, J., Liu, W., Allechy, F.B., Zheng, Z., Liu, R., 
+         Kouadio, K.L., 2024. Machine learning-based techniques for land 
+         subsidence simulation in an urban area. J. Environ. Manage. 352, 17.
+         https://doi.org/https://doi.org/10.1016/j.jenvman.2024.120078
+    """
+    # "to_frame_if" is used for consistency since 
+    # decorator Dataify handle the series case.
+    data= to_frame_if(data, df_only=True )
+
+    # Compute importances if not precomputed
+    if not precomputed:
+        importance_df = compute_importances(
+            data,
+            y,
+            models=models,
+            prefit=prefit,
+            as_frame=True,
+            normalize=normalize,
+            return_rank=False
+        )
+    else:
+        importance_df = data
+
+    # Number of models
+    n_models = len(importance_df.columns)
+
+    # Warn if 'merge' mode with unsupported plot types
+    if (mode == 'merge') and (kind in ['line', 'donut', 'radar']):
+        warnings.warn(
+            f"kind '{kind}' is not available in merge mode. "
+            f"Falling back to individual plots."
+        )
+        mode = 'indiv'
+        
+    if orient.lower() in ['v', 'vertical']:
+            orient="v"
+    elif  orient.lower() in ['h', 'horizontal']:
+        orient="h"
+    else: 
+        orient="v"
+
+    # Setup subplots
+    if mode == 'indiv':
+        if orient=='h':
+            ncols = 1
+            nrows = n_models
+        else:
+            ncols = min(max_cols, n_models)
+            nrows = int(np.ceil(n_models / ncols))
+    else:
+        ncols = 1
+        nrows = 1
+    
+    
+    # Default figure size
+    if fig_size is None:
+        # Base figure size for 3 models
+        base_fig_size = (12, 7) if mode == 'indiv' else (12, 5)
+        # Scale factor relative to 3 models
+        scale_factor = n_models / 3
+        fig_size = (
+            np.ceil(base_fig_size[0] * scale_factor),
+            np.ceil(base_fig_size[1] * scale_factor)
+        )
+        # If orientation is horizontal,
+        # then reverse the dimensions
+        if orient=='v':
+            fig_size = fig_size [::-1]
+   
+    fig, axes = plt.subplots(
+        nrows=nrows, ncols=ncols, 
+        figsize=fig_size, 
+        constrained_layout=True if kind=='donut' else False, 
+        )
+    # if kind =='donut': 
+    #     plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
+
+
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
+    else:
+        axes = axes.ravel()
+
+    # Default line properties
+    if line_props is None:
+        line_props = {'marker': 'o', 'linestyle': '-'}
+
+    # Helper to get colors
+    def get_colors(n, cp=None):
+        if (mode == 'indiv') and isinstance(cp, (list, tuple)):
+            cp = cp[0]
+        if cp is None:
+            # default grayscale range
+            cp='RdPu'
+            #plt.cm.Greys(np.linspace(0.2, 0.8, n))
+            # return # plt.cm.RdPu(np.linspace(0.2, 0.8, n))
+        cmap_obj = plt.get_cmap(cp) if isinstance(cp, str) else cp
+        cm = cmap_obj(np.linspace(0.2, 0.8, n))
+        if orient=='v': 
+            cm = cm if ascending else cm [::-1]
+        else: 
+            cm = cm if not ascending else cm [::-1]
+            
+        return cm
+    
+
+    # Plot logic
+    if mode == 'indiv':
+        # Plot each model column separately
+        for idx, col in enumerate(importance_df.columns):
+            # "not" is important since plot starts from the bottom 
+            # to the top 
+            vals = reorder_importances(
+                importance_df[col], 
+                ascending= (not ascending) if orient=='h' else ascending 
+                )
+            ax = axes[idx]
+            colors = get_colors(len(vals), cmap)
+             
+            if kind == "bar":
+                # Horizontal bar plot
+                if orient=="v":
+                    
+                    ax.bar(vals.index, vals, color=colors)
+                else: 
+                    ax.barh(vals.index, vals, color=colors)
+
+            elif kind == "line":
+                # Line plot with markers
+                ax.plot(vals.index, vals, **line_props)
+
+            elif kind == "donut":
+                # Donut chart
+                try:
+                    ex = extend_values(
+                        explode,
+                        target=len(vals),
+                        increment=0.01
+                    )
+                except ImportError:
+                    ex = None
+
+                wedges, texts, autotxt = ax.pie(
+                    vals,
+                    labels=vals.index,
+                    autopct=autopct,
+                    startangle=90,
+                    explode=ex,
+                    colors=colors, 
+                    counterclock=True,
+                    # pctdistance=0.85,
+                    # labeldistance=1.05,
+                    labeldistance=0.7, pctdistance=0.6
+                )
+                
+                center_circle = plt.Circle((0, 0), 0.70, fc='white')
+                ax.add_artist(center_circle)
+                ax.axis('equal')
+
+            elif kind == "radar":
+                # Radar chart
+                labels = vals.index.tolist()
+                num_vars = len(labels)
+                angles = np.linspace(0, 2 * np.pi, num_vars,
+                                     endpoint=False).tolist()
+                angles.append(angles[0])
+                vals_list = vals.tolist()
+                vals_list.append(vals_list[0])
+
+                ax.plot(angles, vals_list, **line_props)
+                if fill_btw:
+                    ax.fill(angles, vals_list, alpha=0.25)
+
+                ax.set_xticks(angles[:-1])
+                ax.set_xticklabels(labels)
+                ax.set_yticklabels([])
+
+            else:
+                raise ValueError(f"Unsupported kind: {kind}")
+
+            # Title, labels, annotations
+            if kind in ["bar", "line"]:
+                ax.set_title(f"{col}")
+                
+                if orient=="v":
+                    # 2) Rotate feature labels to avoid overlap
+                    indices = np.arange(len(vals.index))
+                    ax.set_xticks(indices) # 1) set tick positions
+                    ax.set_xticklabels(
+                        vals.index, 
+                        rotation=90, 
+                        ha='right'
+                        )
+                    ax.set_ylabel(
+                        ("Importance ratio (x100)" if in_percent
+                         else "Importance ratio")
+                    )
+                    ax.set_xlabel("Features")
+                    
+                else: 
+                    ax.set_xlabel(
+                        ("Importance ratio (x100)" if in_percent
+                         else "Importance ratio")
+                    )
+                    ax.set_ylabel("Features")
+                    
+                if annot:
+                    max_val = vals.max()
+                    if kind == "bar":
+                        if orient=="v": 
+                            # Annotate each horizontal bar at (i, val)
+                            for i, val in enumerate(vals):
+                                lbl_val = f"{val:{fmt}}"
+                                if in_percent:
+                                    lbl_val = f"{val * 100:{fmt}}%"
+                                ax.text(
+                                    i, 
+                                    val + 0.01 * max_val, 
+                                    " " + lbl_val,
+                                    ha="center",
+                                    va="bottom",
+                                    rotation=90  
+                                )
+                        else: 
+                            for i, val in enumerate(vals):
+                                lbl_val = f"{val:{fmt}}"
+                                if in_percent:
+                                    lbl_val = f"{val * 100:{fmt}}%"
+                                ax.text(
+                                    val, i, " " + lbl_val, va='center'
+                                    )
+                                
+    
+                    elif kind == "line":
+                        for i, val in enumerate(vals):
+                            lbl_val = f"{val:{fmt}}"
+                            if in_percent:
+                                lbl_val = f"{val * 100:{fmt}}%"
+                            ax.annotate(
+                                lbl_val,
+                                (vals.index[i], val),
+                                textcoords="offset points",
+                                xytext=(5, 0),
+                                va="center"
+                            )
+
+            # Grid
+            if show_grid:
+                if grid_props is None:
+                    grid_props = {"linestyle": ":", "alpha": 0.7}
+                ax.grid(True, **grid_props)
+            else:
+                ax.grid(False)
+    else:
+        
+        # Merge mode => grouped bar chart
+        ax = axes[0]
+        if kind == "bar":
+            x = np.arange(len(importance_df.index))
+            total_width = 0.8
+            width = total_width / n_models
+        
+            # Possibly pick distinct colormaps
+            colormaps = make_plot_colors(
+                x,
+                colors=cmap,
+                cmap_only=True,
+                get_only_names=True,
+                use_cmap_seq=True,
+            )
+        
+            # For each model, offset bars
+            for i, col in enumerate(importance_df.columns):
+                vals = reorder_importances(
+                    importance_df[col],
+                    ascending=(not ascending) if orient == 'h' else ascending
+                )
+                colors = get_colors(len(vals), colormaps[i])
+        
+                if orient == "v":
+                    # Draw vertical bars (the naming is a bit reversed)
+                    ax.bar(
+                        x + i * width,
+                        vals,
+                        width=width,
+                        color=colors,
+                        label=col
+                    )
+        
+                    # Annotate each bar just above the top
+                    if annot:
+                        max_val = vals.max()
+                        for j, val in enumerate(vals):
+                            lbl = f"{val:{fmt}}"
+                            if in_percent:
+                                lbl = f"{val * 100:{fmt}}%"
+                            # x-position = center of the bar,
+                            # y-position = bar height + small offset
+                            ax.text(
+                                (x[j] + i * width),
+                                val + 0.01 * max_val,   # offset above bar
+                                lbl,
+                                ha="center",
+                                va="bottom",
+                                rotation=90  # optional to avoid overlaps
+                            )
+        
+                else:  # orient == "h" => horizontal bars
+                    ax.barh(
+                        x + i * width,
+                        vals,
+                        height=width,
+                        color=colors,
+                        label=col
+                    )
+        
+                    # Annotate each horizontal bar
+                    if annot:
+                        max_val = vals.max()
+                        for j, val in enumerate(vals):
+                            lbl = f"{val:{fmt}}"
+                            if in_percent:
+                                lbl = f"{val * 100:{fmt}}%"
+                            # y-position = center of the bar,
+                            # x-position = bar width + small offset
+                            ax.text(
+                                val + 0.01 * max_val,  # offset to the right of bar
+                                (x[j] + i * width),
+                                lbl,
+                                va="center"
+                            )
+        
+            # Set tick labels, possibly rotated
+            if orient == "v":
+                ax.set_xticks(x + (n_models - 1) * width / 2)
+                ax.set_xticklabels(vals.index, rotation=90, ha='right')
+            else:
+                ax.set_yticks(x + (n_models - 1) * width / 2)
+                ax.set_yticklabels(vals.index)
+        
+        else:
+            raise ValueError(f"Unsupported merge kind: {kind}")
+        
+        ax.set_title(title if title else "Feature Importances")
+        
+        # Axis labels for each orientation
+        if orient == 'v':
+            ax.set_xlabel("Features")
+            ax.set_ylabel(
+                "Importance ratio (x100)" 
+                if in_percent else "Importance ratio"
+                )
+        else:
+            ax.set_ylabel("Features")
+            ax.set_xlabel(
+                "Importance ratio (x100)" 
+                if in_percent else "Importance ratio"
+                )
+        
+        ax.legend()
+        
+        # Grid
+        if show_grid:
+            if grid_props is None:
+                grid_props = {"linestyle": ":", "alpha": 0.7}
+            ax.grid(True, **grid_props)
+        else:
+            ax.grid(False)
+
+    if kind !='donut': 
+        plt.tight_layout()
+    plt.show()
 
 def plot_regularization_path(
     X, y, 
@@ -228,13 +825,6 @@ def plot_permutation_importance(
         Path to save the figure. If None, the figure is not saved. 
         Defaults to None.
     
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        The matplotlib Figure object for the plot.
-        
-    ax : matplotlib.axes.Axes
-        The matplotlib Axes object for the plot.
     
     Example
     -------
@@ -289,10 +879,17 @@ def plot_permutation_importance(
         plt.savefig(savefig, bbox_inches='tight')
 
     plt.show()
-    
-    return fig, ax
 
-def plot_dependences(
+
+@default_params_plot(
+    savefig =PlotConfig.AUTOSAVE('my_dependence_plot.png'),
+    dpi=300, 
+)
+@validate_params ({
+    'model': [HasMethods(['predict'])], 
+    'X': ['array-like'], 
+    })
+def plot_dependence(
     model: BaseEstimator, 
     X: Union[ArrayLike, DataFrame], 
     features: Union[List[int], List[str]], 
@@ -326,6 +923,7 @@ def plot_dependences(
     kind : str, optional
         The kind of plot to generate. 'average' generates the PDP, and 
         'individual' generates the ICE plots. Defaults to 'average'.
+        If ``both``, it combines ``'average'``
         
     grid_resolution : int, optional
         The number of evenly spaced points where the partial dependence 
@@ -346,9 +944,6 @@ def plot_dependences(
     verbose : int, optional
         Verbosity level. Defaults to 0.
         
-    ax : Optional[matplotlib.axes.Axes], optional
-        Matplotlib axes object to plot on. If None, creates a new figure. 
-        Defaults to None.
 
     Returns
     -------
@@ -359,10 +954,10 @@ def plot_dependences(
     --------
     >>> from sklearn.datasets import make_friedman1
     >>> from sklearn.ensemble import GradientBoostingRegressor
-    >>> from gofast.plot.feature_analysis import plot_dependences
+    >>> from gofast.plot.feature_analysis import plot_dependence
     >>> X, y = make_friedman1()
     >>> model = GradientBoostingRegressor().fit(X, y)
-    >>> plot_dependences(model, X, features=[0, 1], kind='average')
+    >>> plot_dependence(model, X, features=[0, 1], kind='average')
 
     See Also 
     ---------
@@ -413,8 +1008,7 @@ def plot_dependences(
     disp.figure_.suptitle(plot_title)
     plt.subplots_adjust(top=0.9)  # Adjust the title to not overlap with plots
     plt.show()
-    
-    return ax
+
 
 def plot_sbs_feature_selection(
     sbs_estimator: 'SequentialBackwardSelector', 
@@ -789,9 +1383,11 @@ def plot_correlation_with(
     Correlation calculation uses the Pearson correlation coefficient, defined as:
 
     .. math::
-        r_{xy} = \frac{\sum{(x_i - \bar{x})(y_i - \bar{y})}}{\sqrt{\sum{(x_i - \bar{x})^2}\sum{(y_i - \bar{y})^2}}}
+        r_{xy} = \frac{\sum{(x_i - \bar{x})(y_i - \bar{y})}}\\
+            {\sqrt{\sum{(x_i - \bar{x})^2}\sum{(y_i - \bar{y})^2}}}
 
-    where :math:`x_i` and :math:`y_i` are individual sample points, and :math:`\bar{x}` and :math:`\bar{y}` 
+    where :math:`x_i` and :math:`y_i` are individual sample 
+    points, and :math:`\bar{x}` and :math:`\bar{y}` 
     are the means of the sample points.
 
     See Also
@@ -802,8 +1398,9 @@ def plot_correlation_with(
 
     References
     ----------
-    .. [1] Pearson, K. (1895). Note on Regression and Inheritance in the Case of Two Parents. 
-       Proceedings of the Royal Society of London, 58, 240-242.
+    .. [1] Pearson, K. (1895). Note on Regression and Inheritance 
+       in the Case of Two Parents. Proceedings of the Royal Society
+       of London, 58, 240-242.
     """
     
     if not isinstance(data, pd.DataFrame):
@@ -909,7 +1506,8 @@ def plot_feature_interactions(
     The Pearson correlation coefficient is defined as:
 
     .. math::
-        r_{xy} = \frac{\sum{(x_i - \bar{x})(y_i - \bar{y})}}{\sqrt{\sum{(x_i - \bar{x})^2}\sum{(y_i - \bar{y})^2}}}
+        r_{xy} = \frac{\sum{(x_i - \bar{x})(y_i - \bar{y})}}\\
+            {\sqrt{\sum{(x_i - \bar{x})^2}\sum{(y_i - \bar{y})^2}}}
 
     where :math:`x_i` and :math:`y_i` are individual sample points, and 
     :math:`\bar{x}` and :math:`\bar{y}` are the means of the sample points.
@@ -922,8 +1520,9 @@ def plot_feature_interactions(
 
     References
     ----------
-    .. [1] Pearson, K. (1895). Note on Regression and Inheritance in the Case of Two Parents. 
-       Proceedings of the Royal Society of London, 58, 240-242.
+    .. [1] Pearson, K. (1895). Note on Regression and Inheritance 
+       in the Case of Two Parents.  Proceedings of the Royal Society
+       of London, 58, 240-242.
     """
     
     data = to_numeric_dtypes(data, pop_cat_features=True )

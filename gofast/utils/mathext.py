@@ -20,6 +20,7 @@ from scipy.spatial.distance import pdist, squareform
 from scipy.stats import rankdata, pearsonr, spearmanr, kendalltau
 from scipy.signal import argrelextrema
 
+from sklearn.cluster import KMeans
 from sklearn.metrics import confusion_matrix, roc_curve, roc_auc_score
 from sklearn.utils.multiclass import unique_labels
 from sklearn.preprocessing import label_binarize, LabelEncoder, MinMaxScaler
@@ -55,6 +56,8 @@ from ..core.array_manager import (
     concat_array_from_list, 
     extract_array_from, 
     to_arrays, 
+    array_preserver, 
+    return_if_preserver_failed
 )
 from ..core.checks  import  ( 
     _assert_all_types, 
@@ -62,23 +65,26 @@ from ..core.checks  import  (
     exist_features, 
     is_iterable, 
     check_params, 
+    check_numeric_dtype
 ) 
 from ..core.handlers import ( 
     columns_manager, 
     param_deprecated_message, 
-    delegate_on_error
+    delegate_on_error, 
 )
 from ..core.io import is_data_readable 
 from ..core.utils import normalize_string, smart_format 
-from .deps_utils import ensure_pkg, is_module_installed  
+from .deps_utils import ensure_pkg, is_module_installed 
+from .ext import reorder_by
+from .generic_utils import vlog
 from .validator import (
     _is_numeric_dtype,
+    _ensure_y_is_valid,
     validate_multioutput,
     check_consistent_length,
     check_y,
     check_classification_targets,
     is_frame,
-    _ensure_y_is_valid,
     ensure_non_negative,
     check_epsilon,
     parameter_validator,
@@ -87,10 +93,10 @@ from .validator import (
     validate_multiclass_target,
     validate_length_range,
     validate_scores,
-    ensure_2d,
     contains_nested_objects,
     get_estimator_name, 
-    has_methods
+    has_methods, 
+    build_data_if
 )
 
 _logger = gofastlog.get_gofast_logger(__name__)
@@ -142,8 +148,256 @@ __all__=[
      'compute_coverage', 
      'compute_coverages', 
      'get_preds', 
-     'compute_importances'
+     'compute_importances', 
+     'get_threshold_from'
    ]
+
+
+def get_threshold_from(
+    data: Union[np.ndarray, list],
+    method: str = 'adaptive',
+    sensitivity: float  = 1.0,
+    return_metadata: bool   = False,
+    min_samples: int = 10,
+    nan_policy: str = 'omit',
+    epsilon: float = 1e-8,
+    verbose: int = 0,
+) -> Union[float, dict]:
+    r"""
+    Determines an optimal threshold from numeric data
+    based on a chosen `method`. The function
+    `get_threshold_from` accepts various approaches
+    (IQR, percentile, std, MAD, kmeans, or adaptive)
+    and returns a single numeric threshold value. An
+    optional multiplier `sensitivity` can tighten or
+    relax the threshold. Computed statistics and
+    metadata may also be returned.
+
+    Parameters
+    ----------
+    data : array-like of float
+        The array or list of numeric values for which
+        the threshold is computed. All NaN values are
+        handled according to `nan_policy`. Must contain
+        at least `min_samples` non-NaN entries.
+
+    method : {'adaptive', 'iqr', 'percentile', 'std',
+              'mad', 'kmeans'}, default='adaptive'
+        The thresholding method:
+        * ``iqr`` : :math:`Q3 + 1.5 \times IQR`
+        * ``percentile`` : 95th percentile
+        * ``std`` : :math:`\mu + 2 \times \sigma`
+        * ``mad`` : :math:`\text{median} + 3 \times
+          \text{MAD}`
+        * ``kmeans`` : Binary K-Means cluster center
+          averaging
+        * ``adaptive`` : Chooses iqr, std, or percentile
+          based on data skewness
+
+    sensitivity : float, default=1.0
+        A multiplier used to scale the base threshold.
+        Values > 1.0 create a looser threshold, whereas
+        values < 1.0 make it stricter.
+
+    return_metadata : bool, default=False
+        If True, returns a dictionary containing the
+        computed threshold, chosen method, and descriptive
+        statistics. Otherwise, returns only the threshold.
+
+    min_samples : int, default=10
+        The minimum number of valid samples required
+        after NaN handling. Raises ValueError if fewer
+        than this remain.
+
+    nan_policy : {'omit', 'raise', 'propagate'},
+        default='omit'
+        Specifies how to handle NaN values:
+        * ``omit`` : Remove all NaNs before processing
+        * ``raise`` : Raise an error if NaNs are found
+        * ``propagate`` : Keep NaNs (may produce
+          unexpected results)
+
+    epsilon : float, default=1e-8
+        A small constant to avoid division by zero,
+        primarily used when measuring skewness for the
+        `adaptive` method.
+
+    verbose : int, default=0
+        The verbosity level:
+        * 0 : No output
+        * 1..3 : Prints different levels of diagnostic
+          information
+
+    Returns
+    -------
+    float or dict
+        The final threshold value if `return_metadata`
+        is False, otherwise a dictionary containing
+        additional calculation details and statistics.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.utils.mathext import get_threshold_from
+    >>> # Generate random data
+    >>> data = np.random.randn(1000) * 5 + 10
+    >>> # Compute threshold using IQR method
+    >>> thresh_iqr = get_threshold_from(
+    ...     data,
+    ...     method='iqr'
+    ... )
+    >>> # Compute threshold with metadata using adaptive
+    >>> result_info = get_threshold_from(
+    ...     data,
+    ...     method='adaptive',
+    ...     return_metadata=True,
+    ...     verbose=1
+    ... )
+    >>> result_info
+
+    Notes
+    -----
+    The `adaptive` method selects from `'iqr'`,
+    `'std'`, or `'percentile'` based on skewness
+    measured as
+    :math:`|\mu - \text{median}| / (\sigma + \epsilon)`.
+    If skewness is high, it defaults to `'percentile'`,
+    whereas lower variance often favors `'std'` or
+    `'iqr'`.
+    
+    .. math::
+       T = \text{threshold}(X) \times
+           \text{sensitivity}
+
+    where :math:`X` is the array of valid (non-NaN)
+    data points. The final threshold :math:`T` is
+    scaled by :math:`\text{sensitivity}`.
+
+
+    See Also
+    --------
+    numpy.nanpercentile :
+        Compute the qth percentile of data along a
+        specified axis, ignoring NaNs.
+    scipy.stats.iqr :
+        Compute the interquartile range of data.
+
+    References
+    ----------
+    .. [1] Rousseeuw, P.J. and Croux, C. (1993).
+       *Alternatives to the Median Absolute Deviation.*
+       Journal of the American Statistical Association.
+    """
+    # Convert data to numpy array and check numeric dtype
+    data = np.asarray(data)
+    check_numeric_dtype(data, param_names={"X": "Data"})
+
+    # Count original number of samples
+    original_count = len(data)
+
+    # Handle NaNs according to policy
+    if nan_policy == 'omit':
+        data = data[~np.isnan(data)]
+    elif nan_policy == 'raise' and np.isnan(data).any():
+        raise ValueError(
+            "Data contains NaNs but "
+            "nan_policy='raise'"
+        )
+
+    # Verify sufficient samples remain
+    if len(data) < min_samples:
+        raise ValueError(
+            f"Insufficient data points "
+            f"({len(data)}/{min_samples}) after "
+            f"NaN handling (original: {original_count})"
+        )
+
+    # Compute key statistics
+    q1, q3 = np.nanpercentile(data, [25, 75])
+    iqr_val = q3 - q1
+    med = np.nanmedian(data)
+    mad_val = np.nanmedian(np.abs(data - med))
+    std_val = np.nanstd(data)
+    mean_val = np.nanmean(data)
+
+    # Candidate thresholds for each method
+    methods = {
+        'iqr':         q3 + 1.5 * iqr_val,
+        'percentile':  np.nanpercentile(data, 95),
+        'std':         mean_val + 2 * std_val,
+        'mad':         med + 3 * mad_val,
+        'kmeans':      _kmeans_threshold(data)
+    }
+
+    # Evaluate skewness for adaptive method
+    skewness = np.abs(
+        (mean_val - med)
+        / (std_val + epsilon)
+    )
+
+    # Select method
+    if method == 'adaptive':
+        chosen_method = (
+            'percentile'
+            if skewness > 1 else
+            'std'
+            if iqr_val < std_val else
+            'iqr'
+        )
+    else:
+        if method not in methods:
+            raise ValueError(
+                f"Invalid method: {method}. "
+                f"Choose from {list(methods.keys())}"
+            )
+        chosen_method = method
+
+    threshold     = methods[chosen_method]
+    base_threshold = threshold
+    threshold    *= sensitivity
+
+    # Compile metadata
+    metadata = {
+        'threshold':        threshold,
+        'method':           chosen_method,
+        'base_threshold':   base_threshold,
+        'sensitivity':      sensitivity,
+        'nan_policy':       nan_policy,
+        'stats': {
+            'mean':         mean_val,
+            'median':       med,
+            'std':          std_val,
+            'iqr':          iqr_val,
+            'mad':          mad_val,
+            'original_samples': original_count,
+            'valid_samples':    len(data),
+            'nan_count':        original_count - len(data)
+        }
+    }
+
+    # Optionally print metadata if verbose > 0
+    if verbose > 0:
+        summary = ResultSummary(
+            name="ThresholdMetadata",
+            flatten_nested_dicts=False
+        )
+        summary.add_results(metadata)
+        print(summary)
+
+    return metadata if return_metadata else threshold
+
+def _kmeans_threshold(data: np.ndarray) -> float:
+    """Simple binary K-means threshold estimation with NaN handling"""
+    
+    clean_data = data[~np.isnan(data)].reshape(-1, 1)
+    
+    if len(clean_data) < 2:
+        return np.nan
+    
+    kmeans = KMeans(n_clusters=2, n_init=10).fit(clean_data)
+    centers = np.sort(kmeans.cluster_centers_.flatten())
+    return np.mean(centers)
+
 
 @check_params ( { 
     'models': Optional[Union[Dict[str, object], List[object]]], 
@@ -160,189 +414,337 @@ __all__=[
     condition=lambda *args, **kws: kws.get('pkg')=='shap' 
 )
 def compute_importances(
-    models=None, 
-    X=None, 
-    y=None, 
-    prefit=False, 
-    pkg=None, 
-    as_frame=True, 
-    xai_methods=None, 
-    return_rank=True, 
-    normalize=False, 
-    keep_mean_importance=False, 
+    X=None,
+    y=None,
+    models=None,
+    prefit=False,
+    pkg=None,
+    as_frame=True,
+    xai_methods=None,
+    return_rank=False,
+    normalize=False,
+    ascending=False, 
+    verbose=0
 ):
-    # Force pkg='sklearn' if the user uses any sklearn label
-    pkg = 'sklearn' if pkg in [ 
-        None, 'sklearn', 'scikit-learn', 'skl'
-    ] else pkg
+    r"""
+    Compute feature importances or ranks from one or multiple
+    trained or trainable models. These can be estimated using
+    ``sklearn`` (built-in feature_importances\_ or coefficients),
+    SHAP-based attributions (``shap``), or custom XAI methods.
+
+    Formally, if :math:`I_j` denotes the importance for feature
+    :math:`j`, we can aggregate importances across multiple
+    models by computing a mean:
+
+    .. math::
+       I_j^{(\text{mean})} = \frac{1}{M}\sum_{m=1}^M I_{j,m},
+
+    where :math:`M` is the number of models [1]_.
+
+    Parameters
+    ----------
+    X : pandas.DataFrame or ndarray, optional
+        Feature matrix. If ``prefit=False``, the function
+        fits the models on ``X`` and ``y``. If ``prefit=True``,
+        user-provided models are assumed already trained,
+        so X is only needed for certain packages like SHAP.
+    y : pandas.Series or ndarray, optional
+        Target vector. Required if ``prefit=False`` for
+        supervised tasks, and can be used by some XAI
+        methods for evaluation.
+    models : dict or list, optional
+        Collection of model estimators, or a single
+        dictionary of named estimators. If ``None``,
+        default scikit-learn models like RandomForest and
+        GradientBoosting are created, depending on whether
+        the task is recognized as regression or classification.
+    prefit : bool, optional
+        If ``True``, assumes the estimators in ``models`` are
+        already fitted (i.e., they won't be trained again).
+    pkg : {'sklearn', 'shap', None}, optional
+        The backend for feature importances:
+
+        * ``'sklearn'``: Uses ``feature_importances_`` or
+          coefficients from linear models.
+        * ``'shap'``: Applies SHAP values for a
+          model-agnostic approach, requiring `X` to estimate
+          attributions. 
+        * ``None``: If a custom method is provided via
+          ``xai_methods``, or default to `'sklearn'``.
+
+    as_frame : bool, optional
+        Whether the resulting importances or ranks should
+        be returned as a pandas.DataFrame. If ``False``,
+        returns a numpy array.
+    xai_methods : callable, optional
+        A custom function to compute importances:
+
+        .. code-block:: python
+
+           def xai_methods(model, X, y):
+               # return importances array
+
+        If specified, it overrides ``pkg`` selection.
+    return_rank : bool, optional
+        If ``True``, return the ranking of features
+        (1 = most important) rather than raw importances.
+    normalize : bool, optional
+        If ``True``, normalizes the computed importances
+        (e.g. to sum to 1). Only applies to the final
+        DataFrame or array. 
+    ascending : bool or None, default=False
+        Determines the sorting order of the importance matrix 
+        based on the mean importance scores across all models.
+        - `True`  → Computes the mean importance for each 
+          feature and sorts **from lowest to highest**.
+        - `False` (default) → Computes the mean importance  
+          for each feature and sorts **from highest to lowest**.
+    verbose: int, optional 
+       Checks in different steps of the function (steps 1 to 7).
+       higher levels provide more detailed information about
+       the function's progress.
+
+    Returns
+    -------
+    result : pandas.DataFrame or ndarray
+        Either the ranking or raw importances, depending on
+        ``return_rank``. The type is a DataFrame if
+        ``as_frame=True``, else a numpy array.
     
-    target_type =None 
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from gofast.utils.mathext import compute_importances
+    >>> X = pd.DataFrame({
+    ...     'feature1': np.random.randn(100),
+    ...     'feature2': np.random.randn(100)
+    ... })
+    >>> y = np.random.randint(0, 2, size=100)
+    >>> # Use default classification models
+    >>> rank_df = compute_importances(X, y, return_rank=True, verbose=1)
+    Unsupervised tasks are not supported. Provide y for supervised tasks,
+    or use pre-trained models (prefit=True).
+    # The code logs some info, then returns a ranking DataFrame.
+
+    Notes
+    -----
+    By default, if no models are passed, it infers the task
+    type (regression or classification) from `y`. The function
+    either trains a random forest and gradient boosting model
+    or uses user-provided ones. Where multiple models are used,
+    the final DataFrame can average their importances. 
+
+    See Also
+    --------
+    shap.Explainer : SHAP library for model-agnostic
+        explanation.
+    sklearn.ensemble.RandomForestClassifier : 
+        Example model returning 'feature_importances_'.
+    sklearn.linear_model.LinearRegression :
+        Model returning 'coef_'.
+
+    References
+    ----------
+    .. [1] Lundberg, S.M., & Lee, S.-I. (2017). A unified
+           approach to interpreting model predictions. 
+           *Advances in Neural Information Processing Systems*,
+           30, 4768-4777.
+    """
+    # 1) Force pkg to 'sklearn' if user leaves it None
+    #    or specifically indicates scikit-learn.
     
-    if y is not None: 
-        target_type = type_of_target (y) 
+    vlog("[INFO] Setting package to 'sklearn' if none specified.",
+         verbose 
+         )
     
-    task= 'reg' if target_type in [
-        'continuous', 'continous-multioutput'] else ( 
+    pkg = (
+        'sklearn'
+        if pkg in [None, 'sklearn', 'scikit-learn', 'skl']
+        else pkg
+    )
+  
+    target_type = None
+    if y is not None:
+        target_type = type_of_target(y)
+
+    # 2) Infer the task type (regression vs. classification).
+    #    If user didn't specify y but the model is prefit,
+    #    we skip this step. 
+    vlog(f"[INFO] Inferring task type. Target type is {target_type}.", 
+         verbose )
+    
+    task = 'reg' if target_type in [
+        'continuous', 'continous-multioutput'
+    ] else (
         'clf' if target_type in [
-            'binary', 'multiclass'] else target_type 
-        ) 
-    
-    if ( target_type is None 
-        and models is None 
-        and not prefit 
-        ): 
-        # This probably refers to unsupervised task
-        # which is not allow for this version of code
+            'binary', 'multiclass'
+        ] else target_type
+    )
+
+    # 3) If unsupervised or no y provided, but not prefit,
+    #    raise an error, as we don't train in unsupervised.
+    if (target_type is None and models is None and not prefit):
         raise ValueError(
-            "Unsupervised tasks are not supported. Provide y for supervised tasks,"
-            " or use pre-trained models (prefit=True)."
+            "Unsupervised tasks are not supported. Provide y for "
+            "supervised tasks, or use pre-trained models "
+            "(prefit=True)."
         )
-        
-    # If no models are passed, define defaults
+
+    # 4) Create default models if none passed
     if models is None:
-        models = {
-            "Random Forest"     : ( 
-                RandomForestRegressor() if task=='reg' 
-                else RandomForestClassifier()
-                ),
-            "Gradient Boosting" : ( 
-                GradientBoostingRegressor() if task=='reg' 
-                else GradientBoostingClassifier()
-                ),
-        }
-        # If XGBoost is installed, add to default models
+        if task == 'reg':
+            models = {
+                "Random Forest": RandomForestRegressor(),
+                "Gradient Boosting": GradientBoostingRegressor()
+            }
+        else:
+            models = {
+                "Random Forest": RandomForestClassifier(),
+                "Gradient Boosting": GradientBoostingClassifier()
+            }
+        # Optionally add XGBoost if installed
         if is_module_installed('xgboost'):
             from xgboost import XGBClassifier, XGBRegressor
-            models["XGBoost"] = ( XGBRegressor() if task =='reg' else XGBClassifier(
-                # use_label_encoder=False, 
-                eval_metric='logloss')
-        )
-        
-    # If data is passed, determine feature names from DataFrame columns or numeric indices
-    # If prefit=True, assume models are already trained and share identical feature structure
+            if task == 'reg':
+                models["XGBoost"] = XGBRegressor()
+            else:
+                models["XGBoost"] = XGBClassifier(
+                    eval_metric='logloss'
+                )
+
+    # 5) Extract feature names if X is given. If model is prefit
+    #    and no X is provided, we attempt retrieving them from
+    #    the model afterward.
     if X is not None:
+        # check whether X is a dataframe 
+        # if not build dataframe. 
+        vlog("[INFO] Extracting feature names.", verbose)
+        X= build_data_if (
+            X, force=True, 
+            input_name="Feature Data", 
+            col_prefix='feature_', 
+        )
         feature_names = (
-            X.columns 
-            if hasattr(X, 'columns') 
+            X.columns
+            if hasattr(X, 'columns')
             else np.arange(X.shape[1])
         )
     else:
-        feature_names = None  # Will handle post-computation if needed
-    
-    # Dictionary to hold each model's feature importances
+        feature_names = None
+
+    # 6) Convert models to dict if a list of estimators is given
+    if not isinstance(models, dict):
+        # Assign generic name or derive from model
+        vlog("[INFO] Converting models to a dictionary.", verbose)
+        models = {
+            get_estimator_name(m): m
+            for m in models
+        }
+
+    # Container for feature importances across models
     feature_importances = {}
-    
-    if not isinstance (models, dict): 
-        # Assume model is given as list
-        models = {get_estimator_name(m): m for m in models}
-    
-    # Fit models if prefit=False, and compute the feature importances
+
+    # 7) Fit each model if prefit=False, then compute importances
     for model_name, model in models.items():
-        # If the model is not already trained, fit with (X, y)
         if not prefit:
-            has_methods(model, methods= ['fit'])
-            
+            vlog(f" [DEBUG] Fitting model {model_name}.",verbose)
+            # Must have a fit method
+            has_methods(model, methods=['fit'])
             if X is None or y is None:
                 raise ValueError(
                     "X and y must be provided when prefit=False."
                 )
-            
             model.fit(X, y)
-        
-        # If using shap for feature importances
-        if pkg == 'shap':
+
+        # Priority to user-defined xai_methods if set
+        if xai_methods:
+            vlog(f"  [TRACE] Using custom XAI method for {model_name}.", 
+                 verbose
+                 )
+            importances = xai_methods(model, X, y)
+        elif pkg == 'shap':
+            vlog(f" [DEBUG] Using SHAP for {model_name}.", verbose)
+            
             import shap
-            explainer    = shap.Explainer(model, X)
-            shap_values  = explainer(X)
-            importances  = np.abs(shap_values.values).mean(axis=0)
-        
-        # If using sklearn built-in feature_importances_ or coef_
+            explainer = shap.Explainer(model, X)
+            shap_values = explainer(X)
+            # Mean absolute SHAP values per feature
+            importances = np.abs(shap_values.values).mean(axis=0)
         elif pkg == 'sklearn':
+            vlog(f"  [TRACE] Using sklearn feature importances for {model_name}.", 
+                 verbose
+                 )
+            
+            # Use builtin feature_importances_ or coef_
             if hasattr(model, "feature_importances_"):
                 importances = model.feature_importances_
             elif hasattr(model, "coef_"):
                 importances = np.abs(model.coef_).flatten()
             else:
                 extra_msg = (
-                    "This error occurs because you did not provided a"
-                    " fitted estimator. To use the default estimator,"
-                    " set ``prefit=False``."
+                    "This error might occur if you have not "
+                    "provided a fitted estimator or it doesn't "
+                    "offer these attributes. Ensure model "
+                    "supports 'feature_importances_' or 'coef_'."
+                    "Or set ``prefit=False`` to use default estimators."
                 )
                 raise ValueError(
-                    f"Model {model_name} does not support sklearn"
-                    f" feature importances. {extra_msg}"
+                    f"Model {model_name} does not support sklearn "
+                    f"feature importances. {extra_msg}"
                 )
-        
-        # If using custom xai_methods
-        elif xai_methods:
-            importances = xai_methods(model, X, y)
-        
         else:
+            # pkg is invalid if not shap or sklearn, unless xai_methods is used
             raise ValueError(
-                "Invalid pkg specified. Use 'shap', 'sklearn',"
-                " or provide xai_methods."
+                "Invalid pkg specified. Use 'shap', 'sklearn', or "
+                "provide a custom 'xai_methods' function."
             )
-        
-        # Store each model's importances in dictionary
         feature_importances[model_name] = importances
-    
-    # If models are prefit and no X is provided to name features, 
-    # try to retrieve feature names from any model with such attribute
-    # otherwise, default to numeric indices
+
+    # 8) If no feature_names, infer from model if possible,
+    #    else fallback to numeric indices
     if feature_names is None:
-        # Attempt to retrieve feature names from model, or set them as indices
         any_model = next(iter(models.values()))
         try:
             feature_names = any_model.feature_names_in_
         except AttributeError:
-            # Fallback if no attribute is found
-            # (By now we assume user knows the model must share same #features)
-            # We guess the number of features from the length of the importances
-            n_features    = len(list(feature_importances.values())[0])
+            # Fallback to the length of the importances
+            n_features = len(list(feature_importances.values())[0])
             feature_names = np.arange(n_features)
+
+    # 9) Build a DataFrame of feature importances, indexed by names
+    importances_df = pd.DataFrame(
+        feature_importances,
+        index=feature_names
+    )
+
+    # Optionally normalize each column
+    if normalize:
+        # As a local mathext'normalize' func exists so 
+        # let's abbreviate it to avoid confusion with the 
+        # parameter name.
+        from .mathext import normalize as normalizer
+        importances_df = normalizer(importances_df)
     
-    # Convert importances to a DataFrame
-    importances_df = pd.DataFrame(feature_importances, index=feature_names)
-    if normalize : 
-        from .mathext import normalize as normalizer 
-        importances_df = normalizer (importances_df)
-        
-    # If multiple models exist, compute the average feature importance across them
-    if len(feature_importances) > 1:
-        importances_df["mean_importance"] = importances_df.mean(axis=1)
+    # 10) If multiple models, compute the mean across them
+    # 11) Rank each column in descending order of importance
+    # 12) Sort by "mean_rank" if it exists, else by the first column
     
-    # Compute ranking per model, descending order
-    # Higher importance gets rank 1, next gets 2, etc.
-    ranking_matrix = importances_df.rank(
-        ascending=False, 
-        axis=0
-    ).astype(int)
-    
-    # If multiple models exist, also rank by mean_importance
-    if len(feature_importances) > 1:
-        ranking_matrix["mean_rank"] = importances_df["mean_importance"].rank(
-            ascending=False
-        ).astype(int)
-    # Then drop mean_importances and mean_rank 
-    if not keep_mean_importance: 
-        importances_df.drop (
-            columns =["mean_importance"], 
-            errors='ignore', 
-            inplace=True
-            )
-        ranking_matrix.drop(
-            columns =['mean_rank', "mean_importance"], 
-            errors='ignore', 
-            inplace=True
+    final_df = reorder_by ( 
+        importances_df, 
+        ascending=ascending, 
+        to_rank= return_rank, 
+        rank_strategy= 'by_data', 
+    )
+    vlog("[INFO] Returning final DataFrame with {}".format(
+        "ranking matrix." if return_rank else "feature importances." ), 
+        verbose
         )
+    # 13) Return either the rank or the raw importances
+    if not as_frame:
+        return final_df.values 
     
-    # Return either the rank matrix or the importances,
-    # depending on user request
-    if return_rank:
-        return ranking_matrix if as_frame else ranking_matrix.values
- 
-    return importances_df if as_frame else importances_df.values
-        
+    return final_df
 
 @validate_params ({ 
     'y_true': ['array-like', None], 
@@ -467,7 +869,6 @@ def get_preds(
     .. [1] D. Wolpert, "Stacked generalization," Neural Networks,
         vol. 5, issue 2, pp. 241-259, 1992.
     """
-
     # If y_preds is provided, convert it to arrays. 
     # Otherwise, we compute predictions using each model in 'models'.
     if y_preds is not None:
@@ -4162,106 +4563,259 @@ def standard_scaler(X, y=None):
 
     return X_scaled
 
-def minmax_scaler(X, y=None):
-    """
-    Scales each feature to a given range, typically [0, 1].
+def minmax_scaler(
+    X: Union[np.ndarray, pd.DataFrame, pd.Series],
+    y: Optional[Union[np.ndarray, pd.DataFrame, pd.Series]] = None,
+    feature_range: Tuple[float, float] = (0.0, 1.0),
+    eps: float = 1e-8
+) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+    r"""
+    Scale features (and optionally target) to a specified
+    range (default [0, 1]) using a Min-Max approach.
+    This method is robust to zero denominators via an
+    epsilon offset.
 
-    MinMax scaling is often used when the algorithm requires a bounded interval. 
-    It's particularly useful in neural networks and image processing where values 
-    need to be normalized.
+    .. math::
+       X_{\text{scaled}} = \text{range}_{\min}
+       + (\text{range}_{\max} - \text{range}_{\min})
+         \cdot \frac{X - X_{\min}}
+         {(X_{\max} - X_{\min}) + \varepsilon}
 
-    Applications
-    ------------
-    - Data normalization for neural networks.
-    - Preprocessing data in computer vision tasks.
-    - Scaling features for optimization problems.
-    
     Parameters
     ----------
-    X : ndarray of shape (n_samples, n_features)
-        The input samples.
-    y : ndarray of shape (n_samples,), optional
-        The output values. If provided, it will be scaled as well.
+    X : {numpy.ndarray, pandas.DataFrame, pandas.Series}
+        Feature matrix or vector. If array-like, shape
+        is (n_samples, n_features) or (n_samples, ).
+    y : {numpy.ndarray, pandas.DataFrame, pandas.Series}, optional
+        Optional target values to scale with the same
+        approach. If provided, must be 1D or a single
+        column.
+    feature_range : (float, float), optional
+        Desired range for the scaled values. Default
+        is (0.0, 1.0).
+    eps : float, optional
+        A small offset to avoid division-by-zero when
+        ``X_max - X_min = 0``. Default is 1e-8.
 
     Returns
     -------
-    X_scaled : ndarray
-        Scaled version of X.
-    y_scaled : ndarray, optional
-        Scaled version of y, if y is provided.
+    X_scaled : numpy.ndarray
+        Transformed version of X within the desired
+        range.
+    y_scaled : numpy.ndarray, optional
+        Scaled version of y, if provided.
 
-    Formula
-    -------
-    The MinMax Scaler performs the following operation for each feature:
-        z = \frac{x - \min(x)}{\max(x) - \min(x)}
+    Notes
+    -----
+    - This scaler is commonly used for neural networks
+      and other methods sensitive to the absolute
+      magnitude of features.
+    - Passing an epsilon helps prevent NaN or inf
+      results for constant vectors or features.
 
     Examples
     --------
-    >>> X = np.array([[1, 2], [3, 4], [5, 6]])
+    >>> import numpy as np
+    >>> from gofast.utils.mathext import minmax_scaler
+    >>> X = np.array([[1, 2],[3, 4],[5, 6]])
     >>> X_scaled = minmax_scaler(X)
+    >>> # X_scaled now lies in [0,1] per feature.
     """
-    X_min = X.min(axis=0)
-    X_max = X.max(axis=0)
-    X_scaled = (X - X_min) / (X_max - X_min)
+    # Convert inputs to arrays
+    def _to_array(obj):
+        if isinstance(obj, (pd.DataFrame, pd.Series)):
+            return obj.values
+        return np.asarray(obj)
 
+    X_arr = _to_array(X)
+    X_shape = X_arr.shape
+    if X_arr.ndim == 1:
+        X_arr = X_arr.reshape(-1, 1)
+    # range min & max
+    feature_range = validate_length_range (
+        feature_range, param_name="Feature range")
+    min_val, max_val = feature_range
+    if min_val >= max_val:
+        raise ValueError("feature_range must be (min, max) with min < max.")
+
+    # compute min & max
+    X_min = X_arr.min(axis=0, keepdims=True)
+    X_max = X_arr.max(axis=0, keepdims=True)
+
+    # scaling
+    num = X_arr - X_min
+    denom = (X_max - X_min) + eps
+    X_scaled = min_val + (max_val - min_val)*(num/denom)
+
+    # reshape back if 1D
+    if (len(X_shape)==1) or (X_arr.ndim == 1) or (
+            X_arr.ndim > 1 and X_shape[1] == 1):
+        X_scaled = X_scaled.ravel()
+
+    # if y is provided
     if y is not None:
-        y_min = y.min()
-        y_max = y.max()
-        y_scaled = (y - y_min) / (y_max - y_min)
+        y_arr = _to_array(y).astype(float)
+        y_min = y_arr.min()
+        y_max = y_arr.max()
+        y_num = y_arr - y_min
+        y_denom = (y_max - y_min) + eps
+        y_scaled = (min_val
+                    + (max_val - min_val)
+                    * (y_num / y_denom))
         return X_scaled, y_scaled
-
     return X_scaled
 
-def normalize(X, y=None):
-    """
-    Scales individual samples to have unit norm.
+def normalize(
+    X: Union[np.ndarray, pd.DataFrame, pd.Series],
+    y: Optional[Union[np.ndarray, pd.DataFrame, pd.Series]] = None,
+    norm: str = "l2",
+    eps: float = 1e-8
+) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+    r"""
+    Normalize each sample (or feature) of X to have
+    a unit norm, avoiding division-by-zero with a small
+    epsilon. The method can optionally apply the same
+    normalization approach to y.
 
-    Normalization is critical for distance-based algorithms like k-Nearest 
-    Neighbors and clustering algorithms. It ensures that each feature 
-    contributes proportionately to the final distance.
+    .. math::
+       \mathbf{x}_{\text{norm}} = \frac{\mathbf{x}}
+       {\max(\|\mathbf{x}\|,\varepsilon)}
 
-    Applications
-    ------------
-    - Preprocessing for clustering algorithms.
-    - Normalizing data in natural language processing.
-    - Feature scaling in bioinformatics.
-    
     Parameters
     ----------
-    X : ndarray of shape (n_samples, n_features)
-        The input samples.
-    y : ndarray of shape (n_samples,), optional
-        The output values. If provided, it will be normalized as well.
+    X : {numpy.ndarray, pandas.DataFrame, pandas.Series}
+        Data to normalize. If 2D, shape is (n_samples,
+        n_features). If 1D, shape is (n_samples, ).
+    y : {numpy.ndarray, pandas.DataFrame, pandas.Series}, optional
+        Optional array or Series to normalize. Typically
+        1D. Default is None.
+    norm : {'l1','l2','max'}, optional
+        The norm used for scaling:
+        - 'l2': Euclidean norm.
+        - 'l1': Absolute sum norm.
+        - 'max': Maximum absolute value.
+        Default is 'l2'.
+    eps : float, optional
+        A small constant added to the denominator to
+        prevent division-by-zero. Default is 1e-8.
 
     Returns
     -------
-    X_normalized : ndarray
+    X_norm : numpy.ndarray
         Normalized version of X.
-    y_normalized : ndarray, optional
-        Normalized version of y, if y is provided.
+    y_norm : numpy.ndarray, optional
+        Normalized version of y, if provided.
 
-    Formula
-    -------
-    The Normalize method scales each sample as follows:
-        z = \frac{x}{||x||}
-    where ||x|| is the Euclidean norm (L2 norm) of the sample.
+    Notes
+    -----
+    This function normalizes samples along axis=1 if X is
+    2D. For L2 normalization, each sample is divided by
+    its Euclidean norm. Similarly for 'l1' or 'max'.
 
     Examples
     --------
-    >>> X = np.array([[1, 2], [3, 4], [5, 6]])
-    >>> X_normalized = normalize(X)
+    >>> import numpy as np
+    >>> from gofast.utils.mathext import normalize
+    >>> X = np.array([[1, 2],[3, 4],[5, 6]])
+    >>> X_norm = normalize(X, norm='l2')
+    >>> # Each row in X_norm has L2 norm ~1
     """
-    X = ensure_2d(X)
-    X_norm = np.linalg.norm(X, axis=1, keepdims=True)
-    X_normalized = X / X_norm
+    def _to_array(obj):
+        if isinstance(obj, (pd.DataFrame, pd.Series)):
+            return obj.values
+        return np.asarray(obj)
+     
+    # Preserve the structure of the input array/Series/DataFrame.
+    arrays = [X]
+    if y is not None: 
+        arrays.append (y)
+        
+    collected = array_preserver(*arrays, action='collect')
+    
+    X_arr = _to_array(X).astype(float, copy=False)
+    # If 1D, treat each sample as an entire vector
+    # i.e. shape (n_samples,) => reshape => (n_samples, 1)?
+    # Actually for normalizing, we typically do sample-wise
+    # in axis=1. We'll handle that logic carefully.
+    if X_arr.ndim == 1:
+        # We'll interpret the entire array as a single "sample"
+        # if user wants normalizing a 1D => we do global norm?
+        # or each sample is a single scalar?
+        # We'll do "each sample is a single scalar" => shape Nx1
+        X_arr = X_arr.reshape(-1,1)
+    # Now shape is (n_samples, n_features)
+    # We'll compute the norm for each row => axis=1
+    if norm.lower() == 'l2':
+        row_norms = np.linalg.norm(X_arr, ord=2, axis=1, keepdims=True)
+    elif norm.lower() == 'l1':
+        row_norms = np.sum(np.abs(X_arr), axis=1, keepdims=True)
+    elif norm.lower() == 'max':
+        row_norms = np.max(np.abs(X_arr), axis=1, keepdims=True)
+    else:
+        raise ValueError(
+            f"Unknown norm '{norm}'. Choose from 'l1','l2','max'.")
+
+    
+    # Avoid division-by-zero
+    row_norms = np.maximum(row_norms, eps)
+    X_norm = X_arr / row_norms
+
+    # If 1D input, we can reshape back
+    # but only if the original shape was 1D
+    # We'll detect if original X was 1D
+    if hasattr(X, 'ndim') and getattr(X, 'ndim', None) == 1:
+        # Flatten back
+        X_norm = X_norm.ravel()
 
     if y is not None:
-        y_norm = np.linalg.norm(y, axis=0, keepdims=True)
-        y_normalized = y / y_norm
-        return X_normalized, y_normalized
-
-    return X_normalized
-
+        y_arr = _to_array(y).astype(float)
+        # We'll do the same approach for y but typically y is 1D
+        # so we compute global norm if it has >1 element
+        if y_arr.ndim == 0:
+            # single scalar => no scale
+            y_norm = y_arr
+        else:
+            # e.g. shape=(n,) => do global norm
+            val_norm = None
+            if norm.lower() == 'l2':
+                val_norm = np.linalg.norm(y_arr, ord=2)
+            elif norm.lower() == 'l1':
+                val_norm = np.sum(np.abs(y_arr))
+            elif norm.lower() == 'max':
+                val_norm = np.max(np.abs(y_arr))
+            if val_norm < eps:
+                val_norm = eps
+            y_norm = y_arr / val_norm
+            
+        # Attempt to restore original structure (index, shape, etc.)
+        collected['processed'] = [X_norm, y_norm]
+        try:
+            X_norm, y_norm = array_preserver(
+                collected, 
+                action='restore',
+                deep_restore=True
+            )
+        except:
+            pass 
+    
+        return X_norm, y_norm
+    
+    collected['processed'] = [X_norm]
+    
+    try:
+        X_norm = array_preserver(
+            collected,
+            solo_return=True,
+            action='restore',
+            deep_restore=True
+        )
+    except Exception:
+        # If it fails, fallback to raw X_norm and y_norm,
+        X_norm = return_if_preserver_failed(
+            X_norm,
+            warn="ignore",
+        )
+    return X_norm
 
 def count_local_minima(arr,  method='robust', order=1):
     """

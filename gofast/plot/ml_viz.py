@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+#   License: BSD-3-Clause
+#   Author: LKouadio <etanoyau@gmail.com>
+
 """
 The `mlviz` module provides a variety of visualization tools 
 for plotting confusion matrices, ROC curves, learning curves, regression 
@@ -8,17 +11,17 @@ performance analysis.
 
 from __future__ import annotations 
 import warnings 
-from numbers import Integral 
+from numbers import Integral, Real 
+
 import numpy as np
 import pandas as pd 
 import seaborn as sns 
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
 import matplotlib.transforms as transforms 
 from matplotlib.collections import EllipseCollection
 
-from sklearn.base import BaseEstimator 
+from sklearn.base import BaseEstimator, is_classifier
 from sklearn.metrics import (
     roc_auc_score, 
     r2_score, 
@@ -26,37 +29,35 @@ from sklearn.metrics import (
     confusion_matrix,
     ConfusionMatrixDisplay,
     roc_curve,
-    auc, 
+    auc as auc_score, 
     mean_absolute_error 
 )
-from sklearn.model_selection import learning_curve, KFold 
-from sklearn.utils import resample
-try: 
-    from sklearn.utils.multiclass import type_of_target
-except: 
-    from ..core.utils import type_of_target 
-try: 
-    from keras.models import Model
-except : 
-    pass 
+from sklearn.model_selection import learning_curve, cross_val_score
+from sklearn.utils import resample 
+
 from ..api.types import Optional, Tuple, Any, List, Union, Callable, NDArray 
 from ..api.types import Dict, ArrayLike, DataFrame, Series, SparseMatrix
-from ..compat.sklearn import validate_params, StrOptions
+from ..compat.scipy import probplot
+from ..compat.sklearn import Interval, StrOptions
+from ..compat.sklearn import validate_params, type_of_target 
 from ..core.array_manager import drop_nan_in, to_arrays 
-from ..core.checks import is_iterable 
-from ..core.handlers import param_deprecated_message 
+from ..core.checks import is_iterable, check_params 
+from ..core.handlers import param_deprecated_message, columns_manager 
 from ..core.utils import make_obj_consistent_if
-from ..core.plot_manager import default_params_plot 
+from ..core.plot_manager import default_params_plot, return_fig_or_ax 
 from ..metrics import get_scorer 
 from ..utils.deps_utils import ensure_pkg 
-from ..utils.mathext import get_preds 
-from ..utils.validator import _is_cross_validated, validate_yy, validate_keras_model
+from ..utils.mathext import get_preds, minmax_scaler 
+from ..utils.validator import _is_cross_validated, validate_yy
 from ..utils.validator import assert_xy_in, get_estimator_name, check_is_fitted
-from ..utils.validator import check_consistent_length
+from ..utils.validator import check_consistent_length, contains_nested_objects 
+from ..utils.validator import process_y_pairs
+from ..utils.validator import validate_length_range, build_data_if 
+
+from ._config import PlotConfig 
+from ._d_cms import TDG_DIRECTIONS 
 from .utils import _set_sns_style, _make_axe_multiple
 from .utils import make_plot_colors  
-from ._config import PlotConfig 
-
 
 __all__= [ 
     'plot_confusion_matrices',
@@ -64,6 +65,7 @@ __all__= [
     'plot_confusion_matrix', 
     'plot_roc_curves',
     'plot_taylor_diagram',
+    'plot_taylor_diagram_in', 
     'plot_cv',
     'plot_confidence',
     'plot_confidence_ellipse',
@@ -75,26 +77,879 @@ __all__= [
     'plot_residuals_vs_leverage', 
     'plot_residuals_vs_fitted', 
     'plot_r2', 
+    'plot_r2_in', 
     'plot_cm', 
+    'taylor_diagram', 
+    'plot_roc', 
+    'plot_residuals'
     ]
 
+@return_fig_or_ax (return_type='ax')
 @default_params_plot(
-    savefig ='my_taylor_diagram_plot.png',
+    savefig =PlotConfig.AUTOSAVE('my_taylor_diagram_plot_rad.png'),
+    dpi=300, 
+    fig_size=(8, 6)
+)
+@validate_params ({
+    'stddev': ['array-like', None], 
+    'corrcoef': ['array-like', None], 
+    'y_preds': ['array-like', None], 
+    'reference': ['array-like', None], 
+    'names': [str, 'array-like', None ], 
+    'radial_strategy': [
+        StrOptions({'rwf','convergence', 'center_focus', 'performance'})
+        ], 
+    'power_scaling': [Interval(Real, 0, 1, closed="right")],  
+    })
+def taylor_diagram(
+    stddev=None,
+    corrcoef=None,
+    y_preds=None,
+    reference=None,
+    names=None,
+    ref_std=1,
+    cmap=None,
+    draw_ref_arc=False,
+    radial_strategy="rwf",
+    norm_c=False,
+    power_scaling=1.0,
+    marker='o',
+    ref_props=None,
+    fig_size=None,
+    size_props=None,
+    title=None,
+    savefig=None,
+):
+    r"""
+    Plot a Taylor diagram to compare multiple predictions against
+    a reference by visualizing their correlation and standard
+    deviation. This function can accept either precomputed
+    statistics (i.e. `stddev` and `corrcoef`) or the actual arrays
+    (`y_preds` and `reference`) from which these statistics will be
+    derived.
+
+    The radial axis represents the standard deviation (std. dev.),
+    while the angular axis represents the correlation with the
+    reference (with angle :math:`\theta = \arccos(\rho)`).
+
+    Parameters
+    ----------
+    stddev : list of float or None, optional
+        List of standard deviations for each prediction. If
+        `None`, the standard deviations are computed internally
+        from `y_preds`. The length of `stddev` should match the
+        number of models if provided.
+
+    corrcoef : list of float or None, optional
+        List of correlation coefficients for each prediction
+        against the reference. If `None`, these are computed
+        internally from `y_preds`. Must match the length of
+        `stddev` if provided.
+
+    y_preds : list of array-like or None, optional
+        One or more prediction arrays (e.g. model outputs).
+        Each array must share the same length as `reference`.
+        Required if `stddev` or `corrcoef` is not provided.
+
+    reference : array-like or None, optional
+        Reference (observed) array used for computing correlation
+        and std. dev. of predictions if `stddev` or `corrcoef`
+        is not given. Must share length with each prediction in
+        `y_preds`.
+
+    names : list of str or None, optional
+        Labels for each prediction array. Must match the number
+        of models in `y_preds` or in `stddev`/`corrcoef`. If
+        `None`, default labels of the form "Model_i" are used.
+
+    ref_std : float, optional
+        Standard deviation of the reference if already known or
+        desired to be set explicitly. If predictions are provided
+        (`y_preds` and `reference`), this is computed as
+        `np.std(reference)` by default.
+
+    cmap : str or None, optional
+        Matplotlib colormap for the background shading. If not
+        `None`, a contour fill is created based on the chosen
+        `radial_strategy`, visualizing different performance
+        or weighting zones. For example, `'viridis'` or
+        `'plasma'`.
+
+    draw_ref_arc : bool, optional
+        If `True`, an arc is drawn at the reference's standard
+        deviation, highlighting that radial distance. If `False`,
+        a point is placed at angle `0` with radial distance
+        `ref_std`. Default is `False`.
+
+    radial_strategy : {'rwf', 'convergence', 'center_focus',
+                       'performance'}, optional
+        Strategy for computing the background mesh (when
+        `cmap` is not `None`):
+        * ``'rwf'``: Radial weighting function that uses
+          correlation and deviation distance in an exponential
+          form.
+        * ``'convergence'``: A simple radial function of `r`.
+        * ``'center_focus'``: Focus on a center region in the
+          (theta, r) space using an exponential decay from the
+          center.
+        * ``'performance'``: Highlight the region near the best
+          performing model (max correlation, optimal std. dev.).
+
+    norm_c : bool, optional
+        If `True`, the generated background mesh is normalized to
+        the range [0, 1] before plotting. This can highlight
+        relative differences more clearly. Default is `False`.
+
+    power_scaling : float, optional
+        When `norm_c` is `True`, the normalized background mesh
+        can be exponentiated by this factor. Useful for adjusting
+        contrast. Default is `1.0`.
+
+    marker : str, optional
+        Marker style for the points representing each prediction.
+        Defaults to `'o'`.
+
+    ref_props : dict or None, optional
+        Dictionary of reference plot properties, such as line
+        style, color, or width. Supported keys include:
+        * ``'label'``: Legend label for the reference.
+        * ``'lc'``: Line color/style for the reference arc.
+        * ``'color'``: Color/style for the reference point.
+        * ``'lw'``: Line width.
+        If not given, defaults to a green line and black point.
+
+    fig_size : (float, float) or None, optional
+        Figure size in inches, e.g. ``(width, height)``.
+        Defaults to ``(8, 6)``.
+
+    size_props : dict or None, optional
+        Optional dictionary to control tick and label sizes.
+        For instance: 
+        ``{'ticks': 12, 'labels': 14}``.
+        Can be used to adjust the font sizes of the radial and
+        angular ticks and labels.
+
+    title : str or None, optional
+        Title of the figure. If `None`, defaults to
+        ``"Taylor Diagram"``.
+
+    savefig : str or None, optional
+        Path to save the figure (e.g. ``"diagram.png"``). If
+        `None`, the figure is displayed instead of being saved.
+
+    Notes
+    -----
+
+    The Taylor diagram simultaneously shows two statistics for
+    each model prediction :math:`p` compared to a reference
+    :math:`r`:
+
+    1. **Standard Deviation**:
+       .. math::
+          \sigma_p = \sqrt{\frac{1}{n}
+          \sum_{i=1}^{n}\bigl(p_i - \bar{p}\bigr)^2}
+
+       where :math:`\bar{p}` is the mean of :math:`p`.
+
+    2. **Correlation**: :math:`\rho`
+       .. math::
+          \rho = \frac{\mathrm{Cov}(p, r)}
+          {\sigma_p \; \sigma_r}
+
+       where :math:`\mathrm{Cov}(p, r)` is the covariance between
+       :math:`p` and :math:`r`, and :math:`\sigma_r` is the
+       standard deviation of :math:`r`.
+
+    The diagram uses polar coordinates with radius corresponding
+    to the standard deviation, and the angle
+    :math:`\theta = \arccos(\rho)` representing correlation.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.plot.ml_viz import taylor_diagram
+    >>> # Generate synthetic data
+    >>> ref = np.random.randn(100)
+    >>> preds = [
+    ...     ref + 0.1 * np.random.randn(100),
+    ...     1.2 * ref + 0.5 * np.random.randn(100),
+    ... ]
+    >>> # Basic usage (auto-compute stddev and corrcoef)
+    >>> taylor_diagram(y_preds=preds, reference=ref)
+
+    See Also
+    --------
+    numpy.std : Compute standard deviation.
+    numpy.corrcoef : Compute correlation coefficients.
+
+    References
+    ----------
+    .. [1] Taylor, K. E. (2001). Summarizing multiple aspects of
+           model performance in a single diagram. *Journal of
+           Geophysical Research*, 106(D7), 7183-7192.
+    """
+
+    # Create polar subplot
+    fig, ax = plt.subplots(
+        subplot_kw={'projection': 'polar'},
+        figsize=fig_size or (8, 6)
+    )
+
+    # Handle reference properties
+    ref_props = ref_props or {}
+    ref_label = ref_props.pop('label', 'Reference')
+    ref_color = ref_props.pop('lc', 'red')
+    ref_point = ref_props.pop('color', 'k*')
+    ref_lw = ref_props.pop('lw', 2)
+
+    # Compute stddev and corrcoef from predictions if needed
+    if (stddev is None or corrcoef is None):
+        if (y_preds is None or reference is None):
+            raise ValueError(
+                "Provide either stddev and corrcoef, "
+                "or y_preds and reference."
+            )
+        if not contains_nested_objects(y_preds, strict= True): 
+            y_preds =[y_preds]
+            
+        y_preds = [
+            validate_yy(reference, pred, flatten="auto")[1] 
+            for pred in y_preds
+        ]
+        
+        stddev = [np.std(pred) for pred in y_preds]
+        corrcoef = [
+            np.corrcoef(pred, reference)[0, 1] 
+            for pred in y_preds
+        ]
+        ref_std = np.std(reference)
+    
+    # Re-check consistency
+    check_consistent_length(stddev, corrcoef)
+    
+    # Ensure `names` matches number of models
+    if names is not None:
+        names= columns_manager(names)
+        if len(names) < len(stddev):
+            additional = [
+                f"Model_{i + 1}" 
+                for i in range(len(stddev) - len(names))
+            ]
+            names = names + additional
+    else:
+        names = [
+            f"Model_{i + 1}" 
+            for i in range(len(stddev))
+        ]
+
+    # Generate background if cmap is provided
+    if cmap:
+        theta_bg, r_bg = np.meshgrid(
+            np.linspace(0, np.pi / 2, 500),
+            np.linspace(0, max(stddev) + 0.5, 500)
+        )
+
+        # Compute background based on strategy
+        if radial_strategy == "convergence":
+            background = r_bg
+        elif radial_strategy == "rwf":
+            corr_bg = np.cos(theta_bg)
+            std_diff = (r_bg - ref_std) ** 2
+            background = (
+                np.exp(-std_diff / 0.1) * 
+                corr_bg ** 2
+            )
+        elif radial_strategy == "center_focus":
+            center_std = (max(stddev) + ref_std) / 2
+            std_diff = (r_bg - center_std) ** 2
+            theta_diff = (theta_bg - np.pi / 4) ** 2
+            background = (
+                np.exp(-std_diff / 0.1) *
+                np.exp(-theta_diff / 0.2)
+            )
+        elif radial_strategy == "performance":
+            best_idx = np.argmax(corrcoef)
+            std_best = stddev[best_idx]
+            corr_best = corrcoef[best_idx]
+            theta_best = np.arccos(corr_best)
+            std_diff = (r_bg - std_best) ** 2
+            theta_diff = (theta_bg - theta_best) ** 2
+            background = (
+                np.exp(-std_diff / 0.05) *
+                np.exp(-theta_diff / 0.05)
+            )
+
+        # Normalize background if requested
+        if norm_c:
+            background = minmax_scaler(background )
+            # background = (
+            #     (background - np.min(background)) /
+            #     (np.max(background) - np.min(background))
+            # )
+            background = background ** power_scaling
+
+        # Plot the colored contour
+        ax.contourf(
+            theta_bg, 
+            r_bg, 
+            background,
+            levels=100,
+            cmap=cmap,
+            alpha=0.8
+        )
+
+    # Draw reference point or arc
+    if draw_ref_arc:
+        t_arc = np.linspace(0, np.pi / 2, 500)
+        ax.plot(
+            t_arc,
+            [ref_std] * len(t_arc),
+            ref_color,
+            linewidth=ref_lw,
+            label=ref_label
+        )
+    else:
+        ax.plot(
+            0,
+            ref_std,
+            ref_point,
+            markersize=12,
+            label=ref_label
+        )
+
+    # Plot data points
+    for i, (std_val, corr_val) in enumerate(
+        zip(stddev, corrcoef)
+    ):
+        theta_pt = np.arccos(corr_val)
+        ax.plot(
+            theta_pt,
+            std_val,
+            marker,
+            label=names[i],
+            markersize=10
+        )
+
+    # Add correlation lines (dotted radial lines)
+    t_corr = np.linspace(0, np.pi / 2, 100)
+    for r_line in np.linspace(0, 1, 11):
+        ax.plot(
+            t_corr,
+            [r_line * ref_std] * len(t_corr),
+            'k--',
+            alpha=0.3
+        )
+
+    # Add standard deviation circles
+    for r_circ in np.linspace(0, max(stddev) + 0.5, 5):
+        ax.plot(
+            np.linspace(0, np.pi / 2, 100),
+            [r_circ] * 100,
+            'k--',
+            alpha=0.3
+        )
+
+    # Set axis limits
+    ax.set_xlim(0, np.pi / 2)
+    ax.set_ylim(0, max(stddev) + 0.5)
+
+    # Set x-ticks for correlation
+    ax.set_xticks(
+        np.arccos(np.linspace(0, 1, 6))
+    )
+    ax.set_xticklabels(
+        ['1.0', '0.8', '0.6', '0.4', '0.2', '0.0']
+    )
+
+    # Axis labels
+    ax.set_xlabel("Standard Deviation", labelpad=20)
+
+    # Correlation text label on the plot
+    ax.text(
+        0.85,
+        0.7,
+        "Correlation",
+        ha='center',
+        rotation_mode="anchor",
+        rotation=-45,
+        transform=ax.transAxes
+    )
+
+    # Set size of ticks and labels if provided
+    if size_props:
+        tick_size = size_props.get('ticks', 10)
+        label_size = size_props.get('label', 12)
+        ax.tick_params(
+            axis='both',
+            labelsize=tick_size
+        )
+        # X-label
+        for label in ax.xaxis.get_label():
+            label.set_size(label_size)
+        # We might want to set radial labels if any,
+        # but let's keep it minimal. 
+        
+    # Legend and title
+    ax.legend(loc='upper right')
+    plt.title(title or 'Taylor Diagram')
+
+    # Save or show figure
+    if savefig:
+        plt.savefig(savefig, bbox_inches='tight')
+    else:
+        plt.show()
+
+@default_params_plot(
+    savefig =PlotConfig.AUTOSAVE('my_taylor_diagram_plot2.png'),
     dpi=300, 
     fig_size=(8, 8)
 )
 @validate_params ({
     'reference': ['array-like'], 
     'names': [str, 'array-like', None ], 
-    'kind': [StrOptions({'default', 'half_circle'})], 
-    'zero_location': [StrOptions({'N','NE','E','S','SW','W','NW'})], 
+    'acov': [StrOptions({'default', 'half_circle'}), None], 
+    'zero_location': [StrOptions({'N','NE','E','S','SW','W','NW', 'SE'})], 
+    'direction': [Integral]
+    })
+def plot_taylor_diagram_in(
+    *y_preds,
+    reference,
+    names=None,
+    acov=None,
+    zero_location='E',
+    direction=-1,
+    only_points=False,
+    ref_color='red',
+    draw_ref_arc=True,
+    angle_to_corr=True,
+    marker='o',
+    corr_steps=6,
+    cmap="viridis",
+    shading='auto',
+    shading_res=300,
+    radial_strategy=None, 
+    norm_c=False, 
+    norm_range=None, 
+    cbar="off",
+    fig_size=None,
+    title=None,
+    savefig=None,
+):
+    r"""
+    Plot a Taylor Diagram with a background color map encoding the
+    correlation domain in polar form. This function provides a visually
+    appealing layout where the radial axis represents the standard
+    deviation of each prediction, while the angular axis is derived from
+    the correlation with the reference.
+
+    Parameters
+    ----------
+    *y_preds : array-like
+        One or more prediction arrays. Each array must be of the same
+        length as `reference`. Each array-like object typically has
+        shape :math:`(n,)`, although multi-dimensional inputs can be
+        flattened internally.
+
+    reference : array-like
+        The reference (observed) array of shape :math:`(n,)`. It must
+        share the same length as each array in `*y_preds`.
+
+    names : list of str or None, optional
+        Labels for each of the arrays in `*y_preds`. If provided, must
+        match the number of prediction arrays. If `None`, each prediction
+        is labeled as "Pred i" automatically.
+
+    acov : {'default', 'half_circle'}, optional
+        Angular coverage of the diagram:
+        - ``'default'``: The diagram covers an angle of
+          :math:`\\pi` (180 degrees).
+        - ``'half_circle'``: The diagram covers an angle of
+          :math:`\\pi/2` (90 degrees).
+        If `acov` is `None`, it defaults to ``'half_circle'`` in the
+        current implementation.
+
+    zero_location : {'N','NE','E','S','SW','W','NW','SE'}, optional
+        The position on the polar axis that corresponds to a correlation
+        of :math:`1.0`. For example, ``'W'`` (west) places the
+        correlation :math:`\\rho=1` to the left on the polar plot,
+        whereas ``'N'`` (north) places it at the top.
+        Default is ``'E'``.
+
+    direction : int, optional
+        Rotation direction for increasing angles. A value of
+        ``1`` sets a counter-clockwise rotation; ``-1`` sets a clockwise
+        rotation. Default is ``-1``.
+
+    only_points : bool, optional
+        If `True`, only the point markers for each prediction are
+        plotted, omitting the radial lines that connect each marker to
+        the origin. If `False`, radial lines are drawn. Default is
+        `False`.
+
+    ref_color : str, optional
+        Color used to represent the reference standard deviation either
+        as an arc (if `draw_ref_arc` is `True`) or as a radial line (if
+        `draw_ref_arc` is `False`). Any valid matplotlib color is
+        accepted. Default is ``'red'``.
+
+    draw_ref_arc : bool, optional
+        If `True`, an arc is drawn at the reference standard deviation
+        to highlight its radial position. If `False`, a radial line is
+        drawn from the origin to the reference standard deviation.
+        Default is `True`.
+
+    angle_to_corr : bool, optional
+        If `True`, the angular axis (theta) is labeled in terms of
+        correlation values from 0 to 1 (mapping angle
+        :math:`\\theta = \\arccos(\\rho)`), so that perfect correlation
+        :math:`\\rho = 1.0` maps to :math:`\\theta = 0`. If `False`,
+        the angular axis is displayed in degrees. Default is `True`.
+
+    marker : str, optional
+        Marker style used for plotting each prediction point.
+        For example, ``'o'`` for a circle or ``'^'`` for a triangle.
+        See matplotlib marker documentation for available options.
+        Default is ``'o'``.
+
+    corr_steps : int, optional
+        Number of correlation intervals to be labeled on the angular
+        axis when `angle_to_corr` is `True`. A value of 6 creates
+        correlation tick labels from 0.00 to 1.00 in steps of 0.20.
+        Default is 6.
+
+    cmap : str, optional
+        Colormap name used for the background mesh showing the
+        correlation domain. Any valid matplotlib colormap can be used,
+        such as ``'viridis'`` or ``'turbo'``. Default is ``'viridis'``.
+
+    shading : {'auto', 'gouraud', 'nearest'}, optional
+        The shading method passed to matplotlib's ``pcolormesh`` for
+        rendering the background. Default is ``'auto'``.
+
+    shading_res : int, optional
+        Resolution factor for generating the background mesh grid in
+        both radial and angular dimensions. Larger values produce a
+        smoother background. Default is 300.
+
+    radial_strategy:  str, optional
+        Defines how the radial background is generated.
+        - `'convergence'`: Correlation is mapped using :math:`cos(theta)`,
+          where :math:`theta` represents the angular displacement. This
+          results in a color gradient converging from high correlation (1)
+          to low correlation (0 or -1, depending on the plot coverage).
+        - `'norm_r'`: Standardizes the radial distance by normalizing `r`
+          to the range `[0, 1]`, where `r` is scaled by the maximum 
+          radius (`rad_limit`).
+        - `'performance'`: Colors are mapped based on distance from 
+          the best-performing model, 
+          using an exponential decay function to highlight the 
+          best-performing region.
+        - `'rwf'` and `'center_focus'`: These are unsupported in this 
+          function. Consider using :func:`gofast.plot.plot_taylor_diagram`
+          instead.
+
+    norm_c :bool, optional) 
+        If ``True``, normalizes the color values for a better
+        visual contrast. Ensures that the color distribution is 
+        balanced across the plot by scaling values between a
+        predefined range. Defaults to ``False``.
+
+    norm_range: tuple, optional
+        Specifies the normalization range for color scaling 
+        when ``norm_c=True``.
+        The format should be `(min_value, max_value)`, where:
+        - `min_value`: The lower bound for normalization.
+        - `max_value`: The upper bound for normalization.
+        If `None`, it defaults to `(0, 1)`.
+
+    cbar : {'off', True, False}, optional
+        Determines whether a colorbar is displayed:
+        - ``'off'`` or `False`: No colorbar is shown.
+        - `True`: A colorbar is added to the figure.
+        Default is ``'off'``.
+
+    fig_size : (float, float), optional
+        Figure size in inches, e.g., ``(width, height)``. If `None`,
+        a default size of approximately ``(10, 8)`` is used.
+
+    title : str, optional
+        Title of the diagram. If `None`, defaults to ``"Taylor Diagram"``.
+
+    savefig : str or None, optional
+        If provided with a string path such as ``"diagram.png"``, the
+        figure is saved to that path. If `None`, the figure is only
+        displayed. Default is `None`.
+
+    Notes
+    -----
+    **Mathematical Formulation**
+
+    The Taylor diagram displays two key statistics for each prediction
+    :math:`p` compared to the reference :math:`r`:
+
+    1. **Correlation** (:math:`\\rho`):
+       .. math::
+          \\rho = \\mathrm{corrcoef}(p, r)[0,1]
+
+       where :math:`\\mathrm{corrcoef}` is the Pearson correlation
+       coefficient, which can also be expressed as:
+
+       .. math::
+          \\rho = \\frac{\\mathrm{Cov}(p, r)}{\\sigma_p \\sigma_r}
+
+       with :math:`\\mathrm{Cov}(p, r)` being the covariance, and
+       :math:`\\sigma_p`, :math:`\\sigma_r` the standard deviations of
+       :math:`p` and :math:`r`.
+
+    2. **Standard Deviation** (:math:`\\sigma`):
+       .. math::
+          \\sigma = \\sqrt{\\frac{1}{n}
+          \\sum_{i=1}^n\\left(p_i - \\bar{p}\\right)^2}
+
+       where :math:`\\bar{p}` is the mean of the prediction array
+       :math:`p`.
+
+    On the diagram, the radial distance from the origin corresponds to
+    the standard deviation of the prediction, and the polar angle
+    corresponds to :math:`\\arccos(\\rho)` when `angle_to_corr` is
+    `True`.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gofast.plot.ml_viz import plot_taylor_diagram_in
+    >>> # Generate some synthetic data
+    >>> np.random.seed(42)
+    >>> reference = np.random.normal(0, 1, 100)
+    >>> y_preds = [
+    ...     reference + np.random.normal(0, 0.3, 100),
+    ...     reference * 0.9 + np.random.normal(0, 0.8, 100)
+    ... ]
+    >>> plot_taylor_diagram_in(
+    ...     *y_preds,
+    ...     reference=reference,
+    ...     names=['Model A', 'Model B'],
+    ...     acov='half_circle',
+    ...     zero_location='N',
+    ...     direction=1,
+    ...     fig_size=(8, 8)
+    ... )
+
+    See Also
+    --------
+    - :func:`numpy.corrcoef` : Function to compute correlation.
+    - :func:`numpy.std` : Function to compute standard deviation.
+
+    References
+    ----------
+    .. [1] Taylor, K. E. (2001). Summarizing multiple aspects of model
+           performance in a single diagram. *Journal of Geophysical
+           Research*, 106(D7), 7183-7192.
+    """
+
+    # Flatten the reference and predictions
+    reference = np.ravel(reference)
+    y_preds = [np.ravel(yp) for yp in y_preds]
+    n = reference.size
+    for p in y_preds:
+        if p.size != n:
+            raise ValueError(
+                "All predictions and reference must be the same length."
+            )
+
+    # correlation & stdev
+    corrs = [np.corrcoef(p, reference)[0,1] for p in y_preds]
+    stds  = [np.std(p) for p in y_preds]
+    ref_std = np.std(reference)
+
+    # Setup figure & polar axis
+
+    fig = plt.figure(figsize=fig_size or (10,8))
+    ax  = fig.add_subplot(111, polar=True)
+
+    # Decide coverage
+    acov = acov or "half_circle"
+    if acov == "half_circle":
+        angle_max = np.pi/2
+    else:
+        angle_max = np.pi
+
+    # radial limit
+    rad_limit = max(max(stds), ref_std)*1.2
+
+    # Create a mesh for background
+    theta_grid = np.linspace(0, angle_max, shading_res)
+    r_grid     = np.linspace(0, rad_limit, shading_res)
+    TH, RR     = np.meshgrid(theta_grid, r_grid)
+
+    if radial_strategy=="convergence": 
+        # correlation => cos(TH)
+        # correlation = cos(TH) if half or full circle
+        # (when angle=0 => correlation=1, angle= pi/2 => corr=0, angle= pi => corr=-1)
+        CC = np.cos(TH)  # from 1..-1 or 1..0 depending on coverage
+    elif radial_strategy =="norm_r": 
+        CC = RR / rad_limit  # Normalizes r to range [0, 1]
+    else: 
+        if radial_strategy in {'rwf', 'center_focus'}: 
+            warnings.warn(
+                f"'{radial_strategy}' is not available in the current"
+                " plot. Consider using `gofast.plot.taylor_diagram`"
+                " for better support. Alternatively, choose from"
+                " 'convergence', 'norm_r', or 'performance'."
+                " Defaulting to 'performance' visualization."
+            )
+        # Fallback to performance 
+        best_idx = np.argmax(corrs)
+        std_best = stds[best_idx]
+        corr_best = corrs[best_idx]
+        theta_best = np.arccos(corr_best)
+        std_diff = (RR - std_best) ** 2
+        theta_diff = (TH - theta_best) ** 2
+
+        CC = (
+            np.exp(-std_diff / 0.05) *
+            np.exp(-theta_diff / 0.05)
+        )
+        
+    # Define color values based on radial distance (normalized)
+    if norm_c:
+        if norm_range is None: 
+            norm_range = (0, 1)
+        norm_range = validate_length_range(
+            norm_range, param_name="Normalized Range"
+            )
+        CC= minmax_scaler(CC, feature_range=norm_range)
+
+    # plot background
+    c = ax.pcolormesh(
+        TH,
+        RR,
+        CC,
+        cmap=cmap,
+        shading=shading,
+        vmin=-1 if angle_max==np.pi else 0,
+        vmax=1
+    )
+
+    # convert each correlation to an angle
+    angles = np.arccos(corrs)
+    radii  = stds
+
+    # pick distinct colors
+    colors = plt.cm.Set1(np.linspace(0,1,len(y_preds)))
+    names= columns_manager(names, empty_as_none=False)
+    # plot predictions
+    for i,(ang,rd) in enumerate(zip(angles,radii)):
+        label = (names[i] if (names and i<len(names))
+                 else f"Pred {i+1}")
+        if not only_points:
+            ax.plot([ang, ang],[0,rd],
+                    color=colors[i], lw=2, alpha=0.8)
+        ax.plot(ang, rd, marker=marker,
+                color=colors[i], label=label)
+
+    # reference arc
+    if draw_ref_arc:
+        arc_t = np.linspace(0, angle_max, 300)
+        ax.plot(arc_t, [ref_std]*300,
+                color=ref_color, lw=2, label="Reference")
+    else:
+        ax.plot([0,0],[0, ref_std],
+                color=ref_color, lw=2, label="Reference")
+        ax.plot(0, ref_std, marker=marker,
+                color=ref_color)
+
+    # set coverage
+    ax.set_thetamax(np.degrees(angle_max))
+
+    # direction
+    if direction not in (-1,1):
+        warnings.warn(
+            "direction must be -1 or 1; using 1."
+        )
+        direction=1
+    ax.set_theta_direction(direction)
+    ax.set_theta_zero_location(zero_location)
+    
+    # Use coordinates and positions to avoid overlapping 
+    CORR_POS =TDG_DIRECTIONS[str(direction)]["CORR_POS"]
+    STD_POS =TDG_DIRECTIONS[str(direction)]["STD_POS"]
+    
+    corr_pos = CORR_POS.get(zero_location)[0]
+    corr_kw= CORR_POS.get(zero_location)[1]
+    std_pos = STD_POS.get(zero_location)[0]
+    std_kw = STD_POS.get(zero_location)[1]
+    
+    # angle => corr labels
+    if angle_to_corr:
+        corr_ticks = np.linspace(0,1,corr_steps)
+        angles_deg = np.degrees(np.arccos(corr_ticks))
+        ax.set_thetagrids(
+            angles_deg,
+            labels=[f"{ct:.2f}" for ct in corr_ticks]
+        )
+        ax.text(
+            *corr_pos, 
+            "Correlation",
+            ha='center', va='bottom',
+            transform=ax.transAxes, 
+            **corr_kw 
+        )
+        ax.text(
+            *std_pos,
+            'Standard Deviation',
+            ha='center', va='bottom',
+            transform=ax.transAxes, 
+            **std_kw
+        )
+        
+    else:
+        ax.text(*corr_pos, "Angle (degrees)",
+                ha='center', va='bottom',
+                transform=ax.transAxes,
+                **corr_kw 
+                )
+        
+        ax.text(
+            *std_pos,
+            'Standard Deviation',
+            ha='center', va='bottom',
+            transform=ax.transAxes, 
+            **std_kw
+
+        )
+        
+    ax.set_ylim(0, rad_limit)
+    ax.set_rlabel_position(15)
+    title = title or "Taylor Diagram"
+    ax.set_title(title, pad=60)
+ 
+    ax.legend(loc='upper right', bbox_to_anchor=(1.2,1.1))
+
+    if cbar not in ["off", False]:
+        fig.colorbar(c, ax=ax, pad=0.1, label="Correlation")
+        
+    plt.tight_layout()
+    plt.show()
+
+
+@default_params_plot(
+    savefig =PlotConfig.AUTOSAVE('my_taylor_diagram_plot.png'),
+    dpi=300, 
+    fig_size=(8, 8)
+)
+@validate_params ({
+    'reference': ['array-like'], 
+    'names': [str, 'array-like', None ], 
+    'acov': [StrOptions({'default', 'half_circle'})], 
+    'zero_location': [StrOptions({'N','NE','E','S','SW','W','NW', 'SE'})], 
     'direction': [Integral]
     })
 def plot_taylor_diagram(
     *y_preds: ArrayLike,
     reference: ArrayLike,
     names: Optional[List[str]] = None,
-    acov: str = "default",
+    acov: str = "half_circle",
     zero_location: str = 'W',
     direction: int = -1,
     only_points: bool = False,
@@ -104,6 +959,8 @@ def plot_taylor_diagram(
     marker='o', 
     corr_steps=6,
     fig_size: Optional[Tuple[int, int]] = None,
+    title: Optional[str]=None, 
+    savefig: Optional[str]=None, 
 ):
     """
     Plots a Taylor Diagram, which is used to graphically summarize 
@@ -138,7 +995,7 @@ def plot_taylor_diagram(
         - `"half_circle"`: The plot spans 90 degrees, which can be 
           useful for focused comparisons.
           
-        **Default:** `"default"`
+        **Default:** `"half_circle"`
 
     zero_location : `str`, optional
         Specifies the location of the zero-degree angle on the polar plot.
@@ -232,6 +1089,14 @@ def plot_taylor_diagram(
         If `set_corr_angle` is ``True``, the correlation approach is used 
         to set angle ticks automatically. This is typically used along with
         `angle_to_corr`. Default is ``True``.
+        
+    title : str, optional
+        Title of the diagram. If `None`, defaults to ``"Taylor Diagram"``.
+
+    savefig : str or None, optional
+        If provided with a string path such as ``"diagram.png"``, the
+        figure is saved to that path. If `None`, the figure is only
+        displayed. Default is `None`.
 
     Examples
     --------
@@ -286,6 +1151,7 @@ def plot_taylor_diagram(
        in a single diagram," Journal of Geophysical Research, vol. 106, 
        no. D7, pp. 7183-7192, 2001.
     """
+
     reference, *y_preds = to_arrays(
         reference, *y_preds, 
         accept= 'only_1d', 
@@ -305,6 +1171,12 @@ def plot_taylor_diagram(
     standard_deviations = [np.std(pred) for pred in y_preds]
     reference_std = np.std(reference)
 
+    # standard_deviations= normalize_array(
+    #     standard_deviations, normalize = "auto", method="01"
+    #     )
+    # correlations= normalize_array(
+    #     correlations, normalize = "auto", method="01"
+    #     )
     # Create figure and polar subplot
     fig = plt.figure(figsize=fig_size or (10, 8))
     ax = fig.add_subplot(111, polar=True)
@@ -355,7 +1227,15 @@ def plot_taylor_diagram(
         direction = 1
     ax.set_theta_direction(direction)
     ax.set_theta_zero_location(zero_location)
-
+    
+    CORR_POS =TDG_DIRECTIONS[str(direction)]["CORR_POS"]
+    STD_POS =TDG_DIRECTIONS[str(direction)]["STD_POS"]
+    
+    corr_pos = CORR_POS.get(zero_location)[0]
+    corr_kw= CORR_POS.get(zero_location)[1]
+    std_pos = STD_POS.get(zero_location)[0]
+    std_kw = STD_POS.get(zero_location)[1]
+ 
     # Replace angle ticks with correlation values if requested
     if angle_to_corr:
         # We'll map correlation ticks [0..1] -> angle via arccos
@@ -368,27 +1248,269 @@ def plot_taylor_diagram(
         ax.set_thetagrids(angle_ticks, labels=[f"{ct:.2f}" for ct in corr_ticks])
         # We can label this dimension as 'Correlation'
         ax.set_ylabel('')  # remove default 0.5, 1.06
-        # XXX TODO. Create dict to map the location of for each acov 
-        # rather to use fix 1. 
-        ax.text(0.5, 1., 'Correlation', ha='center', va='center', 
-                transform=ax.transAxes)
+  
+        ax.text(*corr_pos,  'Correlation', ha='center', va='center', 
+                transform=ax.transAxes, **corr_kw)
+        ax.text(*std_pos,  'Standard Deviation', ha='center', va='center', 
+                transform=ax.transAxes, **std_kw)
     else:
         # Keep angle as degrees
         ax.set_ylabel('')  # remove default
-        ax.text(0.5, 1.06, 'Angle (degrees)', ha='center', va='center',
+        ax.text(*corr_pos, 'Angle (degrees)', ha='center', va='center',
                 transform=ax.transAxes)
 
     # Adjust radial label (std dev)
     # This tries to reduce label overlap
     ax.set_rlabel_position(22.5)
-    ax.set_title('Taylor Diagram', pad=40) #50
-    ax.set_xlabel('Standard Deviation', labelpad=15)
+    ax.set_title( title or 'Taylor Diagram', pad=60) #50
+    # ax.set_xlabel('Standard Deviation', labelpad=15)
 
     plt.legend(loc='upper right', bbox_to_anchor=(1.25, 1.05))
     # plt.subplots_adjust(top=0.8)
 
     plt.tight_layout()
     plt.show()
+
+@validate_params({
+    "X": ['array-like'], 
+    'y': ['array-like'], 
+})
+def plot_cv(
+    model, X, y, 
+    cv=5, 
+    scoring=None, 
+    n_jobs=None, 
+    verbose=0, 
+    pkg=None, 
+    fig_size=(8, 6),
+    show_grid=True, 
+    grid_props=None, 
+    savefig=None, 
+    ax=None, 
+    **kw
+):
+    """
+    Function to plot cross-validation scores for both 
+    scikit-learn and Keras models.
+
+    This function provides a visualization of cross-validation 
+    scores for a given machine learning model. It performs cross-validation 
+    using the given model and datasets, then plots the performance scores 
+    across multiple folds. It supports both `scikit-learn` models and Keras 
+    models (through compatibility handling with `scikeras` and `keras`).
+
+    Parameters
+    ----------
+    model : estimator object
+        The machine learning model (either scikit-learn or Keras model) 
+        to be used for cross-validation. It should have a `.fit()` method 
+        and should be compatible with cross-validation in scikit-learn.
+    
+    X : array-like, shape (n_samples, n_features)
+        The feature matrix for training. It should be a 2D array or 
+        pandas DataFrame containing the input data.
+
+    y : array-like, shape (n_samples,)
+        The target vector. It should be a 1D array or pandas Series containing 
+        the labels corresponding to the input data `X`.
+
+    cv : int, cross-validation generator or an iterable, default=5
+        The cross-validation splitting strategy. If an integer is passed, 
+        it specifies the number of folds in K-fold cross-validation.
+        Alternatively, a cross-validation generator (e.g., `KFold`, 
+        `StratifiedKFold`) can be provided for custom splitting strategies.
+
+    scoring : string, callable, or None, default=None
+        A string or callable to evaluate the predictions. Possible 
+        values for string input are:
+        - `accuracy`, `precision`, `recall`, `f1`, `roc_auc`, etc.
+        The callable should take the predicted values and ground truth 
+        and return a score.
+
+    n_jobs : int, default=None
+        The number of jobs to run in parallel. If `None`, it uses the 
+        default value. If set to `-1`, it uses all available processors.
+
+    verbose : int, default=0
+        Verbosity level of the function. If greater than 0, prints 
+        detailed information about the execution of cross-validation 
+        and the progress during the process.
+
+    pkg : str, optional, default=None
+        Specifies the package for the model. It can be one of the following:
+        - `'sklearn'`: For scikit-learn models.
+        - `'keras'`: For Keras models. 
+        If the model is Keras-based, the function handles the appropriate 
+        wrapper imports and checks.
+
+    fig_size : tuple, optional, default=(8, 6)
+        The size of the figure for the plot. It is passed as the 
+        `figsize` argument when creating the plot with `matplotlib`.
+
+    show_grid : bool, optional, default=True
+        If True, it enables grid lines on the plot. The appearance of 
+        grid lines can be customized with the `grid_props` argument.
+
+    grid_props : dict, optional, default=None
+        A dictionary of properties used to customize the grid lines. 
+        Common properties include `linestyle`, `alpha`, etc. If None, 
+        a default grid style is used.
+
+    savefig : str, optional, default=None
+        If provided, saves the plot as an image file at the given path.
+
+    ax : matplotlib.axes.Axes, optional, default=None
+        If provided, this `matplotlib.axes.Axes` object is used for 
+        plotting the cross-validation scores. Otherwise, a new figure 
+        and axes are created.
+
+    **kw : additional keyword arguments
+        Additional arguments passed to the model's fitting function.
+
+    Returns
+    -------
+    None
+        The function does not return anything. It generates a plot 
+        visualizing the cross-validation scores across the folds.
+
+    Formulation
+    -------------
+    Given a dataset `X` with `n_samples` and `n_features`, and 
+    corresponding target vector `y` with `n_samples`, cross-validation 
+    is performed over `cv` folds. For each fold, the model is trained 
+    using a subset of the data and then evaluated on the held-out data. 
+    The score for each fold is calculated using the specified `scoring` 
+    metric.
+
+    For classification tasks, the scores are computed as:
+    
+    .. math::
+        \text{Score}_i = \frac{\sum_{j=1}^{n} \mathbf{1}[ \hat{y}_j = y_j ]}{n}
+
+    where:
+    - `n` is the number of samples in the fold,
+    - `\hat{y}_j` is the predicted label for sample `j`,
+    - `y_j` is the true label for sample `j`.
+
+    For regression tasks, the score could be, for instance, the R^2 score:
+    
+    .. math::
+        R^2 = 1 - \frac{\sum_{i=1}^{n} (y_i - \hat{y}_i)^2}{\sum_{i=1}^{n} (y_i - \bar{y})^2}
+
+    where:
+    - `y_i` is the true value for sample `i`,
+    - `\hat{y}_i` is the predicted value for sample `i`,
+    - `\bar{y}` is the mean of the true values.
+
+    Example
+    -------
+    >>> from gofast.plot.ml_viz import plot_cv
+    >>> from sklearn.datasets import load_iris
+    >>> from sklearn.svm import SVC
+    >>> data = load_iris()
+    >>> X = data.data
+    >>> y = data.target
+    >>> model = SVC()
+    >>> plot_cv(
+    >>>     model=model, 
+    >>>     X=X, 
+    >>>     y=y, 
+    >>>     cv=5, 
+    >>>     scoring='accuracy', 
+    >>>     verbose=1, 
+    >>>     show_grid=True, 
+    >>>     savefig='cv_scores.png'
+    >>> )
+
+    Notes
+    -----
+    - This function supports both scikit-learn and Keras models.
+    - For Keras models, the function will automatically check 
+      compatibility and handle wrapper imports appropriately.
+    - The `verbose` parameter can be used to print detailed information 
+      about the cross-validation process.
+    - The `show_grid` and `grid_props` parameters allow for customizable 
+      grid line appearances on the plot.
+
+
+    References
+    ----------
+    [1] Pedregosa, F., et al. (2011). "Scikit-learn: Machine Learning in Python."
+        Journal of Machine Learning Research, 12, 2825-2830.
+    [2] Chollet, F. (2015). "Keras: The Python Deep Learning Library."
+        https://github.com/fchollet/keras
+    """
+
+    # If pkg is 'keras', ensure proper compatibility
+    pkg = pkg or 'sklearn'
+    if pkg == 'keras':
+        from ..compat.tf import has_wrappers
+        model = has_wrappers(
+            error="raise", 
+            model=model, 
+            ops="build", 
+            **kw
+        )
+
+    # Verbose logging
+    if verbose > 0:
+        print("Starting cross-validation...")
+
+    # Perform cross-validation
+    if is_classifier(model):
+        if verbose > 0:
+            print("Performing classification...")
+        scores = cross_val_score(
+            model, X, y, cv=cv, scoring=scoring, n_jobs=n_jobs
+        )
+    else:
+        if verbose > 0:
+            print("Performing regression...")
+        scores = cross_val_score(
+            model, X, y, cv=cv, scoring=scoring, n_jobs=n_jobs
+        )
+
+    # Create plot, use provided axes object or create new one
+    if ax is None:
+        fig, ax = plt.subplots(figsize=fig_size)
+    
+    ax.plot(
+        range(1, len(scores) + 1), 
+        scores, 
+        marker='o', 
+        linestyle='--', 
+        color='b'
+    )
+    ax.set_title('Cross-validation Scores')
+    ax.set_xlabel('Fold')
+    ax.set_ylabel('Score')
+    
+    # Configure grid display
+    if show_grid: 
+        if grid_props is None: 
+            grid_props = {"linestyle": ':', 'alpha': 0.7}
+        ax.grid(True, **grid_props)
+    else:
+        ax.grid(False)
+    
+    # Adjust x-axis ticks
+    ax.set_xticks(np.arange(1, len(scores) + 1))
+    
+    # Tight layout for better appearance
+    plt.tight_layout()
+
+    # Verbose logging for mean and std of scores
+    if verbose > 0:
+        print(f"Mean Score: {np.mean(scores):.3f}")
+        print(f"Standard Deviation: {np.std(scores):.3f}")
+
+    # Optionally save the figure
+    if savefig:
+        plt.savefig(savefig)
+
+    # Show the plot
+    plt.show()
+
 
 def plot_cost_vs_epochs(
     regs: Union[Callable, List[Callable]],
@@ -1105,7 +2227,7 @@ def plot_confidence_ellipse(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.plot.mlviz import plot_confidence_ellipse
+    >>> from gofast.plot.ml_viz import plot_confidence_ellipse
     >>> x = np.random.normal(size=500)
     >>> y = np.random.normal(size=500)
     >>> ax = plot_confidence_ellipse(x, y)
@@ -1202,7 +2324,8 @@ def confidence_ellipse(
     Examples
     --------
     >>> import numpy as np 
-    >>> from gofast.plot.mlviz import confidence_ellipse
+    >>> import matplotlib.pyplot as plt
+    >>> from gofast.plot.ml_viz import confidence_ellipse
     >>> x = np.random.normal(size=500)
     >>> y = np.random.normal(size=500)
     >>> fig, ax = plt.subplots()
@@ -1282,7 +2405,8 @@ def plot_roc_curves(
     fig_size : `Tuple[int, int]`, default=(7, 7)
         Size of the figure.
     roc_kws : `Dict`
-        Additional keyword arguments passed to the `sklearn.metrics.roc_curve` function.
+        Additional keyword arguments passed to the `sklearn.metrics.roc_curve`
+        function.
 
     Returns
     -------
@@ -1291,12 +2415,17 @@ def plot_roc_curves(
 
     Examples
     --------
-    >>> from gofast.plot.mlviz import plot_roc_curves 
+    >>> from gofast.plot.ml_viz import plot_roc_curves 
     >>> from sklearn.datasets import make_moons 
-    >>> from gofast.exlib import train_test_split, KNeighborsClassifier, SVC, XGBClassifier, LogisticRegression 
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.neighbors import KNeighborsClassifier
+    >>> from sklearn.svm import SVC 
+    >>> from sklearn.linear_model import LogisticRegression 
+    >>> from xgboost import XGBClassifier 
     >>> X, y = make_moons(n_samples=2000, noise=0.2)
     >>> X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2) 
-    >>> clfs = [m().fit(X_train, y_train) for m in (KNeighborsClassifier, SVC, XGBClassifier, LogisticRegression)]
+    >>> clfs = [m().fit(X_train, y_train) for m in (
+    ...    KNeighborsClassifier, SVC, XGBClassifier, LogisticRegression)]
     >>> plot_roc_curves(clfs, X_test, y_test)
     >>> plot_roc_curves(clfs, X_test, y_test, kind='2', ncols=4, fig_size=(10, 4))
 
@@ -1324,7 +2453,8 @@ def plot_roc_curves(
 
     References
     ----------
-    .. [1] Fawcett, T. (2006). "An introduction to ROC analysis". Pattern Recognition Letters. 27 (8): 861–874.
+    .. [1] Fawcett, T. (2006). "An introduction to ROC analysis".
+          Pattern Recognition Letters. 27 (8): 861–874.
     """
 
     kind = '2' if str(kind).lower() in 'individual2single' else '1'
@@ -1342,8 +2472,7 @@ def plot_roc_curves(
             
         return fpr, tpr , auc_score
     
-    if not is_iterable ( clfs): 
-       clfs = is_iterable ( clfs, exclude_string =True , transform =True ) 
+    clfs = is_iterable ( clfs, exclude_string =True , transform =True ) 
        
     # make default_colors 
     colors = make_plot_colors(clfs, colors = colors )
@@ -1391,140 +2520,359 @@ def plot_roc_curves(
         
     return ax 
 
+@default_params_plot(
+    savefig =PlotConfig.AUTOSAVE('my_shap_summary_plot.png'),
+    dpi=300, 
+    fig_size=(10, 5)
+)
 @ensure_pkg (
     "shap",
-    extra = ( "The 'shap' package is required for plotting SHAP"
-             " summary. Please install it to proceed."), 
+    extra = "'shap' package is required for plotting SHAP summary.", 
     auto_install=PlotConfig.install_dependencies ,
     use_conda=PlotConfig.use_conda 
    )
 def plot_shap_summary(
-    model: Any, 
-    X: Union[ArrayLike, pd.DataFrame], 
-    feature_names: Optional[List[str]] = None, 
-    plot_type: str = 'dot', 
-    color_bar_label: str = 'Feature value', 
-    max_display: int = 10, 
-    show: bool = True, 
-    plot_size: Tuple[int, int] = (15, 10), 
-    cmap: str = 'coolwarm'
-) -> Optional[Figure]:
-    """
-    Generate a SHAP (SHapley Additive exPlanations) summary plot for a 
-    given model and dataset.
+    X=None,                   
+    shap_values=None,         
+    model=None,               
+    columns: Optional[list] = None,  
+    kind: str = 'dot',
+    max_display: int = None,
+    cbar: bool = True,
+    # show: bool = False,
+    title=None,
+    alpha=1,
+    sort=True,
+    plot_size="auto",
+    layered_violin_max_num_bins=20,
+    class_names=None,
+    class_inds=None,
+    show_values_in_legend=False,
+    use_log_scale=False,
+    fig_size=None, 
+    show_grid=True, 
+    grid_props=None, 
+    **shap_kw
+):
+    r"""
+    Plots a SHAP summary visualization of feature contributions
+    for a given dataset and model.
+
+    This function is typically used to illustrate how each feature
+    contributes to the prediction of the model by means of SHAP
+    (SHapley Additive exPlanations) values [1]_.
+    SHAP values are based on a cooperative game theory principle
+    that aims to provide explanations for individual predictions.
+    
+    .. math::
+        
+        \phi_i = \sum_{S \subseteq N \setminus \{ i \}}
+        \frac{|S|!(|N|-|S|-1)!}{|N|!}
+        \bigl[f(S \cup \{ i \}) - f(S)\bigr]
+        
+    where :math:`N` is the set of all features, and
+    :math:`f(\cdot)` is the model output for those features.
+    The term :math:`\phi_i` is the SHAP value for feature
+    :math:`i`, representing how much that feature contributes
+    to the difference in the model's prediction compared to
+    a baseline.
 
     Parameters
     ----------
-    model : `Any`
-        A trained model object that is compatible with SHAP explainer.
+    X : {numpy.ndarray, pandas.DataFrame}, optional
+        Feature matrix used to compute or display SHAP values.
+        If a DataFrame is provided, its column names are used.
+        If ``columns`` is also provided, then only the specified
+        columns are used. If a NumPy array is provided, a DataFrame
+        is built internally for consistency.
 
-    X : `Union[ArrayLike, pd.DataFrame]`
-        Input data for which the SHAP values are to be computed. If a 
-        DataFrame is provided, the feature names are taken from the DataFrame 
-        columns.
+    shap_values : {numpy.ndarray, list of numpy.ndarray,
+                   shap.Explanation}, optional
+        Precomputed SHAP values. For a single-output model, this
+        should be a 2D array with shape 
+        (n_samples, n_features). For multi-class or multi-output
+        models, a list of arrays can be provided. If
+        ``shap_values`` is not given, the function will attempt
+        to compute SHAP values from the provided ``model``.
+    
+    model : object, optional
+        Any trained model that is compatible with the SHAP
+        library's Explainer interface. Required if 
+        ``shap_values`` is not provided. The explainer 
+        will internally compute the SHAP values for the
+        data in ``X``.
 
-    feature_names : `Optional[List[str]]`, optional
-        List of feature names if `X` is an array-like object without feature 
-        names.
+    columns : list, optional
+        A list of strings to specify column names of features.
+        This overrides the default columns from the DataFrame.
+        Only relevant if ``X`` is given.
 
-    plot_type : `str`, optional
-        Type of the plot. Either 'dot' or 'bar'. The default is 'dot'.
+    kind : {'dot', 'violin', 'bar', 'compact_dot'}, \
+                default='dot'
+        The type of summary plot to display. For single-output
+        models, typical options include ``'dot'``, ``'violin'``,
+        or ``'bar'``. For SHAP interaction values, consider 
+        ``'compact_dot'``.
 
-    color_bar_label : `str`, optional
-        Label for the color bar. The default is 'Feature value'.
+    max_display : int, optional
+        The maximum number of features to display. If None, 
+        all features are shown.
 
-    max_display : `int`, optional
-        Maximum number of features to display on the summary plot. 
-        The default is 10.
+    cbar : bool, default=True
+        Whether to display a color bar indicating the feature
+        value range on the plot.
 
-    show : `bool`, optional
-        Whether to show the plot. The default is `True`. If `False`, 
-        the function returns the figure object.
+    show : bool, default=True
+        Whether to immediately display the plot.
 
-    plot_size : `Tuple[int, int]`, optional
-        Size of the plot specified as (width, height). The default is (15, 10).
+    title : str, optional
+        Custom title for the plot. If not provided, the SHAP 
+        default or no title is used.
 
-    cmap : `str`, optional
-        Colormap to use for plotting. The default is 'coolwarm'.
+    alpha : float, default=1
+        The alpha blending value, between 0 (transparent) 
+        and 1 (opaque).
 
-    Returns
-    -------
-    `Optional[Figure]`
-        The figure object if `show` is `False`, otherwise `None`.
+    sort : bool, default=True
+        If True, the features are sorted by their mean absolute
+        SHAP value in descending order. If False, the original 
+        feature order is used.
 
-    Examples
-    --------
-    >>> from sklearn.ensemble import RandomForestClassifier
-    >>> from gofast.datasets import make_classification
-    >>> from gofast.plot.mlviz import plot_shap_summary
-    >>> X, y = make_classification(n_features=5, random_state=42, return_X_y=True)
-    >>> model = RandomForestClassifier().fit(X, y)
-    >>> plot_shap_summary(model, X, feature_names=['f1', 'f2', 'f3', 'f4', 'f5'])
+    plot_size : {float, tuple(float, float), 'auto', None}, \
+                default='auto'
+        The overall size of the summary plot. If ``'auto'``, 
+        the size is automatically scaled based on the number 
+        of features. Passing a single float sets each row 
+        height in inches. Passing a tuple of floats scales 
+        the plot to those dimensions. If None, the size of 
+        the current figure is left unchanged.
+
+    layered_violin_max_num_bins : int, default=20
+        Maximum number of bins used in the layered violin
+        plot. This parameter only applies when 
+        ``kind='violin'`` and the layered style is used.
+
+    class_names : list, optional
+        Names for the output classes in a multi-output or 
+        multi-class setting. If not provided, default labels
+        are used.
+
+    class_inds : list, optional
+        Indices of the classes to plot when dealing with
+        multi-class or multi-output SHAP values. If not
+        provided, default behavior applies (first output 
+        is used).
+
+    show_values_in_legend : bool, default=False
+        If True, displays mean SHAP values in the legend 
+        when using a multi-output bar plot.
+
+    use_log_scale : bool, default=False
+        If True, the feature values on the summary plot are 
+        displayed in log scale.
+        
+    figsize : tuple of int, optional
+        Figure dimension in inches (width, height), 
+        default is ``(10, 5)``.
+        
+    show_grid : bool, optional
+        Whether to show a the grid on the summary plot.
+        The default is ``True``.
+        
+    grid_props : dict, optional
+        Dictionary containing grid properties (
+            e.g., `{"linestyle": ':', "alpha": 0.7}`).
+        If not provided, a default style will be applied.
+        
+    **shap_kw : dict, optional
+        Additional keyword arguments passed directly to 
+        ``shap.summary_plot`` for further customization.
 
     Notes
     -----
-    SHAP (SHapley Additive exPlanations) values are a method to explain 
-    individual predictions by computing the contribution of each feature 
-    to the prediction. SHAP values are based on cooperative game theory 
-    and provide a unified measure of feature importance.
+    - For multi-class models (when a list of SHAP arrays is
+      passed), only the first array is used for plotting by 
+      default. Users should plot each output separately if 
+      needed.
+    - If no ``shap_values`` are provided, the model must 
+      support the SHAP Explainer interface so that the 
+      values can be computed internally.
+    - Sorting features by mean absolute SHAP value helps in
+      identifying the most influential features contributing
+      to the model's prediction.
 
-    The SHAP summary plot provides a global view of the feature importance 
-    and the distribution of the impacts of the features on the model output. 
-    It combines feature importance with feature effects. Each point on the 
-    summary plot is a Shapley value for a feature and an instance. The color 
-    represents the value of the feature from low to high.
+    Raises
+    ------
+    ValueError
+        If ``X`` is None or if neither ``shap_values`` nor 
+        ``model`` is provided. An error is also raised if 
+        an empty list of SHAP arrays is given.
 
-    The SHAP values for a feature :math:`i` are computed as:
+    Examples
+    --------
+    >>> from gofast.plot.ml_viz import plot_shap_summary
+    >>> from gofast.datasets import make_classification
+    >>> import numpy as np
+    >>> import shap
 
-    .. math::
-        \phi_i = \sum_{S \subseteq N \setminus \{i\}} \frac{|S|! (|N| - |S| - 1)!}{|N|!} 
-        [f(S \cup \{i\}) - f(S)]
-
-    where :math:`N` is the set of all features, :math:`S` is a subset of 
-    features, and :math:`f(S)` is the model prediction for features in :math:`S`.
+    >>> X_data, y = make_classification(
+    ... n_features=5, random_state=42, return_X_y=True)
+    >>> model = RandomForestClassifier().fit(X_data, y) # Any fitted model
+    >>> plot_shap_summary(X_data, model=model, kind='violin')
+ 
+    >>> 
+    >>> # Directly compute SHAP values by providing a model:
+    >>> plot_shap_summary(X=X_data, model=model, kind='dot')
+    >>> 
+    >>> # Or if SHAP values are precomputed:
+    >>> # shap_vals = shap.Explainer(model, X_data)(X_data)
+    >>> # plot_shap_summary(X=X_data, shap_values=shap_vals)
+    >>> 
+    >>> # For multi-class:
+    >>> # shap_vals_list = [array_class0, array_class1, ...]
+    >>> # plot_shap_summary(X=X_data, shap_values=shap_vals_list)
 
     See Also
     --------
-    shap.Explainer : SHAP explainer for different model types.
-
+    shap.summary_plot : The underlying function from the 
+        SHAP library used to generate the summary.
+    
     References
     ----------
-    .. [1] Lundberg, S. M., & Lee, S.-I. (2017). "A Unified Approach to  
-           Interpreting Model Predictions". Advances in Neural Information 
-           Processing Systems 30 (NIPS 2017).
-    """
+    .. [1] S. M. Lundberg and S.-I. Lee, "A Unified Approach 
+           to Interpreting Model Predictions," in *Advances 
+           in Neural Information Processing Systems*, 2017.
+    """  # noqa: E501
+
+
     import shap
 
-    # Compute SHAP values
-    explainer = shap.Explainer(model, X)
-    shap_values = explainer(X)
+    # Ensure that feature data is provided.
+    if X is None:
+        raise ValueError(
+            "The 'X' parameter (features) must be provided."
+        )
 
-    # Create a summary plot
-    plt.figure(figsize=plot_size)
-    shap.summary_plot(
-        shap_values, X, 
-        feature_names=feature_names, 
-        plot_type=plot_type,
-        color_bar_label=color_bar_label, 
-        max_display=max_display, 
-        show=False
+    # Convert X to DataFrame with possible column subsetting.
+    X = build_data_if(
+        X,
+        columns=columns,
+        to_frame=True,
+        col_prefix='feature_',
+        force=True,
+        input_name='Feature'
     )
 
-    # Customize color bar label
-    color_bar = plt.gcf().get_axes()[-1]
-    color_bar.set_title(color_bar_label)
+    # If no SHAP values, compute them using model's explainer.
+    if shap_values is None:
+        if model is None:
+            raise ValueError(
+                "Either 'shap_values' or 'model' must be "
+                "provided to generate the SHAP summary plot."
+            )
+        explainer = shap.Explainer(model, X)
+        shap_values = explainer(X)
 
-    # Set colormap if specified
-    if cmap:
-        plt.set_cmap(cmap)
+    # If a list of SHAP arrays is given (multi-class),
+    # use the first array for plotting and warn the user.
+    if isinstance(shap_values, list):
+        if len(shap_values) == 0:
+            raise ValueError(
+                "An empty list was provided for 'shap_values'."
+            )
+        warnings.warn(
+            "A list of SHAP arrays was provided. Using the "
+            "first array for plotting. For multi-output, "
+            "please plot each output separately."
+        )
+        shap_values = shap_values[0]
 
-    # Show or return the figure
-    if show:
-        plt.show()
+    # Extract feature names if available.
+    if isinstance(X, pd.DataFrame):
+        feature_names = np.array(X.columns.tolist())
+        data_arr = X.values
     else:
-        return plt.gcf()
+        data_arr = np.array(X)
+        feature_names = (
+            np.array(columns)
+            if columns is not None else None
+        )
+
+    n_features = data_arr.shape[1]
+    if max_display is None or max_display > n_features:
+        max_display = n_features
+
+    # Convert shap_values to NumPy array if needed.
+    if isinstance(shap_values, np.ndarray):
+        shap_array = shap_values
+    elif hasattr(shap_values, 'values'):
+        shap_array = shap_values.values
+    else:
+        shap_array = np.array(shap_values)
+
+    # Sort features by mean absolute SHAP value if requested.
+    if sort and shap_array.ndim == 2:
+        mean_abs = np.mean(np.abs(shap_array), axis=0)
+        sorted_idx = np.argsort(mean_abs)[::-1]
+        top_idx = sorted_idx[:max_display]
+        shap_sorted = shap_array[:, top_idx]
+        data_sorted = data_arr[:, top_idx]
+        feature_names_sorted = (
+            feature_names[top_idx]
+            if feature_names is not None else None
+        )
+    else:
+        shap_sorted = shap_array
+        data_sorted = data_arr
+        feature_names_sorted = feature_names
+
+    # Create custom figure
+    fig, ax = plt.subplots(figsize=fig_size)  # Custom figure size
+    # Generate SHAP summary plot with the specified options.
+    shap.summary_plot(
+        shap_values=shap_sorted,
+        features=data_sorted,
+        kind=kind,
+        max_display=max_display,
+        color_bar=cbar,
+        feature_names=feature_names_sorted,
+        show=False,
+        title=title,
+        alpha=alpha,
+        sort=sort,
+        plot_size=plot_size,
+        layered_violin_max_num_bins=layered_violin_max_num_bins,
+        class_names=class_names,
+        class_inds=class_inds,
+        show_values_in_legend=show_values_in_legend,
+        use_log_scale=use_log_scale,
+        **shap_kw
+    )
+    # Apply additional customizations
+    plt.title(title, fontsize=14, fontweight="bold")
+
+    # Show or hide grid
+    if show_grid:
+        default_props = {"linestyle": ':', "alpha": 0.7}
+        if grid_props is None:
+            grid_props = default_props
+        elif not isinstance(grid_props, dict):
+            warnings.warn(
+                "Invalid `grid_props` type. Expected dict, "
+                "got {type(grid_props).__name__!r}."
+                " Falling back to default grid style."
+                )
+            grid_props = default_props
+            
+        plt.grid(True, **grid_props)
+    else:
+        plt.grid(False)
     
-@ensure_pkg ( "yellowbrick", extra = (
+    plt.show()
+    
+@return_fig_or_ax(return_type="ax")
+@ensure_pkg ( 
+    "yellowbrick", extra = (
     "The 'yellowbrick' package is required to plot the confusion matrix. "
     "You can use the alternative function `~.plot_confusion_matrix` "
     "or install 'yellowbrick' manually if automatic installation is not enabled."
@@ -1532,7 +2880,6 @@ def plot_shap_summary(
     auto_install=PlotConfig.install_dependencies ,
     use_conda=PlotConfig.use_conda 
    )
-
 def plot_confusion_matrix_in(
     clf: Any, 
     Xt: Union[np.ndarray, DataFrame], 
@@ -1669,8 +3016,7 @@ def plot_confusion_matrix_in(
 
     plt.close () if savefig is not None else plt.show() 
     
-    return cmo 
-
+    return ax 
 
 def plot_cm(
     y_true: np.ndarray,
@@ -1990,7 +3336,7 @@ def plot_cm(
                     fpr, tpr, _ = roc_curve(y_true, y_pred, pos_label=pos_label)
                 else:
                     fpr, tpr, _ = roc_curve(y_true, y_pred)
-                score_auc = auc(fpr, tpr)
+                score_auc = auc_score(fpr, tpr)
             except ValueError as e:
                 warnings.warn(
                     f"Skipping ROC for prediction {i + 1} due to error: {e}"
@@ -2054,7 +3400,348 @@ def plot_cm(
     # 12) Return the figure object so user 
     #     can save or manipulate further if desired.
     return fig
+   
+@return_fig_or_ax
+def plot_r2_in(
+    *ys: ArrayLike,
+    titles: Optional[List[str]] = None,
+    xlabel: Optional[str] = None,
+    ylabel: Optional[str] = None,
+    fig_size: Optional[Tuple[int, int]] = None,
+    scatter_colors: Optional[List[str]] = None,
+    line_colors: Optional[List[str]] = None,
+    line_styles: Optional[List[str]] = None,
+    other_metrics: Optional[List[str]] = None,
+    annotate: bool = True,
+    show_grid: bool = True,
+    grid_props: Dict[str, Any]=None, 
+    max_cols: int = 3,
+    fit_eq: bool = True,
+    fit_line_color: str = 'k',
+    **r2_score_kws: Any
+) -> plt.Figure:
+    r""" 
+    Plot R² diagnostics for multiple (``y_true``, ``y_pred``) pairs with 
+    advanced annotations.
+    
+    This function creates a grid of scatter plots comparing actual vs predicted 
+    values across multiple datasets. Each subplot displays:
+    
+    1. Scatter plot of ``y_true`` vs ``y_pred``
+    2. Perfect fit line (``y = x``)
+    3. Linear regression fit (optional)
+    4. Annotated metrics (R², RMSE, MAE, etc.)
+    
+    Parameters
+    ----------
+    *ys : ArrayLike
+        Alternating sequence of (``y_true``, ``y_pred``) pairs. Requires even 
+        number of inputs. Processed through ``process_y_pairs`` for validation 
+        and NaN removal.
+    titles : list of str, optional
+        Subplot titles corresponding to each pair. Length should match number 
+        of pairs. Default generates "Pair 1", "Pair 2", etc.
+    xlabel : str, optional
+        X-axis label for all subplots. Default: ``'Actual Values'``.
+    ylabel : str, optional
+        Y-axis label for all subplots. Default: ``'Predicted Values'``.
+    fig_size : tuple of (int, int), optional
+        Figure dimensions in inches. Auto-calculated based on grid dimensions 
+        if ``None``.
+    scatter_colors : list of str, optional
+        Colors for scatter points in each subplot. Cycles last color if 
+        insufficient colors provided.
+    line_colors : list of str, optional
+        Colors for perfect fit lines. Default: ``['red'] * n_pairs``.
+    line_styles : list of str, optional
+        Linestyles for perfect fit lines. Default: ``['--'] * n_pairs``.
+    other_metrics : list of str, optional
+        Additional metrics to display. Valid options: ``'rmse'``, ``'mae'``, or 
+        any scikit-learn scorer name.
+    annotate : bool, default=True
+        Whether to display metrics annotations on subplots.
+    show_grid : bool, default=True
+        Toggle grid display in subplots.
+    max_cols : int, default=3
+        Maximum columns in subplot grid. Rows auto-adjusted accordingly.
+    fit_eq : bool, default=True
+        Display linear regression equation for each pair.
+    fit_line_color : str, default='k'
+        Color for regression line when ``line_eq=True``.
+    **r2_score_kws : dict
+        Additional arguments for ``sklearn.metrics.r2_score`` calculation.
+    
+    Returns
+    -------
+    plt.Figure
+        Matplotlib figure object containing all subplots.
+    
+    Raises
+    ------
+    ValueError
+        - If processed pairs return empty after validation
+        - Invalid color/list length mismatches with warnings suppressed
+    
+    Examples
+    --------
+    Basic usage with synthetic data:
+    
+    >>> from gofast.plot.ml_viz import plot_r2_in
+    >>> import numpy as np
+    >>> y_true = np.random.rand(100)
+    >>> y_pred1 = y_true + np.random.normal(0, 0.1, 100)
+    >>> y_pred2 = y_true * 1.1 + np.random.normal(0, 0.2, 100)
+    >>> fig = plot_r2_in(
+    ...     y_true, y_pred1, y_true, y_pred2,
+    ...     titles=['Model A', 'Model B'],
+    ...     other_metrics=['rmse', 'mae'],
+    ...     fit_line_color='navy'
+    ... )
+    >>> fig.savefig('model_comparison.png')
+    
+    Advanced validation scenario:
+    
+    >>> from sklearn.datasets import make_regression
+    >>> X, y = make_regression(n_samples=200, noise=10)
+    >>> train_X, test_X = X[:150], X[150:]
+    >>> train_y, test_y = y[:150], y[150:]
+    >>> # Simulate two different models
+    >>> preds1 = train_X.dot(np.random.randn(train_X.shape[1]))
+    >>> preds2 = test_X.dot(np.random.randn(test_X.shape[1]) * 0.8
+    >>> plot_r2_in(
+    ...     train_y, preds1, test_y, preds2,
+    ...     ops='validate',  # Enable data cleaning
+    ...     fit_eq=False    # Disable regression lines
+    ... )
+    
+    Notes
+    -----
+    1. Underlying data validation uses:
+       - ``process_y_pairs`` for pair alignment and NaN handling
+       - ``r2_score`` for coefficient calculation [1]_
+    2. Regression lines use NumPy's polyfit with degree=1
+    3. For large datasets (>10⁴ points), consider setting ``annotate=False``
+       for better rendering performance
+       
+    .. math::
+        R^2 = 1 - \frac{\sum_{i}(y_i - \hat{y}_i)^2}{\sum_{i}(y_i - \bar{y})^2}
+        
+        \text{MAE} = \frac{1}{n}\sum_{i=1}^n |y_i - \hat{y}_i|
+        
+        \text{RMSE} = \sqrt{\frac{1}{n}\sum_{i=1}^n (y_i - \hat{y}_i)^2}
+    
+    See Also
+    --------
+    process_y_pairs : Core validation and pairing utility
+    plot_residuals : Diagnostic plots for regression residuals
+    sklearn.metrics.r2_score : Scikit-learn's R² implementation
+    
+    References
+    ----------
+    .. [1] Pedregosa et al. Scikit-learn: Machine Learning in Python. JMLR 12, 
+       pp. 2825-2830, 2011.
+    .. [2] Hunter, J. D. Matplotlib: A 2D Graphics Environment. Computing in 
+       Science & Engineering 9.3 (2007): 90-95.
+    """
+    # Validate input lengths
+    y_trues, y_preds = process_y_pairs(
+        *ys, 
+        ops="validate", 
+        error='warn', 
+        
+        )
+    if len(y_trues) == 0 or len(y_trues)==0:
+        raise ValueError("No valid data pairs to plot.")
+        
+    # Determine how many pairs of (y_true, y_pred) to plot
+    n_pairs = min(len(y_trues), len(y_preds))
 
+    # Prepare subplots arrangement based on max_cols
+    ncols = min(max_cols, n_pairs) if n_pairs > 0 else 1
+    nrows = int(np.ceil(n_pairs / ncols)) if n_pairs > 0 else 1
+
+    # Convert titles to a list if provided
+    if titles is not None:
+        # Ensure it's iterable if not already
+        titles = is_iterable(
+            titles, exclude_string=True, 
+            transform=True
+            )
+
+    # Build default scatter colors if needed
+    if scatter_colors is None:
+        scatter_colors = ['blue'] * n_pairs
+    else:
+        # Ensure scatter_colors is at 
+        # least as long as the number of pairs
+        scatter_colors = is_iterable(
+            scatter_colors, exclude_string=True, 
+            transform=True
+            )
+        if len(scatter_colors) < n_pairs:
+            scatter_colors += [scatter_colors[-1]] * (
+                n_pairs - len(scatter_colors))
+
+    # Build default line colors if needed
+    if line_colors is None:
+        line_colors = ['red'] * n_pairs
+    else:
+        line_colors = is_iterable(
+            line_colors, 
+            exclude_string=True, 
+            transform=True
+            )
+        if len(line_colors) < n_pairs:
+            line_colors += [line_colors[-1]] * (
+                n_pairs - len(line_colors))
+
+    # Build default line styles if needed
+    if line_styles is None:
+        line_styles = ['--'] * n_pairs
+    else:
+        line_styles = is_iterable(
+            line_styles, exclude_string=True, 
+            transform=True
+            )
+        if len(line_styles) < n_pairs:
+            line_styles += [line_styles[-1]] * (
+                n_pairs - len(line_styles))
+
+    # Determine figure size if none given
+    if fig_size is None:
+        base_width = 5
+        base_height = 4
+        fig_width = base_width * ncols
+        fig_height = base_height * nrows
+        fig_size = (fig_width, fig_height)
+
+    # Create subplots
+    fig, axes = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=fig_size,
+        squeeze=False
+    )
+    axes_flat = axes.flatten()
+
+    # Initialize empty lists for metrics
+    metrics_values = []
+    valid_metrics = []
+
+    for idx in range(n_pairs):
+        # Access the current y_true and y_pred
+        y_true = y_trues[idx]
+        y_pred = y_preds[idx]
+
+        # Current axis
+        ax = axes_flat[idx]
+
+        # Compute r2
+        r_squared = r2_score(y_true, y_pred, **r2_score_kws)
+
+        # Compute other metrics if requested
+        if other_metrics is not None:
+            for metric in other_metrics:
+                try:
+                    value = get_scorer(metric)(y_true, y_pred)
+                except Exception as e:
+                    warnings.warn(str(e))
+                    continue
+                metrics_values.append(value)
+                valid_metrics.append(metric)
+
+        # Scatter plot
+        ax.scatter(y_true, y_pred, color=scatter_colors[idx],
+                   label='Predictions vs Actual data')
+
+        # Draw the perfect fit line
+        perfect_min = min(y_true.min(), y_pred.min())
+        perfect_max = max(y_true.max(), y_pred.max())
+        perfect_line = [perfect_min, perfect_max]
+        ax.plot(perfect_line, perfect_line,
+                color=line_colors[idx],
+                linestyle=line_styles[idx],
+                label='Perfect fit')
+
+
+        # Annotate R^2 and other metrics if needed
+        i_m=0
+        if annotate:
+            ax.text(0.95, 0.05,
+                    f'$R^2 = {r_squared:.2f}$',
+                    fontsize=12,
+                    ha='right',
+                    va='bottom',
+                    transform=ax.transAxes)
+            if other_metrics and valid_metrics:
+                for i_m, metric in enumerate(valid_metrics):
+                    ax.text(0.95, 0.05 + (i_m + 1) * 0.1,
+                            f'${metric} = {metrics_values[i_m]:.2f}$',
+                            transform=ax.transAxes,
+                            fontsize=12,
+                            va='bottom',
+                            ha='right',
+                            color='black')
+                # Reset metrics for next subplot
+                metrics_values = []
+                valid_metrics = []
+                
+        # Optionally compute and annotate the best-fit line equation
+        if fit_eq:
+            # Perform a linear fit
+            slope, intercept = np.polyfit(y_true, y_pred, 1)
+            # Plot it (optional line style - reusing line_colors)
+            ax.plot([perfect_min, perfect_max],
+                    [slope*perfect_min + intercept,
+                     slope*perfect_max + intercept],
+                    color=fit_line_color,
+                    label='Fitted line'
+                    )
+            # Add text with line equation
+            eq_str = f'$y = {slope:.4f}x + {intercept:.4f}$'
+            ax.text(0.95, 0.05  + (i_m + 2) * 0.1, 
+                    eq_str,
+                    transform=ax.transAxes,
+                    fontsize=12,
+                    va='bottom', #'top',
+                    ha='right', # 'left',
+                    color=fit_line_color
+                )
+            
+        # Apply axis labels
+        ax.set_xlabel(xlabel or 'Actual Values')
+        ax.set_ylabel(ylabel or 'Predicted Values')
+
+        # Subplot title if any
+        try:
+            sub_title = titles[idx] if titles else f"Pair {idx+1}"
+            ax.set_title(sub_title)
+        except:
+            ax.set_title(f"Pair {idx+1}")
+
+        # Grid if requested
+        if show_grid: 
+            ax.grid(
+                True , **(grid_props or {'linestyle':':', 'alpha': 0.7}))
+        else: 
+            ax.grid(False) 
+
+        # Legend
+        ax.legend(loc='upper left')
+
+    # Hide unused subplots, if any
+    for idx_unused in range(n_pairs, len(axes_flat)):
+        axes_flat[idx_unused].axis('off')
+
+    # Adjust layout
+    fig.tight_layout()
+
+    # Show and return
+    plt.show()
+    
+    return fig
+
+@return_fig_or_ax
 def plot_r2(
     y_true: ArrayLike, 
     *y_preds: ArrayLike, 
@@ -2068,6 +3755,7 @@ def plot_r2(
     other_metrics: List[str]=None, 
     annotate: bool = True, 
     show_grid: bool = True, 
+    grid_props: Dict[str, Any]=None, 
     max_cols: int = 3,
     **r2_score_kws: Any
 ) -> plt.Figure:
@@ -2370,6 +4058,12 @@ def plot_r2(
             # when title is less than numberpred 
             ax.set_title('Prediction {idx + 1}')
         
+        if show_grid: 
+            ax.grid(
+                True , **(grid_props or {'linestyle':':', 'alpha': 0.7}))
+        else: 
+            ax.grid(False) 
+            
         # Enable grid lines if requested
         ax.grid(show_grid)
         
@@ -2390,10 +4084,9 @@ def plot_r2(
     
     # Return the figure object 
     # for further manipulation if needed
-    return fig
+    return fig 
 
-
-
+@return_fig_or_ax
 @param_deprecated_message(
     conditions_params_mappings=[
         {
@@ -2530,7 +4223,7 @@ def plot_confusion_matrices (
         
     plt.close () if savefig is not None else plt.show() 
     
-
+@return_fig_or_ax (return_type='ax')
 def plot_confusion_matrix(
     y_true: Union[ArrayLike, Series],
     y_pred: Union[ArrayLike, Series],
@@ -2668,123 +4361,8 @@ def plot_confusion_matrix(
     ax.set_ylabel(ylabel or 'Predicted Labels')
     ax.set_title(title or 'Confusion Matrix')
     plt.show()
-
-    return mat
-
-def plot_cv(
-    model_fn: Callable[[], 'Model'],
-    X: np.ndarray,
-    y: np.ndarray,
-    n_splits: int = 5,
-    epochs: int = 10,
-    metric: str = 'accuracy'
-) -> None:
-    """
-    Performs cross-validation and plots the performance metric across
-    epochs for each fold. This function is particularly useful for 
-    evaluating the consistency and stability of neural network models
-    across different subsets of data.
-
-    Parameters
-    ----------
-    model_fn : `Callable[[], keras.Model]`
-        A function that returns a compiled neural network model. The
-        function should not take any arguments and must return a compiled
-        Keras model.
-
-    X : `np.ndarray`
-        Training features, typically an array of shape (n_samples, n_features).
-
-    y : `np.ndarray`
-        Training labels or target values, typically an array of shape
-        (n_samples,) or (n_samples, n_outputs).
-
-    n_splits : `int`, optional
-        Number of splits for the K-Fold cross-validation. Default is 5.
-
-    epochs : `int`, optional
-        Number of epochs for training each model during the cross-validation.
-        Default is 10.
-
-    metric : `str`, optional
-        The performance metric to plot. Common choices are 'accuracy', 'loss',
-        or any other metric included in the compiled model. Default is 'accuracy'.
-
-    Examples
-    --------
-    >>> from keras.models import Sequential
-    >>> from keras.layers import Dense
-    >>> from gofast.plot.mlviz import plot_cv 
-    >>> def create_model():
-    ...     model = Sequential([
-    ...         Dense(10, activation='relu', input_shape=(10,)),
-    ...         Dense(1, activation='sigmoid')
-    ...     ])
-    ...     model.compile(optimizer='adam', loss='binary_crossentropy',
-    ...                   metrics=['accuracy'])
-    ...     return model
-    ...
-    >>> X = np.random.rand(100, 10)
-    >>> y = np.random.randint(2, size=(100,))
-    >>> plot_cv(create_model, X, y, n_splits=3, epochs=5)
-
-    Notes
-    -----
-    This function utilizes `KFold` from `sklearn.model_selection` to create training and 
-    validation splits. It is essential that the model function provided 
-    compiles the model with the necessary metrics as they are used to 
-    monitor training performance.
-
-    The cross-validation process involves splitting the data into `n_splits`
-    folds, training the model on `n_splits - 1` folds, and validating it on
-    the remaining fold. This process is repeated for each fold, and the
-    performance metric is recorded for each epoch.
-
-    The performance metric for each fold is then plotted to visualize the
-    consistency and stability of the model across different subsets of the
-    data.
-
-    See Also
-    --------
-    `sklearn.model_selection.KFold` : Provides cross-validation iterator.
     
-    References
-    ----------
-    .. [1] Chollet, F. (2015). Keras. https://github.com/fchollet/keras
-    .. [2] Pedregosa et al., "Scikit-learn: Machine Learning in Python", JMLR 12, 
-           pp. 2825-2830, 2011.
-    """
-
-    kf = KFold(n_splits=n_splits)
-    fold_performance = []
-    validate_keras_model(model_fn, raise_exception= True )
-    for fold, (train_index, val_index) in enumerate(kf.split(X), 1):
-        # Split data
-        X_train, X_val = X[train_index], X[val_index]
-        y_train, y_val = y[train_index], y[val_index]
-
-        # Create a new instance of the model
-        model = model_fn()
-
-        # Train the model
-        history = model.fit(
-            X_train, y_train, validation_data=(X_val, y_val),
-            epochs=epochs, verbose=0)
-
-        # Store the metrics for this fold
-        fold_performance.append(history.history[metric])
-
-    # Plot the results
-    plt.figure(figsize=(12, 6))
-    for i, performance in enumerate(fold_performance, 1):
-        plt.plot(performance, label=f'Fold {i}')
-
-    plt.title(f'Cross-Validation {metric.capitalize()}')
-    plt.xlabel('Epochs')
-    plt.ylabel(metric.capitalize())
-    plt.legend()
-    plt.show()
-
+@return_fig_or_ax(return_type ='ax')
 def plot_actual_vs_predicted(
     y_true: ArrayLike, 
     y_pred: ArrayLike, 
@@ -2979,6 +4557,7 @@ def plot_actual_vs_predicted(
 
     return ax
 
+@return_fig_or_ax (return_type='ax')
 def plot_regression_diagnostics(
     x: ArrayLike,
     *ys: List[ArrayLike],
@@ -3348,8 +4927,10 @@ def plot_residuals_vs_fitted(
     
     References
     ----------
-    .. [1] Anscombe, F. J. (1973). Graphs in Statistical Analysis. The American Statistician, 27(1), 17-21.
-    .. [2] Chatterjee, S., & Hadi, A. S. (1988). Sensitivity Analysis in Linear Regression. New York: Wiley.
+    .. [1] Anscombe, F. J. (1973). Graphs in Statistical Analysis.
+       The American Statistician, 27(1), 17-21.
+    .. [2] Chatterjee, S., & Hadi, A. S. (1988). Sensitivity Analysis in 
+       Linear Regression. New York: Wiley.
     """
 
     if scatter_kws is None:
@@ -3379,12 +4960,447 @@ def plot_residuals_vs_fitted(
 
     return ax
 
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE("my_roc_plot.png"), 
+    fig_size =(8, 6), 
+    dpi=300
+    )
+@validate_params ({ 
+    'y_true': ['array-like'], 
+    })
+@check_params({
+        "names": Optional[Union [str, List[str]]], 
+        "colors": Optional[Union[str, List[str]]]
+    }, 
+    coerce=False, 
+)
+def plot_roc(
+    y_true,
+    *y_preds,
+    names=None,
+    colors=None,
+    linestyles=None,
+    auc=True,
+    diagonal=True,
+    figsize=None,
+    title=None,
+    savefig=None,
+    show_grid=True, 
+    verbose=1
+):
+    r"""
+    Plot Receiver Operating Characteristic (ROC) curves for binary 
+    classifiers.
+    
+    Visualizes classifier performance by plotting True Positive Rate 
+    (TPR) against False Positive Rate (FPR) at various threshold 
+    settings. Supports multiple model comparisons with Area Under 
+    Curve (AUC) quantification.
+    
+    .. math::
+        \text{TPR} = \frac{\text{TP}}{\text{TP} + \text{FN}}
+        
+        \text{FPR} = \frac{\text{FP}}{\text{FP} + \text{TN}}
+        
+        \text{AUC} = \int_{0}^{1} \text{TPR}(\text{FPR}) \, d\text{FPR}
+    
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth binary labels. Accepts (0/1) or (-1/1) encoding.
+        Must be 1D array with exactly two classes.
+        
+    *y_preds : array-like(s) of shape (n_samples,)
+        Prediction probabilities for positive class (class 1) from 
+        one or more classifiers. Each array should contain values 
+        between 0 and 1.
+        
+    names : list of str, optional
+        Model identifiers corresponding to predictions. Automatically 
+        generates ``'Model_1'``, ``'Model_2'``, etc., if not provided. 
+        Length will be extended to match number of predictions.
+        
+    colors : list of color values, optional
+        Line colors for each model's ROC curve. Follows matplotlib's 
+        default color cycle when ``None``. Length should match number 
+        of models.
+        
+    linestyles : list of str, optional
+        Line style specifiers for each model (e.g., ``'-'``, ``'--'``, 
+        ``':'``). Uses solid lines for all models if ``None``. Length 
+        should match number of models.
+        
+    auc : bool, default=True
+        Whether to display Area Under Curve values in legend entries. 
+        When ``True``, appends ``'(AUC = X.XX)'`` to model names.
+        
+    diagonal : bool, default=True
+        Toggles display of diagonal reference line representing 
+        performance of random classifier (AUC = 0.5).
+        
+    figsize : tuple of float, optional
+        Figure dimensions in inches as (width, height). Uses 
+        matplotlib default (8,6) when ``None``.
+        
+    title : str, optional
+        Descriptive text for plot title. Omitted if not provided.
+        
+    savefig : str, optional
+        Path/filename for saving figure. Supports common image formats 
+        (.png, .pdf, .svg). Does not save if ``None``.
+        
+    show_grid : bool, default=True
+        Controls display of background grid lines. Set to ``False`` for 
+        cleaner visuals.
+        
+    verbose : int, default=1
+        Verbosity level for numerical output:
+            - 0: Silent mode (no print output)
+            - 1: Prints formatted AUC scores to console
 
+    Examples
+    --------
+    >>> from gofast.plot.ml_viz import plot_roc
+    >>> import numpy as np
+    >>> y_true = np.array([0, 1, 0, 1, 1, 0, 1])
+    >>> y_pred_logreg = np.array([0.2, 0.8, 0.3, 0.7, 0.6, 0.4, 0.9])
+    >>> y_pred_rf = np.array([0.1, 0.9, 0.2, 0.8, 0.7, 0.3, 0.95])
+    >>> plot_roc(y_true, y_pred_logreg, y_pred_rf,
+    ...          names=['Logistic Regression', 'Random Forest'],
+    ...          colors=['blue', 'green'], linestyles=['-', '--'],
+    ...          title='Classifier Comparison')
 
+    Notes
+    -----
+    1. Requires binary classification probabilities - for multi-class 
+       problems, use one-vs-rest approach first
+    2. AUC values close to 1 indicate better discrimination ability 
+       [1]_
+    3. Diagonal line represents expected performance of random 
+       guessing classifier
+    4. Curves above diagonal indicate better-than-random performance
 
+    See Also
+    --------
+    plot_precision_recall : Precision-Recall curve visualization
+    plot_confusion_matrix : Classifier error matrix visualization
+    plot_coverage : Quantile forecast coverage visualization
 
+    References
+    ----------
+    .. [1] Fawcett, T. (2006). An introduction to ROC analysis. 
+       Pattern Recognition Letters, 27(8), 861-874.
+    """
+    # Remove NaN values from y_true and all y_pred arrays
+    y_true, *y_preds = drop_nan_in(
+        y_true, *y_preds, error='raise', reset_index=True)
+    
+    # Validate y_true and each y_pred to ensure consistency and continuity
+    y_preds = [
+        validate_yy(y_true, pred,flatten="auto")[1] 
+        for pred in y_preds
+    ]
+    
+    names = columns_manager(names, empty_as_none=False )
+    # Model name handling with auto-extension
+    num_models = len(y_preds)
+    names = (list(names) + [f'Model_{i+len(names)+1}' 
+            for i in range(num_models - len(names))]) if names \
+            else [f'Model_{i+1}' for i in range(num_models)]
+            
+    # Default styling initialization
+    colors = colors or [None] * num_models
+    linestyles = linestyles or ['-'] * num_models
 
+    auc_scores = []
+    
+    plt.figure(figsize=figsize or (8, 6))
+    # Main plotting loop
+    for idx, (y_pred, name, color, ls) in enumerate(
+        zip(y_preds, names, colors, linestyles)):
+        
+        # Calculate ROC coordinates
+        fpr, tpr, _ = roc_curve(y_true, y_pred)
+        roc_auc = auc_score(fpr, tpr)  # sklearn.metrics.auc
+        
+        # Label construction
+        label = (f'{name} (AUC = {roc_auc:.2f})' if auc 
+                else name)
+                
+        plt.plot(fpr, tpr, color=color, linestyle=ls,
+                 linewidth=2, label=label)
+        auc_scores.append(roc_auc)
 
+    # Reference diagonal
+    if diagonal:
+        plt.plot([0, 1], [0, 1], 'k--', linewidth=1,
+                 label='Random Guessing')
 
+    # Axis configuration
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    
+    # Grid visibility
+    plt.grid(show_grid)
+    
+    # Title and legend
+    if title:
+        plt.title(title)
+    plt.legend(loc='lower right')
+    
+    # Output handling
+    if savefig:
+        plt.savefig(savefig, bbox_inches='tight')
+        
+    if verbose:
+        print("AUC Scores:")
+        for name, score in zip(names, auc_scores):
+            print(f"{name}: {score:.3f}")
+            
+    plt.show()
+    
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE("my_residuals_plot.png"), 
+    fig_size =(8, 6), 
+    dpi=300
+    )
+@validate_params ({ 
+    'y_true': ['array-like'], 
+    'kind': [StrOptions({'scatter', 'hist', 'qq'})]
+    })
+@check_params({
+        "names": Optional[Union [str, List[str]]], 
+        "colors": Optional[Union[str, List[str]]]
+    }, 
+    coerce=False, 
+)
+@ensure_pkg(
+    "statsmodels", 
+    "'statsmodels' is required when  param `smooth` is set to``True``.", 
+    partial_check= True, 
+    condition =lambda *args, **kw: kw.get("smooth")==True 
+    )
+def plot_residuals(
+    y_true,
+    *y_preds,
+    names=None,
+    kind='scatter',
+    bins=30,
+    smooth=False,
+    zero_line=True,
+    colors=None,
+    figsize=None,
+    title=None,
+    savefig=None,
+    show_grid=False, 
+    verbose=1
+):
+    r"""
+    Visualize regression residuals through multiple diagnostic plots.
+    
+    Analyzes prediction errors using:
+    
+    .. math::
+        \text{residual} = y_{\text{true}} - y_{\text{pred}}
+    
+    Supports three visualization modes to assess error distribution,
+    heteroscedasticity, and normality assumptions [1]_.
+    
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground truth continuous target values. Non-finite values 
+        (NaN/inf) are automatically removed.
+        
+    *y_preds : array-like(s) of shape (n_samples,)
+        Predicted values from one or more regression models. Must
+        match dimensions of `y_true`. Automatically aligned after
+        NaN removal.
+        
+    names : list of str, optional
+        Model identifiers. Generates ``'Model_1'``, ``'Model_2'``, etc.,
+        if not provided. Length extended to match number of predictions.
+        
+    kind : {'scatter', 'hist', 'qq'}, default='scatter'
+        Diagnostic visualization type:
+            - ``'scatter'``: Residuals vs predicted values (checks 
+              homoscedasticity)
+            - ``'hist'``: Residual distribution histogram (assesses 
+              normality)
+            - ``'qq'``: Quantile-Quantile plot against theoretical 
+              normal distribution
+              
+    bins : int, default=30
+        Number of histogram bins for distribution visualization. 
+        Ignored for non-histogram plots.
+        
+    smooth : bool, default=False
+        Adds LOWESS (Locally Weighted Scatterplot Smoothing) trend
+        line to scatter plots. Requires statsmodels installation.
+        
+    zero_line : bool, default=True
+        Toggles horizontal reference line at residual=0 for scatter
+        and histogram plots.
+        
+    figsize : tuple of float, optional
+        Figure dimensions in inches (width, height). Default: (8,6).
+        
+    title : str, optional
+        Descriptive title text. Positioned above main plot area.
+        
+    savefig : str, optional
+        Filepath for saving figure. Supports PNG, PDF, SVG formats.
+        
+    show_grid : bool, default=False
+        Controls background grid visibility. Provides reference 
+        structure when enabled.
+        
+    verbose : int, default=1
+        Statistical summary verbosity:
+            - 0: Suppress output
+            - 1: Print residual mean (μ) and standard deviation (σ)
+
+    Examples
+    --------
+    >>> from gofast.plot.utils import plot_residuals
+    >>> import numpy as np
+    >>> y_true = np.random.normal(0, 1, 100)
+    >>> y_pred = y_true + np.random.normal(0, 0.2, 100)
+    >>> plot_residuals(y_true, y_pred, kind='qq',
+    ...                title='Normality Check')
+
+    Notes
+    -----
+    1. Data Validation:
+        - Automatically removes NaN/inf values from inputs
+        - Ensures consistent array lengths after cleaning
+        - Validates continuous data type for regression
+        
+    2. Interpretation Guidelines:
+        - Ideal scatter: Random cloud around zero line
+        - Good histogram: Symmetric bell-shaped distribution
+        - Q-Q alignment: Points follow diagonal reference line
+        
+    3. Statistical Output:
+        - μ near 0 indicates unbiased predictions
+        - σ measures prediction error magnitude
+
+    See Also
+    --------
+    plot_roc : Receiver Operating Characteristic curve visualization
+    gofast.plot.plot_coverage : Quantile forecast coverage visualization
+    gofast.plot.feature_analysis.plot_dependence : 
+        Partial dependence plots for feature analysis
+
+    References
+    ----------
+    .. [1] Draper, N.R. & Smith, H. (1998). Applied Regression Analysis.
+       Wiley-Interscience.
+    """
+    # Data sanitization and validation
+    # Clean NaN values and reset indices
+    y_true, *y_preds = drop_nan_in(
+        y_true, *y_preds, error='raise', reset_index=True)
+    
+    if y_true.ndim >1: 
+        y_true=y_true.flatten()
+        
+    # Validate data consistency and type
+    y_preds = [
+        validate_yy(y_true, pred, expected_type="continuous", 
+                    flatten='auto')[1] 
+        for pred in y_preds
+    ]
+    
+        
+    # Figure initialization
+    plt.figure(figsize=figsize or (8, 6))
+    
+    # Model naming with auto-completion
+    num_models = len(y_preds)
+    names = columns_manager(names , empty_as_none=False)
+    names = (list(names) + [f'Model_{i+len(names)+1}' 
+            for i in range(num_models - len(names))]) if names \
+            else [f'Model_{i+1}' for i in range(num_models)]
+            
+    # Color palette setup
+    # colors = plt.cm.tab10.colors[:num_models]
+    colors = make_plot_colors(y_preds, colors = colors)
+    # Residual calculation
+    residuals_list = [
+        np.array(y_true) - np.array(y_pred) 
+        for y_pred in y_preds
+    ]
+
+    # Visualization logic
+    if kind == 'scatter':
+        for resid, name, color in zip(residuals_list, names, colors):
+            if resid.ndim > 1:
+                resid = resid.flatten()
+                
+            y_pred = np.array(y_true) - resid
+            plt.scatter(y_pred, resid, color=color, alpha=0.5,
+                        label=name)
+            if smooth:
+                from statsmodels.nonparametric.smoothers_lowess import lowess
+                smoothed = lowess(resid, y_pred)
+                plt.plot(smoothed[:, 0], smoothed[:, 1], 
+                        color='red', linewidth=1.5)
+
+        plt.xlabel('Predicted Values')
+        plt.ylabel('Residuals')
+        
+    elif kind == 'hist':
+        for resid, name, color in zip(residuals_list, names, colors):
+            if resid.ndim > 1:
+                resid = resid.flatten()
+                
+            plt.hist(resid, bins=bins, alpha=0.5,
+                     color=color, label=name, density=True)
+        plt.xlabel('Residuals')
+        plt.ylabel('Density')
+        
+    elif kind == 'qq':
+        for resid, name, color in zip(residuals_list, names, colors):
+            probplot(
+               resid, 
+               plot=plt.gca(), 
+               xlabel=None,  # Let probplot handle labels
+               ylabel=None,
+               line='s'
+           )
+            #stats.probplot(resid, plot=plt)
+            plt.gca().lines[0].set_color(color)
+            plt.gca().lines[1].set_color('red')
+        plt.ylabel('Ordered Residuals')
+        plt.title('Q-Q Plot vs Normal Distribution')
+
+    # Zero reference line
+    if zero_line and kind != 'qq':
+        plt.axhline(0, color='black', linestyle='--', 
+                   linewidth=1, alpha=0.7)
+        
+    # Final formatting
+    if title:
+        plt.title(title)
+    if kind != 'qq':
+        plt.legend()
+        
+    plt.grid(show_grid)
+    
+    # Output handling
+    if savefig:
+        plt.savefig(savefig, bbox_inches='tight')
+        
+    if verbose:
+        print("Residual Statistics (μ=mean, σ=std):")
+        for name, resid in zip(names, residuals_list):
+            print(f"{name}: μ = {np.mean(resid):.3f}, "
+                 f"σ = {np.std(resid):.3f}")
+            
+    plt.show()
+    
 
 

@@ -9,6 +9,7 @@ class Config:
     INSTALL_DEPS = False
     DEPS = None
     WARN_STATUS = 'warn'
+    USE_CONDA=False
 
 def install_package(package_name):
     """

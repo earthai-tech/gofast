@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
+## tests/test_automation.py
+
 import pytest
 import logging
-import random
+from unittest.mock import MagicMock, patch #, create_autospec
+from datetime import datetime# , timedelta
 import time
-from unittest.mock import patch, MagicMock
+import pickle
+
+# from unittest.mock import patch, MagicMock
 from gofast.mlops.automation import (
+    SimpleAutomation,
     AutomationManager,
     RetrainingScheduler,
     AirflowAutomation,
@@ -13,7 +19,7 @@ from gofast.mlops.automation import (
     RabbitMQAutomation,
 )
 from gofast.mlops._config import INSTALL_DEPENDENCIES
-from datetime import datetime
+from gofast.utils.deps_utils import is_module_installed 
 
 # Enable dependency installation during tests
 INSTALL_DEPENDENCIES = True  # noqa
@@ -22,192 +28,208 @@ INSTALL_DEPENDENCIES = True  # noqa
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Helper functions for tasks
-def sample_task(task_name):
-    logger.info(f"Executing task: {task_name}")
-
-def retrain_model(model):
-    logger.info(f"Retraining model: {model.__class__.__name__}")
-
-def evaluate_model(model):
-    return random.uniform(0.6, 1.0)  # Simulated performance score
-
-def process_kafka_data(data):
-    logger.info(f"Processing Kafka data: {data}")
-
-def process_rabbitmq_data(data):
-    logger.info(f"Processing RabbitMQ data: {data}")
-
-# Sample model class
-class SampleModel:
-    def __init__(self, name):
-        self.name = name
-
-    def __repr__(self):
-        return f"<Model {self.name}>"
-
-# Fixtures
-@pytest.fixture
-def automation_manager():
-    manager = AutomationManager(max_workers=2, state_persistence_file="test_state.pkl")
-    yield manager
-    manager.shutdown()
-    import os
-    if os.path.exists("test_state.pkl"):
-        os.remove("test_state.pkl")
 
 @pytest.fixture
-def retraining_scheduler():
-    scheduler = RetrainingScheduler(max_workers=2)
-    yield scheduler
-    scheduler.shutdown()
+def sample_model():
+    from sklearn.linear_model import LogisticRegression
+    return LogisticRegression()
 
 @pytest.fixture
-def airflow_manager():
-    return AirflowAutomation(dag_id="test_dag", start_date=datetime(2024, 1, 1))
+def tmp_state_file(tmp_path):
+    return tmp_path / "test_state.pkl"
 
-@pytest.fixture
-def kubeflow_manager():
-    return KubeflowAutomation(host="http://localhost:8080")
-
-@pytest.fixture
-def kafka_manager():
-    return KafkaAutomation(kafka_servers=["localhost:9092"], topic="test_topic")
-
-@pytest.fixture
-def rabbitmq_manager():
-    return RabbitMQAutomation(host="localhost", queue="test_queue")
-
-# Tests for AutomationManager
-def test_add_and_schedule_task(automation_manager):
-    automation_manager.add_task("task1", sample_task, interval=1, args=("Task1",), retries=2)
-    assert "task1" in automation_manager.tasks
-    automation_manager.schedule_task("task1")
-    assert automation_manager.tasks["task1"]["running"] == True
-    time.sleep(2)
-    automation_manager.cancel_task("task1")
-    assert automation_manager.tasks["task1"]["running"] == False
-
-def test_task_retries(automation_manager):
-    def flaky_task():
-        if not hasattr(flaky_task, "counter"):
-            flaky_task.counter = 0
-        flaky_task.counter += 1
-        if flaky_task.counter < 3:
-            raise ValueError("Intentional Failure")
-        logger.info("Flaky task succeeded.")
-
-    automation_manager.add_task("flaky_task", flaky_task, interval=1, retries=3)
-    automation_manager.schedule_task("flaky_task")
-    time.sleep(5)
-    assert automation_manager.tasks["flaky_task"]["failures"] == 0
-    automation_manager.cancel_task("flaky_task")
-
-def test_state_persistence(automation_manager):
-    automation_manager.add_task("task_persist", sample_task, interval=1, args=("PersistTask",), retries=1)
-    automation_manager.schedule_task("task_persist")
-    time.sleep(2)
-    automation_manager.persist_state()
-    new_manager = AutomationManager(max_workers=2, state_persistence_file="test_state.pkl")
-    assert "task_persist" in new_manager.tasks
-    assert new_manager.tasks["task_persist"]["running"] == True
-    new_manager.cancel_task("task_persist")
-    new_manager.shutdown()
-
-# Tests for RetrainingScheduler
-def test_schedule_retraining(retraining_scheduler):
-    model = SampleModel("TestModel")
-    retraining_scheduler.schedule_retraining(model, retrain_model, interval=1)
-    assert f"retrain_{model.__class__.__name__}" in retraining_scheduler.tasks
-    time.sleep(2)
-    retraining_scheduler.cancel_task(f"retrain_{model.__class__.__name__}")
-    assert retraining_scheduler.tasks[f"retrain_{model.__class__.__name__}"]["running"] == False
-
-def test_trigger_retraining_on_decay(retraining_scheduler):
-    model = SampleModel("DecayModel")
-    with patch('gofast.mlops.automation.retrain_model') as mock_retrain:
-        retraining_scheduler.trigger_retraining_on_decay(model, evaluate_model, decay_threshold=0.7)
-        score = evaluate_model(model)
-        if score < 0.7:
-            mock_retrain.assert_called_once_with(model)
-        else:
-            mock_retrain.assert_not_called()
-
-def test_monitor_model(retraining_scheduler):
-    model = SampleModel("MonitorModel")
-    with patch.object(retraining_scheduler, 'trigger_retraining_on_decay') as mock_trigger:
-        retraining_scheduler.monitor_model(model, evaluate_model, decay_threshold=0.7, check_interval=1)
-        time.sleep(2)
-        assert mock_trigger.call_count >= 1
-        retraining_scheduler.cancel_task(f"monitor_{model.__class__.__name__}")
-
-def test_adjust_retraining_schedule(retraining_scheduler):
-    model = SampleModel("AdjustModel")
-    retraining_scheduler.schedule_retraining(model, retrain_model, interval=2)
-    assert retraining_scheduler.tasks[f"retrain_{model.__class__.__name__}"]["interval"] == 2
-    retraining_scheduler.adjust_retraining_schedule(model, new_interval=1)
-    assert retraining_scheduler.tasks[f"retrain_{model.__class__.__name__}"]["interval"] == 1
-    retraining_scheduler.cancel_task(f"retrain_{model.__class__.__name__}")
-
-# Tests for AirflowAutomation
-@patch("gofast.mlops.automation.PythonOperator")
-@patch("gofast.mlops.automation.DAG")
-def test_airflow_add_task(mock_dag, mock_python_operator, airflow_manager):
-    mock_dag.return_value = MagicMock()
-    mock_python_operator.return_value = MagicMock()
-
-    task = airflow_manager.add_task_to_airflow("sample_task", sample_task, data="sample_data")
-    mock_python_operator.assert_called_once_with(
-        task_id="sample_task",
-        python_callable=sample_task,
-        op_kwargs={"data": "sample_data"},
-        dag=airflow_manager.dag,
+# --- AutomationManager Tests ---
+@pytest.mark.skipif (
+    not is_module_installed("apscheduler"), 
+    reason="APScheduller needs to be required to the test to proceed."
     )
+class TestAutomationManager:
+    @pytest.fixture
+    def automator(self, tmp_state_file):
+        return AutomationManager(state_file=str(tmp_state_file))
 
-@patch("gofast.mlops.automation.PythonOperator")
-@patch("gofast.mlops.automation.DAG")
-def test_airflow_schedule_task(mock_dag, mock_python_operator, airflow_manager):
-    mock_dag.return_value = MagicMock()
-    mock_python_operator.return_value = MagicMock()
-    airflow_manager.add_task_to_airflow("sample_task", sample_task, data="sample_data")
-    airflow_manager.schedule_airflow_task("sample_task")
-    task = airflow_manager.dag.get_task("sample_task")
-    task.execute.assert_called_once()
+    def test_add_operation(self, automator):
+        mock_func = MagicMock()
+        automator.add_operation("test_op", mock_func, 5)
+        assert "test_op" in automator.operations
+        assert automator.operations["test_op"]["interval"] == 5
 
-# KubeflowAutomation Tests
-@patch("gofast.mlops.automation.Client")
-@patch("gofast.mlops.automation.dsl.ContainerOp")
-def test_kubeflow_create_pipeline(mock_container_op, mock_client, kubeflow_manager):
-    mock_client.return_value = MagicMock()
-    mock_container_op.return_value = MagicMock()
-    kubeflow_manager.create_kubeflow_pipeline("test_pipeline", "sample_task", sample_task, data="sample_data")
-    mock_container_op.assert_called_once()
+    def test_run_without_operations(self, automator):
+        with pytest.raises(RuntimeError):
+            automator.run()
 
-# KafkaAutomation Tests
-@patch("gofast.mlops.automation.KafkaConsumer")
-def test_kafka_process_message(mock_kafka_consumer, kafka_manager):
-    mock_kafka_consumer.return_value = MagicMock()
-    kafka_manager.process_kafka_message(process_kafka_data)
-    message = MagicMock()
-    message.value = b"test_message"
-    kafka_manager.consumer.__iter__.return_value = [message]
-    kafka_manager.process_kafka_message(process_kafka_data)
-    assert process_kafka_data.called_once_with(b"test_message")
+    def test_state_persistence(self, automator, tmp_state_file):
+        mock_func = MagicMock()
+        automator.add_operation("persist_test", mock_func, 10)
+        automator.run()
+        automator.shutdown()
+        
+        assert tmp_state_file.exists()
+        with open(tmp_state_file, "rb") as f:
+            state = pickle.load(f)
+        assert "persist_test" in state
 
-# RabbitMQAutomation Tests
-@patch("gofast.mlops.automation.pika.BlockingConnection")
-def test_rabbitmq_process_message(mock_pika_connection, rabbitmq_manager):
-    mock_channel = MagicMock()
-    mock_pika_connection.return_value.channel.return_value = mock_channel
-    rabbitmq_manager.process_rabbitmq_message(process_rabbitmq_data)
-    method_frame = MagicMock()
-    header_frame = MagicMock()
-    body = b"test_message"
-    rabbitmq_manager.channel.basic_consume.call_args[1]["on_message_callback"](
-        mock_channel, method_frame, header_frame, body
+# --- AirflowAutomation Tests ---
+@pytest.mark.skipif(
+    not is_module_installed("airflow"), 
+    reason="Airflow needs to be required to the test to proceed."
     )
-    assert process_rabbitmq_data.called_once_with(b"test_message")
+class TestAirflowAutomation:
+    @pytest.fixture
+    def airflow(self):
+        return AirflowAutomation(
+            dag_id="test_dag",
+            start_date=datetime.now(),
+            schedule_interval="@daily"
+        )
 
+    @patch('airflow.models.DAG')
+    def test_dag_creation(self, mock_dag, airflow):
+        assert airflow.dag is not None
+        mock_dag.assert_called_once()
+
+    @patch('airflow.operators.python.PythonOperator')
+    def test_add_task(self, mock_operator, airflow):
+        mock_func = MagicMock()
+        airflow.add_task_to_airflow("test_task", mock_func)
+        mock_operator.assert_called_once_with(
+            task_id="test_task",
+            python_callable=mock_func,
+            dag=airflow.dag
+        )
+
+# --- KubeflowAutomation Tests ---
+@pytest.mark.skipif(
+    not is_module_installed("kubeflow"), 
+    reason="Kubeflow needs to be required to the test to proceed."
+    )
+class TestKubeflowAutomation:
+    @pytest.fixture
+    def kubeflow(self):
+        return KubeflowAutomation(host="http://localhost:8080")
+
+    @patch('kfp.Client')
+    def test_pipeline_creation(self, mock_client, kubeflow):
+        mock_func = MagicMock()
+        run_id = kubeflow.create_kubeflow_pipeline(
+            "test_pipe", "test_task", mock_func
+        )
+        mock_client.return_value.create_run_from_pipeline_func.assert_called()
+        assert isinstance(run_id, str)
+
+# --- KafkaAutomation Tests ---
+@pytest.mark.skipif(
+    not is_module_installed("kafka"), 
+    reason="Kafka needs to be required to the test to proceed."
+    )
+class TestKafkaAutomation:
+    @pytest.fixture
+    def kafka_auto(self):
+        return KafkaAutomation(
+            kafka_servers=["localhost:9092"],
+            topic="test_topic"
+        )
+
+    @patch('kafka.KafkaConsumer')
+    def test_message_processing(self, mock_consumer, kafka_auto):
+        mock_msg = MagicMock()
+        mock_msg.value = b"test message"
+        mock_consumer.return_value = [mock_msg]
+
+        processor = MagicMock()
+        kafka_auto.run()
+        kafka_auto.process_kafka_message(processor)
+        
+        processor.assert_called_once_with(mock_msg)
+
+# --- RabbitMQAutomation Tests ---
+@pytest.mark.skipif(
+    not is_module_installed("rabbit"), 
+    reason="Rabbit needs to be required to the test to proceed."
+    )
+class TestRabbitMQAutomation:
+    @pytest.fixture
+    def rabbit_auto(self):
+        return RabbitMQAutomation(
+            host="localhost",
+            queue="test_queue"
+        )
+
+    @patch('pika.BlockingConnection')
+    def test_message_handling(self, mock_conn, rabbit_auto):
+        mock_channel = MagicMock()
+        mock_conn.return_value.channel.return_value = mock_channel
+
+        processor = MagicMock()
+        rabbit_auto.run()
+        rabbit_auto.process_rabbitmq_message(processor)
+        
+        mock_channel.basic_consume.assert_called_once()
+
+# --- RetrainingScheduler Tests ---
+@pytest.mark.skipif (
+    not is_module_installed("apscheduler"), 
+    reason="APScheduller needs to be required to the test to proceed."
+    )
+class TestRetrainingScheduler:
+    @pytest.fixture
+    def scheduler(self, sample_model):
+        s = RetrainingScheduler(max_workers=2)
+        s.run(model=sample_model)
+        return s
+
+    def test_performance_evaluation(self, scheduler, sample_model):
+        metric = MagicMock(return_value=0.95)
+        score = scheduler.evaluate_performance(metric)
+        metric.assert_called_once_with(sample_model)
+        assert score == 0.95
+
+    @patch('gofast.mlops.automation.validate_params')
+    def test_retraining_trigger(self, mock_validator, scheduler):
+        mock_metric = MagicMock(return_value=0.75)
+        scheduler.monitor_model(mock_metric, 0.8, 10)
+        assert len(scheduler.operations) == 1
+
+# --- SimpleAutomation Tests ---
+@pytest.mark.skipif (
+    not is_module_installed("apscheduler"), 
+    reason="APScheduller needs to be required to the test to proceed."
+    )
+class TestSimpleAutomation:
+    @pytest.fixture
+    def simple_auto(self):
+        return SimpleAutomation()
+
+    def test_task_lifecycle(self, simple_auto):
+        mock_func = MagicMock()
+        simple_auto.add_task("test_task", mock_func, 0.1)
+        simple_auto.run()
+        time.sleep(0.2)  # Allow time for execution
+        simple_auto.shutdown()
+        
+        assert mock_func.call_count >= 1
+
+# --- Common Utility Tests ---
+def test_check_is_runned():
+    from gofast.utils.validator import check_is_runned
+    from gofast.exceptions import NotRunnedError
+    
+    class TestClass:
+        _is_runned = False
+    
+    with pytest.raises(NotRunnedError):
+        check_is_runned(TestClass(), ['_is_runned'], msg="Error")
+
+def test_ensure_pkg():
+    from gofast.utils.deps_utils import ensure_pkg
+    
+    @ensure_pkg("nonexistent_package", extra="Test message")
+    def test_func():
+        pass
+    
+    with pytest.raises(ImportError):
+        test_func()
+        
 # Run the test suite
 if __name__ == "__main__":
     pytest.main([__file__])

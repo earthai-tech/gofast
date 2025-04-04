@@ -3,8 +3,8 @@ The Tools sub-package offers a variety of utilities for data handling,
 parameter computation, model estimation, and evaluation. It extends
 mathematical concepts through the module :mod:`~gofast.utils.mathext`. 
 Additionally, machine learning utilities and supplementary functionalities 
-are facilitated by :mod:`~gofast.utils.mlutils` and 
-:mod:`~gofast.utils.datautils`, respectively.
+are facilitated by :mod:`~gofast.utils.ml.utils` and 
+:mod:`~gofast.utils.data_utils`, respectively.
  
 """
 
@@ -17,7 +17,6 @@ MODULE_MAPPING = {
          'binning_statistic',
          'categorize_target',
          'category_count',
-         'denormalizer',
          'detect_categorical_columns', 
          'extract_target',
          'fancier_downloader',
@@ -51,8 +50,8 @@ MODULE_MAPPING = {
         'read_worksheets',
         'resample_data', 
         'replace_data', 
-        'long_to_wide', 
-        'wide_to_long', 
+        'to_wide', 
+        'to_long', 
         'repeat_feature_accross', 
         'merge_datasets', 
         'swap_ic', 
@@ -62,8 +61,28 @@ MODULE_MAPPING = {
         'filter_data', 
         'nan_ops', 
         'build_df', 
-        
+        'has_duplicates', 
+        'group_and_aggregate', 
+        'mask_by_reference', 
+        'filter_by_isin', 
+        'filter_df', 
+        'generate_comparison', 
     ], 
+    "ext":[ 
+         'denormalizer',
+         "reorder_importances", 
+         "spread_coverage", 
+         "denormalize_in", 
+         "normalize_in", 
+         "to_ranking", 
+         "to_importances", 
+         "evaluate_df", 
+         "normalize_categorical_column", 
+         "to_micmic", 
+         "spread_uncertainty", 
+         "reorder_by", 
+         "compute_pairwise_errors", 
+        ], 
     'io_utils':[ 
         'deserialize_data', 
         'extract_tar_with_progress', 
@@ -121,6 +140,7 @@ MODULE_MAPPING = {
         'compute_coverages',
         'compute_importances', 
         'get_preds', 
+        'get_threshold_from'
     ],
     'ml': [
         'bi_selector', 
@@ -156,6 +176,7 @@ MODULE_MAPPING = {
         'stats_from_prediction',
         'stratify_categories', 
         'encode_target',
+        'groupwise_train_test_split', 
     ], 
     'sys_utils': [
         'WorkflowOptimizer',
@@ -173,6 +194,12 @@ MODULE_MAPPING = {
         'extract_coordinates', 
         'dual_merge', 
         'extract_zones_from', 
+        'filter_position', 
+        'create_spatial_clusters', 
+        'gen_negative_samples', 
+        'gen_buffered_negative_samples', 
+        'gen_negative_samples_plus', 
+        
         ]
 }
 

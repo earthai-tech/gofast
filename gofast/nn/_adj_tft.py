@@ -48,7 +48,6 @@ if KERAS_BACKEND:
     tf_reduce_mean = KERAS_DEPS.reduce_mean
     tf_get_static_value=KERAS_DEPS.get_static_value
     
-    from . import Activation 
     from ._tensor_validation import validate_tft_inputs
     from ._tft import TemporalFusionTransformer
     from .losses import combined_quantile_loss 
@@ -57,13 +56,13 @@ if KERAS_BACKEND:
     
 DEP_MSG = dependency_message('transformers.tft') 
 
-# ------------------------ TFT implementations --------------------------------
+# ------------------------ TFT implementation --------------------------------
 
 @Appender(dedent(
     TemporalFusionTransformer.__doc__.replace ('TemporalFusionTransformer', 'TFT')
     ), join='\n'
  )
-@register_keras_serializable('Gofast')
+@register_keras_serializable('gofast.nn.transformers', name="TFT")
 class TFT(Model, NNLearner):
     @validate_params({
         "dynamic_input_dim": [Interval(Integral, 1, None, closed='left')], 
@@ -97,9 +96,8 @@ class TFT(Model, NNLearner):
         use_batch_norm=False,   
         lstm_units=None,        
         output_dim=1,           
-        **kwargs
     ):
-        super().__init__(**kwargs)
+        super().__init__()
         self.dynamic_input_dim = dynamic_input_dim
         self.hidden_units = hidden_units
         self.future_input_dim = future_input_dim
@@ -158,7 +156,7 @@ class TFT(Model, NNLearner):
         
         # Variable Selection Network for dynamic (past) inputs
         self.past_varsel = VariableSelectionNetwork(
-            num_inputs=dynamic_input_dim, 
+            num_inputs=self.dynamic_input_dim, 
             hidden_units=hidden_units, 
             dropout_rate=dropout_rate, 
             activation=activation, 
@@ -235,25 +233,6 @@ class TFT(Model, NNLearner):
             dynamic_input_dim= self.dynamic_input_dim, 
             future_covariate_dim= self.future_input_dim, 
         )
-        # if isinstance(inputs, (list, tuple)):
-        #     if len(inputs) == 3:
-        #         past_inputs, future_inputs, static_inputs = inputs
-        #     elif len(inputs) == 2:
-        #         past_inputs, future_inputs = inputs
-        #         static_inputs = None
-        #     else:
-        #         raise ValueError(
-        #             "Inputs should be a list or tuple containing "
-        #             "(past_inputs, future_inputs, static_inputs) or "
-        #             "(past_inputs, future_inputs)."
-        #         )
-        # else:
-        #     raise ValueError(
-        #         "Inputs should be a list or tuple containing "
-        #         "(past_inputs, future_inputs, static_inputs) or "
-        #         "(past_inputs, future_inputs)."
-        #     )
-        
         # 1) Embed past inputs
         # ---> (batch_size, past_steps, dynamic_input_dim, 1)
         past_inputs_expanded = tf_expand_dims(past_inputs, axis=-1)  
@@ -393,7 +372,7 @@ class TFT(Model, NNLearner):
             'hidden_units'     : self.hidden_units,
             'num_heads'        : self.num_heads,
             'dropout_rate'     : self.dropout_rate,
-            'forecast_horizon' : self.forecast_horizon,
+            'forecast_horizon': self.forecast_horizon,
             'quantiles'        : self.quantiles,
             'activation'       : self.activation,
             'use_batch_norm'   : self.use_batch_norm,
@@ -572,9 +551,8 @@ class GatedResidualNetwork(Layer):
         # Define layers
         self.fc1 = Dense(self.hidden_units, activation=None)
         #self.activation_fn = Activation(self.activation)
-        self.activation = Activation(activation) 
-        self.activation_name = self.activation.activation_name
-        
+        self.activation = activation
+
         self.dropout= Dropout(self.dropout_rate)
         self.fc2 = Dense(self.output_units, activation=None)
         

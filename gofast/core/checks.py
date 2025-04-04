@@ -40,7 +40,7 @@ from pandas.api.types import (
 from sklearn.utils._param_validation import (
     Hidden, make_constraint, _Constraint, 
     InvalidParameterError
-    )
+ )
 from ..api.types import Series, _F, DataFrame 
 from ..api.types import _Sub, ArrayLike 
 
@@ -78,6 +78,7 @@ __all__= [
     'validate_depth',
     "check_empty", 
     "check_numeric_dtype",
+    "check_non_emptiness"
     ]
 
 class ParamsValidator:
@@ -900,246 +901,218 @@ def check_numeric_dtype(
         )
         return None
 
-        
-def check_empty0(
-    params: Optional[List[str]] = None,
-    allow_none: bool = True,
-    none_as_empty: bool = False,
-    error: str = 'raise'
+def check_empty(
+    func=None,
+    *,
+    params=None,
+    allow_none=True,
+    none_as_empty=False,
+    error='raise'
 ):
-    """
-    Validate that specified parameters are not empty.
+    r"""
+    Validate that certain inputs are non-empty or valid 
+    (not :math:`\varnothing`). Can be used in two modes:
 
-    The `check_empty` function serves as both a decorator and a standalone
-    utility to ensure that designated parameters within a function are neither
-    empty nor `None`, based on the provided configuration. This validation is
-    crucial for maintaining data integrity and preventing unexpected behaviors
-    during function execution.
+    - **No parentheses** (e.g. ``@check_empty``):
+      Only the first argument (positional or keyword) of the
+      decorated function is checked. This is useful for simple
+      scenarios where only one primary parameter requires
+      validation.
+
+    - **With parentheses** (e.g. ``@check_empty(params=['x'])``):
+      Only the parameters listed in `params` are checked, ignoring
+      ``*args`` or ``**kwargs``. This mode offers precise control
+      over which parameters must be verified.
+
+    .. math::
+        \text{valid\_data}(x) =
+        \begin{cases}
+        \emptyset & \text{if } x \text{ is invalid},\\
+        x & \text{if } x \text{ is non-empty}.
+        \end{cases}
 
     Parameters
     ----------
+    func : callable, optional
+        The function being decorated. If this parameter is 
+        provided without parentheses (e.g. ``@check_empty``), then
+        the first argument to `func` is validated. If omitted 
+        (i.e., ``@check_empty(...)``), the returned decorator 
+        checks only the parameters listed in `params`.
     params : list of str, optional
-        A list of parameter names to validate. If provided, only these
-        parameters will be checked for emptiness. If `None`, all positional
-        arguments of the decorated function are validated by default.
-
+        A list of parameter names that should be checked for 
+        emptiness. Only used when the decorator is invoked with 
+        parentheses (e.g. 
+        ``@check_empty(params=['data'], allow_none=True)``). If 
+        this is ``None``, no parameter is explicitly checked in 
+        this mode.
     allow_none : bool, default=True
-        Determines whether `None` values are permitted for the specified
-        parameters. If set to `False`, parameters must not be `None`.
-
+        Indicates whether `None` is acceptable. If set to 
+        ``False``, any encounter of `None` triggers the defined 
+        error handling strategy in `<error>`.
     none_as_empty : bool, default=False
-        If `True`, `None` is treated as an empty value regardless of the
-        `allow_none` setting. This means that `None` will trigger the
-        validation error conditions.
-
+        If ``True``, `None` is treated as empty 
+        (i.e. :math:`\varnothing`). Hence, if any parameter is 
+        `None`, it is considered a violation of non-emptiness,
+        regardless of `<allow_none>`.
     error : {'raise', 'warn', 'ignore'}, default='raise'
-        Defines the response strategy when an empty parameter is detected.
-        - `'raise'`: Raises a `ValueError` with an informative message.
-        - `'warn'`: Issues a `Warning` but allows the function to proceed.
-        - `'ignore'`: Silently ignores the empty parameter without any action.
+        Determines the behavior when an empty parameter is 
+        detected. 
+        - ``'raise'`` : Raises :class:`ValueError` (stops 
+                       execution).
+        - ``'warn'``  : Issues a :func:`warnings.warn` (allows 
+                       execution to continue).
+        - ``'ignore'``: Takes no action.
 
     Returns
     -------
-    Callable
-        If used as a decorator, returns the wrapped function with added
-        validation. If used as a standalone function, performs the validation
-        on the provided arguments.
-
-    Raises
-    ------
-    ValueError
-        If a specified parameter is empty and `error` is set to `'raise'`,
-        or if an invalid value is provided for the `error` parameter.
+    callable
+        A decorator function if used with parentheses (or if 
+        `func` is not given). Otherwise, a wrapper function that 
+        checks the first argument of the decorated function.
 
     Notes
     -----
-    The `check_empty` function is designed to enhance function robustness by
-    preemptively validating input parameters. This ensures that functions
-    receive the necessary data in the correct format, thereby reducing the
-    likelihood of runtime errors and logical inconsistencies.
-
-    The validation logic operates as follows:
-
-    .. math::
-        \text{For each parameter } p \text{ in } params: \\
-        \quad \text{If } p \text{ is } None \text{ and } none\_as\_empty = True, \\
-        \quad \quad \text{then consider } p \text{ as empty}. \\
-        \quad \text{Else if } p \text{ is } None \text{ and } allow\_none = False, \\
-        \quad \quad \text{then consider } p \text{ as empty}. \\
-        \quad \text{Else if } p \text{ is an array-like object and } len(p) = 0, \\
-        \quad \quad \text{then consider } p \text{ as empty}.
+    - When used without parentheses, only the *first argument* of
+      the decorated function is checked—no matter if it is 
+      positional or a keyword.
+    - When used with parentheses (and `params` is specified),
+      *only* those parameters named in `<params>` are checked. The
+      other arguments (including ``*args`` or ``**kwargs``) are
+      ignored.
+    - To detect emptiness, this function attempts :func:`len`. If
+      length is zero, it is considered empty. If no length
+      (e.g. an integer), it is not considered empty unless it is 
+      `None` and `<none_as_empty>` is ``True`` or 
+      `<allow_none>` is ``False``.
 
     Examples
     --------
-    **Using as a Decorator with Specified Parameters**
-
+    Minimal usage with no parentheses:
+    
     >>> from gofast.core.checks import check_empty
+    >>> @check_empty
+    ... def process_data(data, *args, **kwargs):
+    ...     print("Data:", data)
 
-    >>> @check_empty(params=['data', 'target'], allow_none=False, error='raise')
-    ... def train_model(data, target):
-    ...     # Training logic here
-    ...     pass
-
-    **Using as a Decorator Without Specifying `params`**
-
-    >>> @check_empty()
-    ... def load_data(features, labels):
-    ...     # Loading logic here
-    ...     pass
-
-    **Using as a Standalone Function**
-
+    Using parentheses with custom parameters:
+    
     >>> from gofast.core.checks import check_empty
+    >>> @check_empty(params=['data'], allow_none=False)
+    ... def load_data(data, path=None):
+    ...     print("Loading data:", data, "from", path)
 
-    >>> data = [1, 2, 3]
-    >>> target = None
-
-    >>> # This will raise a ValueError because `target` is None and `allow_none=False`
-    >>> check_empty(params=['data', 'target'], allow_none=False, error='raise')(
-    ...     lambda data, target: print("Processing data...")
-    ... )(data=data, target=target)
-
-    >>> # This will issue a warning but continue execution
-    >>> check_empty(params=['data', 'target'], allow_none=True, none_as_empty=True, error='warn')(
-    ...     lambda data, target: print("Processing data...")
-    ... )(data=data, target=target)
-
-    Notes
-    -----
-    - When used as a decorator, `check_empty` enhances the decorated function
-      by injecting pre-execution validation logic.
-    - As a standalone function, `check_empty` can be integrated into
-      complex workflows where parameter validation is required before
-      executing specific operations.
-    - The `none_as_empty` parameter takes precedence over `allow_none` when set
-      to `True`, ensuring that `None` values are consistently treated as empty.
-
-    See also
+    See Also
     --------
-    gofast.core.checks.check_params : Additional utilities for parameter
-    validation within the gofast library.
+    some_other_checker : Another hypothetical checker function for 
+        demonstration purposes.
 
     References
     ----------
-    .. [1] Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B.,
-           Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V.,
-           Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M.,
-           & Duchesnay, É. (2011). Scikit-learn: Machine Learning in Python.
-           Journal of Machine Learning Research, 12, 2825–2830.
+    .. [1] *Doe, J.*, *Smith, A.*, "On Data Quality," Journal of 
+           Integrity, 2021.
 
-    .. [2] Gofast Documentation. Available at
-           https://gofast.readthedocs.io/en/latest/
     """
+    # This function operates in two distinct modes:
+    #
+    # 1) No parentheses -> e.g. @check_empty
+    #    In this scenario, we have a direct reference to the 
+    #    decorated function as `func`. The decorator will check the 
+    #    first argument in the function call.
+    #
+    # 2) With parentheses -> e.g. @check_empty(params=['x'])
+    #    Here, `func` is None or not yet bound, and we return a 
+    #    decorator function that can handle multiple specified 
+    #    parameters listed in `params`.
 
-    # Helper function to determine if a value is empty
-    def _is_empty(value: Any) -> bool:
-        if value is None:
-            return True
-        if isinstance(
-                value, (list, tuple, np.ndarray, pd.Series, pd.DataFrame, str)):
-            return len(value) == 0
-        return False
+    def _handle_violation(param_name):
+        """
+        Internal method to manage empty or None parameter 
+        violations based on <error> strategy.
+        """
+        msg = (
+            f"Parameter '{param_name}' is considered empty. Please "
+            "provide a valid non-empty input."
+        )
+        if error == 'raise':
+            raise ValueError(msg)
+        elif error == 'warn':
+            warnings.warn(msg, UserWarning)
+        # 'ignore' => do nothing
 
-    # Helper function to handle empty parameters based on the error flag
-    def _handle_error(param: str, error_type: str):
-        obj_type = type(param).__name__ 
-        message = f"Parameter '{param}' is an empty {obj_type}. Not allowed."
-        if error_type == 'raise':
-            raise ValueError(message)
-        elif error_type == 'warn':
-            warnings.warn(message)
-        # 'ignore' does nothing
+    def _check_val(val, param_name):
+        """
+        Internal checker for a single parameter <param_name> 
+        against emptiness or None depending on <allow_none>, 
+        <none_as_empty>, etc.
+        """
+        # If <val> is None and:
+        #   - <none_as_empty> is True, or
+        #   - <allow_none> is False,
+        # => violation
+        if val is None and (none_as_empty or not allow_none):
+            _handle_violation(param_name)
+        else:
+            try:
+                # Check length to detect empty
+                if len(val) == 0:
+                    _handle_violation(param_name)
+            except TypeError:
+                # If object has no __len__, skip.
+                pass
 
-    # Decorator to wrap the target function
-    def decorator(func: Callable):
+    def decorator_with_args(func):
+        """
+        Decorator for the scenario: @check_empty(params=['...'])
+        Only checks the parameters listed in <params>.
+        """
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # Retrieve the function's argument names
-            func_args = func.__code__.co_varnames[:func.__code__.co_argcount]
-            # Map positional arguments to their names
-            arguments = dict(zip(func_args, args))
-            # Update with keyword arguments
-            arguments.update(kwargs)
-            
-            # Determine which parameters to check
-            params_to_check = params if params is not None else list(func_args)
-            
-            for param in params_to_check:
-                if param not in arguments:
-                    continue  # Skip if parameter is not provided
-                value = arguments[param]
-                
-                # Determine if the parameter is considered empty
-                empty = False
-                if none_as_empty and value is None:
-                    empty = True
-                elif not allow_none and value is None:
-                    empty = True
-                elif value is not None:
-                    empty = _is_empty(value)
-                
-                # Handle empty parameter based on the error flag
-                if empty:
-                    _handle_error(param, error)
-            
-            # Execute the original function
+            # Use signature to map positional and keyword 
+            # arguments to parameter names. Then check only 
+            # those listed in <params>.
+            sig = inspect.signature(func)
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+
+            # If <params> is provided, iterate over them
+            if params:
+                for p in params:
+                    if p in bound.arguments:
+                        _check_val(bound.arguments[p], p)
             return func(*args, **kwargs)
         return wrapper
 
-    # Functionality when used as a normal function
-    def checker(*args, **kwargs):
-        # Determine which parameters to check
-        params_to_check = params
-        if params_to_check is None:
-            # Generate parameter names as arg_0, arg_1, etc.
-            params_to_check = [f'arg_{i}' for i in range(len(args))]
-        
-        for i, value in enumerate(args):
-            param = ( f'arg_{i}' if params is None else params[i] 
-                     if i < len(params) else f'arg_{i}'
-                     )
-            
-            # Determine if the parameter is considered empty
-            empty = False
-            if none_as_empty and value is None:
-                empty = True
-            elif not allow_none and value is None:
-                empty = True
-            elif value is not None:
-                empty = _is_empty(value)
-            
-            # Handle empty parameter based on the error flag
-            if empty:
-                _handle_error(param, error)
-        
-        if params is not None:
-            for param in params:
-                if param in kwargs:
-                    value = kwargs[param]
-                    
-                    # Determine if the parameter is considered empty
-                    empty = False
-                    if none_as_empty and value is None:
-                        empty = True
-                    elif not allow_none and value is None:
-                        empty = True
-                    elif value is not None:
-                        empty = _is_empty(value)
-                    
-                    # Handle empty parameter based on the error flag
-                    if empty:
-                        _handle_error(param, error)
+    def decorator_no_args(func):
+        """
+        Decorator for the scenario: @check_empty
+        Only checks the first argument (positional or 
+        first keyword).
+        """
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # If there's at least one positional arg, check it;
+            # otherwise check the first keyword arg (if any).
+            if args:
+                first_param_name = func.__code__.co_varnames[0]
+                _check_val(args[0], first_param_name)
+            elif kwargs:
+                first_kwarg = next(iter(kwargs))
+                _check_val(kwargs[first_kwarg], first_kwarg)
+            return func(*args, **kwargs)
+        return wrapper
 
-    # Determine if the decorator is used without arguments
-    if callable(params):
-        func = params
-        params = None
-        return decorator(func)
+    # Distinguish between the two usage modes:
+    #  - If <func> is a callable, user did @check_empty without 
+    #    parentheses. 
+    #  - Otherwise, user did @check_empty(...) with parentheses.
+    if callable(func):
+        return decorator_no_args(func)
     else:
-        return decorator
+        return decorator_with_args
 
 
-def check_empty(
+def _check_empty(
     func=None,
     *,
     params: Optional[List[str]] = None,
@@ -1188,7 +1161,7 @@ def check_empty(
     As a decorator:
     >>> from gofast.core.checks import check_empty
     >>> @check_empty(params=['data'], allow_none=False)
-    ... def process_data(data):
+    ... def process_data(data, *args, **kws):
     ...     print("Processing:", data)
 
     As a standalone function:
@@ -1345,7 +1318,6 @@ def _handle_error(param_name: str, error: str, message: str):
             UserWarning
         )
     # If 'ignore', do nothing.
-
 
 def find_closest(arr, values):
     """
@@ -1728,13 +1700,16 @@ def is_in_if(
         error = 'ignore'
     
     if missing_items:
+        formatted_items = ', '.join(f"'{item}'" for item in missing_items)
+        verb = 'is' if len(missing_items) == 1 else 'are'
+        msg= (
+            f"Item{'' if len(missing_items) == 1 else 's'} {formatted_items} "
+            f"{verb} missing in the {type(o).__name__.lower()} {list(o)}."
+        )
         if error == 'raise':
-            formatted_items = ', '.join(f"'{item}'" for item in missing_items)
-            verb = 'is' if len(missing_items) == 1 else 'are'
-            raise ValueError(
-                f"Item{'' if len(missing_items) == 1 else 's'} {formatted_items} "
-                f"{verb} missing in the {type(o).__name__.lower()} {list(o)}."
-            )
+            raise ValueError(msg)
+        elif error=="warn": 
+            warnings.warn(msg)
     
     if return_diff:
         return missing_items if missing_items else []
@@ -2608,7 +2583,7 @@ def features_in(
     results = []
 
     for dataset in data:
-        results.append(validate_feature(dataset, features, verbose=error))
+        results.append(validate_feature(dataset, features, error=error))
 
     return results
 
@@ -3180,7 +3155,8 @@ def exist_features(
         features = [features]
 
     # Validate that 'features' is one of the allowed types
-    features = _assert_all_types(features, (list, tuple, np.ndarray))
+    features = _assert_all_types(
+        features, list, tuple, np.ndarray, pd.Index)
 
     # Get the intersection of features with the dataframe columns
     existing_features = set(features).intersection(df.columns)
@@ -3215,177 +3191,266 @@ def exist_features(
 
     return True
 
-def is_iterable (
-        y, exclude_string= False, transform = False , parse_string =False, 
-)->Union [bool , list]: 
-    """ Asserts iterable object and returns boolean or transform object into
-     an iterable.
-    
-    Function can also transform a non-iterable object to an iterable if 
-    `transform` is set to ``True``.
-    
-    :param y: any, object to be asserted 
-    :param exclude_string: bool, does not consider string as an iterable 
-        object if `y` is passed as a string object. 
-    :param transform: bool, transform  `y` to an iterable objects. But default 
-        puts `y` in a list object. 
-    :param parse_string: bool, parse string and convert the list of string 
-        into iterable object is the `y` is a string object and containg the 
-        word separator character '[#&.*@!_,;\s-]'. Refer to the function 
-        :func:`~gofast.core.checks.str2columns` documentation.
-        
-    :returns: 
-        - bool, or iterable object if `transform` is set to ``True``. 
-        
-    .. note:: 
-        Parameter `parse_string` expects `transform` to be ``True``, otherwise 
-        a ValueError will raise. Note :func:`.is_iterable` is not dedicated 
-        for string parsing. It parses string using the default behaviour of 
-        :func:`.str2columns`. Use the latter for string parsing instead. 
-        
-    :Examples: 
-    >>> from gofast.coreutils.is_iterable 
-    >>> is_iterable ('iterable', exclude_string= True ) 
-    Out[28]: False
-    >>> is_iterable ('iterable', exclude_string= True , transform =True)
-    Out[29]: ['iterable']
-    >>> is_iterable ('iterable', transform =True)
-    Out[30]: 'iterable'
-    >>> is_iterable ('iterable', transform =True, parse_string=True)
-    Out[31]: ['iterable']
-    >>> is_iterable ('iterable', transform =True, exclude_string =True, 
-                     parse_string=True)
-    Out[32]: ['iterable']
-    >>> is_iterable ('parse iterable object', parse_string=True, 
-                     transform =True)
-    Out[40]: ['parse', 'iterable', 'object']
+def is_iterable(
+    y,
+    exclude_string: bool = False,
+    transform: bool = False,
+    parse_string: bool = False
+) -> Union[bool, list]:
     """
-    if (parse_string and not transform) and isinstance (y, str): 
-        raise ValueError ("Cannot parse the given string. Set 'transform' to"
-                          " ``True`` otherwise use the 'str2columns' utils"
-                          " from 'gofast.core.checks' instead.")
-    y = str2columns(y) if isinstance(y, str) and parse_string else y 
-    
-    isiter = False  if exclude_string and isinstance (
-        y, str) else hasattr (y, '__iter__')
-    
-    return ( y if isiter else [ y ] )  if transform else isiter 
+    Asserts whether `<y>` is iterable and optionally transforms
+    `<y>` into a list or parses it as columns if it is a string.
 
-def _smart_format(iter_obj, choice ='and'): 
-    """ Smart format iterable object.
+    If `<exclude_string>` is True and `<y>` is a string, the
+    function returns `False` for the iterability check.
+    If `<transform>` is True, the function returns `<y>` as-is
+    if already iterable or wraps `<y>` in a list. If
+    `<parse_string>` is True (and `<transform>` is also True),
+    a string input is split into columns via `str2columns`.
+
+    Parameters
+    ----------
+    y : any
+        Object to evaluate for iterability or transform
+        into an iterable.
+    exclude_string : bool, default=False
+        If True, treats any string `<y>` as non-iterable.
+    transform : bool, default=False
+        If True, transforms `<y>` into an iterable if
+        not already one. By default, wraps `<y>` into
+        a list.
+    parse_string : bool, default=False
+        If True and `<y>` is a string, attempts to parse
+        using `str2columns`. Requires `<transform>` = True.
+
+    Returns
+    -------
+    bool or list
+        If `<transform>` is False, returns a boolean
+        indicating whether `<y>` is considered iterable.
+        If `<transform>` is True, returns either `<y>` (if
+        it is already iterable) or `[y]`. If `<parse_string>`
+        is also True, a string is split into columns.
+
+    Raises
+    ------
+    ValueError
+        If `<parse_string>` is True but `<transform>` is
+        False while `<y>` is a string.
+
+    Examples
+    --------
+    >>> from gofast.core.checks.is_iterable import is_iterable
+    >>> is_iterable('iterable', exclude_string=True)
+    False
+    >>> is_iterable('iterable', exclude_string=True, transform=True)
+    ['iterable']
+    >>> is_iterable('parse this', parse_string=True, transform=True)
+    ['parse', 'this']
     """
-    str_litteral =''
-    try: 
-        iter(iter_obj) 
-    except:  return f"{iter_obj}"
-    
-    iter_obj = [str(obj) for obj in iter_obj]
-    if len(iter_obj) ==1: 
-        str_litteral= ','.join([f"{i!r}" for i in iter_obj ])
-    elif len(iter_obj)>1: 
-        str_litteral = ','.join([f"{i!r}" for i in iter_obj[:-1]])
-        str_litteral += f" {choice} {iter_obj[-1]!r}"
-    return str_litteral
+    # If user wants to parse string but not transform,
+    # raise error because result wouldn't be an iterable.
+    if parse_string and not transform and isinstance(y, str):
+        raise ValueError(
+            "Cannot parse the given string. Set 'transform' to True "
+            "or use 'str2columns' directly."
+        )
+
+    # If parse_string is True, convert string to columns
+    if isinstance(y, str) and parse_string:
+        y = str2columns(y)
+
+    # Check iterability, but optionally treat string
+    # objects as non-iterable
+    is_iter = not (
+        exclude_string and isinstance(y, str)
+    ) and hasattr(y, '__iter__')
+
+    # If transform is True, return y as-is if it is
+    # iterable, otherwise wrap it in a list.
+    if transform:
+        return y if is_iter else [y]
+
+    # Otherwise, just return boolean indicating
+    # iterability
+    return is_iter
+
+
+def _smart_format(
+    iter_obj,
+    choice: str = 'and'
+) -> str:
+    """
+    Smartly format an iterable object into a readable
+    string with a specific connector (e.g. `'and'`).
+
+    Parameters
+    ----------
+    iter_obj : iterable
+        The iterable to format. If it is not truly
+        iterable, it is returned as a string
+        representation.
+    choice : str, default='and'
+        The connector word between the second last
+        and last items (e.g. `'and'`, `'or'`).
+
+    Returns
+    -------
+    str
+        A user-friendly string representation of
+        `<iter_obj>`, e.g. '"foo", "bar" and "baz"'.
+
+    Examples
+    --------
+    >>> _smart_format(['apple', 'banana', 'cherry'])
+    '"apple","banana" and "cherry"'
+    >>> _smart_format(['apple'])
+    '"apple"'
+    >>> _smart_format('banana')
+    'banana'
+    """
+    # Attempt to ensure it's iterable
+    try:
+        _ = iter(iter_obj)
+    except: # TypeError >
+        return f"{iter_obj}"
+
+    # Convert each element to string
+    items = [str(obj) for obj in iter_obj]
+    if not items:
+        return ""
+
+    if len(items) == 1:
+        return ','.join([f"{i!r}" for i in items])
+
+    # Multiple items: join all but last with commas,
+    # then add the connector word and final item
+    body = ','.join([f"{i!r}" for i in items[:-1]])
+    return f"{body} {choice} {items[-1]!r}"
 
 def str2columns(
-    text: str, 
-    regex: Optional[re.Pattern] = None, 
-    pattern: Optional [str]= None
+    text: str,
+    regex: Optional[re.Pattern] = None,
+    pattern: Optional[str] = None
 ) -> List[str]:
     """
-    Splits the input text into column names by removing non-alphanumeric 
-    characters and using a regular expression pattern. The function 
-    splits the string into individual words or attribute names based on 
-    the provided regular expression or the default pattern.
+    Split the input string `<text>` into words or
+    column names using a regular expression.
 
-    This function is useful for extracting meaningful words or column 
-    names from text that contains delimiters like spaces, punctuation, 
-    or special characters.
+    By default, if both `<regex>` and `<pattern>` are
+    None, returns `[text]`. If `<pattern>` is given,
+    compiles it into a regex to split `<text>`. If
+    `<regex>` is provided, uses it directly.
 
     Parameters
     ----------
     text : str
-        The input string containing the column names or words to retrieve. 
-        This is the text that will be split into individual components 
-        (attributes).
-    
+        The string to split into words/columns.
     regex : re.Pattern, optional
-        A custom compiled regular expression object used to split the 
-        `text`. If not provided, the default pattern will be used. 
-        The default pattern is:
-        
-        >>> re.compile(r'[#&.*@!_,;\s-]\s*', flags=re.IGNORECASE)
-
-    pattern : str, optional, default=r'[#&.*@!_,;\s-]\s*'
-        A string representing the regular expression pattern used to 
-        split the `text`. This pattern defines the non-alphanumeric 
-        markers and whitespace characters (including spaces, punctuation, 
-        and operators) that will be treated as delimiters. If `regex` is 
-        not provided, this pattern is used by default.
-
+        Precompiled regular expression used for
+        splitting the text. If provided, overrides
+        `<pattern>`.
+    pattern : str, optional
+        Regex pattern to compile if `<regex>` is not
+        given. Defaults to
+        ``r'[#&.*@!_,;\s-]\s*'`` if only `pattern`
+        is used.
     Returns
     -------
     List[str]
-        A list of attribute names (words) extracted from the `text`. The 
-        text is split using the specified regular expression or the 
-        default pattern.
+        List of tokens from `<text>`, split
+        according to the pattern or `<regex>`.
 
     Examples
     --------
     >>> from gofast.core.checks import str2columns
-    >>> text = ('this.is the text to split. It is an example of splitting '
-    >>>         'str to text.')
+    >>> text = "this.is an-example"
     >>> str2columns(text)
-    ['this', 'is', 'the', 'text', 'to', 'split', 'It', 'is', 'an:', 
-    'example', 'of', 'splitting', 'str', 'to', 'text']
+    ['this','is','an','example']
     """
-    pattern = pattern or r'[#&.*@!_,;\s-]\s*'
-    regex = regex or re.compile(pattern, flags=re.IGNORECASE)
-    text = list(filter(None, regex.split(str(text))))
-    return text
+    # If no regex or pattern is provided,
+    # just wrap the entire text in a list
+    if regex is None and pattern is None:
+        return [text]
+
+    # If the user provided a compiled regex,
+    # we use it directly
+    if regex is not None:
+        splitter = regex
+    else:
+        # Otherwise compile from <pattern>
+        splitter = re.compile(pattern, flags=re.IGNORECASE)
+
+    # Split and filter out empty parts
+    parts = splitter.split(text)
+    return list(filter(None, parts))
 
 def _assert_all_types(
     obj: object,
-    *expected_objtype: type,
-    objname: str = None,
+    *expected_objtype: Union[Type[Any], Tuple[Type[Any], ...]],
+    objname: Optional[str] = None,
 ) -> object:
     """
-    Quick assertion to check if an object is of an expected type.
+    Robust type checking with enhanced error handling and formatting.
 
     Parameters
     ----------
     obj : object
-        The object whose type is being checked.
-    expected_objtype : type
-        One or more types to check against. If the object's type
-        does not match any of the provided types, a TypeError is raised.
+        Object to validate
+    *expected_objtype : type or tuple of types
+        Acceptable type(s). Can pass multiple types or tuples of types
     objname : str, optional
-        The name of the object being checked, used to customize the
-        error message. If not provided, a generic message is used.
-
-    Raises
-    ------
-    TypeError
-        If the object's type does not match any of the expected types.
+        Custom name for object in error messages
 
     Returns
     -------
     object
-        The original object if its type matches one of the expected types.
+        Original object if validation passes
 
-    Notes
-    -----
-    This function raises a `TypeError` if the object's type does not
-    match the expected type(s). The error message can be customized by
-    providing the `objname` argument.
+    Raises
+    ------
+    TypeError
+        If type validation fails
     """
-    # if np.issubdtype(a1.dtype, np.integer): 
-    if not isinstance(obj, expected_objtype):
-        n = str(objname) + ' expects' if objname is not None else 'Expects'
+    # Flatten nested type specifications
+    expected_types = []
+    for typ in expected_objtype:
+        if isinstance(typ, tuple):
+            expected_types.extend(typ)
+        else:
+            expected_types.append(typ)
+
+    # Convert numpy dtypes to python types
+    py_types = []
+    for t in expected_types:
+        if isinstance(t, type):
+            py_types.append(t)
+        elif isinstance(t, np.dtype):
+            py_types.append(np.dtype(t).type)
+        else:
+            py_types.append(t)
+
+    expected_types = tuple(py_types)
+
+    if not isinstance(obj, expected_types):
+        # Build human-readable type list
+        type_names = []
+        for t in expected_types:
+            try:
+                name = t.__name__
+            except AttributeError:
+                name = str(t)
+            type_names.append(name)
+
+        # Format error message components
+        obj_name = f"'{objname}'" if objname else "Object"
+        plural = "s" if len(expected_types) > 1 else ""
+        expected_str = _smart_format(type_names)
+        actual_type = type(obj).__name__
+
         raise TypeError(
-            f"{n} type{'s' if len(expected_objtype) > 1 else ''} "
-            f"{_smart_format(tuple(o.__name__ for o in expected_objtype))} "
-            f"but {type(obj).__name__!r} is given."
+            f"{obj_name} must be of type{plural} {expected_str}, "
+            f"but got type {actual_type!r}"
         )
 
     return obj
@@ -4772,7 +4837,8 @@ def check_spatial_columns(
             "Spatial columns check requires a dataframe `df`"
             f" to be set. Got {type(df).__name__!r}")
         
-    if not isinstance(spatial_cols, (tuple, list)) or len(spatial_cols) != 2:
+    if spatial_cols is None or not isinstance(
+            spatial_cols, (tuple, list)) or len(spatial_cols) != 2:
         raise ValueError(
             "spatial_cols must be a tuple of exactly two elements "
             "(longitude and latitude)."
@@ -5673,7 +5739,7 @@ def validate_nested_param(
             else:
                 raise TypeError(
                     f"Parameter '{param_name}': Expected type list for"
-                    f" value '{value}', got {type(value)}."
+                    f" value '{value}', got {type(value).__name__!r}."
                 )
         if not args:
             return value  # No inner type to validate
@@ -5696,7 +5762,7 @@ def validate_nested_param(
             else:
                 raise TypeError(
                     f"Parameter '{param_name}': Expected type dict for"
-                    f" value '{value}', got {type(value)}."
+                    f" value '{value}', got {type(value).__name__!r}."
                 )
         if not args:
             return value  # No inner types to validate
@@ -5721,7 +5787,7 @@ def validate_nested_param(
             else:
                 raise TypeError(
                     f"Parameter '{param_name}': Expected type tuple for"
-                    f" value '{value}', got {type(value)}."
+                    f" value '{value}', got {type(value).__name__!r}."
                 )
         if not args:
             return value  # No inner types to validate
@@ -5740,7 +5806,7 @@ def validate_nested_param(
         if not callable(value):
             raise TypeError(
                 f"Parameter '{param_name}': Expected a callable"
-                f" for value '{value}', got {type(value)}."
+                f" for value '{value}', got {type(value).__name__!r}."
             )
         return value
     
@@ -5762,7 +5828,7 @@ def validate_nested_param(
             else:
                 raise TypeError(
                     f"Parameter '{param_name}': Expected type {expected_type}"
-                    f" for value '{value}', got {type(value)}."
+                    f" for value '{value}', got {type(value).__name__!r}."
                 )
         return value
     
@@ -5957,7 +6023,6 @@ def check_callable(
 
     return value
 
-
 def check_array_like(
     obj, 
     context="ml", 
@@ -6048,10 +6113,13 @@ def check_array_like(
 
 def check_datetime(
     df : pd.DataFrame,
+    dt_cols=None, # if dt_cols is not None, then check this columns in the dataframe 
     ops : str = 'check_only',
     error : str = 'raise',
     consider_dt_as : Optional[str] = None,
-    accept_dt : bool = True
+    accept_dt : bool = True, 
+    allow_int: bool=False, # if allow_int, consider integer as dateime column  , for instance  [2024, 2025], 
+    int2dt : bool=False, # if True, then convert the integer to datetime,
 ) -> Union[bool, pd.DataFrame]:
     """
     Check or validate datetime columns in a DataFrame and optionally
@@ -6096,7 +6164,7 @@ def check_datetime(
           to float representation.
         - `'int'`, `'int32'`, `'int64'`: Convert date columns to
           integer representation.
-        - `'object'`: Convert date columns to Python objects 
+        - `'object'` or 'category': Convert date columns to Python objects 
           (strings, etc.). If conversion fails, raise or warn 
           per `error` policy.
 
@@ -6110,6 +6178,14 @@ def check_datetime(
           * With `error='warn'`, warn user, then drop datetime 
             columns.
           * With `error='ignore'`, silently drop datetime columns.
+
+    allow_int : bool, default=False
+        If True, treat integer columns as datetime columns 
+        (e.g., years such as [2024, 2025]) when `dt_cols` is provided.
+
+    int2dt : bool, default=False
+        If True, convert integer columns to datetime columns 
+        (e.g., 2024 to '2024-01-01') when `dt_cols` is provided.
 
     Returns
     -------
@@ -6157,9 +6233,25 @@ def check_datetime(
            Techniques," Data Engineering, 2020.
     """
     are_all_frames_valid(df, df_only=True)
+    df_copy = df.copy() 
     # 1. Identify all datetime columns in df.
-    dt_cols = df.select_dtypes(
-        include=['datetime', 'datetime64[ns]','datetimetz']).columns.tolist()
+    if dt_cols is not None: 
+        if isinstance(dt_cols, str):
+            dt_cols = [dt_cols]
+
+        if allow_int:
+            # If allow_int, treat integer columns as datetime columns
+            int_columns = df_copy[dt_cols].select_dtypes(
+                include=['int', 'int32', 'int64']).columns
+            dt_cols.extend(int_columns)
+            if int2dt:
+                for col in int_columns:
+                    df_copy[col] = pd.to_datetime(
+                        df_copy[col].astype(str), format='%Y',  errors='coerce')
+            
+    else: 
+        dt_cols = df_copy.select_dtypes(
+            include=['datetime', 'datetime64[ns]','datetimetz']).columns.tolist()
 
     # quick check for presence
     has_dt = (len(dt_cols) > 0)
@@ -6193,42 +6285,42 @@ def check_datetime(
         elif error == 'warn':
             warnings.warn(msg_ops)
         # 'ignore' -> just do nothing
-        return df
+        return df_copy
 
     # ops='validate':
     if not has_dt:
-        # no datetime columns => just return df
-        return df
+        # no datetime columns => just return df_copy
+        return df_copy
 
     # dt exists
     if accept_dt:
         # accept dt columns, but maybe convert if consider_dt_as is set
         if consider_dt_as is None:
             # user wants dt columns as is
-            return df
+            return df_copy
 
         # user wants to convert dt
         for col in dt_cols:
-            df = _convert_datetime_column(
-                df=df,
+            df_copy = _convert_datetime_column(
+                df=df_copy,
                 col=col,
                 consider_dt_as=consider_dt_as,
                 error=error
             )
-        return df
+        return df_copy
     else:
         # accept_dt is False, dt columns are not acceptable
         # if we have consider_dt_as, we can still convert them
         if consider_dt_as is not None:
             # try conversion
             for col in dt_cols:
-                df = _convert_datetime_column(
-                    df=df,
+                df_copy = _convert_datetime_column(
+                    df=df_copy,
                     col=col,
                     consider_dt_as=consider_dt_as,
                     error=error
                 )
-            return df
+            return df_copy
         else:
             # user did not provide consider_dt_as
             # => handle error
@@ -6236,20 +6328,20 @@ def check_datetime(
                 raise ValueError(
                     "Datetime columns found but no conversion or "
                     f"acceptance specified. Don't know how to treat {dt_cols}."
-                    " Use `consider_dt_as` or set ``accept_dt=True``."
+                    " Use `consider_dt_as/dt_as` or set ``accept_dt=True``."
                 )
             elif error == 'warn':
                 warnings.warn(
                     "Datetime columns found and not accepted. "
                     f"Dropping these columns: {dt_cols}."
                 )
-                return df.drop(columns=dt_cols)
+                return df_copy.drop(columns=dt_cols)
             elif error == 'ignore':
                 # silently drop dt columns
-                return df.drop(columns=dt_cols)
+                return df_copy.drop(columns=dt_cols)
 
     # fallback
-    return df
+    return df_copy
 
 def _convert_datetime_column(
     df : pd.DataFrame,
@@ -6273,7 +6365,7 @@ def _convert_datetime_column(
             # convert datetime to numeric then to int
             df[col] = pd.to_numeric(df[col], errors='raise')
             df[col] = df[col].astype(consider_dt_as.lower())
-        elif consider_dt_as.lower() in ['object']:
+        elif consider_dt_as.lower() in ['object', 'category', 'categoric']:
             # convert datetime to object (string)
             df[col] = df[col].astype('object')
         else:
@@ -6407,8 +6499,8 @@ def ensure_same_shape(
     
     See Also
     --------
-    AnotherShapeCheck : A related function that cross-checks
-        dimensional alignment.
+    gofast.utils.validator.check_consistent_length : 
+        A related function that cross-checks dimensional alignment.
 
     References
     ----------
@@ -6438,7 +6530,8 @@ def ensure_same_shape(
 
     # Helper function to determine size based on the axis or default to shape[0].
     def get_size(arr, ax):
-        return arr.shape[ax] if ax is not None else arr.shape[0]
+        ar = np.asarray(arr)
+        return ar.shape[ax] if ax is not None else ar.shape[0]
 
     # Determine reference size from first array along specified axis (or default).
     ref_size = get_size(arrays[0], axis)
@@ -6561,8 +6654,9 @@ def validate_axis(
 
     See Also
     --------
-    AnotherFunction : A related function that also checks axis
-        validity for multi-dimensional arrays.
+    gofast.utils.validator.check_consistency_size :
+        A related function that also checks axis validity for
+        multi-dimensional arrays.
 
     References
     ----------
@@ -7121,3 +7215,257 @@ def validate_depth(
     # 12) Return the validated and potentially modified
     # DataFrames along with `depth_vals`.
     return df, pred_df, reference, depth_vals
+
+def check_non_emptiness(
+    params=None,
+    *,
+    error: str = "raise",
+    none_as_empty: bool = True,
+    ellipsis_as_empty: bool = True,
+    include: tuple = ("set", "dict")
+):
+    """
+    Decorator to check for non-emptiness of specified
+    parameters in a function. By default, it checks
+    array-like structures (lists, tuples, Series,
+    DataFrame, NumPy arrays) but can also consider
+    sets, dicts, or other types via <include inline>.
+
+    If the function is used without parentheses
+    (e.g. ``@check_emptiness``), the first positional
+    argument is checked by default. Otherwise, specify
+    a list of parameter names in ``params``.
+
+    Parameters
+    ----------
+    params : list of str, optional
+        Names of arguments whose emptiness will be
+        checked. If None and the decorator is used
+        without parentheses, the first positional
+        argument is checked.
+    error : str, optional
+        How to handle an empty argument:
+          - "raise": raise ValueError
+          - "warn": issue a warning
+          - "ignore": do nothing
+        Default "raise".
+    none_as_empty : bool, optional
+        If True, consider None as empty. Default True.
+    ellipsis_as_empty : bool, optional
+        If True, consider the Ellipsis object
+        (``...``) as empty. Default True.
+    include : tuple, optional
+        Additional types to treat as potentially
+        empty, e.g., ("set", "dict"). Default
+        ("set", "dict").
+
+    Returns
+    -------
+    callable
+        The decorated function that checks emptiness
+        for the specified arguments.
+
+    Examples
+    --------
+    
+    1) Decorator used without parentheses:
+       >>> from gofast.core.checks import check_non_emptiness
+       >>> @check_non_emptiness
+       ... def func_first_arg(x):
+       ...     return x
+       ...
+       >>> # Here, if x is empty, handle it according
+       ... # to <error inline>.
+
+    2) Specify which parameters to check:
+       >>> @check_non_emptiness(params=['df'],
+       ...                  error='warn',
+       ...                  none_as_empty=True)
+       ... def process_data(a, df=None):
+       ...     return df
+
+    3) Check multiple parameters:
+       >>> @check_non_emptiness(params=['arr', 'df'],
+       ...                  error='raise')
+       ... def model_fit(arr, df=None, *args):
+       ...     return (arr, df)
+
+    Notes
+    -----
+    1. If <none_as_empty inline> is True and an
+       argument is None, it is considered empty.
+    2. If <ellipsis_as_empty inline> is True and
+       an argument is Ellipsis (``...``), it is
+       considered empty.
+    3. For additional types, such as <set inline>
+       or <dict inline>, set them in <include
+       inline>. By default, sets and dicts are
+       also checked for emptiness.
+    4. By default, standard array-like structures
+       (lists, tuples, Series, DataFrames, numpy
+       arrays) are checked.
+
+    """
+    # Case A: If decorator is used without parentheses,
+    # then `params` is actually the function object itself.
+    if callable(params):
+        func = params
+
+        @wraps(func)
+        def _wrapper(*args, **kwargs):
+            if args:
+                converted_args = list(args)
+                converted_args[0] = _check_and_handle_emptiness(
+                    converted_args[0],
+                    error=error,
+                    none_as_empty=none_as_empty,
+                    ellipsis_as_empty=ellipsis_as_empty,
+                    include=include,
+                    param_name="first positional argument"
+                )
+                args = tuple(converted_args)
+            return func(*args, **kwargs)
+
+        return _wrapper
+
+    # Case B: If decorator is used with parentheses
+    # then `params` is the list of names or None.
+    def _decorator(func):
+        @wraps(func)
+        def _wrapper(*args, **kwargs):
+            valid_params = params or []
+
+            # If no params were specified, check the
+            # first positional argument (if present).
+            if not valid_params:
+                if args:
+                    converted_args = list(args)
+                    converted_args[0] = _check_and_handle_emptiness(
+                        converted_args[0],
+                        error=error,
+                        none_as_empty=none_as_empty,
+                        ellipsis_as_empty=ellipsis_as_empty,
+                        include=include,
+                        param_name="first positional argument"
+                    )
+                    args = tuple(converted_args)
+            else:
+                # For each name in valid_params,
+                # check emptiness.
+                sig = inspect.signature(func)
+                parameters = list(sig.parameters.keys())
+
+                for name in valid_params:
+                    if name in kwargs:
+                        kwargs[name] = _check_and_handle_emptiness(
+                            kwargs[name],
+                            error=error,
+                            none_as_empty=none_as_empty,
+                            ellipsis_as_empty=ellipsis_as_empty,
+                            include=include,
+                            param_name=name
+                        )
+                    else:
+                        # Possibly positional
+                        try:
+                            idx = parameters.index(name)
+                            if idx < len(args):
+                                converted_args = list(args)
+                                converted_args[idx] = _check_and_handle_emptiness(
+                                    converted_args[idx],
+                                    error=error,
+                                    none_as_empty=none_as_empty,
+                                    ellipsis_as_empty=ellipsis_as_empty,
+                                    include=include,
+                                    param_name=name
+                                )
+                                args = tuple(converted_args)
+                        except ValueError:
+                            # param not found in function signature
+                            pass
+
+            return func(*args, **kwargs)
+
+        return _wrapper
+
+    return _decorator
+
+def _check_and_handle_emptiness(
+    value,
+    *,
+    error: str,
+    none_as_empty: bool,
+    ellipsis_as_empty: bool,
+    include: tuple,
+    param_name: str
+):
+    """
+    Internal helper to detect emptiness of `value`
+    and handle it according to <error inline>
+    policy.
+    """
+    if value is None and none_as_empty:
+        # Consider None as empty
+        return _handle_empty(error, param_name)
+    if value is Ellipsis and ellipsis_as_empty:
+        # Consider Ellipsis (...) as empty
+        return _handle_empty(error, param_name)
+
+    # Check standard array-likes:
+    if _is_arraylike_empty(value):
+        return _handle_empty(error, param_name)
+
+    # Check optional sets, dicts, etc.
+    # We only check if 'set' or 'dict' is in include
+    # (by default, we do check them).
+    include = include or []
+    if include: 
+        if "set" in include and isinstance(value, set):
+            if len(value) == 0:
+                return _handle_empty(error, param_name)
+        if "dict" in include and isinstance(value, dict):
+            if len(value) == 0:
+                return _handle_empty(error, param_name)
+
+    # If it's not considered empty, return as is.
+    return value
+
+def _is_arraylike_empty(value):
+    """
+    Heuristic check if `value` is an empty
+    array-like structure (list, tuple, Series,
+    DataFrame, numpy array).
+    """
+    # check list or tuple
+    if isinstance(value, (list, tuple)):
+        if len(value) == 0:
+            return True
+
+    # check pandas Series/DataFrame
+    if isinstance(value, pd.Series) or isinstance(value, pd.DataFrame):
+        if value.empty:
+            return True
+
+    # check numpy array
+    if isinstance(value, np.ndarray):
+        if value.size == 0:
+            return True
+
+    return False
+
+
+def _handle_empty(error_policy, param_name):
+    """
+    Handle an empty argument based on the
+    <error_policy inline>.
+    """
+    msg = f"Argument '{param_name}' is empty."
+    if error_policy == "raise":
+        raise ValueError(msg)
+    elif error_policy == "warn":
+        warnings.warn(msg, UserWarning)
+    elif error_policy == "ignore":
+        pass
+    # Return None so that we effectively "clear"
+    # the argument if emptiness was found
+    return None

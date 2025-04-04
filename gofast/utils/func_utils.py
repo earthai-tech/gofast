@@ -79,7 +79,7 @@ def curry(check_types=False, strict=False, allow_extra_args=False):
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import curry
+    >>> from gofast.utils.func_utils import curry
 
     >>> @curry(check_types=True)
     >>> def add(x: int, y: int) -> int:
@@ -162,7 +162,7 @@ def compose(*functions, reverse_order=True, type_check=False):
     --------
     
     # Used as a decorator
-    >>> from gofast.utils.funcutils import compose 
+    >>> from gofast.utils.func_utils import compose 
     >>> @compose(type_check=True)
     ... def add_one(x: int) -> int:
     ...     return x + 1
@@ -260,7 +260,7 @@ def memoize(
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import memoize
+    >>> from gofast.utils.func_utils import memoize
 
     >>> @memoize(cache_limit=100, eviction_policy='LRU', thread_safe=True)
     >>> def fibonacci(n):
@@ -347,7 +347,7 @@ def merge_dicts(
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import merge_dicts
+    >>> from gofast.utils.func_utils import merge_dicts
     >>> dict_a = {'a': 1, 'b': [2], 'c': {'d': 4}}
     >>> dict_b = {'b': [3], 'c': {'e': 5}}
     >>> print(merge_dicts(dict_a, dict_b))
@@ -446,7 +446,7 @@ def retry_operation(
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import retry_operation
+    >>> from gofast.utils.func_utils import retry_operation
     >>> def test_func(x):
     ...     print(f"Trying with x={x}...")
     ...     raise ValueError("Fail")
@@ -503,7 +503,7 @@ def flatten_list(
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import flatten_list
+    >>> from gofast.utils.func_utils import flatten_list
     >>> nested = [1, [2, 3], [4, [5, 6]], 7]
     >>> flat = flatten_list(nested, depth=1)
     >>> print(flat)
@@ -555,7 +555,7 @@ def timeit_decorator(
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import timeit_decorator
+    >>> from gofast.utils.func_utils import timeit_decorator
     >>> import logging
     >>> logger = logging.getLogger('MyLogger')
     >>> @timeit_decorator(logger=logger)
@@ -608,7 +608,7 @@ def conditional_decorator(
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import conditional_decorator
+    >>> from gofast.utils.func_utils import conditional_decorator
     >>> def my_decorator(func):
     ...     def wrapper(*args, **kwargs):
     ...         print("Decorated")
@@ -662,7 +662,7 @@ def batch_processor(
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import batch_processor
+    >>> from gofast.utils.func_utils import batch_processor
     >>> def safe_divide(x):
     ...     return 10 / x
     >>> def handle_error(e, x):
@@ -730,7 +730,7 @@ def is_valid_if(
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import is_valid_if
+    >>> from gofast.utils.func_utils import is_valid_if
     >>> @is_valid_if(int, float, kwarg_types={'c': str})
     ... def add(a, b, c="default"):
     ...     return a + b
@@ -871,7 +871,7 @@ def conditional_apply(
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import conditional_apply
+    >>> from gofast.utils.func_utils import conditional_apply
     >>> @conditional_apply(predicate=lambda x: x > 0, default_value=0)
     ... def reciprocal(x):
     ...     return 1 / x
@@ -910,7 +910,7 @@ def apply_transform(
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import apply_transform
+    >>> from gofast.utils.func_utils import apply_transform
     >>> def square(x):
     ...     return x ** 2
     >>> def increment(x):
@@ -981,7 +981,7 @@ def make_data_dynamic(
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import make_data_dynamic 
+    >>> from gofast.utils.func_utils import make_data_dynamic 
     >>> @make_data_dynamic(expected_type='numeric', capture_columns=True, 
     ... drop_na=True, thresh=0.5, meth='drop_rows', reset_index=True)
     ... def calculate_mean(data: Union[pd.DataFrame, np.ndarray]):
@@ -1069,7 +1069,7 @@ def _add_dynamic_method(func):
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import _add_dynamic_method
+    >>> from gofast.utils.func_utils import _add_dynamic_method
     >>> def example_method(self, multiplier=2):
     ...     return self * multiplier
     >>> _add_dynamic_method(example_method)
@@ -1206,7 +1206,7 @@ def preserve_input_type(
     --------
     >>> import numpy as np
     >>> import pandas as pd
-    >>> from gofast.utils.funcutils import preserve_input_type
+    >>> from gofast.utils.func_utils import preserve_input_type
     >>> @preserve_input_type()
     ... def add_one(data):
     ...     return data + 1
@@ -1367,7 +1367,7 @@ def to_pandas(
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import to_pandas 
+    >>> from gofast.utils.func_utils import to_pandas 
     >>> to_pandas([1, 2, 3], prefer='series')
     0    1
     1    2
@@ -1596,7 +1596,7 @@ def update_series_index(
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.utils.funcutils import update_series_index
+    >>> from gofast.utils.func_utils import update_series_index
     >>> series = pd.Series([1, 2, 3])
 
     # Update index without conditions
@@ -1723,7 +1723,7 @@ def update_dataframe_index(
     Examples
     --------
     >>> import pandas as pd 
-    >>> import gofast.utils.funcutils import update_dataframe_index
+    >>> import gofast.utils.func_utils import update_dataframe_index
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
     >>> new_cols = ['X', 'Y']
     >>> update_dataframe_index(df, new_indexes=new_cols, axis=1, return_dataframe=True)
@@ -1930,7 +1930,7 @@ def update_index(
     Examples
     --------
     >>> import pandas as pd 
-    >>> from gofast.utils.funcutils import update_index
+    >>> from gofast.utils.func_utils import update_index
     >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
     >>> update_index(df, new_indexes=['X', 'Y'], axis=1, return_data=True)
        X  Y
@@ -1960,7 +1960,7 @@ def update_index(
     
     See Also 
     ----------
-    gofast.utils.funcutils.to_pandas: 
+    gofast.utils.func_utils.to_pandas: 
         onvert input data into a Pandas DataFrame or Series
     """
 
@@ -2065,7 +2065,7 @@ def convert_and_format_data(
     --------
     Convert a list to a pandas DataFrame:
     
-    >>> from gofast.utils.funcutils import convert_and_format_data
+    >>> from gofast.utils.func_utils import convert_and_format_data
     >>> convert_and_format_data([1, 2, 3], output_as_frame=True)
     pd.DataFrame(data=[1, 2, 3])
 
@@ -2241,7 +2241,7 @@ def cast_numeric(
 
     Examples
     --------
-    >>> from gofast.utils.funcutils import cast_numeric
+    >>> from gofast.utils.func_utils import cast_numeric
     >>> cast_numeric("100.5")
     True
 
@@ -2304,7 +2304,7 @@ def series_naming(name, data=None, error='ignore'):
     Examples
     --------
     >>> import pandas as pd
-    >>> from gofast.utils.funcutils import series_naming
+    >>> from gofast.utils.func_utils import series_naming
     
     >>> df = pd.DataFrame({'1': [1, 2, 3]})
     >>> condition = serie_naming('NewName')
@@ -2568,7 +2568,7 @@ def _check_year_range(
     --------
     Using a range_validator that returns a boolean:
     
-    >>> from gofast.utils.funcutils import _check_year_range
+    >>> from gofast.utils.func_utils import _check_year_range
     >>> def simple_validator(year: int) -> bool:
     ...     return 2000 <= year <= 2100
     >>> try:
@@ -2668,7 +2668,7 @@ def context_checker(
     Direct call returning context as boolean:
     
     >>> import functools 
-    >>> from gofast.utils.funcutils import context_checker
+    >>> from gofast.utils.func_utils import context_checker
     >>> @context_checker(return_context_as_bool=True)
     ... def my_function():
     ...     pass

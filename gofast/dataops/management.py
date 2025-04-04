@@ -23,7 +23,7 @@ from ..core.utils import ellipsis2false
 from ..decorators import Deprecated, Dataify
 from ..utils.deps_utils import ensure_pkg
 from ..utils.validator import parameter_validator  
-
+from ..utils.base_utils import detect_categorical_columns 
 
 TW = get_table_size() 
 
@@ -136,6 +136,9 @@ def handle_unique_identifiers(
            Array programming with NumPy. Nature, 585(7825), 357-362.
     """
     action = parameter_validator('action', ["drop", "transform"])(action)
+    cat_columns = detect_categorical_columns(
+        data, integer_as_cat=True, float0_as_cat=True
+        )
     if view:
         # Capture the initial state for visualization before any modification
         unique_counts_before = {col: data[col].nunique() for col in data.columns}
@@ -143,7 +146,7 @@ def handle_unique_identifiers(
     # Handle the action for high unique value proportions
     columns_to_drop = []
     # Iterate over columns in the DataFrame
-    for column in data.columns:
+    for column in cat_columns:
         # Calculate the proportion of unique values
         unique_proportion = data[column].nunique() / len(data)
         # If the proportion of unique values is above the threshold

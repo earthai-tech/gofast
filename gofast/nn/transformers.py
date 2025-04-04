@@ -3,8 +3,8 @@
 #   Author: LKouadio <etanoyau@gmail.com>
 
 """
-Implements the Temporal Fusion Transformer (TFT) and the extended
-XTFT architectures for multi-horizon time-series forecasting.
+Implements the Temporal Fusion Transformer (TFT) and the extreme
+TFT (XTFT) architectures for multi-horizon time-series forecasting.
 These models integrate static and dynamic covariates and can
 optionally use future covariates for predictions several steps
 ahead. They employ attention mechanisms and can produce
@@ -22,7 +22,7 @@ perform predictions. Users can copy these examples outside of
 this script for testing.
 
 Example with XTFT
--------------------
+-----------------
 Assume:
 - ``static_input_dim = 10`` (static features dimension)
 - ``dynamic_input_dim = 45`` (dynamic features dimension)
@@ -86,7 +86,7 @@ For illustration, we create synthetic data:
 # shape: (batch_size, forecast_horizons, num_quantiles, output_dim)
 
 Example with TemporalFusionTransformer
-----------------------------------------
+--------------------------------------
 Assume:
 - ``static_input_dim = 10``
 - ``dynamic_input_dim = 45``
@@ -144,7 +144,7 @@ if not HAS_TF:
     warnings.warn(
         "TensorFlow is not installed. 'TemporalFusionTransformer',"
         " 'NTemporalFusionTransformer','XTFT', 'SuperXTFT',"
-        " 'TFT' require TF to be available."
+        " 'TFT' require tensorflow to be available."
     )
 
 # If TF is available, import the actual classes

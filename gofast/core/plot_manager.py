@@ -8,11 +8,16 @@ Includes functions for color conversion, alpha value generation, and
 ensuring compatibility with visualization libraries.
 """
 from __future__ import print_function
+import re
+from typing import Optional, List, Tuple, Union
+import warnings
 import itertools
 import inspect 
 from functools import wraps 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.figure import Figure
+from matplotlib.axes import Axes
 
 from ..compat.scipy import ensure_scipy_compatibility
 
@@ -26,7 +31,226 @@ __all__=[
     'generate_mpl_styles',
     'get_colors_and_alphas',
     'hex_to_rgb', 
+    'deprecated_params_plot', 
+    'return_fig_or_ax',
+    'set_axis_grid',
+    'is_valid_kind', 
+    'get_color_palette', 
     ]
+
+
+def return_fig_or_ax(func=None, *, return_type='fig'):
+    """A decorator factory to standardize return types
+    of plot functions.
+
+    This decorator enables flexible control over whether 
+    matplotlib Figure or Axes objects are returned from 
+    plotting functions, ensuring API consistency across 
+    visualization utilities.
+    
+    Parameters
+    ----------
+    func : callable, optional
+        Target function to decorate. Automatically passed 
+        when decorator is used without parentheses.
+    return_type : {'fig', 'ax'}, default='fig'
+        Specifies return object type. 'fig' returns Figure 
+        instances, 'ax' returns 
+        Axes instances.
+    
+    Returns
+    -------
+    callable
+        Decorated function returning Figure/Axes per 
+        ``return_type`` specification.
+    
+    Raises
+    ------
+    ValueError
+        If invalid ``return_type`` is specified.
+    
+    Notes
+    -------
+    Given a plotting function :math:`f: X \\rightarrow Y`, 
+    the decorator performs:
+    
+    .. math::
+        \\mathcal{D}(f) = \\begin{cases}
+        \\text{Figure} & \\text{if } \\mathtt{return\\_type} = \\text{'fig'} \\\\
+        \\text{Axes} & \\text{if } \\mathtt{return\\_type} = \\text{'ax'}
+        \\end{cases}
+    
+    where :math:`\\mathcal{D}` applies transformation logic
+    based on function output and matplotlib context.
+    
+    1. Functions returning neither Figure nor Axes will 
+       trigger implicit current Figure/Axes detection via `
+       `plt.gcf()`` and ``plt.gca()``.
+    2. For Figure instances without Axes, falls back to 
+       current Axes when ``return_type='ax'``.
+    3. Prioritizes objects in return order for iterable outputs.
+    
+    Examples
+    --------
+    Basic usage without parameters:
+    
+    >>> from gofast.plot.core.plot_manager import return_fig_or_ax
+    >>> @return_fig_or_ax
+    ... def plot_data(data):
+    ...     fig, ax = plt.subplots()
+    ...     ax.plot(data)
+    ...     return fig
+    
+    Explicit return type specification:
+    
+    >>> @return_fig_or_ax(return_type='ax')
+    ... def scatter_plot(data):
+    ...     _, ax = plt.subplots()
+    ...     ax.scatter(data[:,0], data[:,1])
+    ...     return ax
+    
+    Handling functions returning iterables:
+    
+    >>> @return_fig_or_ax(return_type='fig')
+    ... def multi_plot():
+    ...     fig, (ax1, ax2) = plt.subplots(ncols=2)
+    ...     return fig, ax1, ax2  # Decorator extracts first Figure
+    
+
+    See Also
+    --------
+    matplotlib.figure.Figure : Base Figure class documentation.
+    matplotlib.axes.Axes : Core Axes object documentation.
+    
+    References
+    ----------
+    .. [1] matplotlib Developers, "Matplotlib: Visualization with Python", 
+       https://matplotlib.org/stable/contents.html
+    """
+
+    valid_return_types = {'fig', 'ax'}
+    if return_type not in valid_return_types:
+       warnings.warn(f"return_type must be 'fig' or 'ax', got {return_type}."
+                     " Fallback to 'fig'.")
+       return_type ='fig' 
+       
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            result = func(*args, **kwargs)
+
+            fig, ax = None, None
+
+            # Check if result is a Figure or Axes
+            if isinstance(result, Figure):
+                fig = result
+            elif isinstance(result, Axes):
+                ax = result
+            else:
+                # Check if result is an iterable (e.g., tuple, list)
+                if isinstance(result, (list, tuple)):
+                    for item in result:
+                        if isinstance(item, Figure):
+                            fig = item
+                            break
+                        elif isinstance(item, Axes):
+                            ax = item
+                            break
+
+            # If no fig/ax found in result, get current from plt
+            if fig is None and ax is None:
+                fig = plt.gcf()
+                # Safe check for axes in current figure
+                ax = plt.gca() if fig.axes else None
+
+            # Determine what to return based on return_type
+            if return_type == 'fig':
+                if fig is not None:
+                    return fig
+                else:
+                    return ax.figure if ax is not None else plt.gcf()
+            else:  # return_type == 'ax'
+                if ax is not None:
+                    return ax
+                else:
+                    if fig is not None:
+                        # Prefer existing axes, else fallback to plt.gca()
+                        return fig.axes[0] if fig.axes else plt.gca()
+                    else:
+                        return plt.gca()
+
+        return wrapper
+
+    # Handle decorator with or without parentheses
+    if func is None:
+        return decorator
+    else:
+        return decorator(func)
+    
+def deprecated_params_plot(func):
+    """
+    Decorator that handles the deprecated parameters
+    ``median_col``, ``lower_col``, and ``upper_col`` in
+    a backward-compatible way. If any of these parameters
+    are provided by the user, a deprecation warning is
+    issued. If ``q_cols`` is None, the decorator converts
+    these three columns into a `q_cols` dictionary
+    internally.
+
+    Notes
+    -----
+    - If `q_cols` is already provided, the decorator
+      does not overwrite it, even if the deprecated
+      parameters are present.
+    - If `median_col`, `lower_col`, or `upper_col` are
+      provided while `q_cols` is also given, a warning
+      is still issued that these parameters are
+      deprecated and ignored.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        median_col = kwargs.get('median_col', None)
+        lower_col  = kwargs.get('lower_col', None)
+        upper_col  = kwargs.get('upper_col', None)
+        q_cols     = kwargs.get('q_cols', None)
+
+        # Check if any deprecated parameters were explicitly set
+        deprecated_params_used = any([
+            median_col is not None,
+            lower_col  is not None,
+            upper_col  is not None
+        ])
+
+        # If they are used, issue a deprecation warning
+        if deprecated_params_used:
+            warnings.warn(
+                "Parameters 'median_col', 'lower_col', and 'upper_col' "
+                "are deprecated and will be removed in a future release. "
+                "Please use 'q_cols' instead.",
+                category=DeprecationWarning,
+                stacklevel=2
+            )
+
+        # If q_cols is None, but the user supplied the
+        # deprecated parameters, convert them into q_cols
+        if q_cols is None and deprecated_params_used:
+            # Build a minimal q_cols dictionary
+            # We only add entries that are actually provided
+            tmp_qcols = {}
+            if lower_col:
+                tmp_qcols['q0'] = lower_col
+            if median_col:
+                tmp_qcols['q50'] = median_col
+            if upper_col:
+                tmp_qcols['q100'] = upper_col
+
+            # If there's at least one entry, set q_cols
+            if tmp_qcols:
+                kwargs['q_cols'] = tmp_qcols
+
+        return func(*args, **kwargs)
+
+    return wrapper
 
 def default_params_plot(
     savefig=None, 
@@ -662,7 +886,6 @@ def closest_color(rgb_color, consider_alpha=False, color_space='rgb'):
 
     return closest_name
    
-   
 def get_colors_and_alphas(
     count, 
     cmap=None, 
@@ -800,3 +1023,306 @@ def hex_to_rgb (c):
     """ Convert colors Hexadecimal to RGB """
     c=c.lstrip('#')
     return tuple(int(c[i:i+2], 16) for i in (0, 2, 4)) 
+
+def set_axis_grid(
+    ax, 
+    show_grid: bool=True, 
+    grid_props: dict = None
+) -> None:
+    """
+    Robustly set grid properties on one or more matplotlib axes.
+
+    Parameters:
+        ax: A matplotlib Axes object or a list/tuple of Axes.
+        show_grid: If True, enable the grid with the specified properties.
+                   If False, disable the grid.
+        grid_props: A dictionary of grid properties to pass to ax.grid.
+                    The key 'visible' will be removed to avoid conflicts.
+
+    Returns:
+        None
+    """
+    # Ensure grid_props is a dictionary.
+    props = grid_props.copy() if grid_props is not None else {
+        'linestyle': ':', 'alpha': 0.7}
+    # Remove the 'visible' key if present to avoid dual assignment.
+    props.pop("visible", None)
+    
+    # If multiple axes are provided, iterate over each.
+    if isinstance(ax, (list, tuple)):
+        for a in ax:
+            a.grid(show_grid, **props)
+    else:
+        a = ax
+        a.grid(show_grid, **props)
+
+
+def is_valid_kind(
+    kind: str,
+    valid_kinds: Optional[List[str]] = None,
+    error: str = 'raise',
+) -> str:
+    """
+    Normalizes and validates plot type specifications,
+    handling aliases and suffixes.
+
+    Parameters:
+        kind (str): Input plot type specification (flexible formatting).
+        valid_kinds (Optional[List[str]]): 
+            Acceptable plot types to validate against.
+        error (str): Error handling mode 
+        ('raise' to raise errors, others to return normalized kind).
+
+    Returns:
+        str: Normalized canonical plot type or custom kind.
+
+    Raises:
+        ValueError: If invalid plot type is provided and `error` is 'raise`.
+    """
+    SUFFIXES = ('plot', 'graph', 'chart', 'diagram', 'visual')
+
+    # Expanded alias mappings
+    KIND_ALIASES = {
+        'boxplot': 'box',
+        'boxgraph': 'box',
+        'boxchart': 'box',
+        'plotbox': 'box',
+        'box_plot': 'box',
+        'violinplot': 'violin',
+        'violingraph': 'violin',
+        'violinchart': 'violin',
+        'violin_plot': 'violin',
+        'scatterplot': 'scatter',
+        'scattergraph': 'scatter',
+        'scatterchart': 'scatter',
+        'lineplot': 'line',
+        'linegraph': 'line',
+        'linechart': 'line',
+        'barchart': 'bar',
+        'bargraph': 'bar',
+        'barplot': 'bar',
+        'plotbar': 'bar',
+        'histogram': 'hist',
+        'histplot': 'hist',
+        'heatmap': 'heatmap',
+        'heat_map': 'heatmap',
+        'plotdensity': 'density',
+        'plot_density': 'density',
+        'densityplot': 'density',
+        'densitygraph': 'density',
+        'areachart': 'area',
+        'areagraph': 'area'
+    }
+
+    # Canonical regex patterns (match anywhere in string)
+    CANONICAL_PATTERNS = {
+        'box': re.compile(r'box'),
+        'violin': re.compile(r'violin'),
+        'scatter': re.compile(r'scatter'),
+        'line': re.compile(r'line'),
+        'bar': re.compile(r'bar'),
+        'hist': re.compile(r'hist'),
+        'heatmap': re.compile(r'heatmap'),
+        'density': re.compile(r'density'),
+        'area': re.compile(r'area')
+    }
+
+    def normalize(k: str) -> str:
+        """Normalize input: clean, lowercase, remove suffixes."""
+        # Remove non-alphanumeric chars and underscores
+        k_clean = re.sub(r'[\W_]+', '', k.strip().lower())
+        # Remove suffixes from the end
+        for suffix in SUFFIXES:
+            if k_clean.endswith(suffix):
+                k_clean = k_clean[:-len(suffix)]
+                break
+        return k_clean
+
+    normalized = normalize(kind)
+
+    # 1. Check exact aliases
+    canonical = KIND_ALIASES.get(normalized)
+
+    # 2. Search for canonical patterns if no alias found
+    if not canonical:
+        for pattern, regex in CANONICAL_PATTERNS.items():
+            if regex.search(normalized):
+                canonical = pattern
+                break
+
+    final_kind = canonical if canonical else normalized
+
+    # Validation against allowed kinds
+    if valid_kinds is not None:
+        # Normalize valid kinds using same rules
+        valid_normalized = {normalize(k): k for k in valid_kinds}
+        final_normalized = normalize(final_kind)
+
+        # Check matches against original valid kinds or their normalized forms
+        valid_match = False
+        for valid_norm, orig_kind in valid_normalized.items():
+            if (final_normalized == valid_norm or 
+                final_normalized == normalize(orig_kind)):
+                valid_match = True
+                break
+
+        if not valid_match and error == 'raise':
+            allowed = ', '.join(f"'{k}'" for k in valid_kinds)
+            raise ValueError(f"Invalid plot type '{kind}'. Allowed: {allowed}")
+
+    return final_kind
+
+def get_color_palette(
+    n_colors: int,
+    cmap: Union[str, mcolors.Colormap, None] = None,
+    default_cmap: str = 'viridis'
+) -> List[Tuple[float, float, float, float]]:
+    """
+    Generates a list of distinct colors sampled from a matplotlib
+    colormap. This function ensures that `n_colors` distinct
+    RGBA tuples are returned, either by sampling a user-specified
+    colormap or falling back to the default.
+
+    .. math::
+       x_i = \\frac{i}{n_{\\text{colors}} - 1}
+    
+    for :math:`i = 0, 1, 2, ..., n_{\\text{colors}} - 1`, where
+    :math:`x_i` is the fraction used to sample the colormap.
+
+    Parameters
+    ----------
+    n_colors : int
+        The number of distinct colors to generate. Must be >= 1.
+    cmap : str or matplotlib.colors.Colormap or None, optional
+        The colormap source. If a string, it should be a valid
+        matplotlib colormap name (e.g. ``"viridis"``,
+        ``"coolwarm"``). If a Colormap object, it will be used
+        directly. If None, the function defaults to
+        ``default_cmap``.
+    default_cmap : str, optional
+        Default colormap name used if `cmap` is None. Must be a
+        valid colormap, e.g. ``"viridis"`` or ``"plasma"``.
+
+    Returns
+    -------
+    List[Tuple[float, float, float, float]]
+        A list of RGBA color tuples, each channel in [0, 1].
+        When `n_colors` = 1, the midpoint (0.5) of the colormap
+        is sampled.
+
+    Raises
+    ------
+    ValueError
+        If `n_colors` < 1. Also raised if a string colormap name
+        is invalid, or if `default_cmap` is invalid.
+    TypeError
+        If `n_colors` is not an integer, or if `cmap` is given
+        an unsupported type.
+
+    Notes
+    -----
+    This function retrieves the colormap object through
+    matplotlib, then samples it at evenly spaced intervals
+    from 0.0 to 1.0. For a single color (when `n_colors`=1),
+    the midpoint (0.5) is taken to avoid the extreme bounds.
+
+    Examples
+    --------
+    >>> from gofast.core.plot_manager import get_color_palette
+    >>> # 5 colors from default 'viridis' colormap
+    >>> colors = get_color_palette(5)
+    >>> print(len(colors))
+    5
+
+    >>> # 3 colors from 'coolwarm'
+    >>> get_color_palette(3, cmap='coolwarm')
+    [(0.23, 0.30, 0.75, 1.0), (0.86, 0.86, 0.86, 1.0),
+     (0.71, 0.02, 0.15, 1.0)]
+
+    See Also
+    --------
+    plt.get_cmap : Retrieves a colormap object by name from
+        matplotlib.
+    matplotlib.colors.Colormap : Base class for all matplotlib
+        colormaps.
+
+    References
+    ----------
+    .. [1] Hunter, J. D. (2007). "Matplotlib: A 2D graphics
+           environment." Computing in Science & Engineering,
+           9(3), 90-95.
+    """
+    # --- Validate `n_colors` ---
+    if not isinstance(n_colors, int):
+        raise TypeError(
+            f"`n_colors` must be an integer, got {type(n_colors)}."
+        )
+    if n_colors < 1:
+        raise ValueError(
+            f"`n_colors` must be 1 or greater, got {n_colors}."
+        )
+
+    # --- Resolve the colormap object ---
+    colormap_object = None
+    cmap_name_used  = None  # Track the final name if string/None
+
+    if cmap is None:
+        # Use default_cmap when `cmap` is None
+        cmap_name_used = default_cmap
+        try:
+            colormap_object = plt.get_cmap(cmap_name_used)
+        except ValueError:
+            raise ValueError(
+                f"The `default_cmap` name '{cmap_name_used}' is not a valid "
+                f"registered matplotlib colormap."
+            )
+    elif isinstance(cmap, str):
+        # User provided a string colormap name
+        cmap_name_used = cmap
+        try:
+            colormap_object = plt.get_cmap(cmap_name_used)
+        except ValueError:
+            raise ValueError(
+                f"Colormap name '{cmap_name_used}' is not a valid registered "
+                f"matplotlib colormap."
+            )
+    elif isinstance(cmap, mcolors.Colormap):
+        # User directly passed a Colormap instance
+        colormap_object = cmap
+    else:
+        raise TypeError(
+            "`cmap` must be a string, a Colormap object, or None. "
+            f"Got {type(cmap)}."
+        )
+
+    # --- Sample the colormap ---
+    if n_colors == 1:
+        # For single color, take the midpoint
+        try:
+            color_list = [colormap_object(0.5)]
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to sample colormap at midpoint: {e}"
+            ) from e
+    else:
+        # Spread out from 0 to 1 in (n_colors-1) intervals
+        try:
+            color_list = [
+                colormap_object(float(i) / (n_colors - 1))
+                for i in range(n_colors)
+            ]
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to sample colormap {n_colors} times: {e}"
+            ) from e
+
+    # --- Final check & return ---
+    if (not isinstance(color_list, list)
+            or not all(isinstance(c, tuple)
+                       for c in color_list)):
+        warnings.warn(
+            "Colormap sampling did not return the expected RGBA tuples. "
+            "Check the Colormap if it is custom.", UserWarning
+        )
+
+    return color_list

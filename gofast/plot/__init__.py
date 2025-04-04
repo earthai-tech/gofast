@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
- 
+
+from ._config import PlotConfig  as config
 from .evaluate import ( 
     EvalPlotter, 
     MetricPlotter, 
@@ -13,8 +14,16 @@ from .charts import (
     pie_charts, 
     radar_chart_in, 
     radar_chart, 
-    donut_chart
+    donut_chart, 
+    plot_donut_charts, 
+    donut_chart_in, 
+    chord_diagram, 
+    multi_level_donut,
+    two_ring_donuts, 
+    plot_contrib, 
+    plot_radial_groups, 
     )
+
 from .cluster import ( 
     plot_silhouette, 
     plot_silhouette_in, 
@@ -25,6 +34,18 @@ from .cluster import (
     plot_cluster_comparison, 
     plot_voronoi, 
 )
+from .comparison import ( 
+    plot_feature_trend, 
+    plot_density, 
+    plot_prediction_comparison, 
+    plot_error_analysis, 
+    plot_trends, 
+    plot_variability, 
+    plot_factor_contribution, 
+    plot_comparative_bars, 
+    plot_line_graph, 
+    
+    )
 from .dimensionality import ( 
     plot_unified_pca, 
     plot_pca_components, 
@@ -36,11 +57,13 @@ from .feature_analysis import (
     plot_feature_interactions, 
     plot_variables, 
     plot_correlation_with, 
-    plot_dependences, 
+    plot_dependence, 
     plot_sbs_feature_selection, 
     plot_permutation_importance, 
     plot_regularization_path, 
+    plot_feature_importances, 
    )
+from .grid import plot_feature_dist_grid
 from .inspection  import ( 
     plot_learning_inspection, 
     plot_learning_inspections, 
@@ -61,7 +84,8 @@ from .ml_viz import (
     plot_confusion_matrix_in, 
     plot_confusion_matrix, 
     plot_roc_curves, 
-    plot_taylor_diagram, 
+    plot_taylor_diagram,
+    plot_taylor_diagram_in, 
     plot_cv, 
     plot_confidence, 
     plot_confidence_ellipse, 
@@ -73,30 +97,51 @@ from .ml_viz import (
     plot_residuals_vs_fitted, 
     plot_residuals_vs_leverage, 
     plot_r2, 
-    plot_cm
+    plot_r2_in, 
+    plot_cm, 
+    taylor_diagram, 
 
  )
+from .q import ( 
+    plot_qbased_preds,
+    plot_quantile_distributions, 
+    plot_qdist, 
+)
 from .utils import ( 
     boxplot, 
     plot_r_squared, 
     plot_text, 
+) 
+from .spatial import ( 
+    plot_categorical_feature,
+    plot_dist,
+    plot_categories_dist,
     plot_spatial_features, 
-    plot_categorical_feature, 
+    plot_hotspot_map, 
+    plot_sampling_map
+)
+from .suite import (
     plot_sensitivity, 
-    plot_spatial_distribution, 
     plot_distributions, 
-    plot_dist, 
-    plot_quantile_distributions, 
     plot_uncertainty, 
     plot_prediction_intervals, 
     plot_temporal_trends, 
     plot_relationship, 
     plot_fit, 
     plot_factory_ops, 
-    plot_ranking
-    )
+    plot_ranking, 
+    plot_coverage, 
+    plot_with_uncertainty, 
+)
+
+from .testing import ( 
+    plot_ab_test , 
+    plot_errors, 
+)
 
 __all__= [
+    "config", 
+    
     "MetricPlotter", 
     "EvalPlotter",
     "EasyPlotter" , 
@@ -107,6 +152,25 @@ __all__= [
     "radar_chart",
     "radar_chart_in", 
     "donut_chart", 
+    "plot_donut_charts", 
+    "donut_chart_in", 
+    "chord_diagram", 
+    "multi_level_donut", 
+    "two_ring_donuts",
+    "plot_contrib", 
+    'plot_radial_groups', 
+    
+    'plot_feature_dist_grid', 
+    
+    'plot_feature_trend', 
+    'plot_density', 
+    'plot_prediction_comparison', 
+    'plot_error_analysis', 
+    'plot_trends', 
+    'plot_variability', 
+    'plot_factor_contribution', 
+    'plot_comparative_bars', 
+    'plot_line_graph', 
     
     'plot_silhouette',
     'plot_silhouette_in',
@@ -130,10 +194,11 @@ __all__= [
     'plot_feature_interactions',
     'plot_variables',
     'plot_correlation_with',
-    'plot_dependences',
+    'plot_dependence',
     'plot_sbs_feature_selection',
     'plot_permutation_importance',
     'plot_regularization_path',  
+    'plot_feature_importances', 
     
     'plot_learning_inspection',
     'plot_learning_inspections',
@@ -155,6 +220,7 @@ __all__= [
     'plot_confusion_matrix', 
     'plot_roc_curves',
     'plot_taylor_diagram',
+    'plot_taylor_diagram_in', 
     'plot_cv',
     'plot_confidence',
     'plot_confidence_ellipse',
@@ -166,15 +232,19 @@ __all__= [
     'plot_residuals_vs_leverage', 
     'plot_residuals_vs_fitted', 
     'plot_r2', 
+    'plot_r2_in', 
     'plot_cm', 
+    'taylor_diagram', 
     
     "boxplot", 
     "plot_r_squared",
     "plot_text", 
     "plot_spatial_features", 
+    "plot_hotspot_map",
+    "plot_sampling_map", 
     "plot_categorical_feature", 
     "plot_sensitivity", 
-    "plot_spatial_distribution", 
+    "plot_categories_dist", 
     "plot_distributions", 
     "plot_dist", 
     "plot_quantile_distributions" , 
@@ -184,7 +254,14 @@ __all__= [
     'plot_relationship', 
     'plot_fit', 
     'plot_factory_ops', 
-    'plot_ranking'
+    'plot_ranking', 
+    'plot_coverage', 
+    'plot_qdist', 
+    'plot_with_uncertainty', 
+    'plot_qbased_preds',
+    
+    'plot_ab_test', 
+    'plot_errors'
                
     ]
 

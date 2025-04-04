@@ -2,15 +2,14 @@
 # test_inference.py
 
 import pytest
-import os
 import json
 import logging
-import tempfile
-import threading
 import time
 
 from unittest.mock import MagicMock, patch
+import numpy as np
 
+from gofast.utils.deps_utils import is_module_installed 
 # Import the classes from the gofast.mlops.inference module
 from gofast.mlops.inference import (
     BatchInference,
@@ -23,452 +22,427 @@ from gofast.mlops.inference import (
 # Disable logging during tests to keep the output clean
 logging.disable(logging.CRITICAL)
 
+@pytest.mark.skipif(
+    not is_module_installed("torch"), 
+    reason ="'torch is required for the test to proceed."
+ )
+def test_batch_inference_initialization():
+    """Test BatchInference initialization with default parameters"""
 
-def test_batch_inference():
-    """Test the BatchInference class with default settings."""
+    processor = BatchInference()
+    assert processor.batch_size == 32
+    assert processor.max_workers == 4
+    assert processor.optimize_memory is True
+    assert processor.gpu_enabled is False
+    assert processor.enable_padding is False
 
-    # Define a simple model with a predict method
-    class SimpleModel:
-        def predict(self, batch):
-            # Simulate processing by summing values
-            return [sum(item.values()) for item in batch]
+@pytest.mark.skipif(
+    not is_module_installed("torch"), 
+    reason ="'torch is required for the test to proceed."
+ )
+@pytest.mark.parametrize("batch_size, padding", [
+    (10, True),
+    (50, False),
+    (100, True)
+])
+def test_batch_creation(batch_size, padding):
+    """Test batch creation with different configurations"""
 
-    model = SimpleModel()
-
-    # Prepare data
-    data = [{'feature1': x, 'feature2': x * 2} for x in range(10)]
-
-    # Initialize BatchInference
-    batch_inference = BatchInference(
-        model=model,
-        batch_size=3,
-        max_workers=2,
-        gpu_enabled=False,
-        enable_padding=True
+    data = [{"features": np.random.rand(10)} for _ in range(95)]
+    processor = BatchInference(
+        batch_size=batch_size,
+        enable_padding=padding
     )
+    
+    batches = processor._create_batches(data)
+    assert len(batches) == np.ceil(95 / batch_size)
+    
+    if padding:
+        last_batch = batches[-1]
+        assert len(last_batch) == batch_size
+    else:
+        assert len(batches[-1]) == 95 % batch_size or batch_size
 
-    # Run batch inference
-    results = batch_inference.run(data)
+@pytest.fixture
+def sample_model():
+    """Mock model with predict method"""
+    model = MagicMock()
+    model.predict = MagicMock(return_value=np.zeros((10, 2)))
+    return model
 
-    # Verify results
-    expected_results = [item['feature1'] + item['feature2'] for item in data]
-    assert results == expected_results
+@pytest.mark.skipif(
+    not is_module_installed("torch"), 
+    reason ="'torch is required for the test to proceed."
+ )
+def test_batch_inference_run(sample_model):
+    """Test complete batch processing pipeline"""
 
+    data = [{"features": np.random.rand(10)} for _ in range(100)]
+    processor = BatchInference(batch_size=10)
+    
+    result = processor.run(sample_model, data)
+    assert len(result.results_) == 100
+    assert processor.n_batches_ == 10
+    assert processor.processing_time_ > 0
+    assert processor.avg_batch_time > 0
 
-def test_batch_inference_with_preprocessing():
-    """Test BatchInference with preprocessing and postprocessing functions."""
+@pytest.mark.skipif(
+    not is_module_installed("torch"), 
+    reason ="'torch is required for the test to proceed."
+ )
+def test_gpu_inference_handling(sample_model):
+    """Test GPU support detection and handling"""
 
-    # Define a simple model
-    class SimpleModel:
-        def predict(self, batch):
-            return [item * 2 for item in batch]
+    # Test CUDA-enabled model
+    sample_model.parameters = lambda: [MagicMock(is_cuda=True)]
+    processor = BatchInference(gpu_enabled=True)
+    processor._check_gpu_support(sample_model)
+    assert processor.gpu_enabled is True
 
-    model = SimpleModel()
-
-    # Prepare data
-    data = [{'value': x} for x in range(5)]
-
-    # Define preprocessing and postprocessing functions
-    def preprocess_fn(item):
-        return item['value']
-
-    def postprocess_fn(prediction):
-        return prediction + 1
-
-    # Initialize BatchInference
-    batch_inference = BatchInference(
-        model=model,
-        batch_size=2,
-        max_workers=1,
-        gpu_enabled=False,
-        enable_padding=False
+@pytest.mark.skipif(
+    not is_module_installed("kafka"), 
+    reason ="'kafka is required for the test to proceed."
+ )
+@patch('gofast.mlops.inference.ensure_pkg')
+def test_streaming_kafka_clients(mock_ensure):
+    """Test Kafka client initialization"""
+    
+    stream = StreamingInference(
+        kafka_topic="test",
+        kafka_servers=["localhost:9092"],
+        group_id="test-group"
     )
+    stream._init_kafka_clients()
+    
+    assert hasattr(stream, 'consumer_')
+    assert hasattr(stream, 'producer_')
+    assert stream.consumer_.topic == "test"
 
-    # Run batch inference
-    results = batch_inference.run(
-        data,
-        preprocess_fn=preprocess_fn,
-        postprocess_fn=postprocess_fn
+@pytest.fixture
+def mock_kafka():
+    """Mock Kafka consumer with test messages"""
+    consumer = MagicMock()
+    messages = [
+        MagicMock(value=json.dumps({"sensor_id": i, "value": i*10}))
+        for i in range(20)
+    ]
+    consumer.__iter__ = lambda self: iter(messages)
+    return consumer
+
+@pytest.mark.skipif(
+    not is_module_installed("kafka"), 
+    reason ="'kafka is required for the test to proceed."
+ )
+def test_streaming_processing(mock_kafka, sample_model):
+    """Test complete streaming processing cycle"""
+    
+    with patch('kafka.KafkaConsumer', return_value=mock_kafka):
+        stream = StreamingInference(
+            kafka_topic="test",
+            kafka_servers=["localhost:9092"],
+            group_id="test-group",
+            batch_size=10
+        )
+        stream.run(sample_model)
+        time.sleep(0.1)
+        stream.stop_streaming().shutdown()
+        
+        assert stream.n_processed_ == 20
+        assert stream.throughput_ > 0
+
+@pytest.mark.skipif(
+    not is_module_installed("kafka"), 
+    reason ="'kafka is required for the test to proceed."
+ )
+def test_streaming_error_handling(sample_model):
+    """Test error containment in streaming pipeline"""
+
+    from kafka.errors import KafkaError
+    
+    # Setup producer that fails 2 times before success
+    producer = MagicMock()
+    producer.send.side_effect = [KafkaError(), KafkaError(), None]
+    
+    with patch('kafka.KafkaProducer', return_value=producer):
+        stream = StreamingInference(
+            kafka_topic="test",
+            kafka_servers=["localhost:9092"],
+            group_id="test-group",
+            max_retries=3
+        )
+        stream.producer_ = producer
+        predictions = [{"prediction": 1.0}]
+        
+        stream._deliver_predictions(predictions)
+        assert producer.send.call_count == 3
+
+@pytest.mark.skipif(
+    not is_module_installed("kafka"), 
+    reason ="'kafka is required for the test to proceed."
+ )
+def test_throughput_calculation():
+    """Test throughput calculation after shutdown"""
+
+    
+    stream = StreamingInference(
+        kafka_topic="test",
+        kafka_servers=["localhost:9092"],
+        group_id="test-group"
     )
+    stream.n_processed_ = 1000
+    stream._processing_stats = [0.1 for _ in range(100)]
+    stream.shutdown()
+    
+    assert stream.throughput_ == 1000 / 10.0  # 100 batches * 0.1s = 10s
 
-    # Verify results
-    expected_results = [(item['value'] * 2) + 1 for item in data]
-    assert results == expected_results
-
-
-def test_batch_inference_error_handling():
-    """Test BatchInference with error handling enabled and disabled."""
-
-    # Define a model that raises an exception
-    class ErrorModel:
-        def predict(self, batch):
-            raise ValueError("Model error")
-
-    model = ErrorModel()
-    data = [{'feature1': x} for x in range(5)]
-
-    # Test with error handling enabled
-    batch_inference = BatchInference(
-        model=model,
-        batch_size=2,
-        max_workers=1,
-    )
-    results = batch_inference.run(data)
-    assert results == []
-
-    # Test with error handling disabled
-    batch_inference.handle_errors = False
-    with pytest.raises(ValueError):
-        batch_inference.run(data)
+@pytest.mark.skipif(
+    not is_module_installed("torch"), 
+    reason ="'torch is required for the test to proceed."
+ )
+@pytest.mark.parametrize("data_size, batch_size, expected", [
+    (0, 32, 0),  # Empty data
+    (1, 32, 1),  # Single item
+    (100, 10, 10)  # Exact batches
+])
+def test_edge_cases(data_size, batch_size, expected):
+    """Test edge cases in batch processing"""
+    
+    data = [{"features": np.zeros(10)} for _ in range(data_size)]
+    processor = BatchInference(batch_size=batch_size)
+    model = MagicMock()
+    model.predict.return_value = np.zeros((batch_size, 1))
+    
+    processor.run(model, data)
+    assert processor.n_batches_ == expected
 
 
-def test_batch_inference_gpu():
-    """Test BatchInference with GPU acceleration."""
-
-    # Check if PyTorch and CUDA are available
-    try:
-        import torch
-        if not torch.cuda.is_available():
-            pytest.skip("CUDA is not available, skipping GPU test.")
-    except ImportError:
-        pytest.skip("PyTorch is not installed, skipping GPU test.")
-
-    import torch.nn as nn
-
-    # Define a simple PyTorch model
-    class SimpleTorchModel(nn.Module):
-        def __init__(self):
-            super(SimpleTorchModel, self).__init__()
-            self.linear = nn.Linear(2, 1)
-
-        def forward(self, x):
-            return self.linear(x)
-
-    model = SimpleTorchModel()
-
-    # Prepare data
-    data = [{'feature1': x, 'feature2': x * 2} for x in range(5)]
-
-    # Initialize BatchInference with GPU enabled
-    batch_inference = BatchInference(
-        model=model,
-        batch_size=2,
-        max_workers=1,
-        gpu_enabled=True
-    )
-
-    # Run batch inference
-    results = batch_inference.run(data)
-
-    # Verify results length
-    assert len(results) == len(data)
-
-
-def test_multi_model_serving_predict():
-    """Test MultiModelServing with specified and auto-selected models."""
-
-    # Define two simple models
-    class ModelV1:
-        def predict(self, data):
-            return "Prediction from Model V1"
-
-    class ModelV2:
-        def predict(self, data):
-            return "Prediction from Model V2"
-
-    models = {'model_v1': ModelV1(), 'model_v2': ModelV2()}
-    traffic_split = {'model_v1': 0.7, 'model_v2': 0.3}
-    fallback_models = {'model_v1': ['model_v2']}
-
-    # Initialize MultiModelServing
-    multi_model_serving = MultiModelServing(
-        models=models,
-        traffic_split=traffic_split,
-        fallback_models=fallback_models
-    )
-
-    data = {'input': [1, 2, 3]}
-
-    # Predict without specifying model
-    prediction = multi_model_serving.run(data)
-    assert prediction in ["Prediction from Model V1", "Prediction from Model V2"]
-
-    # Predict specifying model
-    prediction = multi_model_serving.run(data, model_name='model_v1')
-    assert prediction == "Prediction from Model V1"
-
-    # Predict specifying a non-existent model
-    with pytest.raises(ValueError):
-        multi_model_serving.run(data, model_name='model_x')
-
-
-def test_multi_model_serving_fallback():
-    """Test MultiModelServing with error handling and fallback models."""
-
-    # Define models where one raises an exception
-    class ModelV1:
-        def predict(self, data):
-            raise ValueError("Model V1 failed")
-
-    class ModelV2:
-        def predict(self, data):
-            return "Prediction from Model V2"
-
-    models = {'model_v1': ModelV1(), 'model_v2': ModelV2()}
-    fallback_models = {'model_v1': ['model_v2']}
-
-    # Initialize MultiModelServing
-    multi_model_serving = MultiModelServing(
-        models=models,
-        fallback_models=fallback_models,
-        error_handling=True,
-        retry_attempts=1
-    )
-
-    data = {'input': [1, 2, 3]}
-
-    # Predict with a model that fails and should fallback
-    prediction = multi_model_serving.run(data, model_name='model_v1')
-    assert prediction == "Prediction from Model V2"
-
-
-def test_multi_model_serving_latency():
-    """Test MultiModelServing with latency-based model selection."""
-
-    # Define models with artificial latency
-    class ModelFast:
-        def predict(self, data):
-            time.sleep(0.1)
-            return "Fast Model Prediction"
-
-    class ModelSlow:
-        def predict(self, data):
-            time.sleep(0.5)
-            return "Slow Model Prediction"
-
-    models = {'fast_model': ModelFast(), 'slow_model': ModelSlow()}
-    performance_metrics = {
-        'fast_model': {'latency': 0.1},
-        'slow_model': {'latency': 0.5}
+# Fixtures for reusable test components
+@pytest.fixture
+def sample_models():
+    """Mock model registry for multi-model testing"""
+    return {
+        'model_a': MagicMock(predict=MagicMock(return_value=0)),
+        'model_b': MagicMock(predict=MagicMock(return_value=1)),
+        'model_c': MagicMock(predict=MagicMock(return_value=2))
     }
 
-    # Initialize MultiModelServing with latency threshold
-    multi_model_serving = MultiModelServing(
-        models=models,
-        performance_metrics=performance_metrics,
-        latency_threshold=0.2
-    )
+@pytest.fixture
+def sample_data():
+    """Sample input data for inference requests"""
+    return {'features': [1.2, 3.4, 5.6]}
 
-    data = {'input': [1, 2, 3]}
-
-    # Predict without specifying model
-    prediction = multi_model_serving.run(data)
-    assert prediction == "Fast Model Prediction"
-
-
-def test_inference_parallelizer_threads():
-    """Test InferenceParallelizer using threading."""
-
-    # Define a simple model
-    class SimpleModel:
-        def predict(self, batch):
-            return [sum(item.values()) for item in batch]
-
-    model = SimpleModel()
-    data = [{'input1': x, 'input2': x * 2} for x in range(10)]
-
-    # Initialize InferenceParallelizer with threading
-    parallelizer = InferenceParallelizer(
-        model=model,
-        parallel_type='threads',
-        max_workers=2,
-        batch_size=2
-    )
-
-    # Run parallel inference
-    results = parallelizer.run(data)
-
-    # Verify results
-    expected_results = [item['input1'] + item['input2'] for item in data]
-    assert results == expected_results
-
-
-def test_inference_parallelizer_processes():
-    """Test InferenceParallelizer using multiprocessing."""
-
-    # Define a simple model
-    class SimpleModel:
-        def predict(self, batch):
-            return [sum(item.values()) for item in batch]
-
-    model = SimpleModel()
-    data = [{'input1': x, 'input2': x * 2} for x in range(10)]
-
-    # Initialize InferenceParallelizer with multiprocessing
-    parallelizer = InferenceParallelizer(
-        model=model,
-        parallel_type='processes',
-        max_workers=2,
-        batch_size=2
-    )
-
-    # Run parallel inference
-    results = parallelizer.run(data)
-
-    # Verify results
-    expected_results = [item['input1'] + item['input2'] for item in data]
-    assert results == expected_results
-
-
-def test_inference_parallelizer_error_handling():
-    """Test InferenceParallelizer with error handling enabled."""
-
-    # Define a model that raises an exception
-    class ErrorModel:
-        def predict(self, batch):
-            raise ValueError("Model error")
-
-    model = ErrorModel()
-    data = [{'input1': x} for x in range(5)]
-
-    # Initialize InferenceParallelizer
-    parallelizer = InferenceParallelizer(
-        model=model,
-        handle_errors=True
-    )
-
-    # Run parallel inference
-    results = parallelizer.run(data)
-
-    # Verify that results are empty due to error handling
-    assert results == []
-
-
-def test_inference_cache_manager():
-    """Test InferenceCacheManager with default settings."""
-
-    # Define a simple model
-    class SimpleModel:
-        def __init__(self):
-            self.call_count = 0
-
-        def predict(self, data):
-            self.call_count += 1
-            return sum(data.values())
-
-    model = SimpleModel()
-    cache_manager = InferenceCacheManager(
-        model=model,
-        cache_size=100,
-        eviction_policy='LRU'
-    )
-
-    data = {'input1': 1.0, 'input2': 2.0}
-
-    # First prediction, should increase call_count
-    result1 = cache_manager.run(data)
-    assert result1 == 3.0
-    assert model.call_count == 1
-
-    # Second prediction with same data, should use cache
-    result2 = cache_manager.run(data)
-    assert result2 == 3.0
-    assert model.call_count == 1  # call_count unchanged
-
-
-def test_inference_cache_manager_persistent():
-    """Test InferenceCacheManager with persistent caching."""
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        cache_file = os.path.join(tmpdir, 'cache.pkl')
-
-        # Define a simple model
-        class SimpleModel:
-            def __init__(self):
-                self.call_count = 0
-
-            def predict(self, data):
-                self.call_count += 1
-                return sum(data.values())
-
-        model = SimpleModel()
-        cache_manager = InferenceCacheManager(
-            model=model,
-            cache_size=100,
-            eviction_policy='LRU',
-            persistent_cache_path=cache_file
+# MultiModelServing Tests
+class TestMultiModelServing:
+    """Test suite for MultiModelServing functionality"""
+    
+    def test_initialization(self, sample_models):
+        """Test basic initialization with valid models"""
+        
+        serving = MultiModelServing(models=sample_models)
+        assert len(serving.models) == 3
+        assert 'model_a' in serving.model_names
+        
+    def test_traffic_split_validation(self, sample_models):
+        """Test traffic split validation logic"""
+        
+        with pytest.raises(ValueError):
+            MultiModelServing(
+                models=sample_models,
+                traffic_split={'model_a': 0.5, 'model_b': 0.6}
+            )
+            
+    def test_model_selection_priority(self, sample_models):
+        """Test model selection priority order"""
+        
+        serving = MultiModelServing(
+            models=sample_models,
+            traffic_split={'model_a': 1.0},
+            performance_weights={'model_b': 1.0},
+            latency_threshold=1.0
         )
-
-        data = {'input1': 1.0, 'input2': 2.0}
-
-        # First prediction
-        result1 = cache_manager.run(data)
-        assert result1 == 3.0
-        assert model.call_count == 1
-
-        # Save cache to disk
-        cache_manager._save_persistent_cache()
-
-        # Initialize a new cache manager and load cache
-        model2 = SimpleModel()
-        cache_manager2 = InferenceCacheManager(
-            model=model2,
-            cache_size=100,
-            eviction_policy='LRU',
-            persistent_cache_path=cache_file
+        
+        # Test explicit model selection
+        model, name = serving._select_model('model_c')
+        assert name == 'model_c'
+        
+        # Test performance-based selection
+        serving.performance_metrics_['model_b']['success'] = 10
+        model, name = serving._select_model(None)
+        assert name == 'model_b'
+        
+    def test_fallback_mechanism(self, sample_models, sample_data):
+        """Test error handling and fallback workflow"""
+        
+        # Configure failing primary model
+        sample_models['model_a'].predict.side_effect = Exception("Test error")
+        serving = MultiModelServing(
+            models=sample_models,
+            fallback_models={'model_a': ['model_b', 'model_c']},
+            retry_attempts=2
         )
-        cache_manager2._load_persistent_cache()
+        
+        result = serving.run(sample_data)
+        assert result == 1  # First fallback result
+        assert serving.fallback_count_ == 1
+        
+    def test_performance_tracking(self, sample_models, sample_data):
+        """Test metrics collection and reporting"""
+        
+        serving = MultiModelServing(models=sample_models)
+        serving.run(sample_data)
+        report = serving.get_performance_report()
+        
+        assert report['model_a']['success'] == 1
+        assert serving.request_count_ == 1
 
-        # Predict with same data, should use cached result
-        result2 = cache_manager2.run(data)
-        assert result2 == 3.0
-        assert model2.call_count == 0  # call_count unchanged
+@pytest.mark.skipif(
+    not is_module_installed("torch"), 
+    reason ="'torch is required for the test to proceed."
+ )
+# InferenceParallelizer Tests
+class TestInferenceParallelizer:
+    """Test suite for parallel inference execution"""
+    
+    @pytest.mark.parametrize("parallel_type", ['threads', 'processes'])
+    def test_executor_selection(self, parallel_type):
+        """Test correct executor initialization"""
 
+        parallelizer = InferenceParallelizer(parallel_type=parallel_type)
+        assert parallelizer.parallel_type == parallel_type
+        
+    def test_batch_processing(self):
+        """Test complete parallel processing workflow"""
+        
+        model = MagicMock(predict=MagicMock(side_effect=lambda x: x))
+        data = [{'features': i} for i in range(100)]
+        parallelizer = InferenceParallelizer(batch_size=10)
+        
+        results = parallelizer.run(model, data).results_
+        assert len(results) == 100
+        assert parallelizer.n_batches_ == 10
+        
+    def test_gpu_execution(self):
+        """Test GPU acceleration path"""
+        
+        with patch('torch.cuda.is_available', return_value=True):
+            parallelizer = InferenceParallelizer(gpu_enabled=True)
+            model = MagicMock()
+            data = [{'features': [1.2, 3.4]}]
+            
+            parallelizer.run(model, data)
+            assert model.cuda.called
+            
+    def test_cpu_affinity(self):
+        """Test CPU core affinity configuration"""
+        
+        with patch('os.sched_setaffinity') as mock_affinity:
+            parallelizer = InferenceParallelizer(cpu_affinity=[0,1])
+            parallelizer._set_cpu_affinity()
+            mock_affinity.assert_called_once_with(0, [0,1])
 
-def test_inference_cache_manager_custom_hash():
-    """Test InferenceCacheManager with a custom hash function."""
+# InferenceCacheManager Tests
+@pytest.mark.skipif(
+    not is_module_installed("cachetools"), 
+    reason ="'cachetools is required for the test to proceed."
+ )
+class TestInferenceCacheManager:
+    """Test suite for prediction caching system"""
+    
+    @pytest.mark.parametrize("policy,ttl", [
+        ('LRU', None),
+        ('LFU', None),
+        ('TTL', 60)
+    ])
+    def test_cache_policies(self, policy, ttl):
+        """Test initialization of different cache policies"""
+        
+        cache = InferenceCacheManager(
+            eviction_policy=policy,
+            ttl=ttl,
+            cache_size=100
+        )
+        assert cache.cache_info_['size'] == 0
+        
+    def test_cache_hit_behavior(self):
+        """Test cache hit/miss tracking and result return"""
+        
+        model = MagicMock(predict=MagicMock(return_value=42))
+        cache = InferenceCacheManager(cache_size=10)
+        
+        # First call - cache miss
+        cache.run(model, {'features': 5})
+        assert model.predict.call_count == 1
+        assert cache.cache_info_['misses'] == 1
+        
+        # Second call - cache hit
+        cache.run(model, {'features': 5})
+        assert model.predict.call_count == 1
+        assert cache.cache_info_['hits'] == 1
+        
+    def test_persistent_cache(self, tmp_path):
+        """Test cache persistence to disk"""
+        
+        cache_file = tmp_path / "test_cache.pkl"
+        model = MagicMock(predict=MagicMock(return_value=99))
+        
+        # Initial run and save
+        cache1 = InferenceCacheManager(persistent_cache_path=str(cache_file))
+        cache1.run(model, {'data': 1})
+        assert cache_file.exists()
+        
+        # Load from persistent cache
+        cache2 = InferenceCacheManager(persistent_cache_path=str(cache_file))
+        result = cache2.run(model, {'data': 1})
+        assert result == 99
+        assert model.predict.call_count == 1  # Only called once overall
+        
+    def test_ttl_expiration(self):
+        """Test time-based cache expiration"""
+        
+        with patch('time.time') as mock_time:
+            cache = InferenceCacheManager(
+                eviction_policy='TTL',
+                ttl=10,
+                cache_size=5
+            )
+            
+            mock_time.return_value = 0
+            cache.run(MagicMock(), {'data': 1})  # Stored at t=0
+            
+            mock_time.return_value = 9
+            assert cache.cache_info_['size'] == 1  # Still valid
+            
+            mock_time.return_value = 11
+            assert cache.cache_info_['size'] == 0  # Expired
 
-    # Define a simple model
-    class SimpleModel:
-        def __init__(self):
-            self.call_count = 0
+# Shared Test Utilities
+def test_throughput_calculation2():
+    """Test throughput calculation logic"""
+    
+    parallelizer = InferenceParallelizer()
+    parallelizer.processing_time_ = 2.5
+    parallelizer.results_ = list(range(1000))
+    
+    assert parallelizer.throughput_ == 400  # 1000 / 2.5
 
-        def predict(self, data):
-            self.call_count += 1
-            return sum(data.values())
-
-    model = SimpleModel()
-
-    # Define a custom hash function
-    def custom_hash_fn(data):
-        return hash(sum(data.values()))
-
-    cache_manager = InferenceCacheManager(
-        model=model,
-        cache_size=100,
-        eviction_policy='LRU',
-        custom_hash_fn=custom_hash_fn
-    )
-
-    data1 = {'input1': 1.0, 'input2': 2.0}
-    data2 = {'input1': 2.0, 'input2': 1.0}
-
-    # First prediction
-    result1 = cache_manager.run(data1)
-    assert result1 == 3.0
-    assert model.call_count == 1
-
-    # Second prediction with different data but same sum
-    result2 = cache_manager.predict(data2)
-    assert result2 == 3.0
-    assert model.call_count == 1  # call_count unchanged
-
-
+def test_error_handling_modes():
+    """Test error handling configuration impacts"""
+    
+    model = MagicMock(side_effect=Exception("Test error"))
+    data = [{'features': i} for i in range(10)]
+    
+    # Test error suppression
+    parallelizer = InferenceParallelizer(handle_errors=True)
+    results = parallelizer.run(model, data)
+    assert len(results.results_) == 0
+    
+    # Test error propagation
+    parallelizer.handle_errors = False
+    with pytest.raises(ValueError):
+        parallelizer.run(model, data)
 # Re-enable logging after tests
 logging.disable(logging.NOTSET)
 
 if __name__=='__main__': 
     pytest.main([__file__])
 
-if __name__=='__main__': 
-    pytest.main([__file__])

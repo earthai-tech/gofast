@@ -39,7 +39,8 @@ __all__=[
     "to_frame_if", 
     "SaveFile", 
     "fmt_text",
-    "export_data"
+    "export_data", 
+    "to_text"
     ]
 
 class EnsureFileExists:
@@ -284,7 +285,12 @@ class SaveFile:
     dout : int, default='.csv'
         The default output to save the dataframe if the extension of the file 
         is not provided by the user. 
-        
+    writer_kws: dict, optional 
+       keywords argument of the writer function. If not passed, assume the 
+       'csv' format and turned index to False. 
+    verbose: int, default=1 
+       Minimum diplaying message. 
+       
     Methods
     -------
     __call__(self, func):
@@ -372,7 +378,9 @@ class SaveFile:
         # func=None, 
         # *, 
         data_index=0, 
-        dout='.csv'
+        dout='.csv', 
+        writer_kws=None, 
+        verbose=1, 
     ):
         # Store the function if passed directly (no parentheses),
         # otherwise store None until __call__ is invoked again.
@@ -380,6 +388,8 @@ class SaveFile:
         self.data_index = data_index
         self.dout = dout
         self.data_handler = PandasDataHandlers()
+        self.verbose=verbose 
+        self.writer_kws= writer_kws or {'index': False}
 
     def __call__(self, func):
         # If self.func is None, it means the decorator is used with parentheses.
@@ -400,6 +410,11 @@ class SaveFile:
 
             # Check if a 'savefile' kwarg is provided
             savefile = w_kwargs.get('savefile', None)
+            
+            # otherwirte the writter kws if use provides it explicitely.  
+            writer_kws= w_kwargs.get('write_kws', None)
+            self.writer_kws = writer_kws or self.writer_kws 
+            
             if savefile is not None:
                 # Extract extension or use self.dout if none is provided
                 _, ext = os.path.splitext(savefile)
@@ -418,6 +433,9 @@ class SaveFile:
                         return result
 
                 # Determine which DataFrame to save
+                if isinstance (result, pd.Series): 
+                    result= result.to_frame() 
+                    
                 if isinstance(result, pd.DataFrame):
                     df_to_save = result
                 elif isinstance(result, tuple):
@@ -429,21 +447,37 @@ class SaveFile:
                             "for the returned tuple."
                         )
                         return result
+                    
+                    except Exception as e: 
+                        # If something wrong happend
+                        warnings.warn(
+                            f"An unexpected error occurred: {e}."
+                            " Data cannot be saved; skipped."
+                        )
+                        return result 
+                        
+                    
+                    if isinstance (df_to_save, pd.Series): 
+                        df_to_save = df_to_save.to_frame() 
+                    
                     if not isinstance(df_to_save, pd.DataFrame):
                         warnings.warn(
                             f"Element at `data_index` {self.data_index} "
-                            "is not a DataFrame."
+                            "is not a DataFrame; saving skipped"
                         )
                         return result
                 else:
                     warnings.warn(
-                        f"Return type '{type(result)}' is not a DataFrame or tuple."
+                        f"Return type '{type(result)}' is not a"
+                        " DataFrame or tuple; skip saving data."
                     )
                     return result
 
                 # Get the appropriate writer based on file extension
                 writers_dict = self.data_handler.writers(df_to_save)
                 writer_func = writers_dict.get(ext.lower())
+                self.writer_kws= _get_valid_kwargs(writer_func, self.writer_kws)
+                
                 if writer_func is None:
                     warnings.warn(
                         f"Unsupported file extension '{ext}'. "
@@ -455,12 +489,19 @@ class SaveFile:
                 try:
                     writer_func(
                         savefile,
-                        index=False
+                        **self.writer_kws
+                        # index=False
                     )
                 except Exception as e:
                     warnings.warn(
                         f"Failed to save the DataFrame: {e}"
                     )
+                else: 
+                    if self.verbose:
+                        print(
+                            "[INFO] DataFrame saved to "
+                            f"'{savefile}'."
+                        )
 
             return result
 
@@ -473,11 +514,13 @@ class SaveFile:
         func=None, 
         *, 
         data_index=0, 
-        dout='.csv'
+        dout='.csv', 
+        writer_kws=None, 
+        verbose=1,
     ): 
         if func is not None:
-            return cls(data_index, dout)(func)
-        return cls(data_index, dout)
+            return cls(data_index, dout, writer_kws, verbose)(func)
+        return cls(data_index, dout, writer_kws, verbose)
     
     
 # Class-based decorator to save returned DataFrame(s) to file.
@@ -1099,7 +1142,7 @@ def export_data(
     overwrite=False,
     writer_options=None,
     default_extension='.csv',
-    verbose=0,
+    verbose=1,
     **kwargs
 ):
     """
@@ -1255,7 +1298,7 @@ def export_data(
            https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.to_json.html
     .. [4] Pandas Documentation. (2023). 
            https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.to_excel.html
-    .. [5] Gofast Package Documentation. (2023). 
+    .. [5] Gofast Package Documentation. (2025). 
            https://github.com/gofast/gofast
     """
 
@@ -1346,18 +1389,20 @@ def export_data(
                 warnings.warn(warning_msg)
         
         # Prepare writer-specific options if provided
-        writer_kwargs = writer_options.get(extension.lower(), {}) if writer_options else {}
+        writer_kwargs = writer_options.get(
+            extension.lower(), {}) if writer_options else {}
         # Merge any additional keyword arguments passed to the function
         writer_kwargs.update(kwargs)
         
         # Attempt to write the DataFrame to the specified file path
+        writer_kwargs= _get_valid_kwargs(writer_func, writer_kwargs)
         try:
             writer_func(file_path, **writer_kwargs)
             if verbose >= 1:
-                print(f"Successfully exported to '{file_path}'.")
+                print(f"Data successfully exported to '{file_path}'.")
         except Exception as e:
             error_msg = (
-                f"Failed to export DataFrame to '{file_path}': {e}."
+                f"Failed to export Data to '{file_path}': {e}."
             )
             if overwrite:
                 warnings.warn(error_msg)
@@ -1366,10 +1411,10 @@ def export_data(
     
     # Final verbosity logging after all exports
     if verbose >= 4:
-        print("Completed exporting DataFrame to all specified file paths.")
+        print("Completed exporting Data to all specified file paths.")
     
     if verbose >= 5:
-        print("Exported DataFrame preview:")
+        print("Exported Data preview:")
         print(export_df.head())
     
     # Return None as the export operation does not modify the DataFrame
@@ -1912,7 +1957,7 @@ def to_frame_if(
         except Exception as e: 
             # Raise an error if the input is not a recognized type
             raise ValueError(
-                "Unsupported data type {type(data).__name__!r}. The input"
+                f"Unsupported data type {type(data).__name__!r}. The input"
                 " must be a file path, pandas Series, numpy array, list,"
                 " dict, or pandas DataFrame."
                 ) from e 
@@ -2234,4 +2279,303 @@ def show_usage(
     print("\nTo see standard argparse help, use:")
     print(f"  {script_name} --help\n")
 
+
+def to_text(
+    params=None,
+    allow_none=False,
+    none_as_empty=False,
+    error="raise",
+    to_bytes=False, 
+    encoding='uft-8', 
+):
+    """
+    Decorator that converts specified arguments to
+    either text (i.e., str) or bytes.
+
+    This robust decorator-based function ensures
+    that the arguments named in ``params`` are
+    converted accordingly. By default, it converts
+    them to string (text). However, if
+    ``to_bytes=True``, it converts them to bytes.
+    If <params> is not specified (i.e. the decorator
+    is used without parentheses), the first
+    positional argument is converted.
+
+    If <allow_none> is False, the decorated
+    arguments must not be None. If <allow_none>
+    is True and <none_as_empty> is True, None
+    values are replaced with an empty string (or
+    empty bytes if ``to_bytes`` is True). If
+    <allow_none> is True and <none_as_empty>
+    is False, None values remain as None.
+
+    When conversion fails, the behavior depends
+    on <error>:
+
+      - "raise": raise an exception
+      - "warn": log a warning
+      - "ignore": ignore the error
+
+    Parameters
+    ----------
+    params : list of str, optional
+        Names of arguments to convert. If None,
+        the decorator (used without parentheses)
+        converts the first positional argument.
+    allow_none : bool, optional
+        Whether None is allowed. Default False.
+    none_as_empty : bool, optional
+        Whether None should become ``""`` (when
+        converting to text) or ``b""`` (when
+        converting to bytes). Default False.
+    error : str, optional
+        How to handle conversion errors:
+        "raise", "warn", or "ignore". Default
+        "raise".
+    to_bytes : bool, optional
+        If True, convert the specified arguments
+        to bytes instead of string. Default False.
+    encoding : str
+        The character encoding to use when encoding
+        text to bytes. Defaults to ``"utf-8"``.
+        
+    Returns
+    -------
+    function
+        The decorated function with its specified
+        arguments converted to text or bytes.
+
+    Examples
+    --------
+    >>> from gofast.core.io import to_text 
+    1) If used without parameters:
+       >>> @to_text
+       ... def example_func(data):
+       ...     return data
+       ...
+       >>> # 'data' (the first positional arg) is converted to str by default.
+
+    2) If parameters are specified:
+       >>> @to_text(params=['text'],
+       ...          allow_none=True,
+       ...          none_as_empty=False,
+       ...          error="raise",
+       ...          to_bytes=False)
+       ... def another_func(a, text=None):
+       ...     return a, text
+
+    3) Converting to bytes:
+       >>> @to_text(params=['payload'],
+       ...          to_bytes=True,
+       ...          none_as_empty=True)
+       ... def handle_binary(payload=None):
+       ...     # 'payload' is now guaranteed to be bytes
+       ...     return payload
+
+    Notes
+    -----
+    - If ``to_bytes`` is True, all designated
+      parameters are converted to bytes using
+      UTF-8 encoding. For non-string inputs,
+      the value is first converted to string,
+      then encoded to bytes.
+    - If ``none_as_empty`` is True and
+      ``to_bytes`` is also True, None will be
+      replaced with ``b""``.
+    - If conversion fails and ``error="raise"``,
+      a ValueError is raised.
+
+    """
+    # If decorator is used without parentheses (e.g. @to_text),
+    # then params is actually the function itself. We must
+    # handle that scenario:
+    if callable(params):
+        func = params
+
+        @wraps(func)
+        def _wrapper(*args, **kwargs):
+            """
+            Wrapper that converts the first positional
+            argument to str or bytes if the decorator is
+            used without parameters.
+            """
+            if args:
+                converted_args = list(args)
+                converted_args[0] = _convert_value(
+                    converted_args[0],
+                    allow_none=allow_none,
+                    none_as_empty=none_as_empty,
+                    error=error,
+                    to_bytes=to_bytes, 
+                    encoding=encoding, 
+                )
+                args = tuple(converted_args)
+            return func(*args, **kwargs)
+
+        return _wrapper
+
+    # Otherwise, assume `params` is a list or None,
+    # and create a real decorator:
+    def _decorator(func):
+        @wraps(func)
+        def _wrapper(*args, **kwargs):
+            """
+            Wrapper that processes arguments named
+            in `params` (or the first positional
+            argument if none specified) and
+            converts them to str or bytes.
+            """
+            valid_params = params or []
+
+            if not valid_params:
+                # No params specified; convert first
+                # positional argument.
+                if args:
+                    converted_args = list(args)
+                    converted_args[0] = _convert_value(
+                        converted_args[0],
+                        allow_none=allow_none,
+                        none_as_empty=none_as_empty,
+                        error=error,
+                        to_bytes=to_bytes, 
+                        encoding=encoding
+                    )
+                    args = tuple(converted_args)
+            else:
+                # Convert each named argument
+                # in valid_params:
+                for name in valid_params:
+                    arg_index = _get_arg_index(func, name)
+                    if arg_index is not None and arg_index < len(args):
+                        converted_args = list(args)
+                        converted_args[arg_index] = _convert_value(
+                            converted_args[arg_index],
+                            allow_none=allow_none,
+                            none_as_empty=none_as_empty,
+                            error=error,
+                            to_bytes=to_bytes, 
+                            encoding=encoding
+                        )
+                        args = tuple(converted_args)
+                    elif name in kwargs:
+                        kwargs[name] = _convert_value(
+                            kwargs[name],
+                            allow_none=allow_none,
+                            none_as_empty=none_as_empty,
+                            error=error,
+                            to_bytes=to_bytes, 
+                            encoding=encoding
+                        )
+            return func(*args, **kwargs)
+        return _wrapper
+
+    return _decorator
+
+def _convert_value(
+    value,
+    *,
+    allow_none: bool,
+    none_as_empty: bool,
+    error: str,
+    to_bytes: bool,
+    encoding: str = "utf-8"
+):
+    """
+    Convert ``value`` to ``str`` or ``bytes``, subject
+    to ``allow_none``, ``none_as_empty``, and ``error``.
+    If ``to_bytes`` is True, the final result is bytes;
+    otherwise, it's a string.
+
+    Parameters
+    ----------
+    value : Any
+        The value to convert.
+    allow_none : bool
+        Whether None is allowed.
+    none_as_empty : bool
+        Whether None should become an empty string
+        or empty bytes (if ``to_bytes`` is True).
+    error : str
+        Error policy: "raise", "warn", or "ignore".
+    to_bytes : bool
+        Whether to convert the value to bytes.
+    encoding : str
+        The character encoding to use when encoding
+        text to bytes. Defaults to ``"utf-8"``.
+
+    Returns
+    -------
+    str or bytes or None
+        The converted value, or None if allowed.
+
+    Notes
+    -----
+    1. If ``value`` is already bytes and
+       ``to_bytes`` is True, no re-encoding is
+       performed; the same bytes object is
+       returned.
+    2. If an error occurs during conversion,
+       the behavior depends on ``error``:
+       - "raise": raise a ValueError
+       - "warn": print a warning
+       - "ignore": silently ignore and
+         return the original value
+
+    """
+    # Case 1: None handling
+    if value is None:
+        if not allow_none and not none_as_empty:
+            _handle_error("None value not allowed.", error)
+            return None
+        if none_as_empty:
+            # Return empty string or empty bytes
+            return b"" if to_bytes else ""
+        # else None is allowed
+        return None
+
+    # Case 2: Non-None value -> attempt conversion
+    try:
+        if to_bytes:
+            # If already bytes, return as-is
+            if isinstance(value, bytes):
+                return value
+            # Otherwise, convert to str, then encode
+            text_value = str(value)
+            return text_value.encode(encoding)
+        else:
+            # Convert to str
+            return str(value)
+    except Exception as exc:
+        _handle_error(f"Conversion failed: {exc}", error)
+        # If ignoring or warning, we can return
+        # the value as-is or None
+        return value
+
+
+def _handle_error(message, error_policy):
+    """
+    Handle the error based on <error_policy>.
+    """
+    if error_policy == "raise":
+        raise ValueError(message)
+    elif error_policy == "warn":
+        print(f"Warning: {message}")
+    elif error_policy == "ignore":
+        pass
+    else:
+        # Default to raise if invalid policy given
+        raise ValueError(f"Unknown error policy: {error_policy}")
+
+
+def _get_arg_index(func, arg_name):
+    """
+    Returns the index of the argument <arg_name> in
+    the function signature, or None if not found.
+    """
+    code = func.__code__
+    arg_names = code.co_varnames[:code.co_argcount]
+    try:
+        return arg_names.index(arg_name)
+    except ValueError:
+        return None
 

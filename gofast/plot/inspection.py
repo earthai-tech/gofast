@@ -26,6 +26,7 @@ from ..api.types import List, Tuple, Optional, Dict, Union, Any
 from ..api.util import to_snake_case 
 from ..core.array_manager import to_numeric_dtypes 
 from ..core.checks import _assert_all_types, is_iterable  
+from ..core.io import is_data_readable
 from ..decorators import Dataify
 from ..exceptions import PlotError 
 from ..utils.deps_utils import ensure_pkg 
@@ -54,6 +55,7 @@ __all__=[
     ]
 
 
+@is_data_readable 
 @Dataify(auto_columns=True, prefix="feature_")  
 def plot_woodland(
     data: DataFrame,*,
@@ -78,6 +80,8 @@ def plot_woodland(
     of the correlation matrix by allowing selection of specific quadrants to display.
     The `quadrant` parameter is particularly useful for focusing on parts of a 
     larger matrix while analyzing data.
+    
+    See more in :ref:`User Guide <user_guide>`.
 
     Parameters
     ----------
@@ -120,7 +124,10 @@ def plot_woodland(
     Notes
     -----
     The woodland plot function in Python draws inspiration from Baig Abdullah 
-    Al Shoumik's work on the R statistical Software group on the Meta platform. 
+    Al Shoumik's work on the R statistical Software group on the Meta platform.
+    Inspired by his visualization techniques for correlation matrices, the name 
+    reflects a structured and organic way of representing data relationships, 
+    akin to the intricate connections within a forest ecosystem.
     His approach to visualizing correlation matrices in R emphasizes clarity and 
     effectiveness, which serves as a foundation for this implementation. An example 
     of Al Shoumik's R script is provided below to illustrate his method:

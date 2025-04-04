@@ -8,27 +8,49 @@ from numbers import Integral, Real
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt 
-import seaborn as sns 
-
+import seaborn as sns
+ 
+from sklearn.base import BaseEstimator
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.feature_selection import SelectFromModel, VarianceThreshold
-from sklearn.base import BaseEstimator
+from sklearn.model_selection import cross_val_score
 
 from ..._gofastlog import gofastlog
 from ...api.docstring import DocstringComponents, _core_docs 
-from ...api.types import Any, List, Dict, Tuple, Union, Optional, DataFrame
-from ...api.summary import ReportFactory 
-from ...compat.sklearn import validate_params, Interval, StrOptions, HasMethods 
+from ...api.types import ( 
+    Any, List, Dict, 
+    Tuple, Union, 
+    Optional, DataFrame, 
+    ArrayLike, Series
+)
+from ...api.summary import ReportFactory, ResultSummary 
+from ...compat.sklearn import ( 
+    validate_params, 
+    Interval, 
+    StrOptions, 
+    HasMethods 
+)
 from ...core.array_manager import to_numeric_dtypes, is_array_like
-from ...core.checks import is_in_if, is_iterable, exist_features, is_numeric_dtype
+from ...core.checks import ( 
+    is_in_if, 
+    is_iterable, 
+    exist_features, 
+    is_numeric_dtype
+)
+from ...core.handlers import columns_manager 
 from ...core.io import is_data_readable
 from ...core.utils import type_of_target 
 from ...decorators import Dataify
-from ..base_utils import select_features
+from ..base_utils import select_features, extract_target
 from ..deps_utils import ensure_pkg
+from ..generic_utils import vlog  
+from ..io_utils import to_txt
 from ..validator import ( 
-    build_data_if, validate_data_types, check_consistent_length, 
-    get_estimator_name
+    build_data_if, 
+    validate_data_types, 
+    check_consistent_length, 
+    get_estimator_name, 
+    filter_valid_kwargs
 )
 
 # Logger Configuration
@@ -44,9 +66,352 @@ __all__= [
     'select_feature_importances', 
     'get_feature_contributions',
     'display_feature_contributions', 
-    'select_relevant_features'
+    'select_relevant_features', 
+    'validate_feature_utility'
     ]
 
+@Dataify(auto_columns= True, prefix ='feat_') 
+def validate_feature_utility(
+    df: DataFrame,
+    target: Union[ArrayLike, Series, str],
+    feature_set_a: list,
+    feature_set_b: list,
+    task: str = 'auto',
+    n_folds: int = 5,
+    view: bool = False,
+    save_result: bool=False, 
+    filename:Optional[str]=None, 
+    box_kws=None,
+    figsize=None,
+    verbose: int = 1
+):
+    r"""
+    Compare two feature sets by cross-validating a predictive
+    model for each set and computing the performance improvement
+    of one set over the other.
+
+    This function uses `exist_features`, `columns_manager`,
+    `extract_target`, `check_consistent_length`,
+    `type_of_target`, `ResultSummary`, and scikit-learn's
+    `cross_val_score`. It trains either a random forest
+    classifier or regressor on both feature sets, evaluates
+    each set via cross-validation, and estimates the mean
+    performance difference.
+
+    .. math::
+       R_{improvement} = \\mu_B - \\mu_A
+
+    where :math:`\\mu_B` is the mean performance (accuracy or
+    MAE) of ``feature_set_b`` and :math:`\\mu_A` is the mean
+    performance of ``feature_set_a``.
+
+    Parameters
+    ----------
+    df : DataFrame
+        The input pandas DataFrame containing all the features
+        and possibly the target column.
+    target : Union[ArrayLike, Series, str]
+        The target used for model training. If `target` is a
+        string, it is assumed to be a column name in `df`.
+    feature_set_a : list
+        List of feature column names forming the first set.
+    feature_set_b : list
+        List of feature column names forming the second set.
+    task : str, default='auto'
+        The task type for modeling (e.g. `binary`,
+        `multiclass`, or `regression`). If ``'auto'`` is
+        provided, the function detects the task automatically
+        by analyzing `target`.
+    n_folds : int, default=5
+        Number of folds to use in cross-validation.
+    view : bool, default=False
+        If True, draws boxplots showing the distribution of
+        cross-validation scores for each feature set.
+    save_result: bool, False 
+        Export the result into a txt file. 
+    filename: str, optional 
+       Name of the file to export. 
+    box_kws : dict, optional
+        Dictionary of keyword arguments passed to the
+        seaborn boxplot function.
+    figsize : tuple, optional
+        Figure size for the boxplots, e.g. (width, height).
+    verbose : int, default=1
+        Verbosity level (0 to 5). Controls how much internal
+        information is printed to console.
+
+    Returns
+    -------
+    dict
+        A dictionary containing the performance metrics for
+        both feature sets and the improvement.
+
+    Notes
+    -----
+    This approach can be used to determine whether additional
+    features or an alternative feature representation yields a
+    better predictive performance.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from gofast.utils.ml.feature_selection import \
+    ...     validate_feature_utility
+    >>> # Generate a random dataset with columns
+    >>> # 'feat1','feat2','feat3','target'.
+    >>> np.random.seed(42)
+    >>> df = pd.DataFrame({
+    ...     'feat1': np.random.rand(10),
+    ...     'feat2': np.random.rand(10),
+    ...     'feat3': np.random.rand(10),
+    ...     'target': np.random.randint(0, 2, 10)
+    ... })
+    
+    >>> # Example 1: Minimal usage with defaults
+    >>> result_1 = validate_feature_utility(
+    ...     df=df,
+    ...     target='target',
+    ...     feature_set_a=['feat1', 'feat2'],
+    ...     feature_set_b=['feat3']
+    ... )
+    >>> print(result_1)
+    
+    >>> # Example 2: Classification task with higher verbosity
+    >>> result_2 = validate_feature_utility(
+    ...     df=df,
+    ...     target='target',
+    ...     feature_set_a=['feat1'],
+    ...     feature_set_b=['feat1', 'feat2', 'feat3'],
+    ...     task='binary',
+    ...     n_folds=5,
+    ...     verbose=5
+    ... )
+    >>> print(result_2)
+    
+    >>> # Example 3: Regression task, fewer folds, display boxplots
+    >>> result_3 = validate_feature_utility(
+    ...     df=df,
+    ...     target='target',
+    ...     feature_set_a=['feat1', 'feat2'],
+    ...     feature_set_b=['feat1', 'feat2', 'feat3'],
+    ...     task='regression',
+    ...     n_folds=3,
+    ...     view=True,
+    ...     verbose=2
+    ... )
+    >>> print(result_3)
+
+    See Also
+    --------
+    exist_features : Checks if requested features exist in a
+        DataFrame.
+    columns_manager : Cleans or preprocesses columns in a list.
+    extract_target : Extracts the target from a DataFrame.
+    check_consistent_length : Ensures consistency among input
+        lengths.
+    type_of_target : Detects whether the task is classification
+        or regression.
+    cross_val_score : Performs cross-validation score.
+    ResultSummary : Stores the evaluation results in a summary
+        object.
+
+    References
+    ----------
+    .. [1] Pedregosa et al. *Scikit-learn: Machine Learning in
+       Python.*, JMLR 12, pp. 2825-2830, 2011.
+    """
+
+    # Check if each feature in feature_set_a and feature_set_b
+    # exists in the provided DataFrame
+    vlog("[INFO] Checking if features exist in DataFrame.", 
+         verbose
+         )
+    exist_features(
+        df,
+        features = feature_set_a,
+        name= "Feature set A",
+    )
+    exist_features(
+        df,
+        features = feature_set_b,
+        name= "Feature set B",
+    )
+
+    # Clean and prepare feature sets
+    if verbose >= 3:
+        vlog("[INFO] Cleaning columns for feature sets.", 
+             verbose)
+    
+    # Create feature matrices for each set
+    # and extract the target vector y
+    feature_set_a = columns_manager(feature_set_a)
+    feature_set_b = columns_manager(feature_set_b)
+
+    # Create feature matrices
+    X_a = df[feature_set_a]
+    X_b = df[feature_set_b]
+
+    # Extract target vector y
+    if isinstance(target, str):
+        vlog(f"[INFO] Extracting target as column: {target}", 
+             verbose)
+        y = extract_target(
+            df,
+            target_names = target,
+            drop= False,
+        )
+    else:
+     
+        vlog(
+            "  [TRACE] Using provided target array-like.", 
+            verbose
+        )
+        y = target
+
+    # Ensure consistent length
+    check_consistent_length(df, y)
+
+    # Automatically detect task type (classification vs. regression)
+    # if user set task='auto'
+    if task == 'auto':
+        vlog(" [DEBUG] Auto-detecting task type.", verbose)
+        task = type_of_target(y)
+
+    # Initialize model and scoring
+    if task in ['classification', 'multiclass', 'binary']:
+        vlog("[INFO] Task identified as classification.", verbose)
+        model= RandomForestClassifier(random_state = 42)
+        scoring = 'accuracy'
+    else:
+        vlog("[INFO] Task identified as regression.", verbose)
+        model = RandomForestRegressor(random_state = 42)
+        scoring = 'neg_mean_absolute_error'
+
+    # Cross-validate feature set A
+    vlog("[INFO] Cross-validating Feature Set A.",
+         verbose
+    )
+    scores_a = cross_val_score(
+        estimator = model,
+        X = X_a,
+        y = y,
+        cv = n_folds,
+        scoring = scoring,
+    )
+
+    # Cross-validate feature set B
+    vlog("[INFO] Cross-validating Feature Set B.",
+         verbose)
+    scores_b = cross_val_score(
+        estimator = model,
+        X = X_b,
+        y = y,
+        cv = n_folds,
+        scoring = scoring,
+    )
+
+    # Convert scores to positive if regression
+    if task == 'regression':
+        vlog("[INFO] Converting negative MAE to positive.",
+            verbose
+        )
+        scores_a = -scores_a
+        scores_b = -scores_b
+
+    # Compile results
+    mean_a = np.mean(scores_a)
+    mean_b = np.mean(scores_b)
+    std_a  = np.std(scores_a)
+    std_b  = np.std(scores_b)
+
+    result = {
+        'feature_set_a': {
+            'features': feature_set_a,
+            f'mean_{scoring}': mean_a,
+            'std_dev': std_a,
+        },
+        'feature_set_b': {
+            'features': feature_set_b,
+            f'mean_{scoring}': mean_b,
+            'std_dev': std_b,
+        },
+        'improvement': mean_b - mean_a,
+    }
+
+    # Add results to custom summary object
+    summary = ResultSummary(
+        name="ABTest"
+    ).add_results(result)
+
+    # Print summary if verbosity >= 1
+    if verbose >= 1:
+        print("[INFO] Summary of results:\n", summary)
+
+    # Draw boxplots if requested
+    if view:
+        _plot_box ( 
+            box_kws=box_kws, 
+            figsize=figsize, 
+            scores_a=scores_a, 
+            scores_b=scores_b, 
+            scoring=scoring, 
+            task=task, 
+            verbose=verbose  
+        ) 
+        
+    if save_result: 
+        to_txt(result, filename) 
+        
+    # Return dictionary with comparison metrics
+    return result
+
+def _plot_box ( 
+    box_kws, 
+    figsize, 
+    scores_a, 
+    scores_b,
+    scoring, 
+    task, 
+    verbose  
+    ): 
+    from ...plot._d_cms import update_box_kws 
+    
+    vlog("  [TRACE] Displaying performance boxplots.", verbose)
+    d_box_kws = update_box_kws(
+        "medianprops__color_0.8", 'whiskerprops__color_#137', 
+        )
+    # d_box_kws = box_kws or dict(
+    #     width     = 15,
+    #     whis      = 2,
+    #     color     = ".8",
+    #     linecolor = "#137",
+    # )
+    box_kws = box_kws or d_box_kws 
+    
+    plt.figure(figsize = figsize or (10, 5))
+
+    box_kws= filter_valid_kwargs ( sns.boxplot, box_kws)
+    sns.boxplot(
+        data=[scores_a, scores_b],
+        palette='Set2',
+        **box_kws
+    )
+    plt.xticks(
+        ticks=[0, 1],
+        labels=['Feature Set A', 'Feature Set B']
+    )
+    plt.ylabel(
+        scoring.upper()
+        if task == 'classification'
+        else 'MAE'
+    )
+    plt.title(
+        'A/B Test: Model Performance Comparison'
+    )
+    plt.show()
+    
+    
 @is_data_readable 
 @validate_params({
     'data': ['array-like'], 

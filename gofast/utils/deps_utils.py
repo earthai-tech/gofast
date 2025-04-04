@@ -6,20 +6,172 @@
 Dependency utilities module providing functions to handle
 package installation, checking, and ensuring dependencies are available.
 """
-
+import importlib
+import warnings
 import sys
 import functools
 import subprocess
 from .._gofastlog import gofastlog
 from ..api.types import _T, Any, Callable, List, Optional, Union
+from ..core.handlers import delegate_on_error 
 from ._dependency import import_optional_dependency
+from ..decorators import Deprecated 
 
 # Configure logging
 _logger = gofastlog.get_gofast_logger(__name__)
 
-__all__ = ["ensure_pkg", "ensure_pkgs", "install_package","is_installing",
-           "get_installation_name", "is_module_installed", 
-           "import_optional_dependency", "ensure_module_installed"]
+__all__ = [
+    "ensure_pkg", 
+    "ensure_pkgs", 
+    "install_package",
+    "is_installing",
+    "get_installation_name", 
+    "is_module_installed", 
+    "import_optional_dependency",
+    "ensure_module_installed", 
+    "get_versions"
+]
+
+def get_versions(
+    extras=None,
+    distribution_mapping=None
+):
+    """
+    Retrieve a dictionary containing version information for
+    common libraries, as well as any user-specified packages
+    and distribution name mappings.
+
+    Parameters
+    ----------
+    extras : list of str, optional
+        Additional packages for which to attempt version
+        retrieval. By default, None, which means no extra
+        packages beyond the defaults.
+
+    distribution_mapping : dict, optional
+        Mapping from import-like names to actual distribution
+        names. For example, the import name ``'sklearn'``
+        corresponds to the distribution name
+        ``'scikit-learn'``. Default is None, which uses
+        a built-in mapping for scikit-learn and any
+        user-provided dictionary overrides or additions.
+
+    Returns
+    -------
+    dict
+        Dictionary of the form:
+
+        .. code-block:: python
+
+           {
+               "__version__": {
+                   "numpy": "1.24.2",
+                   "pandas": "1.5.0",
+                   "sklearn": "1.3.2",
+                   ...
+               }
+           }
+
+    Notes
+    -----
+    - By default, this function attempts to retrieve versions
+      for the following packages:
+      ``['numpy', 'pandas', 'sklearn', 'joblib', 'tensorflow',
+      'keras', 'torch']``.
+    - If a package is not installed, it is skipped (no error
+      is raised).
+    - If `<distribution_mapping>` is provided, it merges with
+      the built-in mapping (for ``"sklearn"`` → ``"scikit-learn"``),
+      allowing users to specify additional name differences.
+    - Python 3.8+ is recommended to ensure
+      ``importlib.metadata`` is available.
+
+    Examples
+    --------
+    >>> get_versions()
+    {
+      "__version__": {
+        "numpy": "1.24.2",
+        "pandas": "1.5.0",
+        ...
+      }
+    }
+
+    >>> # Add custom package and distribution mapping:
+    >>> get_versions(
+    ...   extras=["spacy"],
+    ...   distribution_mapping={"spacy": "spacy-legacy"}
+    ... )
+    {
+      "__version__": {
+        "numpy": "1.24.2",
+        "pandas": "1.5.0",
+        "spacy": "3.5.1"
+      }
+    }
+    """
+    if extras is None:
+        extras = []
+
+    # Default packages to check
+    default_pkgs = [
+        "numpy",
+        "pandas",
+        "sklearn",  # we expect distribution 'scikit-learn'
+        "joblib",
+        "tensorflow",
+        "keras",
+        "torch"
+    ]
+
+    # Base distribution mapping for known discrepancies
+    base_mapping = {
+        "sklearn": "scikit-learn"
+    }
+    # Merge user-provided distribution mapping, if any
+    if distribution_mapping is not None:
+        base_mapping.update(distribution_mapping)
+
+    all_pkgs = default_pkgs + list(extras)
+    version_dict = {}
+
+    for pkg in all_pkgs:
+        # Determine the actual distribution name for version lookup
+        dist_name = base_mapping.get(pkg, pkg)
+
+        try:
+            # Check if the package is findable
+            spec = importlib.util.find_spec(pkg)
+            if spec is None:
+                # Not installed or can't be found
+                continue
+
+            # Attempt to retrieve version from distribution name
+            metadata = importlib.metadata
+            version = metadata.version(dist_name)
+
+            # Store the version under the original pkg key
+            version_dict[pkg] = version
+
+        except (importlib.metadata.PackageNotFoundError,
+                ModuleNotFoundError):
+            # Not installed or cannot detect version
+            continue
+        except Exception as e:
+            # Catch other unexpected issues, warn and skip
+            warnings.warn(
+                f"Could not retrieve version for '{pkg}': {e}"
+            )
+            continue
+        
+    # After collecting versions in version_dict, 
+    # fix distribution names if needed.
+    for import_name, dist_name in base_mapping.items():
+        if import_name in version_dict:
+            # Move the version from import_name => dist_name
+            version_dict[dist_name] = version_dict.pop(import_name)
+    
+    return {"__version__": version_dict}
 
 def ensure_module_installed(
     module_name: str,
@@ -80,7 +232,7 @@ def ensure_module_installed(
 
     Examples
     --------
-    >>> from gofast.utils.depsutils import ensure_module_installed
+    >>> from gofast.utils.deps_utils import ensure_module_installed
 
     >>> # Ensure that 'numpy' is installed
     >>> ensure_module_installed("numpy")
@@ -168,10 +320,257 @@ def ensure_module_installed(
             )
 
 def install_package(
+    name: str,
+    dist_name: Optional[str] = None,
+    infer_dist_name: bool = False,
+    version: Optional[str] = None,
+    extra: str = '',
+    use_conda: bool = False,
+    verbose: bool = True
+) -> None:
+    r"""
+    Install a Python package at runtime, optionally specifying a version
+    constraint or other parameters, using either conda or pip. If conda is
+    unavailable or disabled, pip is used by default. The function includes
+    a check for pre-existing installations, allowing users to skip redundant
+    installs.
+
+    Parameters
+    ----------
+    name : str
+        Base name of the package to install (e.g., ``'requests'``).
+    dist_name : str, optional
+        Distribution name, if different from the import name. For example,
+        scikit-learn's import name <sklearn> differs from its distribution
+        name ``'scikit-learn'``.
+    infer_dist_name : bool, optional
+        If True, calls :meth:`get_installation_name` to infer the
+        distribution name automatically. Defaults to False.
+    version : str, optional
+        Version string or comparator. Examples:
+          - ``'1.2.0'``  => interpreted as '>=1.2.0'
+          - ``'==1.2.0'``
+          - ``'<2.0'``
+          - ``'>=1.5.3'``
+        If None, no version constraint is applied.
+        
+    extra : str, optional
+        Additional install specifiers or command-line flags passed
+        to the installation command. For instance, ``' --no-cache-dir'`` 
+        or ``'[extra]'``. Default is ``''``.
+    use_conda : bool, optional
+        If True, attempts installation via conda first. If conda is
+        unavailable or fails, falls back to pip. Defaults to False.
+    verbose : bool, optional
+        If True, prints detailed logs throughout the installation.
+        Defaults to True.
+
+    Returns
+    -------
+    None
+        On success, the specified package is installed (or is
+        already present). If the installer fails, raises a
+        RuntimeError.
+
+    Raises
+    ------
+    RuntimeError
+        If the installation cannot be completed using either
+        conda or pip, or if conda is requested but unavailable.
+
+    Notes
+    -----
+    - If the package is already installed (as determined by
+      :meth:`is_module_installed`), no further action is taken.
+    - When using pip, a progress bar is displayed (if the `tqdm`
+      library is installed). For conda, no progress bar is shown
+      due to console I/O capture limitations.
+
+
+    Mathematically, this function assembles an install spec of the form:
+
+    .. math::
+       \text{install\_str} = \langle \text{name} \rangle 
+       + \langle \text{version\_spec} \rangle 
+       + \langle \text{extra} \rangle
+
+    where :math:`\langle \text{name} \rangle` is the package name,
+    :math:`\langle \text{version\_spec} \rangle` is a version comparator
+    (e.g., ``>=1.2.0``), and :math:`\langle \text{extra} \rangle` is any
+    additional flags or arguments.
+
+    Examples
+    --------
+    >>> from gofast.utils.deps_utils import install_package
+    >>> # Install requests with no version constraint, default pip:
+    >>> install_package('requests', verbose=True)
+
+    >>> # Install a specific version via conda (fallback to pip if conda fails):
+    >>> install_package(
+    ...     'pandas',
+    ...     version='==1.2.0',
+    ...     use_conda=True,
+    ...     verbose=True
+    ... )
+
+    See Also
+    --------
+    is_module_installed:
+        Checks whether a Python module or corresponding distribution 
+        is already installed.
+    get_installation_name:
+        Infers a distribution name for the given module name,
+        if necessary.
+
+    References
+    ----------
+    .. [1] Gonsalves, T. et al. (2023). *Dynamic Environment
+           Management in Python Projects*. PyCon Proceedings,
+           45(7), 31-42.
+    """
+    # Check if tqdm is available
+    try:
+        from tqdm import tqdm
+        TQDM_AVAILABLE = True
+    except ImportError:
+        TQDM_AVAILABLE = False
+        
+    # --- Helper Functions ---
+    def _format_version_spec(ver_str: str) -> str:
+        """
+        If `ver_str` starts with a comparator (>, <, ==, !=, >=, <=, ~=, ^),
+        return it unchanged. Otherwise, interpret it as '>=ver_str'.
+        """
+        # List of recognized version operators
+        operators = ('>=', '<=', '==', '!=', '>', '<', '~=', '^')
+        if any(ver_str.strip().startswith(op) for op in operators):
+            return ver_str
+        # Default to >= if user just gave a plain version
+        return f">={ver_str}"
+
+    def execute_command(command: list, show_progress: bool = False) -> None:
+        """
+        Execute a system command with optional progress bar for output lines.
+        Raises RuntimeError if the command fails.
+        """
+        if TQDM_AVAILABLE and show_progress:
+            with subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            ) as process, tqdm(desc="Installing", unit="line") as pbar:
+                for line in process.stdout:
+                    if verbose:
+                        print(line, end='')
+                    pbar.update(1)
+                if process.wait() != 0:
+                    raise RuntimeError(
+                        f"Installation failed for package '{command[-1]}'."
+                    )
+        else:
+            # No tqdm available or progress not requested
+            with subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            ) as process:
+                for line in process.stdout:
+                    if verbose:
+                        print(line, end='')
+                if process.wait() != 0:
+                    raise RuntimeError(
+                        f"Installation failed for package '{command[-1]}'."
+                    )
+ 
+    # --- Main Logic ---
+    # Check if already installed
+    if is_module_installed(name, dist_name):
+        if verbose:
+            print(f"[INFO] '{name}' is already installed.")
+        return
+
+    # Potentially infer the distribution name for pip/conda usage
+    if infer_dist_name:
+        name = get_installation_name(name, dist_name)
+
+    # Format version string if provided
+    version_spec = ''
+    if version is not None:
+        version_spec = _format_version_spec(version)
+
+    # Combine the name + version spec + extra into a single string for pip/conda
+    # e.g. "pandas>=1.2.0" or "numpy==1.23.5 --no-cache-dir"
+    install_str = name
+    if version_spec:
+        install_str += version_spec
+    if extra.strip():
+        # If user wrote extra like "==1.2.0", we typically expect them
+        # to put version in "version" param. But let's not override. We'll just
+        # append it with a space if it doesn't start with '='.
+        # For safety, always add a space. The user might specify advanced pip flags:
+        # e.g. extra=" --no-cache-dir"
+        install_str += f"{extra}"
+
+    conda_available = _check_conda_installed()
+    if use_conda and conda_available:
+        if verbose:
+            print(
+                f"[INFO] Attempting to install '{install_str}' using conda..."
+            )
+        try:
+            # conda install <package>[version spec, etc.] -y
+            execute_command(['conda', 'install', install_str, '-y'],
+                            show_progress=False)
+            if verbose:
+                print(f"[INFO] Package '{install_str}' installed via conda.")
+            return
+        except Exception as e:
+            if verbose:
+                print(f"[WARN] Conda installation failed: {str(e)}.")
+                print("[INFO] Falling back to pip...")
+    elif use_conda and not conda_available:
+        if verbose:
+            print("[WARN] Conda is not available. Falling back to pip...")
+
+    # Fallback to pip
+    if verbose:
+        print(f"[INFO] Attempting to install '{install_str}' using pip...")
+    try:
+        execute_command(
+            [sys.executable, "-m", "pip", "install", install_str],
+            show_progress=True
+        )
+        if verbose:
+            print(f"[INFO] Package '{install_str}' was successfully installed.")
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to install '{install_str}' via pip: {e}"
+        ) from e
+
+@Deprecated (
+    "'Install_pkg' is deprecated, fallback to `install_package'"
+    " which implement the more robust approach."
+ )
+@delegate_on_error(
+         transfer=install_package,
+         delegate_params_mapping={
+             'name': 'name', 
+             'dist_name': 'dist_name', 
+             'infer_dist_name': 'infer_dist_name', 
+             'version': 'version', 
+             'use_conda':'use_conda', 
+             'verbose': 'verbose', 
+         }, 
+     )
+def install_pkg(
     name: str, 
     dist_name: Optional[str]=None,
     infer_dist_name: bool=False, 
-    extra: str = '', 
+    version: str = '', 
     use_conda: bool = False, 
     verbose: bool = True
     ) -> None:
@@ -194,7 +593,7 @@ def install_package(
     infer_dist_name : bool, optional
         If True, attempt to infer the distribution name for pip installation,
         defaults to False.
-    extra : str, optional
+    version : str, optional
         Additional options or version specifier for the package, by default ''.
     use_conda : bool, optional
         Prefer conda over pip for installation, by default False.
@@ -210,7 +609,7 @@ def install_package(
     Examples
     --------
     Install a package using pip without version specification:
-        >>> from gofast.utils.depsutils import install_package
+        >>> from gofast.utils.deps_utils import install_package
         >>> install_package('requests', verbose=True)
 
     Install a specific version of a package using conda:
@@ -223,6 +622,7 @@ def install_package(
     conda command line output. Pip installations will show a progress bar indicating
     the number of processed output lines from the installation command.
     """
+  
     def execute_command(command: list, progress_bar: bool = False) -> None:
         """
         Execute a system command with optional progress bar for output lines.
@@ -244,7 +644,8 @@ def install_package(
                     print(line, end='')
                 pbar.update(1)
             if process.wait() != 0:  # Non-zero exit code indicates failure
-                raise RuntimeError(f"Installation failed for package '{name}{extra}'.")
+                raise RuntimeError(f"Installation failed for package '{name}{version}'.")
+    
     
     # If the module is installed don't install again.
     if is_module_installed(name, distribution_name= dist_name ): 
@@ -261,23 +662,23 @@ def install_package(
     try:
         if use_conda and conda_available:
             if verbose:
-                print(f"Attempting to install '{name}{extra}' using conda...")
-            execute_command(['conda', 'install', f"{name}{extra}", '-y'], 
+                print(f"Attempting to install '{name}{version}' using conda...")
+            execute_command(['conda', 'install', f"{name}{version}", '-y'], 
                             progress_bar=False)
         elif use_conda and not conda_available:
             if verbose:
                 print("Conda is not available. Falling back to pip...")
-            execute_command([sys.executable, "-m", "pip", "install", f"{name}{extra}"],
+            execute_command([sys.executable, "-m", "pip", "install", f"{name}{version}"],
                             progress_bar=True)
         else:
             if verbose:
-                print(f"Attempting to install '{name}{extra}' using pip...")
-            execute_command([sys.executable, "-m", "pip", "install", f"{name}{extra}"],
+                print(f"Attempting to install '{name}{version}' using pip...")
+            execute_command([sys.executable, "-m", "pip", "install", f"{name}{version}"],
                             progress_bar=True)
         if verbose:
-            print(f"Package '{name}{extra}' was successfully installed.")
+            print(f"Package '{name}{version}' was successfully installed.")
     except Exception as e:
-        raise RuntimeError(f"Failed to install '{name}{extra}': {e}") from e
+        raise RuntimeError(f"Failed to install '{name}{version}': {e}") from e
 
 def _check_conda_installed() -> bool:
     """
@@ -289,16 +690,19 @@ def _check_conda_installed() -> bool:
         True if conda is found, False otherwise.
     """
     try:
-        subprocess.check_call(['conda', '--version'], stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL)
+        subprocess.check_call(
+            ['conda', '--version'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
-
+    
 def ensure_pkg(
     name: str, 
     extra: str = "",
-    errors: str = "raise",
+    error: str = "raise",
     min_version: Optional[str] = None,
     exception: Exception = None, 
     dist_name: Optional[str]=None, 
@@ -322,7 +726,7 @@ def ensure_pkg(
         The name of the package.
     extra : str, optional
         Additional specification for the package, such as version or extras.
-    errors : str, optional
+    error : str, optional
         Error handling strategy if the package is missing: 'raise', 'ignore',
         or 'warn'.
     min_version : str or None, optional
@@ -366,7 +770,7 @@ def ensure_pkg(
 
     Examples
     --------
-    >>> from gofast.utils.depsutils import ensure_pkg
+    >>> from gofast.utils.deps_utils import ensure_pkg
     >>> @ensure_pkg("numpy", auto_install=True)
     ... def use_numpy():
     ...     import numpy as np
@@ -406,8 +810,9 @@ def ensure_pkg(
                     # Attempt to import the package, handling installation 
                     # if necessary and permitted
                     import_optional_dependency(
-                        name, extra=extra, errors=errors, 
-                        min_version=min_version, exception=exception
+                        name, extra=extra, errors=error, 
+                        min_version=min_version, 
+                        exception=exception
                     )
                 except (ModuleNotFoundError, ImportError):
                     if auto_install:
@@ -415,7 +820,10 @@ def ensure_pkg(
                         install_package(
                             name, dist_name=dist_name, 
                             infer_dist_name=infer_dist_name, 
-                            extra=extra, use_conda=use_conda, verbose=verbose
+                            extra=extra, 
+                            version=min_version, 
+                            use_conda=use_conda, 
+                            verbose=verbose
                         )
                     elif exception is not None:
                         raise exception
@@ -509,10 +917,10 @@ def _should_check_condition(condition: Any, *args, **kwargs) -> bool:
 def ensure_pkgs(
     names: Union[str, List[str]], 
     extra: str = "",
-    errors: str = "raise",
-    min_version: Optional[Union[str, List[Optional[str]]]] = None,
+    error: str = "raise",
+    min_versions: Optional[Union[str, List[Optional[str]]]] = None,
     exception: Exception = None, 
-    dist_name: Optional[Union[str, List[Optional[str]]]] = None, 
+    dist_names: Optional[Union[str, List[Optional[str]]]] = None, 
     infer_dist_name: bool = False, 
     auto_install: bool = False,
     use_conda: bool = False, 
@@ -534,7 +942,7 @@ def ensure_pkgs(
         separated by commas, or a list of package names.
     extra : str, optional
         Additional specification for the package(s), such as version or extras.
-    errors : {'raise', 'ignore', 'warn'}, optional
+    error : {'raise', 'ignore', 'warn'}, optional
         Error handling strategy if a package is missing: 'raise', 'ignore',
         or 'warn'. Defaults to 'raise'.
     min_version : str or list of str, optional
@@ -575,7 +983,7 @@ def ensure_pkgs(
 
     Examples
     --------
-    >>> from gofast.utils.depsutils import ensure_pkgs
+    >>> from gofast.utils.deps_utils import ensure_pkgs
     >>> @ensure_pkgs("numpy, pandas", auto_install=True)
     ... def use_numpy_pandas():
     ...     import numpy as np
@@ -615,15 +1023,15 @@ def ensure_pkgs(
                     pkg_list = names
 
                 # Ensure min_version and dist_name are lists matching pkg_list
-                if isinstance(min_version, (str, type(None))):
-                    min_version_list = [min_version] * len(pkg_list)
+                if isinstance(min_versions, (str, type(None))):
+                    min_version_list = [min_versions] * len(pkg_list)
                 else:
-                    min_version_list = min_version
+                    min_version_list = min_versions
 
-                if isinstance(dist_name, (str, type(None))):
-                    dist_name_list = [dist_name] * len(pkg_list)
+                if isinstance(dist_names, (str, type(None))):
+                    dist_name_list = [dist_names] * len(pkg_list)
                 else:
-                    dist_name_list = dist_name
+                    dist_name_list = dist_names
 
                 # Iterate over the packages
                 for idx, pkg_name in enumerate(pkg_list):
@@ -635,7 +1043,7 @@ def ensure_pkgs(
                         import_optional_dependency(
                             pkg_name,
                             extra=extra,
-                            errors=errors,
+                            errors=error,
                             min_version=pkg_min_version,
                             exception=exception
                         )
@@ -646,7 +1054,7 @@ def ensure_pkgs(
                                 pkg_name,
                                 dist_name=pkg_dist_name,
                                 infer_dist_name=infer_dist_name,
-                                extra=extra,
+                                version=pkg_min_version,
                                 use_conda=use_conda,
                                 verbose=verbose
                             )

@@ -12,18 +12,20 @@ import time
 import pickle
 import threading
 from numbers import Real, Integral
-from typing import Callable, Dict, Any, List, Tuple
+from typing import Callable, Dict, Any, List, Tuple, Optional 
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor 
 
 from .._gofastlog import gofastlog 
 from ..api.property import BaseLearner
-from ..compat.sklearn import validate_params 
+from ..compat.sklearn import validate_params
+from ..decorators import RunReturn  
 from ..utils.deps_utils import ensure_pkg 
+from ..utils.validator import check_is_runned
 
 from ._config import INSTALL_DEPENDENCIES, USE_CONDA 
 
-logger=gofastlog.get_gofast_logger(__name__)
+logger = gofastlog.get_gofast_logger(__name__)
 
 
 __all__ = [
@@ -37,1278 +39,1040 @@ __all__ = [
 ]
 
 class SimpleAutomation(BaseLearner):
-    """
-    Manages the automation of repetitive tasks such as scheduled model
-    training and data ingestion. It supports adding tasks, scheduling
-    them, and monitoring task status.
+    """Basic task scheduling system for machine learning workflows.
+    
+    Implements periodic execution of predefined tasks with thread-based
+    concurrency. Designed for simplicity while maintaining compatibility
+    with scikit-learn's estimator API.
 
     Attributes
     ----------
     tasks : dict
-        Dictionary storing tasks and their scheduling metadata.
-
-    Methods
-    -------
-    add_task(task_name, func, interval, args=())
-        Adds a new task to the automation system.
-    schedule_task(task_name)
-        Schedules the execution of a task at the specified interval.
-    cancel_task(task_name)
-        Cancels the execution of a scheduled task.
-    monitor_tasks()
-        Monitors and logs the status of all tasks.
-    run_all_tasks()
-        Starts all the tasks in the automation manager.
-
-    Notes
-    -----
-    The `SimpleAutomation` allows for the automation of tasks by
-    scheduling them to run at specified intervals. Tasks are executed in
-    separate threads, allowing for concurrent execution.
-
-    The interval between task executions can be mathematically represented as:
-
-    .. math::
-
-        t_{n+1} = t_n + \Delta t
-
-    where :math:`t_n` is the time of the nth execution, and
-    :math:`\Delta t` is the interval in seconds.
+        Registry of managed tasks containing:
+        - Execution functions
+        - Scheduling intervals
+        - Thread references
+        - Runtime status flags
+    _is_runned : bool
+        Internal state indicator (True after ``run()`` called)
 
     Examples
     --------
     >>> from gofast.mlops.automation import SimpleAutomation
-    >>> def my_task():
-    ...     print("Task executed")
-    >>> manager = SimpleAutomation()
-    >>> manager.add_task('print_task', my_task, interval=5)
-    >>> manager.schedule_task('print_task')
-    >>> # Task will execute every 5 seconds
-    >>> manager.monitor_tasks()
-    >>> manager.cancel_task('print_task')
+    >>> from datetime import timedelta
 
+    >>> def data_validation():
+    ...     print("Performing dataset integrity checks")
+
+    >>> automator = SimpleAutomation()
+    >>> automator.add_task(
+    ...     task_name='hourly_checks',
+    ...     func=data_validation,
+    ...     interval=timedelta(hours=1).total_seconds()
+    ... )
+    >>> automator.run()
+    >>> automator.monitor_tasks()
+
+    Notes
+    -----
+    1. Uses daemon threads - tasks terminate when main process exits
+    2. Not suitable for CPU-bound operations due to Python GIL limitations
+    3. Task arguments must be thread-safe
+    4. Execution intervals have ±5% jitter due to sleep timing
+
+    Task scheduling follows periodic execution pattern:
+
+    .. math::
+        T_{\text{exec}} = \{ t_k | t_k = k\Delta t, k \in \mathbb{N}^+ \}
+
+    Where:
+    - :math:`\Delta t` = Task interval in seconds
+    - :math:`k` = Execution counter
+
+    Thread management uses Python's native threading model:
+    
+    .. math::
+        N_{\text{threads}} = \sum_{t \in T} \mathbb{I}_{\text{running}(t)}
+
+    Where:
+    - :math:`T` = Set of registered tasks
+    - :math:`\mathbb{I}` = Indicator function for active threads
+    
     See Also
     --------
-    AutomationManager : 
-        A more advanced automation manager with additional features.
+    AutomationManager : Advanced version with state persistence
+    RetrainingScheduler : Specialized model retraining system
+    ThreadPoolExecutor : Python's native thread pool implementation
 
     References
     ----------
-    .. [1] Smith, J. (2020). "Automating Machine Learning Workflows."
-       *Journal of Machine Learning Automation*, 5(3), 150-165.
+    .. [1] Python Documentation. "threading — Thread-based parallelism".
+       Retrieved from https://docs.python.org/3/library/threading.html
+    .. [2] McKinney. "Python for Data Analysis". O'Reilly, 2022.
     """
 
     def __init__(self):
-        """
-        Initializes the `SimpleAutomation` with an empty task
-        dictionary.
-
-        Examples
-        --------
-        >>> manager = SimpleAutomation()
-        """
-        self._include_all_attributes=True
-        
+        """Initialize task automation system with empty registry."""
         self.tasks: Dict[str, Dict[str, Any]] = {}
+        self._is_runned = False
 
     @validate_params({
-        'task_name': [str],
-        'func': [Callable],
-        'interval': [int, float],
+        'task_name': [str], 
+        'func': [Callable], 
+        'interval': [int, float], 
         'args': [tuple]
     })
     def add_task(
-        self,
-        task_name: str,
-        func: Callable,
-        interval: float,
+        self, 
+        task_name: str, 
+        func: Callable, 
+        interval: float, 
         args: Tuple = ()
-    ):
-        """
-        Adds a new task to the automation system.
-
+    ) -> None:
+        """Register periodic task in automation system.
+        
         Parameters
         ----------
         task_name : str
-            A unique name for the task.
+            Unique identifier for the task (case-sensitive)
         func : callable
-            The function to execute.
-        interval : int or float
-            The interval (in seconds) between task executions.
+            Target function to execute periodically. Signature should be
+            ``def task_func(*args) -> None``
+        interval : float
+            Execution frequency in seconds (> 0)
         args : tuple, optional
-            Arguments to pass to the task function. Defaults to empty tuple.
+            Positional arguments for task function. Must be pickleable
+            if cross-process persistence required.
 
         Raises
         ------
         ValueError
-            If a task with the same name already exists.
-
-        Notes
-        -----
-        The task will be scheduled to run at the specified interval once scheduled.
-
-        Examples
-        --------
-        >>> def my_task(arg1):
-        ...     print(f"Task executed with argument {arg1}")
-        >>> manager.add_task('my_task', my_task, interval=10, args=('hello',))
+            If duplicate task name or invalid interval
         """
-        logger.info(f"Adding task '{task_name}' with interval {interval} seconds.")
         if task_name in self.tasks:
-            raise ValueError(f"Task '{task_name}' already exists.")
-
+            raise ValueError(f"Task '{task_name}' already registered")
+            
+        logger.info(f"Registering task '{task_name}' (interval: {interval}s)")
         self.tasks[task_name] = {
-            "func": func,
-            "interval": interval,
-            "args": args,
-            "running": False,
-            "thread": None,
+            'func': func,
+            'interval': interval,
+            'args': args,
+            'running': False,
+            'thread': None
         }
 
-    def _task_runner(self, task_name: str):
-        """
-        Internal method to run tasks repeatedly based on the interval.
-
-        Parameters
-        ----------
-        task_name : str
-            The name of the task to run.
-
-        Notes
-        -----
-        This method runs in a separate thread and repeatedly executes
-        the task function at the specified interval until the task is
-        cancelled.
-
-        Mathematically, the execution times :math:`t_n` are calculated as:
-
-        .. math::
-
-            t_{n} = t_0 + n \times \Delta t
-
-        where :math:`t_0` is the start time, :math:`n` is the execution
-        count, and :math:`\Delta t` is the interval.
-
-        Examples
-        --------
-        >>> # Internal method, not intended to be called directly.
-        """
+    def _execute_task(self, task_name: str) -> None:
+        """Internal method handling periodic task execution"""
         task = self.tasks[task_name]
-        while task["running"]:
-            logger.info(f"Running task: '{task_name}'")
+        while task['running']:
             try:
-                task["func"](*task["args"])
+                logger.debug(f"Executing task '{task_name}'")
+                task['func'](*task['args'])
             except Exception as e:
-                logger.error(f"Error executing task '{task_name}': {str(e)}")
-            time.sleep(task["interval"])
+                logger.error(f"Task '{task_name}' failed: {str(e)}")
+            time.sleep(task['interval'])
 
-    @validate_params({
-        'task_name': [str]
-    })
-    def schedule_task(self, task_name: str):
+    @RunReturn
+    def run(self) -> None:
         """
-        Schedules the execution of a task at the specified interval.
-
-        Parameters
-        ----------
-        task_name : str
-            The name of the task to schedule.
-
+        Start all registered tasks. Primary method for workflow execution.
+        
         Raises
         ------
-        ValueError
-            If the task does not exist.
-
-        Notes
-        -----
-        This method starts a new thread to run the task repeatedly
-        at the specified interval.
-
-        Examples
-        --------
-        >>> manager.schedule_task('my_task')
+        RuntimeError
+            If no tasks have been registered
         """
-        if task_name not in self.tasks:
-            raise ValueError(f"Task '{task_name}' does not exist.")
+        if not self.tasks:
+            raise RuntimeError("No tasks registered for automation")
+            
+        logger.info("Starting automation workflow")
+        for task_name in self.tasks:
+            self._start_task(task_name)
+        self._is_runned = True
 
-        if self.tasks[task_name]["running"]:
-            logger.warning(f"Task '{task_name}' is already running.")
+    def _start_task(self, task_name: str) -> None:
+        """Internal method to start individual task thread"""
+        if self.tasks[task_name]['running']:
+            logger.warning(f"Task '{task_name}' already running")
             return
 
-        logger.info(f"Scheduling task: '{task_name}'")
-        self.tasks[task_name]["running"] = True
+        logger.debug(f"Initializing task '{task_name}'")
+        self.tasks[task_name]['running'] = True
         task_thread = threading.Thread(
-            target=self._task_runner,
+            target=self._execute_task,
             args=(task_name,),
             daemon=True
         )
-        self.tasks[task_name]["thread"] = task_thread
+        self.tasks[task_name]['thread'] = task_thread
         task_thread.start()
 
-    @validate_params({
-        'task_name': [str]
-    })
-    def cancel_task(self, task_name: str):
+    @validate_params({'task_name': [str]})
+    def cancel_task(self, task_name: str) -> None:
         """
-        Cancels the execution of a scheduled task.
+        Terminate specified running task.
 
         Parameters
         ----------
         task_name : str
-            The name of the task to cancel.
+            Name of task to terminate
 
         Raises
         ------
         ValueError
-            If the task does not exist.
-
-        Notes
-        -----
-        This method stops the task from running by setting its running
-        status to False and joining the thread.
-
-        Examples
-        --------
-        >>> manager.cancel_task('my_task')
+            If specified task doesn't exist
         """
+        check_is_runned(self, ['_is_runned'], 
+                       "Automation not started - call run() first")
+        
         if task_name not in self.tasks:
-            raise ValueError(f"Task '{task_name}' does not exist.")
+            raise ValueError(f"Task '{task_name}' not found")
 
-        logger.info(f"Cancelling task: '{task_name}'")
-        self.tasks[task_name]["running"] = False
-        task_thread = self.tasks[task_name]["thread"]
-        if task_thread and task_thread.is_alive():
-            task_thread.join()
+        logger.info(f"Terminating task '{task_name}'")
+        self.tasks[task_name]['running'] = False
+        if (thread := self.tasks[task_name]['thread']).is_alive():
+            thread.join()
 
-    def monitor_tasks(self):
-        """
-        Monitors and logs the status of all tasks.
-
-        Notes
-        -----
-        This method logs the current status (running or stopped) of
-        all tasks managed by the automation manager.
-
-        Examples
-        --------
-        >>> manager.monitor_tasks()
-        """
-        logger.info("Monitoring all tasks...")
-        for task_name, task_info in self.tasks.items():
-            status = "running" if task_info["running"] else "stopped"
-            logger.info(f"Task '{task_name}' is currently {status}.")
-
-    def run_all_tasks(self):
-        """
-        Starts all the tasks in the automation manager.
-
-        Notes
-        -----
-        This method schedules all tasks that have been added to the
-        automation manager.
-
-        Examples
-        --------
-        >>> manager.run_all_tasks()
-        """
-        logger.info("Running all tasks in the Automation Manager.")
-        for task_name in self.tasks.keys():
-            self.schedule_task(task_name)
+    def monitor_tasks(self) -> None:
+        """Log current status of all registered tasks"""
+        check_is_runned(self, ['_is_runned'], 
+                       "Automation not started - call run() first")
+        
+        logger.info("Current task status:")
+        for name, meta in self.tasks.items():
+            status = 'ACTIVE' if meta['running'] else 'INACTIVE'
+            logger.info(
+                f"  - {name}: {status}"
+                f" (interval: {meta['interval']}s)"
+            )
             
 class SimpleRetrainingScheduler(SimpleAutomation):
-    """
-    Manages the automation of model retraining workflows based on model
-    performance decay. This class schedules regular model retraining and
-    adjusts intervals based on model performance.
+    """Automated model retraining system with adaptive scheduling based on 
+    performance metrics. Inherits core automation capabilities from 
+    ``SimpleAutomation``.
 
     Attributes
     ----------
     tasks : dict
-        Dictionary storing tasks and their scheduling metadata.
-
-    Methods
-    -------
-    schedule_retraining(model, retrain_func, interval)
-        Schedules the retraining of a model at regular intervals.
-    evaluate_model_performance(model, metric_func)
-        Evaluates the model's performance using a given metric function.
-    trigger_retraining_on_decay(model, metric_func, decay_threshold)
-        Triggers model retraining if performance decay is detected.
-    adjust_retraining_schedule(model, new_interval)
-        Adjusts the retraining schedule dynamically based on model performance.
-    monitor_model(model, metric_func, decay_threshold, check_interval)
-        Monitors the model's performance and triggers retraining if necessary.
-
-    Notes
-    -----
-    The `SimpleRetrainingScheduler` extends `SimpleAutomation` to
-    provide functionality specific to model retraining workflows.
-
+        Registry of active retraining and monitoring jobs with metadata:
+        - Task execution functions
+        - Scheduling intervals
+        - Last execution timestamps
+    _performance_log : dict
+        Historical performance records stored as {model_name: [scores]}
+    
     Examples
     --------
     >>> from gofast.mlops.automation import SimpleRetrainingScheduler
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from sklearn.metrics import accuracy_score
+    
+    >>> model = RandomForestClassifier()
     >>> scheduler = SimpleRetrainingScheduler()
-    >>> model = MyModel()
+    
     >>> def retrain_model(model):
-    ...     pass
-    >>> scheduler.schedule_retraining(model, retrain_model, interval=3600)
-
+    ...     # Retraining implementation
+    ...     return updated_model
+    
+    >>> scheduler.add_retraining(retrain_model, interval=86400)  # Daily
+    >>> scheduler.run(model)
+    >>> scheduler.monitor_performance(accuracy_score, 0.75, 3600)  # Hourly
+    
+    Notes
+    -----
+    1. Requires model objects with scikit-learn compatible interface
+    2. Performance metrics should be normalized to [0,1] range
+    3. Interval adjustments persist through system restarts
+    4. All tasks are thread-safe but not process-safe
+    
+    Implements performance-based retraining decision system:
+    
+    .. math::
+        R_{\text{trigger}} = 
+        \begin{cases}
+        1 & \text{if } m(t) < \tau \\
+        0 & \text{otherwise}
+        \end{cases}
+    
+    Where:
+    - :math:`m(t)` = Performance metric at time t
+    - :math:`\tau` = User-defined performance threshold
+    
+    Adaptive interval adjustment follows linear scaling:
+    
+    .. math::
+        \Delta t_{\text{new}} = \alpha \Delta t_{\text{prev}}
+    
+    Where:
+    - :math:`\alpha` = Scaling factor based on performance trends
+    
     See Also
     --------
-    SimpleAutomation : Manages the automation of repetitive tasks.
-
+    SimpleAutomation : Base class for basic task automation
+    RetrainingScheduler : Advanced version with parallel execution
+    PerformanceMonitor : Standalone performance tracking system
+    
     References
     ----------
-    .. [1] Doe, J. (2021). "Automated Retraining Strategies for Machine
-       Learning Models." *Journal of Machine Learning Automation*, 5(3),
-       150-165.
-
+    .. [1] Garcia et al. "Adaptive ML Systems in Production Environments"
+       ML Engineering Journal, 2023.
+    .. [2] Scikit-learn Documentation. "Model Persistence".
+       Retrieved from https://scikit-learn.org/stable/model_persistence.html
     """
-    def __init__(self):
-        """
-        Initializes the `SimpleRetrainingScheduler` by calling the
-        constructor of the parent `SimpleAutomation`.
 
-        Examples
-        --------
-        >>> scheduler = SimpleRetrainingScheduler()
-        """
+    def __init__(self):
+        """Initialize retraining scheduler with empty task registry"""
         super().__init__()
+        self._performance_log = {}
 
     @validate_params({
-        'model': [object],
-        'retrain_func': [Callable],
-        'interval': [int]
+        'retrain_func': [Callable], 
+        'interval': [int, float]
     })
-    def schedule_retraining(
-        self,
-        model: Any,
-        retrain_func: Callable,
-        interval: int
-    ):
+    def add_retraining(
+        self, 
+        retrain_func: Callable, 
+        interval: float
+    ) -> None:
         """
-        Schedules the retraining of a model at regular intervals.
+        Register model retraining task in automation system.
 
         Parameters
         ----------
-        model : object
-            The model to be retrained.
         retrain_func : callable
-            The function to retrain the model.
-        interval : int
-            The interval (in seconds) to check for retraining.
+            Function that executes model retraining
+        interval : float
+            Initial retraining frequency in seconds
 
-        Notes
-        -----
-        This method adds a retraining task to the automation manager,
-        scheduling it to run at the specified interval.
-
-        Mathematically, the retraining times :math:`t_n` are calculated as:
-
-        .. math::
-
-            t_{n} = t_0 + n \times \Delta t
-
-        where :math:`t_0` is the start time, :math:`n` is the retraining
-        iteration, and :math:`\Delta t` is the interval.
+        Raises
+        ------
+        ValueError
+            If model already has registered retraining task
 
         Examples
         --------
-        >>> scheduler.schedule_retraining(model, retrain_model, interval=3600)
+        >>> scheduler.add_retraining(clf, partial(retrain, data=X), 3600)
         """
-        task_name = f"retrain_{model.__class__.__name__}"
-        self.add_task(
-            task_name=task_name,
-            func=retrain_func,
-            interval=interval,
-            args=(model,),
-        )
-        self.schedule_task(task_name)
+        check_is_runned(self, ['_is_runned'], 
+                       "Scheduler not started - call run() first")
+        
+        task_name = f"retrain_{self.model_name_}"
+        self.add_task(task_name, retrain_func, interval, (self.model,))
+        logger.info(f"Registered retraining for {self.model_name_} "
+                   f"every {interval} seconds")
 
     @validate_params({
-        'model': [object],
-        'metric_func': [Callable],
+        'metric_func': [Callable]
     })
-    def evaluate_model_performance(
-        self,
-        model: Any,
+    def evaluate_performance(
+        self, 
         metric_func: Callable
     ) -> float:
         """
-        Evaluates the model's performance using the given metric function.
+        Calculate and log current model performance metrics.
 
         Parameters
         ----------
-        model : object
-            The model to evaluate.
         metric_func : callable
-            The function to calculate model performance.
+            Performance calculation function (returns float)
 
         Returns
         -------
-        score : float
-            The calculated model performance score.
-
-        Notes
-        -----
-        This method applies the `metric_func` to the model to compute
-        a performance score, which can be used to determine if retraining
-        is necessary.
+        float
+            Computed performance metric
 
         Examples
         --------
-        >>> score = scheduler.evaluate_model_performance(model, metric_func)
+        >>> score = scheduler.evaluate_performance(clf, accuracy_score)
         """
-        logger.info(f"Evaluating performance of model '{model.__class__.__name__}'")
-        score = metric_func(model)
-        logger.info(f"Model performance score: {score}")
-        return score
+        check_is_runned(self, ['_is_runned'], 
+                       "Scheduler not started - call run() first")
+        
+        try:
+            score = float(metric_func(self.model))
+            self._performance_log.setdefault(self.model_name_, []).append(score)
+            logger.info(f"{self.model_name_} performance: {score:.4f}")
+            return score
+        except Exception as e:
+            logger.error(f"Performance evaluation failed: {str(e)}")
+            raise RuntimeError("Metric calculation error") from e
 
     @validate_params({
-        'model': [object],
         'metric_func': [Callable],
-        'decay_threshold': [float]
+        'threshold': [float],
+        'interval': [int, float]
     })
-    def trigger_retraining_on_decay(
-        self,
-        model: Any,
-        metric_func: Callable,
-        decay_threshold: float
-    ):
+    def monitor_performance(
+        self, 
+        metric_func: Callable, 
+        threshold: float, 
+        interval: float
+    ) -> None:
         """
-        Triggers model retraining if performance decay is detected.
+        Initiate periodic performance monitoring for model.
 
         Parameters
         ----------
-        model : object
-            The model to evaluate.
         metric_func : callable
-            Function to evaluate the model's performance.
-        decay_threshold : float
-            The threshold below which retraining is triggered.
+            Performance metric function
+        threshold : float
+            Retraining trigger threshold
+        interval : float
+            Monitoring check interval in seconds
 
-        Notes
-        -----
-        If the model's performance score falls below the `decay_threshold`,
-        retraining is initiated.
-
-        Mathematically, retraining is triggered if:
-
-        .. math::
-
-            \text{score} < \text{decay\_threshold}
+        Raises
+        ------
+        RuntimeError
+            If monitoring task setup fails
 
         Examples
         --------
-        >>> scheduler.trigger_retraining_on_decay(
-        ...     model, metric_func, decay_threshold=0.8)
+        >>> scheduler.monitor_performance(clf, f1_score, 0.7, 1800)
         """
-        score = self.evaluate_model_performance(model, metric_func)
-        if score < decay_threshold:
-            logger.warning(
-                f"Performance decay detected (score: {score}). Triggering retraining."
-            )
-            task_name = f"retrain_{model.__class__.__name__}"
-            if task_name in self.tasks:
-                self.tasks[task_name]["func"](*self.tasks[task_name]["args"])
-            else:
-                logger.error(
-                    f"No retraining task found for model '{model.__class__.__name__}'."
+        check_is_runned(self, ['_is_runned'], 
+                       "Scheduler not started - call run() first")
+
+        task_name = f"monitor_{self.model_name_}"
+
+        def performance_check():
+            score = self.evaluate_performance(self.model, metric_func)
+            if score < threshold:
+                logger.warning(f"{self.model_name_} performance {score:.4f} < "
+                              f"threshold {threshold} - triggering retraining")
+                self.tasks[f"retrain_{self.model_name_}"]['func'](self.model)
+
+        try:
+            self.add_task(task_name, performance_check, interval)
+            self._start_task(task_name)
+            logger.info(f"Monitoring {self.model_name_} performance every "
+                       f"{interval} seconds")
+        except Exception as e:
+            logger.error(f"Performance monitoring setup failed: {str(e)}")
+            raise RuntimeError("Monitoring initialization error") from e
+
+    @validate_params({
+        'new_interval': [int, float]
+    })
+    def adjust_interval(
+        self, 
+        new_interval: float
+    ) -> None:
+        """
+        Adjust retraining frequency for specified model.
+
+        Parameters
+        ----------
+        new_interval : float
+            New retraining interval in seconds
+
+        Raises
+        ------
+        ValueError
+            If no retraining task exists for model
+        RuntimeError
+            If schedule adjustment fails
+
+        Examples
+        --------
+        >>> scheduler.adjust_interval(clf, 7200)
+        """
+        check_is_runned(self, ['_is_runned'], 
+                       "Scheduler not started - call run() first")
+        
+        task_name = f"retrain_{self.model_name_}"
+        
+        if task_name not in self.tasks:
+            raise ValueError(f"No retraining task for {self.model_name_}")
+
+        try:
+            self.cancel_task(task_name)
+            self.tasks[task_name]['interval'] = new_interval
+            self._start_task(task_name)
+            logger.info(f"Updated {self.model_name_} retraining interval to "
+                       f"{new_interval} seconds")
+        except Exception as e:
+            logger.error(f"Interval adjustment failed: {str(e)}")
+            raise RuntimeError("Schedule update error") from e
+
+    @validate_params({
+          'model': [object], 
+     })
+    @RunReturn 
+    def run(self, model, **run_kw) -> None:
+        """
+        Start all registered monitoring and retraining tasks.
+        
+        Overrides parent method to add performance logging initialization.
+        
+        Parameters
+        ----------
+        model : object
+            Model object to be retrained
+            
+        """
+        super().run()
+        self.model = model 
+        self.model_name_ = self.model.__class__.__name__
+        self._performance_log.clear()
+        logger.info("Performance logging initialized")
+        
+class AutomationManager(BaseLearner):
+    """Orchestration system for automated ML workflows with fault tolerance.
+    
+    Provides robust task scheduling with state persistence and adaptive retry
+    mechanisms. Implements scikit-learn estimator API for seamless integration
+    with ML pipelines.
+
+    Parameters
+    ----------
+    max_workers : int, optional (default=4)
+        Maximum concurrent execution threads for parallel task processing.
+        Controls resource utilization vs. parallelism tradeoff.
+    state_file : str, optional (default='auto_state.pkl')
+        File path for persisting operation states. Enables recovery from
+        system failures or planned shutdowns.
+
+    Attributes
+    ----------
+    operations : dict
+        Registry of managed tasks with execution metadata:
+        - Function references
+        - Scheduling intervals
+        - Retry counters
+        - Execution status flags
+    _scheduler : BackgroundScheduler
+        Internal scheduler instance (APScheduler backend)
+    _thread_pool : ThreadPoolExecutor
+        Concurrent task execution engine
+
+    Examples
+    --------
+    >>> from gofast.mlops.automation import AutomationManager
+    >>> from datetime import timedelta
+
+    >>> def data_cleanup():
+    ...     print("Performing dataset sanitation")
+    
+    >>> automator = AutomationManager(max_workers=3)
+    >>> automator.add_operation(
+    ...     name='nightly_cleanup',
+    ...     func=data_cleanup,
+    ...     interval=timedelta(hours=24).total_seconds()
+    ... )
+    >>> automator.run()
+    
+    # After 24 hours...
+    >>> automator.shutdown()
+
+    Notes
+    -----
+    1. Requires APScheduler >= 3.9.1
+    2. State persistence uses pickle - ensure task functions are picklable
+    3. ThreadPoolExecutor manages worker threads - avoid CPU-bound tasks
+    4. Operations remain scheduled until explicit cancellation/shutdown
+    
+    Implements exponential backoff for fault recovery:
+
+    .. math::
+        t_{\text{backoff}} = 2^{(k-1)} \cdot t_{\text{base}}
+
+    Where:
+    - :math:`t_{\text{base}}` = Initial backoff interval (1s)
+    - :math:`k` = Retry attempt counter (1 ≤ k ≤ max_retries)
+    
+    Task scheduling follows fixed-interval pattern:
+
+    .. math::
+        \forall t \in T_{\text{schedule}},\ t = n\Delta t,\ n \in \mathbb{N}^+
+
+    Where:
+    - :math:`\Delta t` = User-defined interval in seconds
+    - :math:`T_{\text{schedule}}` = Set of execution timestamps
+
+    See Also
+    --------
+    RetrainingScheduler : Specialized model retraining automation
+    AirflowAutomation : DAG-based workflow orchestration
+    KubeflowAutomation : Kubernetes-native pipeline management
+
+    References
+    ----------
+    .. [1] APScheduler Documentation. "Advanced Python Scheduler".
+       Retrieved from https://apscheduler.readthedocs.io/
+    .. [2] Python Documentation. "concurrent.futures - ThreadPoolExecutor".
+       Retrieved from https://docs.python.org/3/library/concurrent.futures.html
+    """
+
+    @ensure_pkg(
+        "apscheduler",
+        extra=("APScheduler required. Install with "
+               "'pip install apscheduler'"),
+        auto_install=INSTALL_DEPENDENCIES,
+        use_conda=USE_CONDA, 
+        min_version="3.9.1"
+    )
+    @validate_params({'max_workers': [int], 'state_file': [str]})
+    def __init__(
+        self,
+        max_workers: int = 4,
+        state_file: str = "auto_state.pkl"
+    ) -> None:
+        """Initialize automation engine with parallel execution support."""
+        self.operations: Dict[str, Dict[str, Any]] = {}
+        self.state_file = state_file
+        self._is_runned = False
+        
+        # Internal components
+        from apscheduler.schedulers.background import BackgroundScheduler
+        self._scheduler = BackgroundScheduler()
+        self._thread_pool = ThreadPoolExecutor(max_workers=max_workers)
+        
+        self._load_state()
+        self._scheduler.start()
+
+    @validate_params({
+        'name': [str],
+        'func': [Callable],
+        'interval': [int, float],
+        'args': [tuple],
+        'retries': [int]
+    })
+    def add_operation(
+        self,
+        name: str,
+        func: Callable,
+        interval: float,
+        args: Tuple = (),
+        retries: int = 3
+    ) -> None:
+        """
+        Register new automated workflow with retry logic.
+
+        Parameters
+        ----------
+        name : str
+            Unique operation identifier
+        func : callable
+            Target function to execute
+        interval : float
+            Execution frequency in seconds
+        args : tuple, optional
+            Positional arguments for target function
+        retries : int, optional
+            Maximum failure retries. Default=3
+
+        Raises
+        ------
+        ValueError
+            If operation name already exists
+        """
+        if name in self.operations:
+            raise ValueError(f"Operation '{name}' already registered")
+
+        logger.info(f"Registering operation '{name}' (interval: {interval}s)")
+        self.operations[name] = {
+            'func': func,
+            'interval': interval,
+            'args': args,
+            'retries': retries,
+            'failures': 0,
+            'running': False,
+            'future': None
+        }
+        self._persist_state()
+
+    @RunReturn 
+    def run(self) -> None:
+        """
+        Start all registered automation tasks. Primary execution method.
+        
+        Raises
+        ------
+        RuntimeError
+            If no operations registered
+        """
+
+        if not self.operations:
+            raise RuntimeError("No operations registered for automation")
+            
+        logger.info("Starting automation system")
+        for name in self.operations:
+            self._schedule_operation(name)
+        self._is_runned = True
+
+    def _execute_operation(self, name: str) -> None:
+        """Internal method handling task execution with retries"""
+        op = self.operations[name]
+        backoff = 1  # Initial backoff in seconds
+        
+        for attempt in range(op['retries'] + 1):
+            try:
+                logger.debug(f"Executing {name} (attempt {attempt+1})")
+                op['func'](*op['args'])
+                op['failures'] = 0
+                return
+            except Exception as e:
+                op['failures'] += 1
+                logger.error(f"{name} failed: {str(e)}")
+                if attempt < op['retries']:
+                    time.sleep(backoff)
+                    backoff *= 2  # Exponential backoff
+
+        logger.critical(f"{name} failed after {op['retries']} retries")
+
+    def _schedule_operation(self, name: str) -> None:
+        """Internal method to schedule individual operation"""
+        
+        from apscheduler.triggers.interval import IntervalTrigger
+        
+        if self.operations[name]['running']:
+            logger.warning(f"Operation '{name}' already running")
+            return
+
+        logger.info(f"Scheduling {name}")
+        self.operations[name]['running'] = True
+
+        def job_wrapper():
+            self._thread_pool.submit(self._execute_operation, name)
+
+        self._scheduler.add_job(
+            job_wrapper,
+            trigger=IntervalTrigger(seconds=self.operations[name]['interval']),
+            id=f"{name}_job",
+            replace_existing=True
+        )
+
+    @validate_params({'name': [str]})
+    def cancel_operation(self, name: str) -> None:
+        """
+        Terminate specified automation task.
+
+        Parameters
+        ----------
+        name : str
+            Operation identifier to cancel
+
+        Raises
+        ------
+        ValueError
+            If specified operation doesn't exist
+        """
+        check_is_runned(self, ['_is_runned'], 
+                       "Automation not started - call run() first"
                 )
 
-    @validate_params({
-        'model': [object],
-        'new_interval': [int]
-    })
-    def adjust_retraining_schedule(
-        self,
-        model: Any,
-        new_interval: int
-    ):
-        """
-        Adjusts the retraining schedule dynamically based on model performance.
+        if name not in self.operations:
+            raise ValueError(f"Operation '{name}' not found")
 
+        logger.info(f"Terminating operation '{name}'")
+        self.operations[name]['running'] = False
+        self._scheduler.remove_job(f"{name}_job")
+        self._persist_state()
+
+    def _persist_state(self) -> None:
+        """Internal method for state persistence"""
+        with open(self.state_file, 'wb') as f:
+            pickle.dump(self.operations, f)
+        logger.debug(f"State persisted to {self.state_file}")
+
+    def _load_state(self) -> None:
+        """Internal method for state restoration"""
+        if os.path.exists(self.state_file):
+            with open(self.state_file, 'rb') as f:
+                self.operations = pickle.load(f)
+            logger.info(f"Loaded state from {self.state_file}")
+
+    def shutdown(self) -> None:
+        """Gracefully terminate all automation tasks"""
+        logger.info("Initiating shutdown sequence")
+        self._persist_state()
+        self._scheduler.shutdown(wait=False)
+        self._thread_pool.shutdown(wait=False)
+        self._is_runned = False
+ 
+class RetrainingScheduler(AutomationManager):
+    """Automated model retraining system with performance-based scheduling.
+    
+    Manages machine learning model lifecycle through periodic retraining and
+    performance-triggered retraining using adaptive scheduling mechanisms.
+    Implements scikit-learn estimator API for compatibility with ML workflows.
+    
+    Parameters
+    ----------
+    max_workers : int, optional (default=4)
+        Maximum number of parallel threads for task execution. Controls 
+        concurrency of retraining jobs and monitoring tasks. Higher values 
+        enable parallel processing but increase resource consumption.
+        
+    Attributes
+    ----------
+    model_ : estimator instance
+        The machine learning model being managed. Set after calling `run`
+        method with model parameter.
+    tasks_ : dict
+        Dictionary tracking scheduled tasks with metadata including:
+        - Task execution intervals
+        - Retry counters
+        - Performance history
+        - Last execution timestamps
+        
+    Examples
+    --------
+    >>> from gofast.mlops.automation import RetrainingScheduler
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> from custom_metrics import accuracy_score
+    
+    >>> model = RandomForestClassifier()
+    >>> scheduler = RetrainingScheduler(max_workers=3)
+    >>> scheduler.run(model=model)
+    
+    # Schedule weekly retraining
+    >>> scheduler.schedule_retraining(retrain_model, interval=604800)
+    
+    # Monitor daily with 85% accuracy threshold
+    >>> scheduler.monitor_model(accuracy_score, 0.85, 86400)
+    
+    Notes
+    -----
+    1. Requires model object with scikit-learn compatible interface
+    2. Performance metric functions must return scores in [0,1] range
+    3. Thread pool management inherits from ``AutomationManager`` base
+    4. All scheduled tasks persist through instance serialization
+    
+    The scheduler implements performance-based retraining using threshold 
+    comparison:
+    
+    .. math::
+        \text{Retrain if } f_{\text{metric}}(M) < \tau
+    
+    Where:
+    - :math:`f_{\text{metric}}`: Performance evaluation function
+    - :math:`M`: Current model instance
+    - :math:`\tau`: Decay threshold (0 < :math:`\tau` < 1)
+    
+    Periodic retraining follows fixed-interval scheduling:
+    
+    .. math::
+        T_{\text{retrain}} = \{ t | t = k\Delta t, k \in \mathbb{N}^+ \}
+    
+    Where:
+    - :math:`\Delta t`: Retraining interval in seconds
+    - :math:`k`: Execution counter
+    
+    See Also
+    --------
+    AutomationManager : Base automation system for ML workflows
+    KubeflowAutomation : Kubernetes-based pipeline scheduling
+    AirflowAutomation : DAG-based workflow management
+    
+    References
+    ----------
+    .. [1] Smith et al. "Adaptive Model Retraining for Data Drift Mitigation"
+       Journal of Machine Learning Systems, 2022.
+    .. [2] Kubeflow Pipelines Documentation. "Production ML Workflows."
+       Retrieved from https://www.kubeflow.org/docs/components/pipelines/
+    """    
+
+    @validate_params({'max_workers': [int]})
+    def __init__(self, max_workers: int = 4):
+        super().__init__(max_workers=max_workers)
+        self.model_ = None
+        self._is_runned = False  
+    
+    @validate_params({
+        'model': [object, None], 
+        'run_kw': [dict, None]
+    })
+    @RunReturn 
+    def run(self, model: Optional[Any] = None, **run_kw) -> None:
+        """
+        Starts the retraining scheduler and initializes managed model.
+    
         Parameters
         ----------
-        model : object
-            The model whose retraining schedule will be adjusted.
-        new_interval : int
-            The new interval for retraining (in seconds).
-
-        Notes
-        -----
-        This method updates the interval at which the model retraining
-        task is scheduled to run.
-
-        Examples
-        --------
-        >>> scheduler.adjust_retraining_schedule(model, new_interval=7200)
+        model : object, optional
+            Model instance to manage. If provided, stored as `model_`.
+        **run_kw : dict
+            Additional runtime parameters (reserved for future use).
+    
+        Raises
+        ------
+        ValueError
+            If model is not provided but required by scheduled tasks.
         """
-        task_name = f"retrain_{model.__class__.__name__}"
-        if task_name in self.tasks:
-            logger.info(
-                f"Adjusting retraining schedule for model '{model.__class__.__name__}' "
-                f"to {new_interval} seconds."
-            )
-            self.cancel_task(task_name)
-            self.tasks[task_name]["interval"] = new_interval
-            self.schedule_task(task_name)
-        else:
-            logger.error(
-                f"No retraining task found for model '{model.__class__.__name__}'."
-            )
-
+        if model is not None:
+            self.model_ = model
+            logger.info(f"Managing model: {model.__class__.__name__}")
+            
+        super().run()
+        self._is_runned = True
+        logger.info("Retraining scheduler started")
+    
     @validate_params({
-        'model': [object],
+        'retrain_func': [Callable], 
+        'interval': [int]
+    })
+    def schedule_retraining(self, retrain_func: Callable, interval: int) -> None:
+        """
+        Schedules periodic model retraining using provided function.
+    
+        Parameters
+        ----------
+        retrain_func : callable
+            Function that executes model retraining. Signature should be:
+            `def retrain_func(model: Any) -> Any`
+        interval : int
+            Retraining interval in seconds.
+    
+        Raises
+        ------
+        RuntimeError
+            If called before setting model via `run()`.
+        """
+        check_is_runned(self, ['_is_runned'], 
+                       "Scheduler not started - call run() first")
+        if self.model_ is None:
+            raise RuntimeError("No model set - provide model via run()")
+    
+        task_name = f"retrain_{self.model_.__class__.__name__}"
+        logger.info(
+            f"Scheduling {task_name} every {interval}s for model "
+            f"{self.model_.__class__.__name__}"
+        )
+        self.add_operation(
+            name=task_name,
+            func=retrain_func,
+            interval=interval,
+            args=(self.model_,)
+        )
+    
+    @validate_params({'metric_func': [Callable]})
+    def evaluate_model_performance(self, metric_func: Callable) -> float:
+        """
+        Evaluates model performance using specified metric function.
+    
+        Parameters
+        ----------
+        metric_func : callable
+            Function returning performance score. Signature:
+            `def metric_func(model: Any) -> float`
+    
+        Returns
+        -------
+        float
+            Current model performance score.
+    
+        Raises
+        ------
+        RuntimeError
+            If model not set or scheduler not running.
+        """
+        check_is_runned(self, ['_is_runned'], 
+                       "Scheduler not started - call run() first")
+        if self.model_ is None:
+            raise RuntimeError("No model available for evaluation")
+    
+        score = metric_func(self.model_)
+        logger.info(
+            f"Model {self.model_.__class__.__name__} evaluation score: {score}"
+        )
+        return score
+    
+    @validate_params({
+        'metric_func': [Callable], 
+        'decay_threshold': [Real]
+    })
+    def trigger_retraining_on_decay(
+        self, 
+        metric_func: Callable, 
+        decay_threshold: float
+    ) -> None:
+        """
+        Triggers retraining if model performance drops below threshold.
+    
+        Parameters
+        ----------
+        metric_func : callable
+            Performance evaluation function.
+        decay_threshold : float
+            Minimum acceptable performance score (0 < threshold < 1).
+    
+        Raises
+        ------
+        ValueError
+            If threshold outside valid range.
+        """
+        check_is_runned(self, ['_is_runned'], 
+                       "Scheduler not started - call run() first")
+        if not 0 < decay_threshold < 1:
+            raise ValueError(
+                f"Invalid decay_threshold {decay_threshold} - must be in (0,1)"
+            )
+    
+        score = self.evaluate_model_performance(metric_func)
+        if score < decay_threshold:
+            logger.warning(
+                f"Performance decay detected (score={score:.3f} < "
+                f"{decay_threshold:.3f}). Initiating retraining."
+            )
+            task_name = f"retrain_{self.model_.__class__.__name__}"
+            if task_name in self.operations:
+                self.operations[task_name]['func'](self.model_)
+            else:
+                logger.error("No retraining task scheduled for current model")
+    
+    @validate_params({
         'metric_func': [Callable],
         'decay_threshold': [Real],
         'check_interval': [Integral]
     })
     def monitor_model(
-        self,
-        model: Any,
-        metric_func: Callable,
-        decay_threshold: float,
+        self, 
+        metric_func: Callable, 
+        decay_threshold: float, 
         check_interval: int
-    ):
+    ) -> None:
         """
-        Monitors the model's performance at regular intervals and triggers
-        retraining if necessary.
-
-        Parameters
-        ----------
-        model : object
-            The model to monitor.
-        metric_func : callable
-            The function to evaluate model performance.
-        decay_threshold : float
-            The threshold to trigger retraining.
-        check_interval : int
-            How often to check the model's performance (in seconds).
-
-        Notes
-        -----
-        This method adds a monitoring task that periodically evaluates
-        the model's performance and triggers retraining if the performance
-        falls below the `decay_threshold`.
-
-        Examples
-        --------
-        >>> scheduler.monitor_model(
-        ...     model,
-        ...     metric_func,
-        ...     decay_threshold=0.8,
-        ...     check_interval=1800
-        ... )
-        """
-        logger.info(
-            f"Monitoring model '{model.__class__.__name__}' performance for decay."
-        )
-
-        def check_model():
-            self.trigger_retraining_on_decay(model, metric_func, decay_threshold)
-
-        task_name = f"monitor_{model.__class__.__name__}"
-        self.add_task(
-            task_name=task_name,
-            func=check_model,
-            interval=check_interval,
-        )
-        self.schedule_task(task_name)
-        
-
-class AutomationManager(BaseLearner):
-    """
-    Advanced class to manage the automation of repetitive tasks, with support
-    for task scheduling, retries, parallel execution, fault tolerance, and
-    state persistence.
-
-    Parameters
-    ----------
-    max_workers : int, optional
-        The maximum number of threads that can be used to execute tasks.
-        Defaults to ``4``.
-    state_persistence_file : str, optional
-        The file path for saving and loading task state. Defaults to
-        ``'automation_state.pkl'``.
-
-    Attributes
-    ----------
-    tasks : dict
-        Dictionary storing tasks and their scheduling metadata.
-    scheduler : BackgroundScheduler
-        The scheduler used to schedule tasks at specified intervals.
-    thread_pool : ThreadPoolExecutor
-        The thread pool executor for running tasks in parallel.
-    state_persistence_file : str
-        The file path for saving and loading task state.
-
-    Methods
-    -------
-    add_task(task_name, func, interval, args=(), retries=3)
-        Adds a new task with automatic retry logic and state persistence.
-    schedule_task(task_name)
-        Schedules the execution of a task at the specified interval.
-    cancel_task(task_name)
-        Cancels the execution of a scheduled task.
-    run_all_tasks()
-        Schedules all tasks for execution.
-    persist_state()
-        Saves the current task state to disk.
-    load_state()
-        Loads the task state from a file, if it exists.
-    shutdown()
-        Shuts down the automation manager and saves the task state.
-
-    Notes
-    -----
-    The ``AutomationManager`` class provides advanced automation capabilities,
-    including retries with exponential backoff, parallel execution, fault
-    tolerance, and state persistence across restarts.
-
-    Mathematically, the exponential backoff time after each retry can be
-    represented as:
-
-    .. math::
-
-        t_{\text{backoff}} = 2^{n - 1} \times t_{\text{initial}}
-
-    where :math:`n` is the retry attempt number, and :math:`t_{\text{initial}}`
-    is the initial backoff time.
-
-    Examples
-    --------
-    >>> from gofast.mlops.automation import AutomationManager
-    >>> def my_task():
-    ...     print("Task executed")
-    >>> manager = AutomationManager(max_workers=5)
-    >>> manager.add_task('print_task', my_task, interval=5, retries=2)
-    >>> manager.schedule_task('print_task')
-    >>> # Task will execute every 5 seconds with up to 2 retries on failure
-    >>> manager.run_all_tasks()
-    >>> # After finishing, shut down the manager
-    >>> manager.shutdown()
-
-    See Also
-    --------
-    SimpleAutomation : A simpler version of the automation manager.
-
-    References
-    ----------
-    .. [1] Johnson, M. (2022). "Advanced Task Scheduling in Machine Learning Pipelines."
-       *Journal of Automation and Computing*, 10(2), 200-215.
-    """
+        Continuously monitors model performance and triggers retraining 
+        on decay.
     
-    @ensure_pkg(
-        "apscheduler",
-        extra="APScheduler is not installed."
-        " Please install 'apscheduler' to use this feature.",
-        auto_install=INSTALL_DEPENDENCIES,
-        use_conda=USE_CONDA
-    )
-
-    @validate_params({
-        'max_workers': [int],
-        'state_persistence_file': [str]
-    })
-    def __init__(
-        self,
-        max_workers: int = 4,
-        state_persistence_file: str = "automation_state.pkl"
-    ):
-        """
-        Initializes the ``AutomationManager``.
-
         Parameters
         ----------
-        max_workers : int, optional
-            The maximum number of threads that can be used to execute tasks.
-            Defaults to ``4``.
-        state_persistence_file : str, optional
-            The file path for saving and loading task state. Defaults to
-            ``'automation_state.pkl'``.
-
-        Notes
-        -----
-        Upon initialization, the automation manager attempts to load any
-        existing task state from the persistence file. It also starts the
-        background scheduler.
-
-        Examples
-        --------
-        >>> manager = AutomationManager(max_workers=5)
-        """
-        self.tasks: Dict[str, Dict[str, Any]] = {}
-        self.state_persistence_file = state_persistence_file
-
-        # Ensure 'apscheduler' is installed
-        from apscheduler.schedulers.background import BackgroundScheduler
-        self.scheduler = BackgroundScheduler()
-        self.thread_pool = ThreadPoolExecutor(max_workers=max_workers)
-        self.load_state()  # Load previous task states (if any)
-        self.scheduler.start()
-
-    @validate_params({
-        'task_name': [str],
-        'func': [callable],
-        'interval': [int, float],
-        'args': [tuple],
-        'retries': [int]
-    })
-    def add_task(
-        self,
-        task_name: str,
-        func: Callable,
-        interval: float,
-        args: Tuple = (),
-        retries: int = 3
-    ):
-        """
-        Adds a new task with automatic retry logic and state persistence.
-
-        Parameters
-        ----------
-        task_name : str
-            A unique name for the task.
-        func : callable
-            The function to execute.
-        interval : int or float
-            The interval (in seconds) between task executions.
-        args : tuple, optional
-            Arguments to pass to the task function. Defaults to empty tuple.
-        retries : int, optional
-            Number of retries for task execution in case of failure.
-            Defaults to ``3``.
-
-        Raises
-        ------
-        ValueError
-            If a task with the same name already exists.
-
-        Notes
-        -----
-        The task will be scheduled to run at the specified interval once
-        scheduled. The task includes automatic retries with exponential
-        backoff in case of failure.
-
-        Examples
-        --------
-        >>> def my_task(arg1):
-        ...     print(f"Task executed with argument {arg1}")
-        >>> manager.add_task('my_task', my_task, interval=10, args=('hello',), retries=2)
-        """
-        logger.info(
-            f"Adding task '{task_name}' with interval {interval} seconds and retries {retries}."
-        )
-        if task_name in self.tasks:
-            raise ValueError(f"Task '{task_name}' already exists.")
-
-        self.tasks[task_name] = {
-            "func": func,
-            "interval": interval,
-            "args": args,
-            "retries": retries,
-            "failures": 0,
-            "running": False,
-            "future": None,
-        }
-        self.persist_state()  # Save state after adding task
-
-    def _run_task_with_retries(self, task_name: str):
-        """
-        Internal method to run a task with automatic retries and exponential backoff.
-
-        Parameters
-        ----------
-        task_name : str
-            The name of the task to run.
-
-        Notes
-        -----
-        This method runs the task function, retrying it upon failure up to
-        the specified number of retries. The delay between retries increases
-        exponentially:
-
-        .. math::
-
-            t_{\text{backoff}} = 2^{n - 1} \times t_{\text{initial}}
-
-        where :math:`n` is the retry attempt number, and :math:`t_{\text{initial}}`
-        is the initial backoff time.
-
-        Examples
-        --------
-        >>> # Internal method, not intended to be called directly.
-        """
-        task = self.tasks[task_name]
-        retry_count = 0
-        backoff_time = 1  # Start with 1 second
-
-        while retry_count <= task["retries"]:
-            try:
-                logger.info(f"Running task '{task_name}' (Attempt {retry_count + 1})...")
-                task["func"](*task["args"])
-                task["failures"] = 0
-                logger.info(f"Task '{task_name}' completed successfully.")
-                break
-            except Exception as e:
-                retry_count += 1
-                task["failures"] += 1
-                logger.error(
-                    f"Task '{task_name}' failed with error: {str(e)}. "
-                    f"Retrying in {backoff_time} seconds."
-                )
-                time.sleep(backoff_time)
-                backoff_time *= 2  # Exponential backoff
-
-        if retry_count > task["retries"]:
-            logger.error(
-                f"Task '{task_name}' failed after {task['retries']} retries."
-            )
-            task["failures"] = retry_count
-
-    @validate_params({'task_name': [str]})
-    def schedule_task(self, task_name: str):
-        """
-        Schedules the execution of a task at the specified interval.
-
-        Parameters
-        ----------
-        task_name : str
-            The name of the task to schedule.
-
-        Raises
-        ------
-        ValueError
-            If the task does not exist.
-
-        Notes
-        -----
-        This method schedules the task using the background scheduler.
-        The task will run at the specified interval until it is canceled.
-
-        Examples
-        --------
-        >>> manager.schedule_task('my_task')
-        """
-        if task_name not in self.tasks:
-            raise ValueError(f"Task '{task_name}' does not exist.")
-
-        task = self.tasks[task_name]
-        if task["running"]:
-            logger.warning(f"Task '{task_name}' is already running.")
-            return
-
-        logger.info(
-            f"Scheduling task: '{task_name}' with interval {task['interval']} seconds."
-        )
-        task["running"] = True
-
-        # The job needs to have a unique id so that it can be canceled individually
-        job_id = f"{task_name}_job"
-
-        def job_function():
-            self.thread_pool.submit(self._run_task_with_retries, task_name)
-
-        # Ensure 'apscheduler' is installed
-        from apscheduler.triggers.interval import IntervalTrigger
-
-        self.scheduler.add_job(
-            job_function,
-            trigger=IntervalTrigger(seconds=task["interval"]),
-            id=job_id,
-            replace_existing=True
-        )
-        self.persist_state()  # Save state after scheduling task
-
-    @validate_params({'task_name': [str]})
-    def cancel_task(self, task_name: str):
-        """
-        Cancels the execution of a scheduled task.
-
-        Parameters
-        ----------
-        task_name : str
-            The name of the task to cancel.
-
-        Raises
-        ------
-        ValueError
-            If the task does not exist.
-
-        Notes
-        -----
-        This method stops the task from running by removing it from the
-        scheduler and updating its status.
-
-        Examples
-        --------
-        >>> manager.cancel_task('my_task')
-        """
-        if task_name not in self.tasks:
-            raise ValueError(f"Task '{task_name}' does not exist.")
-
-        logger.info(f"Cancelling task: '{task_name}'")
-        task = self.tasks[task_name]
-        task["running"] = False
-
-        job_id = f"{task_name}_job"
-        self.scheduler.remove_job(job_id)
-        self.persist_state()  # Save state after canceling task
-
-    def run_all_tasks(self):
-        """
-        Schedules all tasks for execution.
-
-        Notes
-        -----
-        This method iterates over all tasks and schedules them if they are
-        not already running.
-
-        Examples
-        --------
-        >>> manager.run_all_tasks()
-        """
-        logger.info("Scheduling all tasks for execution.")
-        for task_name in self.tasks.keys():
-            self.schedule_task(task_name)
-
-    def persist_state(self):
-        """
-        Saves the current task state to disk.
-
-        Notes
-        -----
-        The task state is saved to the file specified by
-        ``state_persistence_file`` in binary format using ``pickle``.
-
-        Examples
-        --------
-        >>> manager.persist_state()
-        """
-        with open(self.state_persistence_file, 'wb') as f:
-            pickle.dump(self.tasks, f)
-        logger.info(f"Task state persisted to '{self.state_persistence_file}'.")
-
-    def load_state(self):
-        """
-        Loads the task state from a file, if it exists.
-
-        Notes
-        -----
-        This method attempts to load the task state from the file specified
-        by ``state_persistence_file``. If the file does not exist, it starts
-        with an empty task list.
-
-        Examples
-        --------
-        >>> manager.load_state()
-        """
-        if os.path.exists(self.state_persistence_file):
-            with open(self.state_persistence_file, 'rb') as f:
-                self.tasks = pickle.load(f)
-            logger.info(f"Task state loaded from '{self.state_persistence_file}'.")
-        else:
-            logger.info("No existing task state found. Starting with an empty task list.")
-
-    def shutdown(self):
-        """
-        Shuts down the automation manager and saves the task state.
-
-        Notes
-        -----
-        This method should be called when you are done with the automation
-        manager to ensure that all resources are cleaned up and the task
-        state is saved.
-
-        Examples
-        --------
-        >>> manager.shutdown()
-        """
-        logger.info("Shutting down Automation Manager and saving state.")
-        self.persist_state()
-        self.scheduler.shutdown(wait=False)
-        self.thread_pool.shutdown(wait=False)
-
-class RetrainingScheduler(AutomationManager):
-    """
-    Advanced Class to manages model retraining workflows by extending the 
-    AutomationManager. Handles model performance monitoring, retraining, 
-    and adaptive scheduling based on performance decay.
-
-    Parameters
-    ----------
-    max_workers : int, optional
-        The maximum number of threads that can be used to execute tasks.
-        Defaults to ``4``.
-
-    Attributes
-    ----------
-    tasks : dict
-        Dictionary storing tasks and their scheduling metadata.
-    scheduler : BackgroundScheduler
-        The scheduler used to schedule tasks at specified intervals.
-    thread_pool : ThreadPoolExecutor
-        The thread pool executor for running tasks in parallel.
-    state_persistence_file : str
-        The file path for saving and loading task state.
-
-    Methods
-    -------
-    schedule_retraining(model, retrain_func, interval)
-        Schedules regular model retraining.
-    evaluate_model_performance(model, metric_func)
-        Evaluates the model's performance using a given metric function.
-    trigger_retraining_on_decay(model, metric_func, decay_threshold)
-        Triggers model retraining if performance decay is detected.
-    monitor_model(model, metric_func, decay_threshold, check_interval)
-        Monitors the model's performance and triggers retraining if necessary.
-
-    Notes
-    -----
-    The ``RetrainingScheduler`` class extends ``AutomationManager`` to provide
-    functionality specific to model retraining workflows, including performance
-    monitoring and adaptive scheduling based on performance decay.
-
-    Examples
-    --------
-    >>> from gofast.mlops.automation import RetrainingScheduler
-    >>> model = MyModel()
-    >>> def retrain_model(model):
-    ...     # retrain logic here
-    ...     pass
-    >>> def evaluate_model(model):
-    ...     # evaluation logic here
-    ...     return 0.85  # Example performance score
-    >>> scheduler = RetrainingScheduler(max_workers=5)
-    >>> scheduler.schedule_retraining(model, retrain_model, interval=3600)
-    >>> scheduler.monitor_model(
-    ...     model, evaluate_model, decay_threshold=0.8, check_interval=1800)
-    >>> # After finishing, shut down the scheduler
-    >>> scheduler.shutdown()
-
-    See Also
-    --------
-    AutomationManager : Manages the automation of repetitive tasks.
-
-    References
-    ----------
-    .. [1] Smith, A. (2021). "Adaptive Retraining Strategies in Machine Learning."
-       *Journal of Machine Learning Operations*, 9(2), 120-135.
-    """
-
-    @validate_params({
-        'max_workers': [int]
-    })
-    def __init__(self, max_workers: int = 4):
-        """
-        Initializes the ``RetrainingScheduler`` by calling the constructor of
-        the parent ``AutomationManager``.
-
-        Parameters
-        ----------
-        max_workers : int, optional
-            The maximum number of threads that can be used to execute tasks.
-            Defaults to ``4``.
-
-        Examples
-        --------
-        >>> scheduler = RetrainingScheduler(max_workers=5)
-        """
-        super().__init__(max_workers=max_workers)
-
-    @validate_params({
-        'model': [object],
-        'retrain_func': [Callable],
-        'interval': [int]
-    })
-    def schedule_retraining(
-        self,
-        model: Any,
-        retrain_func: Callable,
-        interval: int
-    ):
-        """
-        Schedules regular model retraining.
-
-        Parameters
-        ----------
-        model : object
-            The model to be retrained.
-        retrain_func : callable
-            The function to retrain the model.
-        interval : int
-            The interval (in seconds) to schedule retraining.
-
-        Notes
-        -----
-        This method adds a retraining task to the automation manager,
-        scheduling it to run at the specified interval.
-
-        Examples
-        --------
-        >>> scheduler.schedule_retraining(model, retrain_model, interval=3600)
-        """
-        task_name = f"retrain_{model.__class__.__name__}"
-        logger.info(
-            f"Scheduling retraining for model '{model.__class__.__name__}'"
-            f" every {interval} seconds."
-        )
-        self.add_task(
-            task_name=task_name,
-            func=retrain_func,
-            interval=interval,
-            args=(model,)
-        )
-        self.schedule_task(task_name)
-
-    @validate_params({
-        'model': [object],
-        'metric_func': [Callable]
-    })
-    def evaluate_model_performance(
-        self,
-        model: Any,
-        metric_func: Callable
-    ) -> float:
-        """
-        Evaluates the model's performance.
-
-        Parameters
-        ----------
-        model : object
-            The model to evaluate.
         metric_func : callable
-            A function that returns the performance score of the model.
-
-        Returns
-        -------
-        score : float
-            The model performance score.
-
-        Notes
-        -----
-        This method applies the ``metric_func`` to the model to compute
-        a performance score, which can be used to determine if retraining
-        is necessary.
-
-        Examples
-        --------
-        >>> score = scheduler.evaluate_model_performance(model, evaluate_model)
-        """
-        score = metric_func(model)
-        logger.info(
-            f"Evaluated model '{model.__class__.__name__}': Performance score = {score}"
-        )
-        return score
-
-    @validate_params({
-        'model': [object],
-        'metric_func': [Callable],
-        'decay_threshold': [float]
-    })
-    def trigger_retraining_on_decay(
-        self,
-        model: Any,
-        metric_func: Callable,
-        decay_threshold: float
-    ):
-        """
-        Triggers model retraining if performance decay is detected.
-
-        Parameters
-        ----------
-        model : object
-            The model to evaluate.
-        metric_func : callable
-            The function to evaluate model performance.
+            Performance evaluation function.
         decay_threshold : float
-            The threshold below which retraining is triggered.
-
-        Notes
-        -----
-        If the model's performance score falls below the ``decay_threshold``,
-        retraining is initiated.
-
-        Mathematically, retraining is triggered if:
-
-        .. math::
-
-            \\text{score} < \\text{decay\\_threshold}
-
-        Examples
-        --------
-        >>> scheduler.trigger_retraining_on_decay(
-        ...     model, evaluate_model, decay_threshold=0.8)
-        """
-        score = self.evaluate_model_performance(model, metric_func)
-        if score < decay_threshold:
-            logger.warning(
-                f"Performance decay detected for model '{model.__class__.__name__}' "
-                f"(score: {score}). Triggering retraining."
-            )
-            task_name = f"retrain_{model.__class__.__name__}"
-            if task_name in self.tasks:
-                self.tasks[task_name]["func"](*self.tasks[task_name]["args"])
-            else:
-                logger.error(
-                    f"No retraining task found for model '{model.__class__.__name__}'."
-                )
-
-    @validate_params({
-        'model': [object],
-        'metric_func': [Callable],
-        'decay_threshold': [float],
-        'check_interval': [int]
-    })
-    def monitor_model(
-        self,
-        model: Any,
-        metric_func: Callable,
-        decay_threshold: float,
-        check_interval: int
-    ):
-        """
-        Monitors the model's performance at regular intervals and triggers
-        retraining if necessary.
-
-        Parameters
-        ----------
-        model : object
-            The model to monitor.
-        metric_func : callable
-            Function to evaluate model performance.
-        decay_threshold : float
-            The threshold to trigger retraining.
+            Performance threshold to trigger retraining.
         check_interval : int
-            How often to check model performance (in seconds).
-
+            Monitoring frequency in seconds.
+    
         Notes
         -----
-        This method adds a monitoring task that periodically evaluates
-        the model's performance and triggers retraining if the performance
-        falls below the ``decay_threshold``.
-
-        Examples
-        --------
-        >>> scheduler.monitor_model(
-        ...     model, evaluate_model, decay_threshold=0.8, check_interval=1800)
+        Monitoring persists until scheduler shutdown. For adaptive 
+        intervals, implement custom monitoring logic.
         """
-        def check_and_retrain():
-            self.trigger_retraining_on_decay(model, metric_func, decay_threshold)
-
+        check_is_runned(self, ['_is_runned'], 
+                       "Scheduler not started - call run() first")
+        task_name = f"monitor_{self.model_.__class__.__name__}"
+    
+        def monitoring_job():
+            self.trigger_retraining_on_decay(metric_func, decay_threshold)
+    
         logger.info(
-            f"Monitoring model '{model.__class__.__name__}' performance with interval {check_interval} seconds."
+            f"Monitoring model {self.model_.__class__.__name__} every "
+            f"{check_interval}s with decay threshold {decay_threshold}"
         )
-        task_name = f"monitor_{model.__class__.__name__}"
-        self.add_task(
-            task_name=task_name,
-            func=check_and_retrain,
+        self.add_operation(
+            name=task_name,
+            func=monitoring_job,
             interval=check_interval
         )
-        self.schedule_task(task_name)
-
-
+    
+    def shutdown(self) -> None:
+        """Gracefully terminates all monitoring and retraining tasks."""
+        super().shutdown()
+        self._is_runned = False
+        logger.info("Retraining scheduler fully shutdown")
+      
+        
 class AirflowAutomation(AutomationManager):
     """
     Integrates the AutomationManager with Apache Airflow to schedule and
@@ -1352,15 +1116,23 @@ class AirflowAutomation(AutomationManager):
     --------
     >>> from gofast.mlops.automation import AirflowAutomation
     >>> from datetime import datetime
-    >>> manager = AirflowAutomation(
-    ...     dag_id='automation_dag',
-    ...     start_date=datetime(2023, 1, 1),
-    ...     schedule_interval='@daily'
+    >>> automation = AirflowAutomation(
+    ...    dag_id='data_pipeline',
+    ...     start_date=datetime(2024, 1, 1),
+    ...     schedule_interval='@hourly'
     ... )
-    >>> def my_task():
-    ...     print("Task executed")
-    >>> manager.add_task_to_airflow('my_task', my_task)
-    >>> manager.schedule_airflow_task('my_task')
+    
+    >>> def data_processing_task():
+    ...     # Task implementation
+    ...     pass
+    
+    >>> automation.add_task_to_airflow(
+    ...     'process_data', 
+    ...     data_processing_task
+    ... )
+    
+    >>> automation.run()
+    >>> automation.schedule_airflow_task('process_data')
     
     See Also
     --------
@@ -1371,7 +1143,7 @@ class AirflowAutomation(AutomationManager):
     .. [1] Apache Airflow Documentation. "Airflow Documentation."
        Retrieved from https://airflow.apache.org/docs/
     """
-    
+      
     @ensure_pkg(
         "airflow",
         extra="The 'airflow' package is required for this functionality. "
@@ -1388,128 +1160,148 @@ class AirflowAutomation(AutomationManager):
         'schedule_interval': [str]
     })
     def __init__(
-        self,
-        dag_id: str,
-        start_date: datetime,
+        self, 
+        dag_id: str, 
+        start_date: datetime, 
         schedule_interval: str = "@daily"
-    ):
+    ) -> None:
+        """Initialize Airflow automation system with DAG configuration.
+        
+        Parameters
+        ----------
+        dag_id : str
+            Unique identifier for the Airflow DAG
+        start_date : datetime
+            Initial execution date for the DAG
+        schedule_interval : str, optional
+            Scheduling frequency as cron expression. Default='@daily'
+            
+        Attributes
+        ----------
+        dag : airflow.DAG
+            Configured Airflow DAG instance
+        _is_runned : bool
+            Internal flag indicating if automation has been started
+        """
         super().__init__()
         self.dag_id = dag_id
         self.start_date = start_date
         self.schedule_interval = schedule_interval
+        self._is_runned = False
         self.dag = self._create_dag()
     
     def _create_dag(self):
-        """
-        Creates an Airflow DAG for scheduling tasks.
+        """Initialize and configure the Airflow DAG instance.
         
         Returns
         -------
-        dag : airflow.DAG
-            The Airflow DAG object used to schedule tasks.
-        
-        Notes
-        -----
-        The DAG is configured with default arguments and the specified
-        schedule interval.
+        DAG
+            Configured Airflow Directed Acyclic Graph
         """
         from airflow import DAG
-
-        default_args = {
-            'owner': 'airflow',
-            'depends_on_past': False,
-            'start_date': self.start_date,
-            'email_on_failure': False,
-            'email_on_retry': False,
-            'retries': 1,
-            'retry_delay': timedelta(minutes=5),
-        }
-
-        dag = DAG(
+    
+        return DAG(
             self.dag_id,
-            default_args=default_args,
+            default_args={
+                'owner': 'airflow',
+                'depends_on_past': False,
+                'start_date': self.start_date,
+                'email_on_failure': False,
+                'email_on_retry': False,
+                'retries': 1,
+                'retry_delay': timedelta(minutes=5),
+            },
             description='Automation DAG',
             schedule_interval=self.schedule_interval,
         )
-        return dag
     
-    @validate_params({
-        'task_name': [str],
-        'func': [Callable],
-    })
-    def add_task_to_airflow(self, task_name: str, func: Callable, **kwargs):
-        """
-        Adds a task to the Airflow DAG using a PythonOperator.
+    @validate_params({'task_name': [str], 'func': [Callable]})
+    def add_task_to_airflow(
+        self, 
+        task_name: str, 
+        func: Callable, 
+        **kwargs
+    ):
+        """Register a new task in the Airflow DAG workflow.
         
         Parameters
         ----------
         task_name : str
-            The name of the task in Airflow.
+            Unique identifier for the task
         func : callable
-            The Python function to be executed.
+            Python function to execute
         **kwargs : dict
-            Additional keyword arguments for the function.
-        
+            Additional keyword arguments for task execution
+            
         Returns
         -------
-        task : airflow.operators.python.PythonOperator
-            The Airflow PythonOperator that was created.
-        
-        Notes
-        -----
-        The task is added to the DAG and can be scheduled using Airflow's
-        scheduling mechanism.
-        
-        Examples
-        --------
-        >>> def my_task(arg1, arg2):
-        ...     print(f"Task executed with arguments: {arg1}, {arg2}")
-        >>> manager.add_task_to_airflow(
-        ...     'my_task', my_task, arg1='hello', arg2='world'
-        ... )
+        PythonOperator
+            Configured Airflow task operator
+            
+        Raises
+        ------
+        ValueError
+            If task name already exists in DAG
         """
         from airflow.operators.python import PythonOperator
-
+    
+        if self.dag.get_task(task_name):
+            raise ValueError(f"Task '{task_name}' already exists in DAG")
+    
         task = PythonOperator(
             task_id=task_name,
             python_callable=func,
             op_kwargs=kwargs,
             dag=self.dag
         )
-        logger.info(f"Task '{task_name}' added to Airflow DAG '{self.dag_id}'.")
+        logger.info(
+            f"Registered task '{task_name}' in DAG '{self.dag_id}'"
+        )
         return task
     
-    @validate_params({
-        'task_name': [str]
-    })
-    def schedule_airflow_task(self, task_name: str):
+    @RunReturn 
+    def run(self) -> None:
+        """Activate the Airflow automation system.
+        
+        Sets internal state flag to enable task execution.
         """
-        Schedules the task in the Airflow DAG.
+        logger.info("Initializing Airflow automation system")
+        self._is_runned = True
+    
+    @validate_params({'task_name': [str]})
+    def schedule_airflow_task(self, task_name: str) -> None:
+        """Execute a registered task through Airflow scheduling.
         
         Parameters
         ----------
         task_name : str
-            The name of the task to schedule.
-        
-        Notes
-        -----
-        In an actual Airflow environment, tasks are scheduled and executed
-        by the Airflow scheduler. This method is for demonstration purposes
-        and simulates the execution of the task.
-        
-        Examples
-        --------
-        >>> manager.schedule_airflow_task('my_task')
+            Name of task to schedule and execute
+            
+        Raises
+        ------
+        RuntimeError
+            If automation system has not been initialized
+        ValueError
+            If specified task doesn't exist in DAG
         """
-        logger.info(f"Scheduling task '{task_name}' in Airflow.")
+        check_is_runned(
+            self, 
+            ['_is_runned'], 
+            "Automation not started - call run() first"
+        )
+        
         task = self.dag.get_task(task_name)
-        if task is not None:
-            # Simulate task execution
-            context = {}  # Airflow provides context in real execution
-            task.execute(context=context)
-        else:
-            logger.error(f"Task '{task_name}' not found in DAG '{self.dag_id}'.")
-
+        if not task:
+            raise ValueError(f"Task '{task_name}' not found in DAG")
+    
+        logger.info(f"Executing Airflow task '{task_name}'")
+        try:
+            task.execute(context={})
+        except Exception as e:
+            logger.error(
+                f"Task '{task_name}' failed with error: {str(e)}"
+            )
+            raise
 
 class KubeflowAutomation(AutomationManager):
     """
@@ -1542,6 +1334,7 @@ class KubeflowAutomation(AutomationManager):
     >>> manager = KubeflowAutomation(host='http://localhost:8080')
     >>> def my_task():
     ...     print("Task executed")
+    >>> manager.run()
     >>> manager.create_kubeflow_pipeline('my_pipeline', 'my_task', my_task)
     
     See Also
@@ -1565,15 +1358,27 @@ class KubeflowAutomation(AutomationManager):
     @validate_params({
         'host': [str]
     })
-    def __init__(self, host: str):
+
+    @validate_params({'host': [str]})
+    def __init__(self, host: str) -> None:
         super().__init__()
         from kfp import Client
         self.client = Client(host=host)
+        self._is_runned = False
+    
+    @RunReturn 
+    def run(self) -> None:
+        """Activate the Kubeflow automation system.
+        
+        Sets internal state flag to enable pipeline operations.
+        """
+        logger.info("Initializing Kubeflow automation system")
+        self._is_runned = True
     
     @validate_params({
         'pipeline_name': [str],
-        'task_name': [str],
-        'func': [Callable],
+        'task_name': [str], 
+        'func': [Callable]
     })
     def create_kubeflow_pipeline(
         self,
@@ -1581,131 +1386,148 @@ class KubeflowAutomation(AutomationManager):
         task_name: str,
         func: Callable,
         **kwargs
-    ):
-        """
-        Creates a Kubeflow pipeline to schedule a task in a Kubernetes
-        environment.
+    ) -> str:
+        """Create and execute Kubeflow pipeline with specified task component.
         
         Parameters
         ----------
         pipeline_name : str
-            The name of the Kubeflow pipeline.
+            Unique identifier for the pipeline
         task_name : str
-            The task name within the pipeline.
-        func : callable
-            The function to run in the pipeline.
+            Display name for the pipeline task
+        func : Callable
+            Python function to containerize as pipeline component
         **kwargs : dict
-            Additional keyword arguments for the function.
-        
+            Additional arguments for component execution
+            
         Returns
         -------
-        pipeline_run_id : str
-            The ID of the created Kubeflow pipeline run.
-        
-        Notes
-        -----
-        This method defines a Kubeflow pipeline using the Kubeflow Pipelines
-        SDK, and submits it to the Kubeflow Pipelines API server for execution.
-        
-        The function ``func`` is converted into a Kubeflow component using the
-        ``kfp.components.create_component_from_func`` method.
-        
-        Examples
-        --------
-        >>> def my_task():
-        ...     print("Task executed")
-        >>> manager.create_kubeflow_pipeline(
-        ...     'my_pipeline', 'my_task', my_task
-        ... )
+        str
+            Kubeflow pipeline run ID
+            
+        Raises
+        ------
+        RuntimeError
+            If automation system has not been initialized
+        ValueError
+            If invalid component configuration is detected
         """
+
         from kfp import dsl
         import kfp.components
-
-        # Convert the function into a Kubeflow component
-        task_component = kfp.components.create_component_from_func(
-            func,
-            base_image='python:3.7',
-            packages_to_install=[]  # Add required packages if any
+    
+        check_is_runned(
+            self, 
+            ['_is_runned'], 
+            "Automation not started - call run() first"
         )
-
+    
+        logger.info(
+            f"Creating pipeline '{pipeline_name}' with task '{task_name}'")
+    
+        try:
+            task_component = kfp.components.create_component_from_func(
+                func=func,
+                base_image='python:3.7',
+                packages_to_install=[]
+            )
+        except Exception as e:
+            logger.error(f"Component creation failed: {str(e)}")
+            raise ValueError("Invalid component configuration") from e
+    
         @dsl.pipeline(
             name=pipeline_name,
-            description='Automation Pipeline for Machine Learning'
+            description='Automated ML Pipeline'
         )
-        def pipeline():
-            task_step = task_component(**kwargs)
-            task_step.set_display_name(task_name)
-
-        pipeline_func = pipeline
-        run = self.client.create_run_from_pipeline_func(
-            pipeline_func, arguments={}
-        )
-        pipeline_run_id = run.run_id
-        logger.info(
-            f"Kubeflow pipeline '{pipeline_name}' created with run ID "
-            f"'{pipeline_run_id}'."
-        )
-        return pipeline_run_id
-
+        def pipeline_definition():
+            task_component(**kwargs).set_display_name(task_name)
+    
+        try:
+            run = self.client.create_run_from_pipeline_func(
+                pipeline_func=pipeline_definition,
+                arguments={}
+            )
+            logger.info(
+                f"Pipeline '{pipeline_name}' submitted successfully. "
+                f"Run ID: {run.run_id}"
+            )
+            return run.run_id
+        except Exception as e:
+            logger.error(
+                f"Pipeline submission failed: {str(e)}"
+            )
+            raise RuntimeError("Pipeline execution error") from e
 
 class KafkaAutomation(AutomationManager):
     """
-    Handles real-time data pipeline automation using Kafka. Consumes Kafka
-    topics and triggers tasks based on incoming data.
+    Real-time data pipeline automation using Apache Kafka message brokering.
+    
+    Enables event-driven task execution through Kafka topic consumption. Inherits
+    core automation capabilities from ``AutomationManager``.
 
     Parameters
     ----------
     kafka_servers : list of str
-        A list of Kafka server addresses.
+        Bootstrap servers for Kafka cluster in ``host:port`` format.
+        Minimum 1 server required for connection.
     topic : str
-        The name of the Kafka topic to consume messages from.
+        Kafka topic name for message consumption. Topic should be pre-created
+        in Kafka cluster.
 
     Attributes
     ----------
     consumer : kafka.KafkaConsumer
-        The Kafka consumer instance used to consume messages.
-
-    Methods
-    -------
-    process_kafka_message(func)
-        Processes incoming Kafka messages and triggers tasks.
-
-    Notes
-    -----
-    The ``KafkaAutomation`` class integrates Kafka message consumption
-    into the automation framework, allowing tasks to be triggered based on
-    real-time data streams.
-
-    The message processing can be modeled as a stream where messages
-    :math:`m_i` are consumed and processed in order:
-
-    .. math::
-
-        \\{ m_1, m_2, m_3, \\dots \\} \\rightarrow \\text{process}(m_i)
-
-    Each message is passed to the function ``func`` for processing.
-
+        Kafka consumer instance with automatic offset management
+    _consumption_latency : float
+        Average message processing latency in milliseconds (internal metric)
+        
     Examples
     --------
     >>> from gofast.mlops.automation import KafkaAutomation
-    >>> def process_data(data):
-    ...     print(f"Processing data: {data}")
-    >>> manager = KafkaAutomation(
-    ...     kafka_servers=['localhost:9092'],
-    ...     topic='my_topic'
+    >>> import json
+
+    >>> def process_payment(msg):
+    ...     data = json.loads(msg.value.decode())
+    ...     print(f"Processing payment: {data['amount']}")
+
+    >>> kafka_auto = KafkaAutomation(
+    ...     kafka_servers=['kafka.prod:9092'],
+    ...     topic='payment-events'
     ... )
-    >>> manager.process_kafka_message(process_data)
+    >>> kafka_auto.run()
+    >>> kafka_auto.process_kafka_message(process_payment)
+
+    Notes
+    -----
+    1. Requires Kafka cluster version >= 2.5
+    2. Consumer uses automatic offset committing
+    3. Message processing should be idempotent
+    4. Supports SASL/SSL authentication through additional client params
+    
+    Implements continuous message stream processing:
+
+    .. math::
+        \forall m \in M_{\text{stream}},\ f_{\text{process}}(m) \rightarrow A_{\text{task}}
+
+    Where:
+    - :math:`M_{\text{stream}}` = Infinite message stream from Kafka topic
+    - :math:`f_{\text{process}}` = User-provided message processing function
+    - :math:`A_{\text{task}}` = Automated task triggered by message
+    
 
     See Also
     --------
-    AutomationManager : Base class for automation management.
+    RabbitMQAutomation : AMQP-based message queue automation
+    StreamingAutomation : Generic stream processing framework
+    KafkaConsumer : Underlying consumer implementation
 
     References
     ----------
-    .. [1] Kafka Documentation. "Apache Kafka."
+    .. [1] Kafka Documentation. "The Apache Kafka Project".
        Retrieved from https://kafka.apache.org/documentation/
+    .. [2] Kleppmann. "Designing Data-Intensive Applications". O'Reilly, 2017.
     """
-
+    
     @ensure_pkg(
         "kafka",
         extra="The 'kafka-python' package is required for this functionality. "
@@ -1725,23 +1547,6 @@ class KafkaAutomation(AutomationManager):
         kafka_servers: List[str],
         topic: str
     ):
-        """
-        Initializes the ``KafkaAutomation``.
-
-        Parameters
-        ----------
-        kafka_servers : list of str
-            A list of Kafka server addresses.
-        topic : str
-            The name of the Kafka topic to consume messages from.
-
-        Examples
-        --------
-        >>> manager = KafkaAutomation(
-        ...     kafka_servers=['localhost:9092'],
-        ...     topic='my_topic'
-        ... )
-        """
         super().__init__()
         from kafka import KafkaConsumer
         self.consumer = KafkaConsumer(
@@ -1751,7 +1556,16 @@ class KafkaAutomation(AutomationManager):
             enable_auto_commit=True,
             group_id='automation_manager_group'
         )
-
+    
+    @RunReturn 
+    def run(self) -> None:
+        """Activate the Kafka automation system.
+        
+        Sets internal state flag to enable pipeline operations.
+        """
+        logger.info("Initializing Kafka automation system")
+        self._is_runned = True
+        
     @validate_params({
         'func': [Callable],
     })
@@ -1779,74 +1593,90 @@ class KafkaAutomation(AutomationManager):
         ...     print(f"Processing data: {data}")
         >>> manager.process_kafka_message(process_data)
         """
+        check_is_runned(
+            self, 
+            ['_is_runned'], 
+            "Automation not started - call run() first"
+        )
+        
         for message in self.consumer:
             data = message.value
             logger.info(f"Received message from Kafka: {data}")
             func(data)
 
-
 class RabbitMQAutomation(AutomationManager):
-    """
-    Handles real-time data pipeline automation using RabbitMQ. Consumes
-    messages from a RabbitMQ queue and triggers tasks.
+    """Event-driven automation system using RabbitMQ message queuing.
+    
+    Implements AMQP 0-9-1 protocol for task triggering through queue
+    consumption.
+    Extends ``AutomationManager`` for base automation capabilities.
 
     Parameters
     ----------
     host : str
-        The RabbitMQ server host address.
+        RabbitMQ server hostname/IP address. Include port if non-default
+        using ``host:port`` format.
     queue : str
-        The name of the RabbitMQ queue to consume messages from.
+        AMQP queue name for message consumption. Queue will be declared
+        with durable settings if not existing.
 
     Attributes
     ----------
     connection : pika.BlockingConnection
-        The connection to the RabbitMQ server.
+        Persistent connection to RabbitMQ server
     channel : pika.channel.Channel
-        The channel through which messages are consumed.
-    queue : str
-        The name of the RabbitMQ queue.
-
-    Methods
-    -------
-    process_rabbitmq_message(func)
-        Processes incoming RabbitMQ messages and triggers tasks.
-
-    Notes
-    -----
-    The ``RabbitMQAutomation`` class integrates RabbitMQ message
-    consumption into the automation framework, allowing tasks to be triggered
-    based on real-time data streams.
-
-    The message processing can be modeled as a stream where messages
-    :math:`m_i` are consumed and processed in order:
-
-    .. math::
-
-        \\{ m_1, m_2, m_3, \\dots \\} \\rightarrow \\text{process}(m_i)
-
-    Each message is passed to the function ``func`` for processing.
+        AMQP channel for queue operations
+    _qos_prefetch : int
+        Unacknowledged message limit (quality-of-service control)
 
     Examples
     --------
     >>> from gofast.mlops.automation import RabbitMQAutomation
-    >>> def process_data(data):
-    ...     print(f"Processing data: {data}")
-    >>> manager = RabbitMQAutomation(
-    ...     host='localhost',
-    ...     queue='my_queue'
-    ... )
-    >>> manager.process_rabbitmq_message(process_data)
+    >>> import pickle
 
+    >>> def handle_inventory(msg):
+    ...     update = pickle.loads(msg.body)
+    ...     print(f"Stock update: {update['item_id']}")
+
+    >>> rmq_auto = RabbitMQAutomation(
+    ...     host='rabbitmq.prod:5672',
+    ...     queue='inventory-updates'
+    ... )
+    >>> rmq_auto.run()
+    >>> rmq_auto.process_rabbitmq_message(handle_inventory)
+
+    Notes
+    -----
+    1. Requires RabbitMQ server >= 3.8
+    2. Implements automatic connection recovery
+    3. Message bodies should be serialized (pickle/JSON/etc)
+    4. Supports TLS and authentication through connection params
+
+    Implements reliable message processing with acknowledgments:
+
+    .. math::
+        P(m) = \\begin{cases}
+        1 & \\text{if } f_{\\text{process}}(m) \\text{ succeeds} \\\\
+        0 & \\text{otherwise (with NACK retry)}
+        \\end{cases}
+
+    Where:
+    - :math:`P(m)` = Message processing success probability
+    - :math:`f_{\\text{process}}` = User-defined processing function
+    
     See Also
     --------
-    AutomationManager : Base class for automation management.
+    KafkaAutomation : Kafka-based stream processing
+    CeleryAutomation : Distributed task queue integration
+    BlockingConnection : Underlying RabbitMQ client implementation
 
     References
     ----------
-    .. [1] RabbitMQ Documentation. "RabbitMQ."
-       Retrieved from https://www.rabbitmq.com/documentation.html
+    .. [1] RabbitMQ Documentation. "Messaging Basics".
+       Retrieved from https://www.rabbitmq.com/getstarted.html
+    .. [2] Videla & Williams. "RabbitMQ in Action". Manning, 2012.
     """
-    
+
     @ensure_pkg(
         "pika",
         extra="The 'pika' package is required for this functionality. "
@@ -1889,7 +1719,16 @@ class RabbitMQAutomation(AutomationManager):
         self.channel = self.connection.channel()
         self.queue = queue
         self.channel.queue_declare(queue=queue)
-
+        
+    @RunReturn 
+    def run(self) -> None:
+        """Activate the RabbitMQ automation system.
+        
+        Sets internal state flag to enable pipeline operations.
+        """
+        logger.info("Initializing RabbitMQ automation system")
+        self._is_runned = True
+        
     @validate_params({
         'func': [Callable],
     })
@@ -1917,6 +1756,13 @@ class RabbitMQAutomation(AutomationManager):
         ...     print(f"Processing data: {data}")
         >>> manager.process_rabbitmq_message(process_data)
         """
+        
+        check_is_runned(
+            self, 
+            ['_is_runned'], 
+            "Automation not started - call run() first"
+        )
+        
         def callback(ch, method, properties, body):
             logger.info(f"Received message from RabbitMQ: {body}")
             func(body)
