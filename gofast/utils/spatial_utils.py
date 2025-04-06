@@ -24,13 +24,14 @@ from scipy.spatial import cKDTree
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
+from matplotlib.patches import Patch, Circle
 import seaborn as sns
 
 from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
+from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
-
+ 
 from ._arraytools import axis_slice
 from ..api.box import KeyBox
 from ..api.docstring import refglossary
@@ -59,15 +60,17 @@ from ..core.checks import (
     )
 from ..core.handlers import columns_manager, resolve_label  
 from ..core.io import SaveFile, is_data_readable 
-from ..core.utils import ellipsis2false, smart_format 
+from ..core.utils import ellipsis2false, smart_format
+from ..core.plot_manager import set_axis_grid  
 from ..decorators import Deprecated, AppendDocReferences, isdf 
-
+from .generic_utils import find_id_column 
 from .validator import ( 
     _is_arraylike_1d, 
     assert_xy_in, check_y, 
     validate_positive_integer, 
     validate_length_range , 
-    filter_valid_kwargs
+    filter_valid_kwargs, 
+    parameter_validator
     )
 
 HAS_TQDM=True 
@@ -109,14 +112,856 @@ __all__ = [
      'extract_zones_from', 
      'filter_position', 
      'create_spatial_clusters', 
-     'generate_negative_samples'
+     'gen_negative_samples', 
+     'gen_buffered_negative_samples', 
+     'gen_negative_samples_plus', 
      
  ]
 
+@SaveFile 
+@isdf  
+def gen_negative_samples_plus(
+    df: pd.DataFrame,
+    target_col: str,
+    spatial_cols: Tuple[str, str] = (
+        'longitude',
+        'latitude'
+    ),
+    feature_cols: Optional[List[str]] = None,
+    buffer_km: float = 10,
+    neg_feature_range: Tuple[float, float] = (
+        0, 5
+    ),
+    num_neg_per_pos: int = 1,
+    strategy: str = 'landslide',  # or gauge,
+                                 # random_global, etc.
+    gauge_data: Optional[pd.DataFrame] = None,
+    elevation_data: Optional[pd.DataFrame] = None,
+    similarity_features: Optional[
+        List[str]
+    ] = None,
+    time_col: Optional[str] = None,
+    cluster_method: str = 'kmeans',  # or dbscan
+    use_gpd: Union[bool, str] = 'auto',
+    id_col='auto',
+    view: bool = False,
+    savefile: Optional[str] = None,
+    verbose: int = 1,
+    seed: Optional[int] = None
+) -> pd.DataFrame:
+    """
+    Generates negative samples for modeling in spatial scenarios,
+    offering multiple strategies. The function calls
+    `gen_buffered_negative_samples` when the ``strategy`` argument
+    is ``'landslide'``, ``'event'``, or ``'gauge'``. It also calls
+    `generate_negative_samples` partially in the ``'hybrid'``
+    strategy. Internally, each sample is augmented to produce
+    negative instances according to a chosen method.
+    
+    .. math::
+       \\text{buffer_deg} = \\frac{\\text{buffer_km}}{111.0}
+    
+    The above formula approximates degrees from kilometers near
+    the equator. The output is a combined dataset containing
+    original positives and generated negatives. The ratio of
+    negatives per positive is controlled by
+    ``num_neg_per_pos``.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input data containing spatial coordinates and features.
+    target_col : str
+        Name of the classification target column. Positive
+        samples in `df` are labeled, negatives will be generated.
+    spatial_cols : tuple of str, optional
+        Columns representing longitude and latitude in `df`.
+    feature_cols : list of str, optional
+        Additional feature columns used to drive or constrain
+        negative sampling processes.
+    buffer_km : float, optional
+        Radius in kilometers for local negative sampling. Used
+        to compute buffer degrees.
+    neg_feature_range : tuple of float, optional
+        Lower and upper range for continuous features in random
+        negative generation.
+    num_neg_per_pos : int, optional
+        Number of negatives to generate per positive instance.
+    strategy : str, optional
+        Defines the sampling approach. Options include
+        ``'landslide'``, ``'gauge'``, ``'random_global'``,
+        ``'temporal_shift'``, ``'clustered_negatives'``,
+        ``'environmental_similarity'``, ``'elevation_based'``,
+        and ``'hybrid'``.
+        
+        See more in :ref:`User Guide <user_guide>`.
+        
+    gauge_data : pandas.DataFrame, optional
+        Reference data for gauge-based or hybrid strategies.
+    elevation_data : pandas.DataFrame, optional
+        Elevation records, used if ``strategy='elevation_based'``.
+    similarity_features : list of str, optional
+        Columns for nearest neighbor computation in
+        ``'environmental_similarity'``.
+    time_col : str, optional
+        Name of the time column for ``'temporal_shift'``. Required
+        if using that strategy.
+    cluster_method : str, optional
+        Clustering algorithm for ``'clustered_negatives'``. Default
+        is ``'kmeans'``.
+    use_gpd : bool or str, optional
+        Indicator for whether geopandas is used in buffer-based
+        processes.
+    id_col : str, optional
+        Column name used as an identifier. If `'auto'`, a default is
+        used.
+    view : bool, optional
+        Flag for visualizing or previewing the results.
+    savefile : str, optional
+        Path to save the output dataset. If None, no file is saved.
+    verbose : int, optional
+        Verbosity level. Higher values yield more logs.
+    seed : int, optional
+        Random seed for reproducibility. If None, randomness is not
+        fixed.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        A combined DataFrame containing the original positive samples
+        labeled as 1 and newly generated negative samples labeled 0.
+    
+    Notes
+    -----
+    When ``strategy='hybrid'``, partial sets of negatives come from
+    two distinct calls to `generate_negative_samples` for
+    ``'landslide'`` and ``'gauge'`` sub-strategies, then merged.
+    
+    Examples
+    --------
+    >>> from gofast.utils.spatial_utils import gen_negative_samples_plus
+    >>> import pandas as pd
+    >>> df_example = pd.DataFrame({{
+    ...     "longitude": [10.1, 10.2, 10.3],
+    ...     "latitude":  [45.1, 45.2, 45.3],
+    ...     "feature":   [3.4, 2.1, 6.7],
+    ...     "target":    [1, 1, 1]
+    ... }})
+    >>> gauge_data = pd.DataFrame({{
+    ...     'gauge_id': ['G1', 'G2', 'G3'],
+    ...     'latitude': np.random.uniform(24.0, 25.0, 3),
+    ...     'longitude': np.random.uniform(113.0, 114.0, 3)
+    ... }})
+    >>> # Generate random global negatives
+    >>> result = gen_negative_samples_plus(
+    ...     df_example,
+    ...     target_col="target",
+    ...     strategy="random_global"
+    ... )
+    >>> print(result.head())
+    
+    See Also
+    --------
+    gen_buffered_negative_samples : Generates negative samples
+        within a buffer region around reference events or gauges.
+    generate_negative_samples : A simpler negative sampling
+        utility for certain strategies.
+    
+    References
+    ----------
+    .. [1] P. Goovaerts, "Geostatistics for Natural Resources
+       Evaluation," Oxford University Press, 1997.
+    """
+
+    # If the strategy is one of the recognized
+    # types (landslide, event, gauge), we
+    # directly call gen_buffered_negative_samples.
+    if str(strategy).lower() in (
+        'landslide',
+        'event',
+        'gauge'
+    ):
+        return gen_buffered_negative_samples(
+            df=df,
+            target_col=target_col,
+            spatial_cols=spatial_cols,
+            feature_cols=feature_cols,
+            buffer_km=buffer_km,
+            neg_feature_range=neg_feature_range,
+            num_neg_per_pos=num_neg_per_pos,
+            strategy=strategy,
+            gauge_data=gauge_data,
+            use_gpd=use_gpd,
+            view=view,
+            id_col=id_col,
+            savefile=savefile,
+            seed=seed, 
+            verbose=verbose
+        )
+
+    # If not in the above categories, we proceed
+    # with advanced strategies.
+    np.random.seed(seed)
+
+    # Validate columns and parameters via the
+    # _validate_negative_sampling utility.
+    checked_values = _validate_negative_sampling(
+        df=df,
+        target_col=target_col,
+        spatial_cols=spatial_cols,
+        feature_cols=feature_cols,
+        neg_feature_range=neg_feature_range,
+        num_neg_per_pos=num_neg_per_pos,
+        verbose=verbose,
+        id_col=id_col
+    )
+    (
+        spatial_cols,
+        feature_cols,
+        neg_feature_range,
+        num_neg_per_pos
+    ) = checked_values
+
+    # Extract column names for lon/lat.
+    lon_col, lat_col = spatial_cols
+
+    # Convert buffer kilometers to degrees,
+    # approximating 1 deg ~ 111 km.
+    buffer_deg = buffer_km / 111.0
+
+    # Additional advanced strategy options.
+    add_strategies = [
+        'random_global',
+        'temporal_shift',
+        'clustered_negatives',
+        'environmental_similarity',
+        'elevation_based',
+        'hybrid'
+    ]
+
+    # Validate the selected strategy from
+    # the advanced list.
+    strategy = parameter_validator(
+        'strategy',
+        target_strs=add_strategies,
+        deep=True
+    )(strategy)
+
+    # Collect negative samples in a list.
+    negatives = []
+
+    # -----------------------
+    # RANDOM_GLOBAL strategy:
+    # Generate uniform random coordinates
+    # across the bounding box of df.
+    # -----------------------
+    if strategy == 'random_global':
+        lon_min, lon_max = (
+            df[lon_col].min(),
+            df[lon_col].max()
+        )
+        lat_min, lat_max = (
+            df[lat_col].min(),
+            df[lat_col].max()
+        )
+        for _ in range(len(df) * num_neg_per_pos):
+            sample = {
+                lon_col: np.random.uniform(
+                    lon_min,
+                    lon_max
+                ),
+                lat_col: np.random.uniform(
+                    lat_min,
+                    lat_max
+                ),
+                target_col: 0
+            }
+            for col in feature_cols:
+                sample[col] = np.random.uniform(
+                    *neg_feature_range
+                )
+            negatives.append(sample)
+
+    # -----------------------
+    # TEMPORAL_SHIFT strategy:
+    # Shift time backward (e.g. 30 days)
+    # and mark as negative samples.
+    # -----------------------
+    elif strategy == 'temporal_shift':
+        if time_col is None:
+            raise ValueError(
+                "Time column must be provided "
+                "for 'temporal_shift'."
+            )
+        df_shifted = df.copy()
+        df_shifted[time_col] = pd.to_datetime(
+            df_shifted[time_col]
+        ) - pd.Timedelta(days=30)
+        for _, row in df_shifted.iterrows():
+            sample = row.to_dict()
+            sample[target_col] = 0
+            negatives.append(sample)
+
+    # -----------------------
+    # CLUSTERED_NEGATIVES:
+    # Apply KMeans to cluster data,
+    # then generate negative samples
+    # around cluster centers.
+    # -----------------------
+    elif strategy == 'clustered_negatives':
+        coords = df[
+            [lon_col, lat_col]
+        ].values
+        kmeans = KMeans(
+            n_clusters=max(
+                2,
+                len(df) // 10
+            ),
+            random_state=seed
+        ).fit(coords)
+        centers = kmeans.cluster_centers_
+        for center in centers:
+            for _ in range(num_neg_per_pos):
+                lat_offset = np.random.uniform(
+                    -buffer_deg,
+                    buffer_deg
+                )
+                lon_offset = np.random.uniform(
+                    -buffer_deg,
+                    buffer_deg
+                )
+                sample = {
+                    lat_col: center[1] + lat_offset,
+                    lon_col: center[0] + lon_offset,
+                    target_col: 0
+                }
+                for col in feature_cols:
+                    sample[col] = np.random.uniform(
+                        *neg_feature_range
+                    )
+                negatives.append(sample)
+
+    # -----------------------
+    # ENVIRONMENTAL_SIMILARITY:
+    # Nearest neighbor approach on
+    # specific feature vectors.
+    # -----------------------
+    elif strategy == 'environmental_similarity':
+        if similarity_features is None:
+            raise ValueError(
+                "Specify similarity_features for "
+                "'environmental_similarity'."
+            )
+        nn = NearestNeighbors(n_neighbors=1)
+        nn.fit(df[similarity_features])
+        for _ in range(len(df) * num_neg_per_pos):
+            random_vector = np.random.uniform(
+                0, 1,
+                size=len(similarity_features)
+            )
+            dist, idx = nn.kneighbors([
+                random_vector
+            ])
+            ref = df.iloc[idx[0][0]]
+            sample = ref.copy()
+            sample[target_col] = 0
+            sample[lon_col] += np.random.uniform(
+                -buffer_deg,
+                buffer_deg
+            )
+            sample[lat_col] += np.random.uniform(
+                -buffer_deg,
+                buffer_deg
+            )
+            negatives.append(
+                sample.to_dict()
+            )
+
+    # -----------------------
+    # ELEVATION_BASED:
+    # Pick negative samples from
+    # low slope areas, etc.
+    # -----------------------
+    elif strategy == 'elevation_based':
+        if elevation_data is None:
+            raise ValueError(
+                "Provide elevation data for "
+                "'elevation_based' strategy."
+            )
+        low_slope_areas = elevation_data[
+            elevation_data['slope'] < buffer_km
+        ]
+        sample_count = min(
+            len(df) * num_neg_per_pos,
+            len(low_slope_areas)
+        )
+        for _, row in low_slope_areas.sample(
+            n=sample_count
+        ).iterrows():
+            sample = row.to_dict()
+            sample[target_col] = 0
+            negatives.append(sample)
+
+    # -----------------------
+    # HYBRID:
+    # Combine partial sets of
+    # negative samples from
+    # different strategies.
+    # -----------------------
+    elif strategy == 'hybrid':
+        part1 = gen_buffered_negative_samples(
+            df,
+            target_col,
+            spatial_cols,
+            feature_cols,
+            buffer_km,
+            neg_feature_range,
+            num_neg_per_pos // 2,
+            strategy='landslide',
+            gauge_data=None,
+            seed=seed,
+            verbose=0
+        )
+        part2 = gen_buffered_negative_samples(
+            df,
+            target_col,
+            spatial_cols,
+            feature_cols,
+            buffer_km,
+            neg_feature_range,
+            num_neg_per_pos // 2,
+            strategy='gauge',
+            gauge_data=gauge_data,
+            seed=seed,
+            verbose=0
+        )
+        combined = pd.concat([part1, part2], ignore_index=True)
+
+        # Deduplicate based on spatial + feature + target columns
+        dedup_cols = spatial_cols + (feature_cols or []) + [target_col]
+        combined = combined.drop_duplicates(subset=dedup_cols)
+    
+        if verbose >= 1:
+            print(
+                "[INFO] Final dataset after deduplication:"
+                f" {len(combined)} samples"
+            )
+            
+        if view:
+            _visualize_negative_sampling(
+                df_combined=combined,
+                base_points= df if strategy == 'landslide' else gauge_data,
+                strategy=strategy,
+                spatial_cols=spatial_cols,
+                target_col=target_col,
+                buffer_km=buffer_km, 
+                title="Sample Generation via Hybrid Strategy",
+            )
+        return combined
+
+    # Create DataFrame of negative samples.
+    df_neg = pd.DataFrame(negatives)
+
+    # Copy df for positive samples.
+    df_pos = df.copy()
+    df_pos[target_col] = 1
+
+    # Combine positives and negatives.
+    combined = pd.concat(
+        [df_pos, df_neg],
+        ignore_index=True
+    )
+    
+    if view:
+        _visualize_negative_sampling(
+            df_combined=combined,
+            base_points= df,
+            strategy=strategy,
+            spatial_cols=spatial_cols,
+            target_col=target_col,
+            buffer_km=buffer_km, 
+        )
+        
+    # Optionally print info about the results.
+    if verbose >= 1:
+        print(
+            f"[INFO] Generated {len(df_neg)} negative "
+            f"samples using strategy '{strategy}'"
+        )
+        print(
+            f"[INFO] Total dataset: {len(combined)} "
+            "samples"
+        )
+
+    return combined
+
+@SaveFile 
+@isdf          
+def gen_buffered_negative_samples(
+    df: pd.DataFrame,
+    target_col: str,
+    spatial_cols: Tuple[str, str] = ('longitude', 'latitude'),
+    feature_cols: Optional[List[str]] = None,
+    buffer_km: float = 10,
+    neg_feature_range: Tuple[float, float] = (0, 5),
+    num_neg_per_pos: int = 1,
+    strategy: str = 'landslide',  
+    gauge_data: Optional[pd.DataFrame] = None,
+    use_gpd: Union[bool, str] = 'auto',
+    id_col='auto', 
+    view: bool = False,
+    savefile: Optional[str] = None,
+    seed: Optional[int] = None, 
+    verbose: int = 1,
+) -> pd.DataFrame:
+    
+    """
+    Generate buffer-based negative samples around existing
+    points or gauge stations.
+    
+    This function creates additional negative samples
+    for binary spatial events. It either takes an existing
+    landslide dataset (when `strategy` is `'landslide'`)
+    or a separate gauge dataset (if `strategy` is
+    `'gauge'`) to serve as the base points for generating
+    negatives within a circular buffer. The function
+    validates input columns and parameters via
+    `_validate_negatives_sampling` before constructing
+    synthetic samples [1]_.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame containing positive event samples
+        (e.g., landslides). Must include `<target_col>`
+        and `<spatial_cols>`.
+    target_col : str
+        Name of the binary target column (1 for event,
+        0 for no event).
+    spatial_cols : tuple of str, default ('longitude', 'latitude')
+        Indicates which columns hold `<longitude>` and
+        `latitude` in `df`.
+    feature_cols : list of str, optional
+        Additional feature columns to simulate or copy
+        for negatives. If ``None``, all columns except
+        `<spatial_cols>` and `target_col` are used.
+    buffer_km : float, default 10
+        The radial distance in kilometers for sampling
+        negative points around each base point.
+    neg_feature_range : tuple of float, default (0, 5)
+        A numeric range from which feature values are
+        drawn for negative samples if the column
+        is numeric.
+    num_neg_per_pos : int, default 1
+        Number of negatives to generate per positive
+        (landslide) or gauge point.
+    strategy : str, default 'landslide'
+        Defines the base from which negative samples
+        are generated:
+          - `'landslide'` or ``'event'``: Use rows from `df`
+            as base. 
+          - `'gauge'`: Use rows from `<gauge_data>` as base.
+    gauge_data : pandas.DataFrame, optional
+        Required if `<strategy>` is `'gauge'`. Must
+        contain `<spatial_cols>`.
+    use_gpd : bool or 'auto', default 'auto'
+        If `'auto'`, attempts to use GeoPandas for
+        visualization if installed. Otherwise,
+        falls back to Matplotlib. This parameter
+        is forwarded to the underlying visualization
+        function.
+    id_col : str or list of str, default 'auto'
+        Column(s) representing IDs in `<df>`. If
+        `'auto'`, the function tries to detect
+        possible ID columns. Used by
+        `_validate_negatives_sampling`.
+    view : bool, default False
+        Whether to visualize the sampled negatives
+        around the base points.
+    savefile : str, optional
+        If provided, saves the final combined dataset
+        (positives and negatives) to a CSV file at the
+        specified path.
+    seed : int, optional
+        Seed for NumPy's random generator, ensuring
+        reproducible offsets in negative sampling.
+    verbose : int, default 1
+        Controls console messages: `1` for minimal,
+        `2` for more detailed logs.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The combined dataset containing both the original
+        (positive) rows, labeled with `target_col`=1,
+        and the newly generated negative rows, labeled
+        `target_col`=0.
+    
+    Methods
+    -------
+    `_validate_negatives_sampling`
+        Validates required columns and parameters,
+        including `<num_neg_per_pos>` and
+        `<neg_feature_range>`.
+    `visualize_negative_sampling`
+        Generates a plot showing the negative samples
+        around the base points if `<view>` is True.
+    
+    Notes
+    -----
+    - If `strategy` is `'gauge'`, `gauge_data` must
+      be provided and contain columns `longitude` and
+      `latitude`.
+    - When `<view>` is True, circles are drawn to
+      illustrate the buffer radius.
+    - The ratio of 1° ~ 111 km is approximate and can
+      vary slightly by latitude [1]_.
+      
+    Formally, a buffer in degrees
+    :math:`\\Delta` is computed by:
+    
+    .. math::
+       \\Delta = \\frac{\\text{buffer\\_km}}{111},
+    
+    where :math:`111` is an approximate km-per-degree
+    conversion factor. Each base point
+    :math:`(lat, lon)` spawns :math:`n` negatives, each
+    offset by :math:`\\delta_{lat}`, :math:`\\delta_{lon}`
+    drawn from :math:`U(-\\Delta, \\Delta)`.
+    
+    
+    Examples
+    --------
+    Below is an illustration of how to generate negative samples
+    around both existing event locations (strategy=`landslide`)
+    and separate gauge stations (strategy=`gauge`) using
+    ``gen_buffered_negative_samples``.
+    
+    First, we simulate a small DataFrame of positive
+    landslide samples with rainfall attributes, as well
+    as a separate DataFrame for gauge stations:
+    
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> np.random.seed(42)
+    
+    >>> positive_samples = pd.DataFrame({
+    ...     'id': [1, 2, 3, 4, 5],
+    ...     'latitude': np.random.uniform(24.0, 25.0, 5),
+    ...     'longitude': np.random.uniform(113.0, 114.0, 5),
+    ...     'rainfall_day_1': np.random.randint(10, 30, 5),
+    ...     'rainfall_day_2': np.random.randint(10, 30, 5),
+    ...     'rainfall_day_3': np.random.randint(10, 30, 5),
+    ...     'rainfall_day_4': np.random.randint(10, 30, 5),
+    ...     'rainfall_day_5': np.random.randint(10, 30, 5),
+    ...     'landslide': [1]*5
+    ... })
+    
+    >>> gauge_data = pd.DataFrame({
+    ...     'gauge_id': ['G1', 'G2', 'G3'],
+    ...     'latitude': np.random.uniform(24.0, 25.0, 3),
+    ...     'longitude': np.random.uniform(113.0, 114.0, 3)
+    ... })
+    
+    We then call ``gen_buffered_negative_samples`` to
+    produce negatives around these data using two
+    different strategies:
+    
+    >>> from gofast.utils.spatial_utils import gen_buffered_negative_samples
+    
+    >>> # Generate negatives around landslide points
+    >>> results_landslide = generate_negative_samples_with(
+    ...     df=positive_samples,
+    ...     target_col='landslide',
+    ...     spatial_cols=('longitude', 'latitude'),
+    ...     feature_cols=[f'rainfall_day_{i+1}' for i in range(5)],
+    ...     buffer_km=10,
+    ...     num_neg_per_pos=1,
+    ...     strategy='landslide',
+    ...     verbose=1
+    ... )
+    
+    >>> # Generate negatives around the gauge stations
+    >>> results_gauge = gen_buffered_negative_samples(
+    ...     df=positive_samples,
+    ...     target_col='landslide',
+    ...     spatial_cols=('longitude', 'latitude'),
+    ...     feature_cols=[f'rainfall_day_{i+1}' for i in range(5)],
+    ...     buffer_km=10,
+    ...     num_neg_per_pos=1,
+    ...     strategy='gauge',
+    ...     gauge_data=gauge_data,
+    ...     verbose=1
+    ... )
+
+    
+    See Also
+    --------
+    generate_negative_samples: 
+        Generate synthetic negative samples for spatial 
+        binary classification tasks.
+    _validate_negatives_sampling: 
+        Ensures inputs and parameters are correct.
+    visualize_negative_sampling : 
+        Plots the positive and negative points for inspection.
+    
+    References
+    ----------
+    .. [1] "What is a degree of Latitude/Longitude?"
+           US National Geodetic Survey (NGS),
+           https://www.ngs.noaa.gov/.
+    """
+    # See for reproducibility 
+    strategy = ( 
+        'landslide' if strategy.lower() in ('landslide','event')
+        else strategy
+    )
+    np.random.seed(seed)
+
+    # Validate input and columns
+    checked_values = _validate_negative_sampling (
+        df=df, 
+        target_col=target_col, 
+        spatial_cols= spatial_cols, 
+        feature_cols= feature_cols, 
+        neg_feature_range=neg_feature_range, 
+        num_neg_per_pos= num_neg_per_pos, 
+        verbose=verbose, 
+        id_col=id_col, 
+        )
+    ( 
+     spatial_cols, feature_cols,
+     neg_feature_range, num_neg_per_pos
+     ) = checked_values  
+    
+    lon_col, lat_col = spatial_cols 
+
+    if verbose >= 1:
+        print(f"[INFO] Generating negative samples using strategy: {strategy}")
+
+    buffer_deg = buffer_km / 111.0
+    negatives = []
+    
+    if strategy == 'gauge':
+        if gauge_data is None:
+            raise ValueError(
+                "Gauge data must be provided for 'gauge' strategy."
+                )
+
+    base_points = df if strategy == 'landslide' else gauge_data
+
+    if (base_points is None
+       or not all(c in base_points.columns for c in spatial_cols)):
+        raise ValueError(
+            "Missing gauge data or invalid spatial columns."
+        )
+
+    for _, point in base_points.iterrows():
+        for _ in range(num_neg_per_pos):
+            lat_offset = np.random.uniform(
+                -buffer_deg,
+                buffer_deg
+            )
+            lon_offset = np.random.uniform(
+                -buffer_deg,
+                buffer_deg
+            )
+            new_lat = point[lat_col] + lat_offset
+            new_lon = point[lon_col] + lon_offset
+
+            sample = {
+                lat_col: new_lat,
+                lon_col: new_lon,
+                target_col: 0
+            }
+
+            for col in feature_cols:
+                sample[col] = np.random.uniform(
+                    *neg_feature_range
+                )
+
+            negatives.append(sample)
+
+    df_neg = pd.DataFrame(negatives)
+    df_pos = df.copy()
+    df_pos[target_col] = 1
+
+    combined = pd.concat(
+        [df_pos, df_neg],
+        ignore_index=True
+    )
+
+    if verbose >= 1:
+        print(f"[INFO] Generated {len(df_neg)} negative samples")
+        print(f"[INFO] Total dataset: {len(combined)} samples")
+
+    if view:
+        _visualize_negative_sampling(
+            df_combined=combined,
+            base_points=base_points,
+            strategy=strategy,
+            spatial_cols=spatial_cols,
+            target_col=target_col,
+            buffer_km=buffer_km
+        )
+
+    return combined
+
+def _visualize_negative_sampling(
+        df_combined, base_points, strategy, spatial_cols, 
+        target_col, buffer_km=10, s=50, title=None, 
+        ):
+    import matplotlib.pyplot as plt
+    
+
+    lon_col, lat_col = spatial_cols
+    buffer_deg = buffer_km / 111.0
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    colors = {1: 'red', 0: 'green'}
+    labels = {1: 'Positive', 0: 'Negative'}
+
+    for val in [1, 0]:
+        subset = df_combined[df_combined[target_col] == val]
+        ax.scatter(subset[lon_col], subset[lat_col],
+                   color=colors[val], label=f"{labels[val]} Samples", s=s)
+
+    for _, row in base_points.iterrows():
+        circle = Circle(
+            (row[lon_col], row[lat_col]),
+            buffer_deg,
+            color='blue',
+            alpha=0.2
+        )
+        ax.add_patch(circle)
+
+    if strategy == 'gauge':
+        ax.scatter(base_points[lon_col], base_points[lat_col], 
+                   color='blue', label='Gauges',
+                   marker='x', s=+20
+                   )
+    if strategy == 'clustered_negatives':
+        ax.scatter(base_points[lon_col], base_points[lat_col],
+                   color='blue', label='Cluster Centers',
+                   marker='P', s=s +30
+                   )
+        
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    ax.set_title(title or f"Negative Sample Generation Strategy: {strategy}")
+    ax.legend(handles=[
+        Patch(color='red', label='Positive Samples'),
+        Patch(color='green', label='Negative Samples'),
+        Patch(color='blue', alpha=0.2, label=f'{buffer_km} km Buffer')
+    ])
+    set_axis_grid(ax, show_grid= True )
+    plt.tight_layout()
+    plt.show()
 
 @SaveFile
 @isdf
-def generate_negative_samples(
+def gen_negative_samples(
     df: DataFrame,
     target_col: str,
     spatial_cols: Tuple [str, str]=('longitude', 'latitude'),
@@ -248,15 +1093,20 @@ def generate_negative_samples(
     
     Examples
     --------
-    >>> from gofast.utils.spatial_utils import generate_negative_samples
+    >>> from gofast.utils.spatial_utils import gen_negative_samples
     >>> import pandas as pd
     >>> import numpy as np
     >>> df_pos = pd.DataFrame({
-    ...     'longitude': [113.5, 113.8],
-    ...     'latitude': [24.6, 24.9],
-    ...     'landslide': [1, 1]
-    ... })
-    >>> combined = generate_negative_samples(
+    ...        'latitude': np.random.uniform(24.0, 25.0, 5),
+    ...        'longitude': np.random.uniform(113.0, 114.0, 5),
+    ...        'rainfall_day_1': np.random.randint(10, 30, 5),
+    ...        'rainfall_day_2': np.random.randint(10, 30, 5),
+    ...        'rainfall_day_3': np.random.randint(10, 30, 5),
+    ...        'rainfall_day_4': np.random.randint(10, 30, 5),
+    ...        'rainfall_day_5': np.random.randint(10, 30, 5),
+    ...        'landslide': 1
+    ...    })
+    >>> combined = gen_negative_samples(
     ...     df=df_pos,
     ...     target_col='landslide',
     ...     buffer_km=10,
@@ -281,57 +1131,23 @@ def generate_negative_samples(
            degree of Latitude/Longitude?"
            (https://www.ngs.noaa.gov/).
     """
-
     # Validate input and columns
-    exist_features(
-        df,
-        features=target_col,
-        name=f"Target '{target_col}'"
-    )
-
-    feature_cols = columns_manager(feature_cols)
-    spatial_cols = columns_manager(spatial_cols)
-    lon_col, lat_col = spatial_cols
-   
-    check_spatial_columns(df, spatial_cols=spatial_cols)
-    exist_features(
-        df,
-        features=spatial_cols,
-        name="Spatial columns"
-    )
-    neg_feature_range= validate_length_range(
-        neg_feature_range, 
-        param_name="neg_feature_range"
-    )
-    num_neg_per_pos= validate_positive_integer(
-        num_neg_per_pos, 
-        "num_neg_per_pos", 
-    )
+    checked_values = _validate_negative_sampling (
+        df=df, 
+        target_col=target_col, 
+        spatial_cols= spatial_cols, 
+        feature_cols= feature_cols, 
+        neg_feature_range=neg_feature_range, 
+        num_neg_per_pos= num_neg_per_pos, 
+        verbose=verbose 
+        )
+    ( 
+     spatial_cols, feature_cols,
+     neg_feature_range, num_neg_per_pos
+     ) = checked_values  
     
-    # If no feature_cols provided, auto-detect from remaining columns
-    if feature_cols is None:
-        excluded_cols = list(spatial_cols) + [target_col]
-        feature_cols = [
-            col for col in df.columns
-            if col not in excluded_cols
-        ]
-        if verbose >= 2:
-            print(f"[INFO] Auto-detected feature_cols:"
-                  f" {feature_cols}")
-
-    feature_cols = columns_manager(feature_cols,
-                                   empty_as_none=False)
-
-    if len(feature_cols) == 0:
-        raise ValueError("No feature columns found. Please "
-                         "specify `feature_cols` explicitly.")
-
-    # Warn if a feature column does not exist in df
-    for col in feature_cols:
-        if col not in df.columns and verbose >= 2:
-            print(f"[WARN] Feature column '{col}' not "
-                  "found in df; it will be simulated.")
-
+    lon_col, lat_col = spatial_cols 
+    
     # Check GeoPandas
     HAS_GPD = False
     try:
@@ -410,7 +1226,7 @@ def generate_negative_samples(
                          ignore_index=True)
 
     if verbose >= 2:
-        print(f"[INFO] Final dataset: {len(df_positive)} "
+        print(f"\n[INFO] Final dataset: {len(df_positive)} "
               f"positive and {len(df_negative)} negative "
               f"samples.")
 
@@ -489,11 +1305,87 @@ def generate_negative_samples(
             Patch(color='blue', alpha=0.2,
                   label=f"{buffer_km} km Buffer")
         ])
-        plt.grid(True)
+        set_axis_grid(ax, show_grid=True )
         plt.tight_layout()
         plt.show()
 
     return combined
+
+def _validate_negative_sampling(
+    df: DataFrame,
+    target_col: str,
+    spatial_cols: Tuple[str, str] = ('longitude', 'latitude'),
+    feature_cols: Optional[List[str]] = None,
+    neg_feature_range: Tuple[float, float] = (0, 5),
+    num_neg_per_pos: int = 1,
+    id_col: Optional [str]="auto",
+    verbose: int=0
+):
+    """
+    Helper that validates input parameters and column configurations
+    for the generation of negative samples. Ensures required columns exist,
+    processes feature and spatial columns, and checks numeric parameters
+    like `<neg_feature_range>` and `<num_neg_per_pos>`.
+    """
+    # Validate input and columns
+    exist_features(df,features=target_col,
+                   name=f"Target '{target_col}'")
+
+    feature_cols = columns_manager(feature_cols)
+    spatial_cols = columns_manager(spatial_cols)
+ 
+    check_spatial_columns(df, spatial_cols=spatial_cols)
+    exist_features(df,features=spatial_cols,
+                   name="Spatial columns")
+    neg_feature_range= validate_length_range(
+        neg_feature_range, 
+        param_name="neg_feature_range"
+    )
+    num_neg_per_pos= validate_positive_integer(
+        num_neg_per_pos, 
+        "num_neg_per_pos", 
+    )
+    # detect id columns if auto 
+    if str(id_col).lower() =='auto': 
+        id_col = find_id_column(
+            df, strategy= 'naive', 
+            errors='ignore'
+        )
+    
+    id_col= columns_manager( id_col, empty_as_none= False ) 
+    # If no feature_cols provided, auto-detect from remaining columns
+    # including 
+    if feature_cols is None:
+        excluded_cols = list(spatial_cols) + [target_col] + id_col
+        feature_cols = [
+            col for col in df.columns
+            if col not in excluded_cols
+        ]
+        if verbose >= 2:
+            print(f"[INFO] Auto-detected feature_cols:"
+                  f" {feature_cols}")
+
+    feature_cols = columns_manager(
+        feature_cols,
+        empty_as_none=False
+    )
+
+    if len(feature_cols) == 0:
+        raise ValueError("No feature columns found. Please "
+                         "specify `feature_cols` explicitly.")
+
+    # Warn if a feature column does not exist in df
+    for col in feature_cols:
+        if col not in df.columns and verbose >= 2:
+            print(f"[WARN] Feature column '{col}' not "
+                  "found in df; it will be simulated.")
+            
+    return ( 
+        spatial_cols, 
+        feature_cols,
+        neg_feature_range, 
+        num_neg_per_pos, 
+     )
 
 @SaveFile 
 @isdf 
@@ -640,15 +1532,6 @@ def create_spatial_clusters(
        Machine Learning in Python*, JMLR 12,
        pp. 2825-2830, 2011.
     """
-    # # Auto-detect KMeans clusters with ggplot style
-    # df = create_spatial_clusters(df, algorithm='kmeans', plot_style='ggplot')
-
-    # # DBSCAN clustering with custom parameters
-    # df = create_spatial_clusters(df, algorithm='dbscan', eps=0.5, min_samples=15)
-
-    # # Agglomerative clustering with 7 clusters
-    # df = create_spatial_clusters(df, algorithm='agglo', n_clusters=7, cmap='plasma')
-    
     # Confirm required columns exist in DataFrame
     # This prevents missing key data issues
     if spatial_cols is None: 

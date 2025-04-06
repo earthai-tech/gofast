@@ -435,7 +435,150 @@ array([[0. ..., 0. ...],
        [0. ..., 0. ...]])
 """
 
+_shared_docs [ 
+    "gen_neg_sample_strategy"
+]="""
+strategy : str, optional
+    Defines the sampling approach for generating
+    negative examples. Available strategies include:
 
+    - ``'landslide'`` or ``'event``:
+        Negative samples are generated spatially around
+        each known landslide event within a circular
+        buffer defined by `buffer_km`. This assumes that
+        nearby regions may share similar environmental
+        conditions but did not experience a landslide.
+
+        ✅ Pros:
+            - Spatially consistent with real events
+            - Easy to implement
+        ⚠️ Cons:
+            - Risk of overlapping with actual landslide
+              zones
+            - May include false negatives
+        📌 Recommended:
+            - When landslide events are georeferenced but
+              no gauge data is available
+
+    - ``'gauge'``:
+        Negative samples are generated around
+        meteorological rain gauges. Useful when
+        precipitation data is the key driver and negative
+        points should reflect areas under monitoring, but
+        with no landslide occurrence.
+
+        ✅ Pros:
+            - Leverages real measurement locations
+            - Works well with rainfall‑based models
+        ⚠️ Cons:
+            - Not all gauges may represent terrain
+              diversity
+        📌 Recommended:
+            - When rainfall is the main driver and gauge
+              locations are reliable
+
+    - ``'random_global'``:
+        Negative samples are distributed randomly across
+        the entire study region (not tied to events or
+        gauges). This provides broad coverage but may
+        include unrealistic or low‑risk zones, depending
+        on the study area.
+
+        ✅ Pros:
+            - Covers full spatial variability
+            - Simple and fast
+        ⚠️ Cons:
+            - May include unrealistic zones (e.g., flat
+              deserts, urban areas)
+            - Poor environmental control
+        📌 Recommended:
+            - For exploratory models or when spatial
+              context is less critical
+
+    - ``'temporal_shift'``:
+        Uses the same location as a positive landslide
+        sample, but at a different (non‑disaster) time.
+        Ideal when working with temporal data (e.g.,
+        rainfall), as it controls for geography while
+        testing different temporal conditions.
+
+        ✅ Pros:
+            - Controls for geography
+            - Focuses on temporal variation (e.g., rainfall)
+        ⚠️ Cons:
+            - Requires time‑series data
+            - May still be close to actual disaster dates
+        📌 Recommended:
+            - For temporal models or rainfall‑driven
+              landslide prediction
+
+    - ``'clustered_negatives'``:
+        Applies clustering to the positive samples
+        (e.g., KMeans) and generates negatives around the
+        resulting cluster centroids. Balances realism and
+        variability by shifting away from exact event
+        locations.
+
+        ✅ Pros:
+            - Reduces overfitting to exact event locations
+            - Balances spatial diversity
+        ⚠️ Cons:
+            - Needs tuning for clustering
+            - May miss sparse or isolated regions
+        📌 Recommended:
+            - For datasets with highly clustered landslides
+
+    - ``'environmental_similarity'``:
+        Samples are drawn from regions with environmental
+        attributes (e.g., slope, soil type, geology)
+        similar to those of the positive class but where
+        no landslides have been recorded. Provides
+        difficult negative examples and improves model
+        generalization.
+
+        ✅ Pros:
+            - Generates “hard negatives”
+            - Excellent for feature‑sensitive models
+        ⚠️ Cons:
+            - Computationally expensive
+            - Requires complete feature data for all regions
+        📌 Recommended:
+            - When building highly accurate or
+              generalizable ML models
+
+    - ``'elevation_based'``:
+        Generates negative samples in areas with low
+        elevation or slope, where landslides are
+        geologically less likely. This strategy ensures a
+        strong negative class with minimal false
+        negatives.
+
+        ✅ Pros:
+            - Produces clearly negative samples
+            - Low chance of false negatives
+        ⚠️ Cons:
+            - Poor variability
+            - Could skew the classifier
+        📌 Recommended:
+            - When needing a clear separation between
+              classes (e.g., binary baseline)
+
+    - ``'hybrid'``:
+        Combines two or more of the above strategies
+        (e.g., 50 % `landslide` + 50 % `gauge`) to build a
+        more diverse and robust negative sample set. Helps
+        reduce sampling bias and improve classifier
+        performance.
+
+        ✅ Pros:
+            - Rich, diverse sample set
+            - Reduces sampling bias
+        ⚠️ Cons:
+            - More complex logic
+            - Possible duplicate locations
+        📌 Recommended:
+            - When you want a robust and general dataset          
+"""
 
 def filter_docs(keys, input_dict=None):
     """

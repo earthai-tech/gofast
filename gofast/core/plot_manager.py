@@ -9,7 +9,7 @@ ensuring compatibility with visualization libraries.
 """
 from __future__ import print_function
 import re
-from typing import Optional, List
+from typing import Optional, List, Tuple, Union
 import warnings
 import itertools
 import inspect 
@@ -35,6 +35,7 @@ __all__=[
     'return_fig_or_ax',
     'set_axis_grid',
     'is_valid_kind', 
+    'get_color_palette', 
     ]
 
 
@@ -1170,3 +1171,158 @@ def is_valid_kind(
             raise ValueError(f"Invalid plot type '{kind}'. Allowed: {allowed}")
 
     return final_kind
+
+def get_color_palette(
+    n_colors: int,
+    cmap: Union[str, mcolors.Colormap, None] = None,
+    default_cmap: str = 'viridis'
+) -> List[Tuple[float, float, float, float]]:
+    """
+    Generates a list of distinct colors sampled from a matplotlib
+    colormap. This function ensures that `n_colors` distinct
+    RGBA tuples are returned, either by sampling a user-specified
+    colormap or falling back to the default.
+
+    .. math::
+       x_i = \\frac{i}{n_{\\text{colors}} - 1}
+    
+    for :math:`i = 0, 1, 2, ..., n_{\\text{colors}} - 1`, where
+    :math:`x_i` is the fraction used to sample the colormap.
+
+    Parameters
+    ----------
+    n_colors : int
+        The number of distinct colors to generate. Must be >= 1.
+    cmap : str or matplotlib.colors.Colormap or None, optional
+        The colormap source. If a string, it should be a valid
+        matplotlib colormap name (e.g. ``"viridis"``,
+        ``"coolwarm"``). If a Colormap object, it will be used
+        directly. If None, the function defaults to
+        ``default_cmap``.
+    default_cmap : str, optional
+        Default colormap name used if `cmap` is None. Must be a
+        valid colormap, e.g. ``"viridis"`` or ``"plasma"``.
+
+    Returns
+    -------
+    List[Tuple[float, float, float, float]]
+        A list of RGBA color tuples, each channel in [0, 1].
+        When `n_colors` = 1, the midpoint (0.5) of the colormap
+        is sampled.
+
+    Raises
+    ------
+    ValueError
+        If `n_colors` < 1. Also raised if a string colormap name
+        is invalid, or if `default_cmap` is invalid.
+    TypeError
+        If `n_colors` is not an integer, or if `cmap` is given
+        an unsupported type.
+
+    Notes
+    -----
+    This function retrieves the colormap object through
+    matplotlib, then samples it at evenly spaced intervals
+    from 0.0 to 1.0. For a single color (when `n_colors`=1),
+    the midpoint (0.5) is taken to avoid the extreme bounds.
+
+    Examples
+    --------
+    >>> from gofast.core.plot_manager import get_color_palette
+    >>> # 5 colors from default 'viridis' colormap
+    >>> colors = get_color_palette(5)
+    >>> print(len(colors))
+    5
+
+    >>> # 3 colors from 'coolwarm'
+    >>> get_color_palette(3, cmap='coolwarm')
+    [(0.23, 0.30, 0.75, 1.0), (0.86, 0.86, 0.86, 1.0),
+     (0.71, 0.02, 0.15, 1.0)]
+
+    See Also
+    --------
+    plt.get_cmap : Retrieves a colormap object by name from
+        matplotlib.
+    matplotlib.colors.Colormap : Base class for all matplotlib
+        colormaps.
+
+    References
+    ----------
+    .. [1] Hunter, J. D. (2007). "Matplotlib: A 2D graphics
+           environment." Computing in Science & Engineering,
+           9(3), 90-95.
+    """
+    # --- Validate `n_colors` ---
+    if not isinstance(n_colors, int):
+        raise TypeError(
+            f"`n_colors` must be an integer, got {type(n_colors)}."
+        )
+    if n_colors < 1:
+        raise ValueError(
+            f"`n_colors` must be 1 or greater, got {n_colors}."
+        )
+
+    # --- Resolve the colormap object ---
+    colormap_object = None
+    cmap_name_used  = None  # Track the final name if string/None
+
+    if cmap is None:
+        # Use default_cmap when `cmap` is None
+        cmap_name_used = default_cmap
+        try:
+            colormap_object = plt.get_cmap(cmap_name_used)
+        except ValueError:
+            raise ValueError(
+                f"The `default_cmap` name '{cmap_name_used}' is not a valid "
+                f"registered matplotlib colormap."
+            )
+    elif isinstance(cmap, str):
+        # User provided a string colormap name
+        cmap_name_used = cmap
+        try:
+            colormap_object = plt.get_cmap(cmap_name_used)
+        except ValueError:
+            raise ValueError(
+                f"Colormap name '{cmap_name_used}' is not a valid registered "
+                f"matplotlib colormap."
+            )
+    elif isinstance(cmap, mcolors.Colormap):
+        # User directly passed a Colormap instance
+        colormap_object = cmap
+    else:
+        raise TypeError(
+            "`cmap` must be a string, a Colormap object, or None. "
+            f"Got {type(cmap)}."
+        )
+
+    # --- Sample the colormap ---
+    if n_colors == 1:
+        # For single color, take the midpoint
+        try:
+            color_list = [colormap_object(0.5)]
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to sample colormap at midpoint: {e}"
+            ) from e
+    else:
+        # Spread out from 0 to 1 in (n_colors-1) intervals
+        try:
+            color_list = [
+                colormap_object(float(i) / (n_colors - 1))
+                for i in range(n_colors)
+            ]
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to sample colormap {n_colors} times: {e}"
+            ) from e
+
+    # --- Final check & return ---
+    if (not isinstance(color_list, list)
+            or not all(isinstance(c, tuple)
+                       for c in color_list)):
+        warnings.warn(
+            "Colormap sampling did not return the expected RGBA tuples. "
+            "Check the Colormap if it is custom.", UserWarning
+        )
+
+    return color_list

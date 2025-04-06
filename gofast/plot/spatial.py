@@ -16,6 +16,7 @@ import pandas as pd
 import seaborn as sns 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.patches import Patch, Circle
 from scipy.interpolate import griddata
 from sklearn.cluster import KMeans
 
@@ -25,7 +26,8 @@ from ..api.types import (
     List, 
     Tuple, 
     Dict, 
-    Any 
+    Any, 
+    Literal, 
 )
 from ..api.types import DataFrame
 from ..core.checks import ( 
@@ -39,7 +41,8 @@ from ..core.io import is_data_readable, export_data
 from ..core.plot_manager import ( 
     default_params_plot, 
     return_fig_or_ax, 
-    set_axis_grid 
+    set_axis_grid, 
+    get_color_palette 
 )
 from ..compat.sklearn import ( 
     validate_params,
@@ -63,8 +66,571 @@ __all__=[
         'plot_categories_dist',
         'plot_spatial_features', 
         'plot_spatial_clusters', 
-        'plot_hotspot_map', 
+        'plot_hotspot_map',
+        'plot_sampling_map', 
  ]
+
+
+@default_params_plot(
+    savefig=PlotConfig.AUTOSAVE('my_spatial_clusters_plot.png')
+ )
+@isdf 
+def plot_sampling_map(
+    df: pd.DataFrame,
+    target_col: str,
+    spatial_cols: Tuple[str, str] = ('longitude', 'latitude'),
+    strategy: Literal['event', 'gauge'] = 'event',
+    ref_points_df: Optional[pd.DataFrame] = None,
+    buffer_km: Optional[float] = 10,
+    figsize: Tuple[float, float] = (10, 8),
+    colors: Union[
+        Dict[Any, str],
+        List[str],
+        str,
+        None
+    ] = None,
+    labels: Union[
+        Dict[Any, str],
+        List[str],
+        None
+    ] = None,
+    markers: Union[
+        Dict[Any, str],
+        List[str],
+        str,
+        None
+    ] = None,
+    sizes: Union[
+        Dict[Any, float],
+        List[float],
+        float,
+        None
+    ] = None,
+    buffer_style: Optional[Dict[str, Any]] = None,
+    ref_marker_style: Optional[Dict[str, Any]] = None,
+    title: Optional[str] = None,
+    xlabel: str = None,
+    ylabel: str = None,
+    xlim: Optional[Tuple[float, float]] = None,
+    ylim: Optional[Tuple[float, float]] = None,
+    aspect_ratio: Union[str, float] = 'auto',
+    show_grid: bool = True,
+    grid_props: Optional[Dict[str, Any]] = None,
+    legend_kwargs: Optional[Dict[str, Any]] = None,
+    scatter_kwargs: Optional[Dict[str, Any]] = None, 
+    savefig: Optional[str] = None,
+    savefig_kwargs: Optional[Dict[str, Any]] = None,
+    show_plot: bool = True
+) -> Optional[plt.Axes]:
+    r"""
+    Plots spatial data points classified by a target variable, optionally
+    drawing buffer circles around reference points. Can be used for
+    visualizing positives/negatives around an event or reference gauges.
+    
+    The function uses `check_spatial_columns` and `columns_manager` to
+    verify spatial columns, and `get_color_palette` for color mapping
+    when a string colormap is given. It also relies on
+    `set_axis_grid` to manage the display of grid lines. 
+    
+    Mathematically, when ``buffer_km`` is provided, an approximate
+    degrees value is computed by:
+    
+    .. math::
+       \theta = \frac{\text{buffer_km}}{111.0}
+    
+    Hence, each buffer circle is rendered with a radius
+    :math:`\theta` around the reference point in degree units,
+    assuming :math:`1^\circ \approx 111\ \text{km}` near the equator.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Main DataFrame containing spatial data. Must have columns for
+        both <spatial_cols> and <target_col>.
+    target_col : str
+        Column name in ``df`` representing the classification target
+        (e.g., 0/1 or any distinct classes).
+    spatial_cols : tuple of str, optional
+        Columns representing longitude and latitude. Default is
+        ('longitude', 'latitude').
+    strategy : {'event', 'gauge'}, optional
+        Defines how reference points and buffers are handled:
+        - ``"event"`` : Buffers are built around the positive class
+          from ``df``.
+        - ``"gauge"`` : Buffers are built around points in
+          ``ref_points_df``.
+    ref_points_df : pandas.DataFrame, optional
+        Additional DataFrame of reference points (e.g., gauges). Must
+        be provided and non-empty if ``strategy`` is ``"gauge"``.
+    buffer_km : float or None, optional
+        Buffer radius in kilometers. If None, no buffers are drawn.
+    figsize : tuple of float, optional
+        Size of the figure (width, height) in inches.
+    colors : dict or list or str or None, optional
+        Color specification for each class or a matplotlib colormap
+        name. If a dict, maps class values to specific colors.
+    labels : dict or list or None, optional
+        Legend labels for each class. If None, class values are used.
+    markers : dict or list or str or None, optional
+        Marker style per class. Can be a single marker, a dict or a list.
+    sizes : dict or list or float or None, optional
+        Marker sizes for each class. Can be uniform or per-class.
+    buffer_style : dict, optional
+        Style overrides for the buffer circles (matplotlib Patch
+        properties).
+    ref_marker_style : dict, optional
+        Style overrides for reference points (if ``strategy`` is
+        ``"gauge"``).
+    title : str, optional
+        Custom title for the plot. Generated automatically if None.
+    xlabel : str, optional
+        X-axis label. Defaults to the longitude column name if None.
+    ylabel : str, optional
+        Y-axis label. Defaults to the latitude column name if None.
+    xlim : tuple of float, optional
+        X-axis range as (min, max). If None, determined by data.
+    ylim : tuple of float, optional
+        Y-axis range as (min, max). If None, determined by data.
+    aspect_ratio : str or float, optional
+        Aspect ratio of the plot. Common options are ``"auto"`` or
+        ``"equal"``.
+    show_grid : bool, optional
+        Whether to display a grid. Defaults to True.
+    grid_props : dict, optional
+        Properties forwarded to matplotlib's `ax.grid`.
+    legend_kwargs : dict, optional
+        Additional keyword arguments for the plot legend.
+    scatter_kwargs : dict, optional
+        Additional kwargs forwarded to all main scatter plots.
+    savefig : str, optional
+        Path to save the figure. If None, no file is saved.
+    savefig_kwargs : dict, optional
+        Additional kwargs for `plt.savefig`, such as ``{"dpi": 300}``.
+    show_plot : bool, optional
+        If False, the figure is closed after creation (useful for
+        scripts). Defaults to True.
+    
+    Returns
+    -------
+    matplotlib.axes.Axes or None
+        The Axes object of the plot if successful, otherwise None.
+    
+    Notes
+    -----
+    - The distance conversion from km to degrees is a rough estimate.
+      Accuracy decreases further from the equator. Consider using more
+      robust geodesic libraries if precise calculations are needed.
+    - When ``strategy="event"``, the function identifies the highest
+      target value (presumed positive) to define buffer centers.
+    
+    Examples
+    --------
+    >>> from gofast.plot.spatial import plot_sampling_map
+    >>> import pandas as pd
+    >>> data = {
+    ...     "longitude": [10.0, 10.1, 10.2],
+    ...     "latitude" : [45.0, 45.1, 45.2],
+    ...     "class"    : [0, 0, 1]
+    ... }
+    >>> df = pd.DataFrame(data)
+    >>> plot_sampling_map(df,
+    ...                   target_col="class",
+    ...                   strategy="event",
+    ...                   buffer_km=5,
+    ...                   title="Example Event Buffers")
+    
+    See Also
+    --------
+    check_spatial_columns : Validates the presence of latitude and
+        longitude columns.
+    columns_manager : Standardizes or renames spatial columns as needed.
+    get_color_palette : Generates a sequence of colors from a specified
+        colormap for the given number of classes.
+    set_axis_grid : Toggles and customizes the grid on a matplotlib Axes.
+    
+    References
+    ----------
+    .. [1] John P. Snyder. "Map Projections--A Working Manual."
+       U.S. Geological Survey Professional Paper 1395, 1987.
+    """
+
+    # --- Initial Checks ---
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        raise ValueError(
+            "Input `df` must be a non-empty pandas DataFrame."
+        )
+
+    if target_col not in df.columns:
+        raise ValueError(
+            f"Target column '{target_col}' not found in df."
+        )
+
+    # Check that `spatial_cols` exist in `df`.
+    check_spatial_columns(
+        df,
+        spatial_cols=spatial_cols
+    )
+    spatial_cols_list = columns_manager(
+        list(spatial_cols)
+    )
+    lon_col, lat_col = spatial_cols_list
+
+    # If strategy is 'gauge', verify ref_points_df.
+    if strategy == 'gauge':
+        if (ref_points_df is None
+                or ref_points_df.empty):
+            raise ValueError(
+                "Parameter `ref_points_df` must be "
+                "provided and non-empty when "
+                "strategy='gauge'."
+            )
+        if not isinstance(ref_points_df, pd.DataFrame):
+            raise ValueError(
+                "`ref_points_df` must be a "
+                "pandas DataFrame."
+            )
+        check_spatial_columns(
+            ref_points_df,
+            spatial_cols=spatial_cols
+        )
+        if not all(
+            c in ref_points_df.columns
+            for c in spatial_cols_list
+        ):
+            raise ValueError(
+                f"Spatial columns '{spatial_cols_list}' "
+                "not found in `ref_points_df`."
+            )
+
+    # Prepare styling based on target variable.
+    unique_targets = sorted(
+        df[target_col].unique()
+    )
+    n_classes = len(unique_targets)
+
+    # Default scatter arguments.
+    base_scatter_kwargs = {'s': 50}
+    if scatter_kwargs:
+        base_scatter_kwargs.update(scatter_kwargs)
+
+    def _resolve_style(
+        param,
+        defaults,
+        n,
+        targets
+    ):
+        # Helper to resolve style parameters such as color,
+        # label, marker, size, etc.
+        if param is None:
+            return {
+                t: defaults[i % len(defaults)]
+                for i, t in enumerate(targets)
+            }
+        if isinstance(param, dict):
+            if not all(
+                t in param for t in targets
+            ):
+                raise ValueError(
+                    "Style dictionary keys missing "
+                    f"for some target values: {targets}"
+                )
+            return param
+        if isinstance(param, list):
+            if len(param) < n:
+                raise ValueError(
+                    "Style list has fewer elements "
+                    f"({len(param)}) than classes ({n})."
+                )
+            return {
+                t: param[i] for i, t
+                in enumerate(targets)
+            }
+        if isinstance(param, (str, int, float)):
+            return {t: param for t in targets}
+        raise ValueError(
+            f"Unsupported type for style parameter: {type(param)}"
+        )
+
+    # Resolve colors.
+    default_colors = [
+        'red',
+        'green',
+        'blue',
+        'purple',
+        'orange',
+        'brown'
+    ]
+    resolved_colors = {}
+
+    if isinstance(colors, str):
+        # If `colors` is a colormap name.
+        cmap_colors = get_color_palette(
+            n_classes,
+            cmap=colors
+        )
+        resolved_colors = {
+            t: cmap_colors[i]
+            for i, t in enumerate(unique_targets)
+        }
+    else:
+        resolved_colors = _resolve_style(
+            colors,
+            default_colors,
+            n_classes,
+            unique_targets
+        )
+
+    # Resolve labels.
+    # default_labels = {
+    #     t: f"Class {t}" for t in unique_targets
+    # }
+    resolved_labels = _resolve_style(
+        labels,
+        [
+            f"Class {t}"
+            for t in unique_targets
+        ],
+        n_classes,
+        unique_targets
+    )
+
+    # If user explicitly passed None to `labels`,
+    # just use the string form of target values.
+    if labels is None:
+        resolved_labels = {
+            t: str(t) for t in unique_targets
+        }
+
+    # Resolve markers.
+    default_markers = [
+        'o',
+        's',
+        '^',
+        'D',
+        'v',
+        '*'
+    ]
+    resolved_markers = _resolve_style(
+        markers,
+        default_markers,
+        n_classes,
+        unique_targets
+    )
+
+    # Resolve sizes.
+    default_sizes = [
+        base_scatter_kwargs['s']
+    ] * n_classes
+    resolved_sizes = _resolve_style(
+        sizes,
+        default_sizes,
+        n_classes,
+        unique_targets
+    )
+
+    # --- Setup Plot ---
+    fig, ax = plt.subplots(
+        figsize=figsize
+    )
+    ax.set_aspect(aspect_ratio)
+
+    # --- Plot Classified Data Points ---
+    plot_handles = []  # For manual legend entries.
+    for target_val in unique_targets:
+        subset = df[
+            df[target_col] == target_val
+        ]
+        if not subset.empty:
+            current_scatter_kwargs = (
+                base_scatter_kwargs.copy()
+            )
+            current_scatter_kwargs.update({
+                'c': [
+                    resolved_colors[target_val]
+                ] * len(subset),
+                'label': resolved_labels[target_val],
+                'marker': resolved_markers[target_val],
+                's': resolved_sizes[target_val]
+            })
+            ax.scatter(
+                subset[lon_col],
+                subset[lat_col],
+                **current_scatter_kwargs
+            )
+
+    # --- Determine Buffer Centers ---
+    buffer_centers_df = None
+    if buffer_km is not None and buffer_km > 0:
+        if strategy == 'event':
+            # If event, use the positive class
+            # from main df as buffer centers.
+            positive_class = unique_targets[-1]
+            buffer_centers_df = df[
+                df[target_col] == positive_class
+            ]
+            buffer_label = (
+                f'{buffer_km} km Buffer '
+                f'(around {resolved_labels[positive_class]})'
+            )
+        elif strategy == 'gauge':
+            # If gauge, use ref_points_df as
+            # buffer centers.
+            buffer_centers_df = ref_points_df
+            buffer_label = (
+                f'{buffer_km} km Buffer (around Gauges)'
+            )
+        else:
+            raise ValueError(
+                f"Unknown strategy: {strategy}"
+            )
+
+    # --- Plot Buffers ---
+    if (buffer_centers_df is not None 
+            and not buffer_centers_df.empty):
+        # Approx conversion from km to deg.
+        buffer_deg = buffer_km / 111.0
+        default_buf_style = {
+            'facecolor': 'gray',
+            'edgecolor': None,
+            'alpha': 0.15,
+            'linestyle': '-',
+            'linewidth': 0.5
+        }
+        current_buffer_style = default_buf_style
+        if buffer_style:
+            current_buffer_style.update(
+                buffer_style
+            )
+
+        for _, row in buffer_centers_df.iterrows():
+            circle = Circle(
+                (
+                    row[lon_col],
+                    row[lat_col]
+                ),
+                buffer_deg,
+                **current_buffer_style
+            )
+            ax.add_patch(circle)
+
+        # Manually add a legend entry.
+        legend_buffer_style = (
+            current_buffer_style.copy()
+        )
+        legend_buffer_style.pop(
+            'radius', 
+            None
+        )
+        plot_handles.append(
+            Patch(
+                label=buffer_label,
+                **legend_buffer_style
+            )
+        )
+
+    # --- Plot Reference Markers ---
+    if (strategy == 'gauge'
+            and ref_points_df is not None):
+        default_ref_style = {
+            'color': 'black',
+            'marker': 'X',
+            's': 60,
+            'label': 'Reference Gauges'
+        }
+        current_ref_style = default_ref_style
+        if ref_marker_style:
+            current_ref_style.update(
+                ref_marker_style
+            )
+        ax.scatter(
+            ref_points_df[lon_col],
+            ref_points_df[lat_col],
+            **current_ref_style
+        )
+
+    # --- Final Styling ---
+    ax.set_xlabel(xlabel or lon_col)
+    ax.set_ylabel(ylabel or lat_col)
+
+    plot_title = title
+    if plot_title is None:
+        if strategy == 'gauge':
+            plot_title = (
+                "Spatial Distribution with "
+                "Gauge Buffers"
+            )
+        else:
+            plot_title = (
+                "Spatial Distribution with "
+                "Event Buffers"
+            )
+    ax.set_title(plot_title)
+
+    if xlim:
+        ax.set_xlim(xlim)
+    if ylim:
+        ax.set_ylim(ylim)
+
+    set_axis_grid(
+        ax,
+        show_grid=show_grid,
+        grid_props=grid_props
+    )
+
+    default_legend_kwargs = {'loc': 'best'}
+    current_legend_kwargs = default_legend_kwargs
+    if legend_kwargs:
+        current_legend_kwargs.update(
+            legend_kwargs
+        )
+
+    # Combine handles for custom buffer patch.
+    handles, labels_from_ax = (
+        ax.get_legend_handles_labels()
+    )
+    ax.legend(
+        handles=handles + plot_handles,
+        labels=labels_from_ax
+               + [
+                   h.get_label() 
+                   for h in plot_handles
+                 ],
+        **current_legend_kwargs
+    )
+
+    plt.tight_layout()
+
+    # --- Save Figure ---
+    if savefig:
+        default_savefig_kwargs = {
+            'dpi': 300,
+            'bbox_inches': 'tight'
+        }
+        current_savefig_kwargs = (
+            default_savefig_kwargs
+        )
+        if savefig_kwargs:
+            current_savefig_kwargs.update(
+                savefig_kwargs
+            )
+        try:
+            plt.savefig(
+                savefig,
+                **current_savefig_kwargs
+            )
+            if show_plot:
+                print(f"Plot saved to {savefig}")
+        except Exception as e:
+            warnings.warn(
+                f"Failed to save plot to {savefig}: "
+                f"{e}",
+                UserWarning
+            )
+    # --- Show or Close Plot ---
+    plt.show()
+  
+    return ax
+
 
 @default_params_plot(
     savefig=PlotConfig.AUTOSAVE('my_spatial_clusters_plot.png'))

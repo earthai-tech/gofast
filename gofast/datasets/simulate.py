@@ -73,7 +73,7 @@ __all__ = [
 
 def simulate_landslide_data(
     *,
-    n_events: int = 572,
+    n_events: int = 752,
     buffer_km: float = 10.0,
     noise_level: float = 0.1,
     randomize_dates: bool = True,
@@ -118,7 +118,7 @@ def simulate_landslide_data(
     
     Parameters
     ----------
-    n_events : int, default 572
+    n_events : int, default 752
         Number of positive (landslide) events to
         simulate. Each such event generates one
         corresponding negative sample in a nearby

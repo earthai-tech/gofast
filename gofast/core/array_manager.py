@@ -71,7 +71,7 @@ def to_array(
     error: str = 'raise',
     force_conversion: bool = False,
     axis: int = 0,
-    ops_mode: str = "keep_origin",
+    mode: str = "keep_origin",
     as_frame: bool=False, 
     verbose: int = 0,
     **kwargs
@@ -83,7 +83,7 @@ def to_array(
     (such as lists, tuples, NumPy arrays, Pandas Series, and DataFrames) 
     by converting them to a specified dimensionality. It provides flexibility 
     through parameters like ``accept``, ``force_conversion``, and 
-    ``ops_mode`` to ensure the output meets the user's requirements. Additionally, 
+    ``mode`` to ensure the output meets the user's requirements. Additionally, 
     the ``verbose`` parameter allows users to control the level of informational 
     messages during the conversion process.
 
@@ -131,7 +131,7 @@ def to_array(
         2D array, ``axis=0`` will reshape it to ``(x, 1)`` and 
         ``axis=1`` will reshape it to ``(1, x)``.
     
-    ops_mode : str, default="keep_origin"
+    mode : str, default="keep_origin"
         Determines the operation mode for handling original data types. 
         Accepted values include:
         
@@ -141,10 +141,10 @@ def to_array(
           disregarding original data types.
         
         When ``accept`` is ``'2d'`` or ``'only_2d'`` and a Pandas DataFrame 
-        is passed, it will not be converted to a NumPy array if ``ops_mode`` 
+        is passed, it will not be converted to a NumPy array if ``mode`` 
         is set to ``"keep_origin"``. Similarly, a Pandas Series will not be 
         converted to a NumPy array when ``accept`` is ``'1d'`` or 
-        ``'only_1d'`` and ``ops_mode`` is ``"keep_origin"``.
+        ``'only_1d'`` and ``mode`` is ``"keep_origin"``.
     
     as_frame : bool, default=False
         If ``True``, attempts to convert the array back to a Pandas 
@@ -168,7 +168,7 @@ def to_array(
     Union[np.ndarray, pd.Series, pd.DataFrame]
         The converted array-like object adhering to the specified 
         dimensionality constraints. The output type depends on the 
-        ``ops_mode`` and the nature of the input.
+        ``mode`` and the nature of the input.
     
     Examples
     --------
@@ -194,7 +194,7 @@ def to_array(
     >>> array_1d = to_array(
     ...     series_input, 
     ...     accept='1d', 
-    ...     ops_mode='numpy_only', 
+    ...     mode='numpy_only', 
     ...     verbose=2
     ... )
     >>> print(array_1d)
@@ -230,7 +230,7 @@ def to_array(
     >>> series_output = to_array(
     ...     np_array_1d, 
     ...     accept='1d', 
-    ...     ops_mode='keep_origin', 
+    ...     mode='keep_origin', 
     ...     as_frame=True, 
     ...     verbose=2
     ... )
@@ -247,7 +247,7 @@ def to_array(
     providing flexible conversion options, it ensures that downstream processes 
     receive data in the expected format. The ``force_conversion`` parameter 
     allows users to override default behaviors, enabling customized data handling 
-    strategies. Additionally, the ``ops_mode`` parameter offers control over 
+    strategies. Additionally, the ``mode`` parameter offers control over 
     whether to preserve original data types or enforce conversions to NumPy arrays, 
     enhancing the function's adaptability to different use cases.
     
@@ -397,7 +397,7 @@ def to_array(
     collected = array_preserver(arr, action='collect')
    
     # Handle 'keep_origin' operation mode
-    if ops_mode == "keep_origin":
+    if mode == "keep_origin":
         if accept in ['2d', 'only_2d'] and isinstance(arr, pd.DataFrame):
             _verbose_print("Keeping original Pandas DataFrame as it is 2D.", level=2)
             return arr
@@ -582,7 +582,7 @@ def to_array(
                     _handle_error(message)
 
     # Maintain original type if ops_mode is 'keep_origin' and no conversion was done
-    if ops_mode == "keep_origin":
+    if mode == "keep_origin":
         collected['processed'] = [arr]
         arr = array_preserver(collected, action='restore', solo_return= True)
     
@@ -616,7 +616,7 @@ def to_arrays(
     force_conversion: bool = False,
     axis: int = 0,
     verbose: int = 0,
-    ops_mode: str = "keep_origin",
+    mode: str = "keep_origin",
     as_frame: bool=False, 
     **kwargs
 ) -> Tuple[Union[np.ndarray, pd.Series, pd.DataFrame], ...]:
@@ -689,7 +689,7 @@ def to_arrays(
         Setting ``verbose`` to a higher value can aid in debugging by providing 
         step-by-step insights into the conversion process.
     
-    ops_mode : str, default="keep_origin"
+    mode : str, default="keep_origin"
         Determines the operation mode for handling original data types during 
         conversion. Accepted values include:
         
@@ -701,12 +701,12 @@ def to_arrays(
         
         **Behavior Details:**
         
-        - If ``accept`` is ``'2d'`` or ``'only_2d'`` and ``ops_mode`` is 
+        - If ``accept`` is ``'2d'`` or ``'only_2d'`` and ``mode`` is 
           ``"keep_origin"``, Pandas DataFrames remain as DataFrames without 
           conversion to NumPy arrays.
         - If ``accept`` is ``'1d'`` or ``'only_1d'`` and a Pandas Series is 
           passed, it remains a Series without conversion to a NumPy array.
-        - When ``ops_mode`` is ``"keep_origin"`` and ``force_conversion`` 
+        - When ``mode`` is ``"keep_origin"`` and ``force_conversion`` 
           is enabled, the function attempts conversions without altering the 
           original data types unless necessary. If conversion isn't possible 
           without changing the type, it handles the situation based on the 
@@ -742,7 +742,7 @@ def to_arrays(
     >>> # Convert all inputs to 2D arrays
     >>> converted = to_arrays(
     ...     list_input, tuple_input, np_array, pd_series,
-    ...     accept='2d', force_conversion=True, axis=0, verbose=2, ops_mode='numpy_only'
+    ...     accept='2d', force_conversion=True, axis=0, verbose=2, mode='numpy_only'
     ... )
     Converted list/tuple to NumPy array.
     Reshaped 1D NumPy array to 2D with shape (3, 1).
@@ -766,7 +766,7 @@ def to_arrays(
     >>> # Convert multiple arrays to 1D, raising errors for mismatches
     >>> converted_1d = to_arrays(
     ...     np_array, pd_series, list_input,
-    ...     accept='1d', error='raise', verbose=1, ops_mode='keep_origin'
+    ...     accept='1d', error='raise', verbose=1, mode='keep_origin'
     ... )
     >>> for arr in converted_1d:
     ...     print(arr)
@@ -780,7 +780,7 @@ def to_arrays(
     >>> # Attempt to convert arrays to 3D without forcing conversion
     >>> converted_3d = to_arrays(
     ...     np_array, list_input,
-    ...     accept='3d', error='warn', verbose=3, ops_mode='keep_origin'
+    ...     accept='3d', error='warn', verbose=3, mode='keep_origin'
     ... )
     Converted list/tuple to NumPy array.
     Input array has 1 dimensions, but at least 3 dimensions are required.
@@ -846,7 +846,7 @@ def to_arrays(
                 error=error,
                 force_conversion=force_conversion,
                 axis=axis,
-                ops_mode=ops_mode,
+                mode=mode,
                 **kwargs
             )
             # Append the converted array to the list
@@ -1684,7 +1684,7 @@ def reduce_dimensions(
            estimator: L2 theory. *Probability Theory and Related Fields*, 57(5), 
            453-476.
     """
-
+    
     # Set up logger
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -1698,6 +1698,7 @@ def reduce_dimensions(
             logger.setLevel(logging.DEBUG)
     
     # Validate input types
+    arr = np.asarray(arr)
     if not isinstance(arr, np.ndarray):
         raise TypeError(
             f"'data' must be a numpy.ndarray, got {type(arr).__name__}."
@@ -1706,11 +1707,12 @@ def reduce_dimensions(
         raise ValueError(
             f"'data' must be a 2D array, got {arr.ndim}D array."
         )
-    if not isinstance(z, (list, np.ndarray)):
+
+    if not isinstance(z, (list, np.ndarray, pd.Series)):
         raise TypeError(
             f"'z' must be a list or numpy.ndarray, got {type(z).__name__}."
         )
-    if not isinstance(x, (list, np.ndarray)):
+    if not isinstance(x, (list, np.ndarray, pd.Series)):
         raise TypeError(
             f"'x' must be a list or numpy.ndarray, got {type(x).__name__}."
         )
@@ -2423,164 +2425,284 @@ def split_train_test_by_id(
 
     return train_set, test_set
 
-def split_list(lst:List[Any],  val:int, fill_value:Optional[Any]=None ):
-    """Module to extract a slice of elements from the list 
-    
-    Parameters 
-    ------------
-    lst: list, 
-      List composed of item elements 
-    val: int, 
-      Number of item to group by default. 
-      
-    Returns 
-    --------
-    group with slide items 
-    
-    Examples
-    --------
-    >>> from gofast.core.array_manager import split_list
-    >>> lst = [1, 2, 3, 4, 5, 6, 7, 8]
-    >>> val = 3
-    >>> print(split_list(lst, val))
-    [[1, 2, 3], [4, 5, 6], [7, 8]]
- 
-    """
 
-    lst = is_iterable(lst , exclude_string =True , transform =True ) 
-    val = int ( _assert_all_types(val, int, float )) 
-    try: 
-        sl= [list(group) for key, group in itertools.groupby(
-                lst, lambda x: (x-1)//val)]
-    except: 
-        # when string is given 
-        sl= list(itertools.zip_longest(
-            *(iter(lst),)*val,fillvalue =fill_value),)
-    return sl 
-
-def squeeze_specific_dim(
-    arr: np.ndarray, axis: Optional[int] = -1
-    ) -> np.ndarray:
+def split_list(
+    lst: List[Any],
+    val: int,
+    fill_value: Optional[Any] = None
+) -> List[List[Any]]:
     """
-    Squeeze specific dimensions of a NumPy array based on the axis parameter.
-    
-    This function provides a flexible way to remove single-dimensional entries
-    from the shape of an array. By default, it targets the last dimension,
-    but can be configured to squeeze any specified dimension or all single-dimension
-    axes if `axis` is set to None.
+    Split a one‑dimensional list into contiguous chunks of length
+    ``val`` while preserving order.
+
+    A chunk boundary is determined by the integer division
+
+    .. math::
+        k = \\bigl\\lfloor \\tfrac{(i - 1)}{\\text{val}} \\bigr\\rfloor,
+
+    where :math:`i` is the *1‑based* index of the element in
+    ``lst``.  All elements sharing the same :math:`k` belong to
+    the same sub‑list.  When non‑numeric items prevent this
+    arithmetic grouping, the function falls back to
+    :pyfunc:`itertools.zip_longest`, optionally padding with
+    ``fill_value``.
 
     Parameters
     ----------
-    arr : np.ndarray
-        The input array to potentially squeeze.
-    axis : Optional[int], default -1
-        The specific axis to squeeze. If the size of this axis is 1, it will be
-        removed from the array. If `axis` is None, all single-dimension axes are
-        squeezed. If `axis` is set to a specific dimension (0, 1, ..., arr.ndim-1),
-        only that dimension will be squeezed if its size is 1.
+    lst : list of Any
+        Input sequence to be partitioned.  The helper
+        `is_iterable` coerces array‑likes (except strings) into
+        a list.
+    val : int
+        Size of each group.  Must be a positive integer.  It is
+        validated with `_assert_all_types` and cast to ``int``.
+    fill_value : Any, optional
+        Placeholder used when the fallback strategy produces
+        ragged groups.  Only relevant when ``lst`` contains
+        non‑numeric items and the final chunk is shorter than
+        ``val``.
 
     Returns
     -------
-    np.ndarray
-        The array with the specified dimension squeezed if its size was 1,
-        otherwise the original array. If `axis` is None, all single-dimension
-        axes are squeezed.
+    list of list
+        Nested list in which each inner list holds at most
+        ``val`` items, e.g. ``[[e₁, …, e_val], …]``.
+
+    Notes
+    -----
+    * The primary path uses :pyfunc:`itertools.groupby` with the
+      grouping key shown above.  This requires elements to be
+      *numeric* (support subtraction and division).
+    * If the numeric assumption fails (e.g. strings), a safer
+      but slightly slower zip‑based approach is used.
+    * No copy of the items themselves is made—only the list
+      structure is rebuilt.
 
     Examples
     --------
-    Squeeze the last dimension:
+    >>> from gofast.core.array_manager import split_list
+    >>> data = [1, 2, 3, 4, 5, 6, 7, 8]
+    >>> split_list(data, 3)
+    [[1, 2, 3], [4, 5, 6], [7, 8]]
 
+    >>> # Strings trigger the fallback mechanism
+    >>> split_list(list("abcdefg"), 3, fill_value="*")
+    [['a', 'b', 'c'], ['d', 'e', 'f'], ['g', '*', '*']]
+
+    See Also
+    --------
+    numpy.array_split : N‑way splitting for NumPy arrays.
+    itertools.groupby  : Group consecutive items by a key
+        function.
+    itertools.zip_longest : Pad shorter iterables to equal
+        length.
+
+    References
+    ----------
+    .. [1] Python Software Foundation. *itertools — Functions
+       creating iterators for efficient looping*.
+       https://docs.python.org/3/library/itertools.html
+    """
+    # 1. Ensure *lst* is a proper list (exclude bare strings).   
+    lst = is_iterable(
+        lst,
+        exclude_string=True,
+        transform=True
+    )
+
+    # 2. Validate and normalise *val*.                           
+    val = int(
+        _assert_all_types(
+            val,
+            int,
+            float
+        )
+    )
+
+    # 3. Attempt numeric grouping via itertools.groupby.         
+    try:
+        grouped = [
+            list(group)
+            for _, group in itertools.groupby(
+                lst,
+                key=lambda x: (x - 1) // val
+            )
+        ]
+    except Exception:
+
+        # Non‑numeric elements: fallback to zip_longest,         
+        # padding with *fill_value* when the last chunk          
+        # under‑flows.                                           
+        grouped = list(
+            itertools.zip_longest(
+                *(
+                    iter(lst),
+                ) * val,
+                fillvalue=fill_value
+            )
+        )
+        # Remove trailing pad if present in the final chunk
+        if fill_value is None:
+            grouped[-1] = [
+                item for item in grouped[-1]
+                if item is not None
+            ]
+
+    return grouped
+
+def squeeze_specific_dim(
+    arr: np.ndarray,
+    axis: Optional[int] = -1
+) -> np.ndarray:
+    """
+    Remove single‑dimension axes from *arr* along a chosen
+    `axis`.
+
+    If `axis` is ``None``, every axis with length 1 is removed,
+    mimicking :pyfunc:`numpy.squeeze`.  Otherwise, only the
+    indicated axis is targeted and dropped when its size is 1.
+
+    Parameters
+    ----------
+    arr : numpy.ndarray
+        Input array to be reshaped.
+    axis : int or None, default ``-1``
+        * If ``None`` all singleton axes are removed.  
+        * If an integer, only that axis is squeezed provided
+          its length equals 1.  Negative indices follow NumPy
+          convention.
+
+    Returns
+    -------
+    numpy.ndarray
+        A view of *arr* with the specified singleton axis
+        removed, or *arr* unchanged when no squeeze is
+        possible.
+
+    Notes
+    -----
+    The squeeze condition is
+
+    .. math::
+        \\text{shape}[\\text{axis}] = 1.
+
+    When this is false the original array is returned.
+
+    Examples
+    --------
     >>> from gofast.core.array_manager import squeeze_specific_dim
-    >>> arr = np.array([[1], [2], [3]])
-    >>> print(squeeze_specific_dim(arr).shape)
-    (3,)
+    >>> a = np.arange(6).reshape(3, 2, 1)
+    >>> squeeze_specific_dim(a).shape
+    (3, 2)
 
-    Squeeze all single-dimension axes:
+    >>> squeeze_specific_dim(a, axis=1).shape
+    (3, 2, 1)          # axis 1 has length 2 → no change
 
-    >>> arr = np.array([[[1], [2], [3]]])
-    >>> print(squeeze_specific_dim(arr, None).shape)
-    (3,)
+    See Also
+    --------
+    numpy.squeeze : Built‑in NumPy equivalent.
 
-    Squeeze a specific dimension (e.g., first dimension of a 3D array):
-
-    >>> arr = np.array([[[1, 2, 3]]])
-    >>> print(squeeze_specific_dim(arr, 0).shape)
-    ([[1, 2, 3]])
-
-    Not squeezing if the specified axis does not have size 1:
-
-    >>> arr = np.array([[1, 2, 3], [4, 5, 6]])
-    >>> print(squeeze_specific_dim(arr, 0).shape)
-    [[1, 2, 3], [4, 5, 6]]
+    References
+    ----------
+    .. [1] Harris, C. R. *et al.* "Array programming with NumPy",
+       *Nature*, 585, 357‑362 (2020).
     """
     if axis is None:
-        # Squeeze all single-dimension axes
+        # Remove *all* singleton axes
         return np.squeeze(arr)
-    else:
-        # Check if the specified axis is a single-dimension axis and squeeze it
-        try:
-            return np.squeeze(arr, axis=axis)
-        except ValueError:
-            # Return the array unchanged if squeezing is not applicable
-            return arr
-        
-def reshape(arr , axis = None) :
-    """ Detect the array shape and reshape it accordingly, back to the given axis. 
-    
-    :param array: array_like with number of dimension equals to 1 or 2 
-    :param axis: axis to reshape back array. If 'axis' is None and 
-        the number of dimension is greater than 1, it reshapes back array 
-        to array-like 
-    
-    :returns: New reshaped array 
-    
-    :Example: 
-        >>> import numpy as np 
-        >>> from gofast.core.array_manager import reshape 
-        >>> array = np.random.randn(50 )
-        >>> array.shape
-        ... (50,)
-        >>> ar1 = reshape(array, 1) 
-        >>> ar1.shape 
-        ... (1, 50)
-        >>> ar2 =reshape(ar1 , 0) 
-        >>> ar2.shape 
-        ... (50, 1)
-        >>> ar3 = reshape(ar2, axis = None)
-        >>> ar3.shape # goes back to the original array  
-        >>> ar3.shape 
-        ... (50,)
-        
-    """
-    arr = np.array(arr)
-    if arr.ndim > 2 : 
-        raise ValueError('Expect an array with max dimension equals to 2' 
-                         f' but {str(arr.ndim)!r} were given.')
-        
-    if axis  not in (0 , 1, -1, None): 
-        raise ValueError(f'Wrong axis value: {str(axis)!r}')
-        
-    if axis ==-1:
-        axis =None 
-    if arr.ndim ==1 : 
-        # ie , axis is None , array is an array-like object
-        s0, s1= arr.shape [0], None 
-    else : 
-        s0, s1 = arr.shape 
-    if s1 is None: 
-        return  arr.reshape ((1, s0)) if axis == 1 else (arr.reshape (
-            (s0, 1)) if axis ==0 else arr )
-    try : 
-        arr = arr.reshape ((s0 if s1==1 else s1, )) if axis is None else (
-            arr.reshape ((1, s0)) if axis==1  else arr.reshape ((s1, 1 ))
-            )
-    except ValueError: 
-        # error raises when user mistakes to input the right axis. 
-        # (ValueError: cannot reshape array of size 54 into shape (1,1)) 
-        # then return to him the original array 
-        pass 
+    try:
+        # Remove the requested singleton axis
+        return np.squeeze(arr, axis=axis)
+    except ValueError:
+        # Axis length ≠ 1 → return original array
+        return arr
 
-    return arr   
+def reshape(
+    arr: Any,
+    axis: Optional[int] = None
+) -> np.ndarray:
+    """
+    Reshape a 1‑D or 2‑D array to match a desired orientation
+    given by `axis`.
+
+    The function is a convenience wrapper that flips between
+    row‑vector ``(1, N)``, column‑vector ``(N, 1)`` and flat
+    shape ``(N,)`` depending on `axis`.
+
+    Parameters
+    ----------
+    arr : array_like
+        Input data with at most two dimensions.
+    axis : {0, 1, -1, None}, optional
+        * ``0``   → ensure column‑vector shape ``(N, 1)``  
+        * ``1``   → ensure row‑vector shape ``(1, N)``  
+        * ``None`` or ``-1`` → flatten to ``(N,)``
+
+    Returns
+    -------
+    numpy.ndarray
+        Reshaped view of *arr*.
+
+    Raises
+    ------
+    ValueError
+        If *arr* has more than two dimensions or if `axis`
+        takes an unsupported value.
+
+    Examples
+    --------
+    >>> from gofast.core.array_manager import reshape
+    >>> x = np.arange(5)
+    >>> reshape(x, 1).shape
+    (1, 5)
+
+    >>> reshape(_, 0).shape
+    (5, 1)
+
+    >>> reshape(_, None).shape
+    (5,)
+
+    See Also
+    --------
+    numpy.reshape : General‑purpose reshaping routine.
+
+    """
+    arr = np.asarray(arr)
+
+    # 1. Sanity checks                                       
+    if arr.ndim > 2:
+        raise ValueError(
+            "Expect an array with ndim ≤ 2, got "
+            f"{arr.ndim}."
+        )
+    if axis not in (0, 1, -1, None):
+        raise ValueError(
+            f"Unsupported axis value {axis!r}."
+        )
+    if axis == -1:
+        axis = None
+
+    # 2. Branch on original dimensionality                  
+    if arr.ndim == 1:
+        n = arr.shape[0]
+        return (
+            arr.reshape(1, n) if axis == 1 else
+            arr.reshape(n, 1) if axis == 0 else
+            arr
+        )
+
+    # arr.ndim == 2
+    n0, n1 = arr.shape
+    if axis is None:
+        # Flatten to (N,)
+        return arr.reshape(n0 * n1)
+    if axis == 1 and n0 != 1:
+        return arr.reshape(1, n0 * n1)
+    if axis == 0 and n1 != 1:
+        return arr.reshape(n0 * n1, 1)
+
+    # If reshape is not feasible, return original
+    return arr
 
 def to_numeric_dtypes(
     arr: Union[NDArray, DataFrame], *, 
@@ -2598,102 +2720,166 @@ def to_numeric_dtypes(
     verbose: bool = False
 ) -> Union[DataFrame, Tuple[DataFrame, List[str], List[str]]]:
     """
-    Converts an array to a DataFrame and coerces values to appropriate 
-    data types.
+    Convert input array or DataFrame into a numeric-friendly DataFrame by 
+    coercing values to numeric data types where applicable and identifying 
+    feature types.
 
-    This function is designed to process data arrays or DataFrames, ensuring
-    numeric and categorical features are correctly identified and formatted. 
-    It provides options to manipulate the data, including column sanitization, 
-    handling of missing values, and dropping NaN-filled columns.
+    This utility function is essential for pre-processing mixed-type data, 
+    such as datasets containing both numeric and categorical values, often 
+    encountered in data science pipelines. It offers advanced options for 
+    sanitizing column names, handling missing values, and dynamically 
+    identifying and extracting numeric versus categorical features.
+
+    The core mechanism iteratively attempts to convert each column of the 
+    input array to :class:`float64` using a fallback strategy to preserve 
+    categorical columns that cannot be converted. The classification of 
+    features is guided by :func:`is_numeric_dtype`.
+
+    .. math::
+
+        \text{ProcessedDF} = f(\text{OriginalDF}, \text{cast}, \text{drop}_{NaN}, \text{sanitize}_{col})
+
+    where:
+        - :math:`f` is a transformation function;
+        - :math:`cast` is the numeric coercion;
+        - :math:`\text{drop}_{NaN}` denotes dropping columns/rows with NaNs;
+        - :math:`\text{sanitize}_{col}` refers to column name formatting.
 
     Parameters
     ----------
     arr : NDArray or DataFrame
-        The data to be processed, either as an array or a DataFrame.
+        Input data to be processed. If not already a DataFrame, the input is 
+        coerced into one. Each row corresponds to a sample and each column to 
+        a feature. Arrays must be two-dimensional.
     
     columns : list of str, optional
-        Column names for creating a DataFrame from an array. 
-        Length should match the number of columns in `arr`.
+        Names to assign to the DataFrame columns when the input `arr` is a 
+        NumPy array. The list must have the same length as the number of 
+        columns in `arr`. If `arr` is already a DataFrame, this parameter 
+        is ignored unless explicitly specified.
     
     return_feature_types : bool, default=False
-        If True, returns a tuple with the DataFrame, numeric, and categorical 
-        features.
-    
-    missing_values : float, default=np.nan
-        Value used to replace missing or empty strings in the DataFrame.
-    
-    pop_cat_features : bool, default=False
-        If True, removes categorical features from the DataFrame.
-    
-    sanitize_columns : bool, default=False
-        If True, cleans the DataFrame columns using the specified `regex` 
-        pattern.
-    
-    regex : re.Pattern or str, optional
-        Regular expression pattern for column sanitization. the default is:: 
+        Whether to return feature type classification. If ``True``, the 
+        function returns a tuple of:
         
-        >>> import re 
-        >>> re.compile (r'[_#&.)(*@!_,;\s-]\s*', flags=re.IGNORECASE)
-    
+            - Processed DataFrame
+            - List of numeric feature names
+            - List of categorical feature names
+
+        This is useful for downstream feature engineering tasks.
+
+    missing_values : float, default=np.nan
+        Placeholder value to assign to cells that contain empty strings or 
+        whitespace-only values. Typically set to :attr:`np.nan`.
+
+    pop_cat_features : bool, default=False
+        Whether to exclude all categorical features from the output. If 
+        ``True``, the returned DataFrame will only contain numeric columns.
+
+    sanitize_columns : bool, default=False
+        If ``True``, column names are cleaned using the pattern specified by 
+        `regex`. This replaces non-alphanumeric characters and ensures 
+        standardized column labels, especially useful when importing data 
+        from varied sources.
+
+    regex : re.Pattern or str, optional
+        Regular expression pattern for identifying non-alphanumeric 
+        characters to be replaced in column names. If not provided, the 
+        default pattern is::
+
+            >>> import re
+            >>> re.compile(r'[_#&.)(*@!_,;\\s-]\\s*', flags=re.IGNORECASE)
+
+        This pattern captures special characters and whitespace sequences.
+
     fill_pattern : str, default='_'
-        String pattern used to replace non-alphanumeric characters in 
-        column names.
-    
+        Replacement string used for matching patterns in `regex`. Common 
+        choices are ``'_'`` or ``'-'`` depending on the naming convention.
+
     drop_nan_columns : bool, default=True
-        If True, drops columns filled entirely with NaN values.
-    
-    how : str, default='all'
-        Determines row dropping strategy based on NaN values.
-    
+        If ``True``, columns containing only NaN values are removed. Combined 
+        with the `how` parameter, it also enables dropping fully-NaN rows.
+
+    how : {'all', 'any'}, default='all'
+        Strategy to drop rows with NaN values:
+        
+            - ``'all'``: Drop rows where *all* elements are NaN.
+            - ``'any'``: Drop rows with *any* NaN.
+
+        Used in conjunction with `drop_nan_columns`.
+
     reset_index : bool, default=False
-        If True, resets the index of the DataFrame after processing.
-    
+        Whether to reset the index of the DataFrame. If enabled, the old 
+        index is dropped or kept based on the `drop_index` flag.
+
     drop_index : bool, default=True
-        If True, drops the original index when resetting the DataFrame index.
-    
+        Specifies whether the original index should be dropped when 
+        `reset_index` is applied. If ``False``, the index becomes a column 
+        in the new DataFrame.
+
     verbose : bool, default=False
-        If True, prints additional information during processing.
+        If ``True``, prints detailed logs during processing including any 
+        dropped columns or type conversions.
 
     Returns
     -------
     DataFrame or tuple of DataFrame, List[str], List[str]
-        The processed DataFrame. If `return_feature_types` is True, returns a 
-        tuple with the DataFrame, list of numeric feature names (`nf`), 
-        and list of categorical feature names (`cf`).
+        A cleaned DataFrame with numeric data types where applicable. If 
+        `return_feature_types` is ``True``, a 3-element tuple is returned:
+        
+            - Cleaned DataFrame
+            - List of numeric column names
+            - List of categorical column names
+
+    Notes
+    -----
+    This function facilitates safe type coercion and preprocessing before 
+    applying ML algorithms which typically require numeric data. By isolating 
+    numeric and categorical types, it supports modular feature transformation 
+    pipelines and helps prevent common data-related errors.
+
+    Empty string values are interpreted as missing and replaced by the 
+    `missing_values` value before type coercion. Columns are attempted to be 
+    casted to :class:`float64`, and non-convertible columns are preserved as 
+    categorical or string types.
 
     Examples
     --------
     >>> from gofast.datasets.dload import load_bagoue
     >>> from gofast.core.array_manager import to_numeric_dtypes
-    >>> X= load_bagoue(as_frame=True)
+    >>> X = load_bagoue(as_frame=True)
     >>> X0 = X[['shape', 'power', 'magnitude']]
-    >>> df, nf, cf = to_numeric_dtypes(X0, return_feature_types=True)
-    >>> print(df.dtypes, nf, cf)
-    >>> X0.dtypes 
-    ... shape        object
-        power        object
-        magnitude    object
-        dtype: object
-    >>> df = to_numeric_dtypes(X0)
-    >>> df.dtypes 
-    ... shape         object
-        power        float64
-        magnitude    float64
-        dtype: object
-    """
 
-    # pass ellipsis argument to False 
-    # ( sanitize_columns, reset_index, 
-    #  verbose,return_feature_types, 
-    #  pop_cat_features, 
-    #     ) = ellipsis2false(
-    #         sanitize_columns, 
-    #         reset_index, 
-    #         verbose,
-    #         return_feature_types, 
-    #         pop_cat_features
-    # )
-   
+    >>> # Get full output with separated feature types
+    >>> df, nf, cf = to_numeric_dtypes(X0, return_feature_types=True)
+    >>> print(df.dtypes)
+    shape         object
+    power        float64
+    magnitude    float64
+    dtype: object
+    >>> print("Numeric Features:", nf)
+    >>> print("Categorical Features:", cf)
+
+    >>> # Remove categorical columns and keep only numeric ones
+    >>> df_numeric = to_numeric_dtypes(X0, pop_cat_features=True)
+    >>> print(df_numeric.columns)
+    Index(['power', 'magnitude'], dtype='object')
+
+    See Also
+    --------
+    gofast.preprocessing.sanitize_frame_cols : Sanitize DataFrame column names.
+    gofast.tools.validator.is_numeric_dtype : Check for numeric column types.
+    gofast.core.array_manager.to_dataframe : Convert arrays to structured DataFrames.
+
+    References
+    ----------
+    .. [1] VanderPlas, J. (2016). *Python Data Science Handbook: Essential 
+           Tools for Working with Data*. O'Reilly Media.
+    .. [2] McKinney, W. (2012). *Python for Data Analysis: Data Wrangling with 
+           Pandas, NumPy, and IPython*. O'Reilly Media.
+    .. [3] Pedregosa, F., et al. (2011). Scikit-learn: Machine Learning in 
+           Python. *Journal of Machine Learning Research*, 12, 2825–2830.
+    """
     if not is_iterable (arr, exclude_string=True): 
         raise TypeError(f"Expect array. Got {type (arr).__name__!r}")
 
@@ -2702,7 +2888,7 @@ def to_numeric_dtypes(
         if columns is not None: 
             if verbose: 
                 print("Dataframe is passed. Columns should be replaced.")
-            df =pd.DataFrame ( np.array ( arr), columns =columns )
+            df =pd.DataFrame ( np.array (arr), columns =columns )
             
     else: df = pd.DataFrame (arr, columns =columns  ) 
         
@@ -2930,7 +3116,6 @@ def convert_to_structured_format(
     
     return arrays 
 
-        
 def map_specific_columns ( 
     data: DataFrame, 
     ufunc:_F , 

@@ -3183,7 +3183,8 @@ def is_categorical(data, column, strict=False, error='raise'):
     if strict:
         return pd.api.types.is_categorical_dtype(col_type)
     else:
-        return pd.api.types.is_categorical_dtype(col_type) or pd.api.types.is_object_dtype(col_type)
+        return pd.api.types.is_categorical_dtype(
+            col_type) or pd.api.types.is_object_dtype(col_type)
 
 def parameter_validator(
         param_name, target_strs, match_method='contains',
