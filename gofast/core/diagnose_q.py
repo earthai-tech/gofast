@@ -10,21 +10,29 @@ and ensuring compatibility with expected structures.
 
 import re 
 import warnings 
-from typing import List, Union, Any, Optional  
+import operator
+from typing import ( 
+    List, 
+    Union, 
+    Any, 
+    Optional, 
+    Sequence, 
+    Tuple, 
+    Dict, 
+)
 import numpy as np 
 import pandas as pd 
 
 from .io import to_frame_if
 from .checks import is_in_if 
-# from .generic import verify_identical_items
-
 
 __all__= [ 
     'to_iterable',  'validate_quantiles', 
     'validate_quantiles_in', 'validate_q_dict',
     'check_forecast_mode', 'detect_quantiles_in',
     'build_q_column_names','detect_digits', 
-    'validate_consistency_q', 'parse_qcols'
+    'validate_consistency_q', 'parse_qcols', 
+    'validate_qcols', 'build_qcols_multiple'
 ]
 
 def parse_qcols(q_cols, fallback_cols=None, error="warn"):
@@ -916,7 +924,8 @@ def detect_quantiles_in(
     verbose: int = 0
 ) -> Union[List[str], List[float], List[np.ndarray], pd.DataFrame, None]:
     r"""
-    Detect quantile columns in a DataFrame using naming patterns and value validation.
+    Detect quantile columns in a DataFrame using naming patterns and 
+    value validation.
 
     Identifies columns containing quantile data through structured naming 
     conventions and value validation. Supports both absolute and normalized 
@@ -1782,3 +1791,297 @@ def _verify_identical_items(
         return True if ops == "check_only" else unique1
 
 
+def validate_qcols(
+    q_cols: Union[
+        str,
+        int,
+        Sequence[Any]
+    ],
+    ncols_exp: Optional[str] = None,
+    err_msg: Optional[str] = None
+) -> List[str]:
+    """
+    Validate and standardise a collection of column names that
+    represent quantiles or prediction outputs. The function
+    `validate_qcols` converts the input to a clean list of
+    strings, removes blanks, and—optionally—checks that the
+    final list length satisfies an expectation expressed in
+    `<ncols_exp>`.
+    
+    .. math::
+       \text{valid} = \bigl\{\,c \mid c \neq ''\bigr\}
+    
+    If an expectation is supplied, the function compares
+    :math:`|\,\text{valid}\,|` to the requested condition and
+    raises an error if the test fails.
+    
+    Parameters
+    ----------
+    q_cols : list, str, tuple or set  
+        Column names to validate. May be a single string, an
+        iterable of names, or any mixture thereof. Non‑string
+        entries are cast to string.
+    
+    ncols_exp : str or None, optional  
+        Expectation on the number of columns. The string must
+        begin with a comparison operator (``'==', '>=', '<=',  
+        '!=', '>'`` or ``'<'``) followed by an integer, e.g.
+        ``'>=2'`` or ``'==3'``. If *None*, no length check is
+        applied.
+    
+    err_msg : str or None, optional  
+        Custom message to raise if the expectation in
+        `<ncols_exp>` is not met. If *None*, a default message
+        is generated.
+    
+    Returns
+    -------
+    list  
+        A cleaned list of column names that meet all checks.
+    
+    Raises
+    ------
+    TypeError  
+        If `<q_cols>` is not a recognised container or string.
+    
+    ValueError  
+        If `<q_cols>` is empty after cleaning, or if the length
+        check in `<ncols_exp>` fails.
+    
+    Examples
+    --------
+    >>> from gofast.core.diagnose_q import validate_qcols
+    >>> validate_qcols('q50')
+    ['q50']
+    >>> validate_qcols(['q10', 'q90'], ncols_exp='==2')
+    ['q10', 'q90']
+    >>> validate_qcols(('p1', 'p2', ''), ncols_exp='>=2')
+    ['p1', 'p2']
+    
+    Notes
+    -----
+    The expectation string is parsed by splitting on the first
+    occurring comparison operator and casting the remainder to
+    int. This avoids ambiguous patterns and guarantees that
+    ``ops[op](len(cols), expected)`` is evaluated safely.
+    
+    See Also
+    --------
+    operator : Built‑in module providing comparison functions.
+    
+    References
+    ----------
+    .. [1] Harris, C. R. *et al.* (2020). Array programming
+           with NumPy. *Nature*, 585, 357‑362.
+    """
+
+    # Step‑1  : convert <q_cols> to a list of strings
+    if q_cols is None:
+        raise ValueError(
+            "`q_cols` cannot be None. Provide at least "
+            "one column name."
+        )
+
+    if isinstance(q_cols, (str, int)):
+        q_cols = [str(q_cols)]
+    elif isinstance(q_cols, (tuple, set, list)):
+        q_cols = [str(col) for col in q_cols]
+    else:
+        raise TypeError(
+            "`q_cols` must be a list, tuple, set or "
+            "single string."
+        )
+
+    # Remove blanks and strip white‑space
+    q_cols = [
+        col.strip()
+        for col in q_cols
+        if col.strip()
+    ]
+
+    if len(q_cols) == 0:
+        raise ValueError(
+            "`q_cols` is empty after cleaning."
+        )
+
+    # Step‑2  : optional length expectation check
+    if ncols_exp:
+        _ops: Dict[str, Any] = {
+            '==': operator.eq,
+            '=' : operator.eq,
+            '!=': operator.ne,
+            '>=': operator.ge,
+            '<=': operator.le,
+            '>' : operator.gt,
+            '<' : operator.lt,
+        }
+
+        # longest operators first (>=, <=, !=, ==)
+        for sym in sorted(_ops, key=len, reverse=True):
+            if ncols_exp.startswith(sym):
+                num_str = ncols_exp[len(sym):].strip()
+                if not num_str.isdigit():
+                    raise ValueError(
+                        f"Invalid expectation syntax "
+                        f"'{ncols_exp}'."
+                    )
+                expected = int(num_str)
+                if not _ops[sym](len(q_cols), expected):
+                    raise ValueError(
+                        err_msg
+                        or
+                        f"Expected {ncols_exp}, got "
+                        f"{len(q_cols)}: {q_cols}"
+                    )
+                break
+        else:
+            raise ValueError(
+                f"Invalid `ncols_exp` format: "
+                f"{ncols_exp}"
+            )
+
+    return q_cols
+
+def build_qcols_multiple(
+    q_cols: Optional[Sequence[Tuple[str, ...]]] = None,
+    qlow_cols: Optional[Sequence[str]]          = None,
+    qup_cols: Optional[Sequence[str]]           = None,
+    qmed_cols: Optional[Sequence[str]]          = None,
+    *,
+    enforce_triplet: bool                       = False,
+    allow_pair_when_median: bool                = False,
+) -> List[Tuple[str, ...]]:
+    """
+    Assemble and validate tuples of quantile columns.
+
+    Parameters
+    ----------
+    q_cols : sequence of tuple, optional
+        Pre‑built tuples of column names. Each tuple can
+        be ``(q10, q90)`` or ``(q10, q50, q90)``. If this
+        argument is supplied, the helper bypasses the
+        individual `qlow_cols`, `qup_cols`, and
+        `qmed_cols` inputs.
+    qlow_cols : sequence of str, optional
+        Column names representing the lower quantile
+        (e.g. 10 th percentile).
+    qup_cols : sequence of str, optional
+        Column names representing the upper quantile
+        (e.g. 90 th percentile).
+    qmed_cols : sequence of str, optional
+        Column names representing the median (e.g. 50 th
+        percentile). If provided, each tuple will be
+        returned as ``(q10, q50, q90)``.
+    enforce_triplet : bool, default=False
+        * If ``True`` the output **must** be a triplet
+          ``(low, med, up)``. Raises an error when
+          `qmed_cols` is missing or when `q_cols`
+          contains pairs.
+        * If ``False`` the function returns pairs when
+          no median columns are supplied.
+    allow_pair_when_median : bool, default=False
+        By default, when `qmed_cols` is supplied the
+        helper always returns triplets. Set this flag to
+        ``True`` to ignore `qmed_cols` and still output
+        pairs ``(low, up)`` (useful for quick A/B tests).
+
+    Returns
+    -------
+    list of tuple
+        A list of tuples with either two or three column
+        names depending on the inputs and flags.
+
+    Raises
+    ------
+    ValueError
+        On mismatched lengths, invalid tuple sizes, or
+        missing mandatory inputs.
+
+    Examples
+    --------
+    >>> from gofast.core.diagnose_q import build_qcols_multiple
+    >>> # 1) Use pre‑built list of pairs
+    >>> q_pairs = [('q10', 'q90'), ('lwr', 'upr')]
+    >>> build_qcols_multiple(q_cols=q_pairs)
+    [('q10', 'q90'), ('lwr', 'upr')]
+    
+    >>> # 2) Separate lower / upper lists (no median)
+    >>> lows = ['q10', 'lwr']
+    >>> ups  = ['q90', 'upr']
+    >>> build_qcols_multiple(qlow_cols=lows, qup_cols=ups)
+    [('q10', 'q90'), ('lwr', 'upr')]
+    
+    >>> # 3) Triplets with median enforced
+    >>> meds = ['q50', 'mid']
+    >>> build_qcols_multiple(
+    ...     qlow_cols=lows,
+    ...     qup_cols=ups,
+    ...     qmed_cols=meds,
+    ...     enforce_triplet=True
+    ... )
+    [('q10', 'q50', 'q90'), ('lwr', 'mid', 'upr')]
+    
+    >>> # 4) Ignore supplied median and still get pairs
+    >>> build_qcols_multiple(
+    ...     qlow_cols=lows,
+    ...     qup_cols=ups,
+    ...     qmed_cols=meds,
+    ...     allow_pair_when_median=True
+    ... )
+    [('q10', 'q90'), ('lwr', 'upr')]
+
+    """
+    # --------------------------------------------------
+    # Case‑1: user already passed `q_cols`
+    # --------------------------------------------------
+    if q_cols is not None:
+        if not all(isinstance(t, (list, tuple)) for t in q_cols):
+            raise ValueError(
+                "`q_cols` must be an iterable of tuples."
+            )
+        sizes = {len(t) for t in q_cols}
+        if sizes - {2, 3}:
+            raise ValueError(
+                "`q_cols` tuples must have length 2 or 3."
+            )
+        if enforce_triplet and sizes != {3}:
+            raise ValueError(
+                "`enforce_triplet=True` requires every "
+                "tuple in `q_cols` to have three items."
+            )
+        if (not enforce_triplet) and (sizes == {3}) and allow_pair_when_median:
+            # convert triplets to pairs (low, up)
+            q_cols = [(t[0], t[-1]) for t in q_cols]
+        return [tuple(t) for t in q_cols]
+
+    # --------------------------------------------------
+    # Case‑2: build tuples from separate lists
+    # --------------------------------------------------
+    if qlow_cols is None or qup_cols is None:
+        raise ValueError(
+            "When `q_cols` is not provided, both "
+            "`qlow_cols` and `qup_cols` must be given."
+        )
+    if len(qlow_cols) != len(qup_cols):
+        raise ValueError(
+            "`qlow_cols` and `qup_cols` must be the same "
+            "length."
+        )
+
+    # -- median logic
+    if qmed_cols is not None and not allow_pair_when_median:
+        if len(qmed_cols) != len(qlow_cols):
+            raise ValueError(
+                "`qmed_cols` must be the same length as "
+                "`qlow_cols` and `qup_cols`."
+            )
+        tuples = list(zip(qlow_cols, qmed_cols, qup_cols))
+    else:
+        if enforce_triplet:
+            raise ValueError(
+                "`enforce_triplet=True` but no median "
+                "columns were supplied."
+            )
+        tuples = list(zip(qlow_cols, qup_cols))
+
+    return [tuple(t) for t in tuples]

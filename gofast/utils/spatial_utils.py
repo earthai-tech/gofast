@@ -133,15 +133,14 @@ def gen_negative_samples_plus(
         0, 5
     ),
     num_neg_per_pos: int = 1,
-    strategy: str = 'landslide',  # or gauge,
-                                 # random_global, etc.
+    strategy: str = 'landslide', 
     gauge_data: Optional[pd.DataFrame] = None,
     elevation_data: Optional[pd.DataFrame] = None,
     similarity_features: Optional[
         List[str]
     ] = None,
     time_col: Optional[str] = None,
-    cluster_method: str = 'kmeans',  # or dbscan
+    cluster_method: str = 'kmeans',  
     use_gpd: Union[bool, str] = 'auto',
     id_col='auto',
     view: bool = False,
@@ -402,33 +401,52 @@ def gen_negative_samples_plus(
             sample[target_col] = 0
             negatives.append(sample)
 
-    # -----------------------
+    # ---------------------------
     # CLUSTERED_NEGATIVES:
-    # Apply KMeans to cluster data,
-    # then generate negative samples
-    # around cluster centers.
-    # -----------------------
+    # Cluster positive points and
+    # sample negatives around the
+    # resulting centroids. Two
+    # clustering options are
+    # supported: KMeans and DBSCAN.
+    # ---------------------------
     elif strategy == 'clustered_negatives':
-        coords = df[
-            [lon_col, lat_col]
-        ].values
-        kmeans = KMeans(
-            n_clusters=max(
-                2,
-                len(df) // 10
-            ),
-            random_state=seed
-        ).fit(coords)
-        centers = kmeans.cluster_centers_
+        coords = df[[lon_col, lat_col]].values
+    
+        # --- choose clustering backend
+        if cluster_method.lower() == 'kmeans':
+            clustering = KMeans(
+                n_clusters=max(2, len(df) // 10),
+                random_state=seed
+            ).fit(coords)
+            centers = clustering.cluster_centers_
+    
+        elif cluster_method.lower() == 'dbscan':
+            clustering = DBSCAN(
+                eps=buffer_deg * 2,     # search radius (deg)
+                min_samples=5
+            ).fit(coords)
+            labels  = clustering.labels_
+            centers = []
+            for lbl in np.unique(labels):
+                if lbl == -1:           # DBSCAN noise
+                    continue
+                pts = coords[labels == lbl]
+                centers.append(pts.mean(axis=0))
+            centers = np.asarray(centers)
+    
+        else:
+            raise ValueError(
+                "cluster_method must be either "
+                "'KMeans' or 'DBSCAN'"
+            )
+        # --- generate negatives near each centroid
         for center in centers:
             for _ in range(num_neg_per_pos):
                 lat_offset = np.random.uniform(
-                    -buffer_deg,
-                    buffer_deg
+                    -buffer_deg, buffer_deg
                 )
                 lon_offset = np.random.uniform(
-                    -buffer_deg,
-                    buffer_deg
+                    -buffer_deg, buffer_deg
                 )
                 sample = {
                     lat_col: center[1] + lat_offset,
@@ -440,7 +458,7 @@ def gen_negative_samples_plus(
                         *neg_feature_range
                     )
                 negatives.append(sample)
-
+    
     # -----------------------
     # ENVIRONMENTAL_SIMILARITY:
     # Nearest neighbor approach on
@@ -1325,7 +1343,7 @@ def _validate_negative_sampling(
     Helper that validates input parameters and column configurations
     for the generation of negative samples. Ensures required columns exist,
     processes feature and spatial columns, and checks numeric parameters
-    like `<neg_feature_range>` and `<num_neg_per_pos>`.
+    like `neg_feature_range` and `num_neg_per_pos`.
     """
     # Validate input and columns
     exist_features(df,features=target_col,
