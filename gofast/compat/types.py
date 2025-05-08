@@ -36,6 +36,7 @@ from typing import (
     TypedDict,
     Generator, 
     Pattern, 
+    Literal
 )
 
 # Check if Python version is 3.10 or higher
@@ -84,5 +85,6 @@ __all__ = [
     "TypedDict",
     "Generator",
     "TypeGuard",
-    "Pattern"
+    "Pattern", 
+    "Literal"
 ]
