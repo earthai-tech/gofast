@@ -67,7 +67,8 @@ __all__ = [
     "simulate_telecom_data", 
     "simulate_electricity_data", 
     "simulate_retail_data", 
-    "simulate_traffic_data"
+    "simulate_traffic_data", 
+    "simulate_landslide_data"
 ]
 
 

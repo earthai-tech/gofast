@@ -199,7 +199,6 @@ def parse_qcols(q_cols, fallback_cols=None, error="warn"):
 
     return output
 
-
 def check_forecast_mode(
     mode, 
     q=None, 

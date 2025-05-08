@@ -352,6 +352,8 @@ def explore(package_path, /,  exclude_names=None):
             doc = module.__doc__.split('.')[0] if module.__doc__ else "See More in :ref:`User Guide`."
             description_dict[package_path] = remove_extra_spaces(doc)
     
+    description_dict= dict(sorted(description_dict.items()))
+    
     # Generate and display a report
     TW = get_table_size()
     title = f"{'Package' if hasattr(module, '__path__') else 'Module'} {package_path}"
