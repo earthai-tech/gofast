@@ -190,7 +190,9 @@ setup_kwargs = {
             "pyproj>=3.3.0",
             "openpyxl>=3.0.3",
             "tensorflow>=2.15.0"
-        ]
+        ], 
+        'kdiagram': ['k-diagram'],
+        'fusionlab': ['fusionlab'],
     },
     'python_requires': '>=3.9'
 }
