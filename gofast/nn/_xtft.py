@@ -61,10 +61,10 @@ if KERAS_BACKEND:
     
     tf_autograph.set_verbosity(0)
     
+    from ..compat.tf import optional_tf_function 
     from ._tensor_validation import validate_anomaly_scores 
     from ._tensor_validation import validate_xtft_inputs
     from ._tensor_validation import validate_anomaly_config 
-    from ..compat.tf import optional_tf_function 
     
     from .losses import ( 
         combined_quantile_loss, 
@@ -967,7 +967,6 @@ class SuperXTFT(XTFT):
         num_heads: int = 4,
         dropout_rate: float = 0.1,
         output_dim: int = 1, 
-        
         attention_units: int = 32,
         hidden_units: int = 64,
         lstm_units: int = 64,

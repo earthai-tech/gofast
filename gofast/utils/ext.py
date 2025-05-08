@@ -29,6 +29,22 @@ from .generic_utils import vlog
 from .validator import parameter_validator, validate_length_range 
 from .validator import  get_estimator_name 
 
+__all__=[
+    'compute_pairwise_errors',
+    'denormalize_in',
+    'denormalizer',
+    'evaluate_df',
+    'normalize_categorical_column',
+    'normalize_in',
+    'parse_used_columns',
+    'reorder_by',
+    'reorder_importances',
+    'spread_coverage',
+    'spread_uncertainty',
+    'to_importances',
+    'to_micmic',
+    'to_ranking'
+  ]
 
 @Dataify(enforce_df=True,)
 def compute_pairwise_errors(
@@ -1881,15 +1897,119 @@ def denormalize_in(
     std_dev_factor: float = 3, 
     epsilon: float=1e-8
 ):
-    """
-    Denormalize numeric data in a DataFrame or Series using either a 
-    common min-max (from a specified column or tuple) or each column’s 
-    own min and max. For DataFrames containing both numeric and 
-    categorical data, the function denormalizes the numeric columns 
-    (or only those specified by `columns`) and then reconstructs the 
-    DataFrame in its original column order.
-    """
+    r"""
+    Denormalizes numeric data in a DataFrame, Series, or NumPy array using
+    min-max, z-score, or sum-based methods. The method `denormalize_in`
+    can apply a common min and max (from a reference column or external
+    array) or use each column’s own extremes. This is useful for reversing
+    normalization transformations applied earlier.
     
+    Parameters
+    ----------
+    d : pd.DataFrame or pd.Series or np.ndarray
+        The input object to denormalize. If `d` is a
+        Series, only numeric data is processed; if
+        `d` is a DataFrame, only numeric columns are
+        handled by default (or columns in
+        ``columns``). If `d` is an array, it must
+        be numeric.
+    
+    from0 : str or ArrayLike, optional
+        When provided, indicates a reference data
+        source or column for computing
+        :math:`\min` and :math:`\max`. If a string,
+        it must be the name of a column in `d`.
+        Otherwise, it can be an array-like object,
+        whose min and max define the global range.
+    
+    minmax_vals : tuple of (float, float), optional
+        A direct specification of :math:`\min` and
+        :math:`\max` for denormalization. If
+        ``minmax_vals=(a, b)``, then
+        :math:`\min=a` and :math:`\max=b`. This
+        overrides any input from ``from0``.
+    
+    method : {'01', 'zscore', 'sum'}, default='01'
+        The denormalization method:
+        * ``'01'`` : Linear min-max scaling
+        * ``'zscore'`` : Reverse z-score style
+          normalization
+        * ``'sum'`` : Scale by sum-based factor
+    
+    columns : str or list of str, optional
+        Columns to denormalize in `d` if `d` is
+        a DataFrame. If None, all numeric columns
+        are processed. If `d` is a Series or array,
+        this is ignored.
+    
+    std_dev_factor : float, default=3
+        Used in `"zscore"` denormalization. The
+        standard deviation is computed as
+        :math:`(\max - \min) / (2 \times
+        \text{std\_dev\_factor})`. Increasing this
+        factor spreads out values more loosely.
+    
+    epsilon : float, default=1e-8
+        A small constant to avoid division by zero
+        when applying the `"sum"` method. If
+        :math:`|\sum x|` is below ``epsilon``, the
+        function raises an error.
+    
+    Examples
+    --------
+    >>> from gofast.utils.ext import denormalize_in
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'normalized_sub': [0.1, 0.5, 0.9],
+    ...     'ref_col': [10, 50, 90]
+    ... })
+    >>> # Revert min-max scaling using 'ref_col' as from0
+    >>> new_df = denormalize_in(
+    ...     df,
+    ...     columns='normalized_sub',
+    ...     from0='ref_col',
+    ...     method='01'
+    ... )
+    >>> new_df
+    
+    Notes
+    -----
+    By default, `denormalize_in` tries to denormalize
+    using either a user-specified common range or each
+    column's individual range. If `d` is a DataFrame,
+    non-numeric columns are left untouched unless
+    explicitly specified in `columns`.
+    
+    .. math::
+       \text{denorm}(x) =
+       \begin{cases}
+           x \times (\max - \min) + \min,
+           & \text{if method = "01"} \\
+           x \times \sigma + \mu,
+           & \text{if method = "zscore"} \\
+           x \times
+             \dfrac{(\max - \min)}{\sum x} + \min,
+           & \text{if method = "sum"}
+       \end{cases}
+    
+    Here, :math:`\mu = \dfrac{\min + \max}{2}` and
+    :math:`\sigma = \dfrac{\max - \min}{2 \times \text{std\_dev\_factor}}`.
+    If :math:`\sum x` is very small, an error is raised
+    for the `"sum"` method.
+    
+    See Also
+    --------
+    pandas.DataFrame.min : Finds minimum values across
+        Series or DataFrame.
+    pandas.DataFrame.max : Finds maximum values across
+        Series or DataFrame.
+    
+    References
+    ----------
+    .. [1] Aggarwal, C. C. (2015). *Data Mining: The
+       Textbook.* Springer, 1st edition.
+    """
+
     method =parameter_validator (
         "method", target_strs={"01","zscore", "sum" },
         error_msg=(f"Unsupported method: {method}"))(method)

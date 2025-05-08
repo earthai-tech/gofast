@@ -83,8 +83,8 @@ __all__= [
 
 class ParamsValidator:
     """
-    `ParamsValidator` is a decorator class designed to validate and transform
-    parameters of functions and class constructors based on predefined constraints.
+    Decorator class designed to validate and transform parameters of 
+    functions and class constructors based on predefined constraints.
     It ensures that the inputs conform to specified types and conditions,
     enhancing the robustness and reliability of the codebase.
 
@@ -2406,7 +2406,7 @@ def validate_feature(
     """
     if isinstance(data, pd.Series):
         # Convert Series to DataFrame for uniform processing
-        data = data.to_frame().T
+        data = data.to_frame()#.T
 
     # Initialize sets for selected and missing features
     selected_columns = set()
@@ -2575,7 +2575,7 @@ def features_in(
     >>> data2 = pd.Series([5, 6], name='C')
     >>> data3 = pd.DataFrame({'X': [7, 8]})
     >>> features = ['A', 'C']
-    >>> results1 = features_in(data1, data2, features, error='raise')
+    >>> results1 = features_in(data1, data2, features=features, error='raise')
     >>> print(results1)  # This will raise a ValueError for the first dataset
     >>> results2 = features_in(data1, data3, features, error='ignore')
     >>> print(results2)  # This will return [True, False]

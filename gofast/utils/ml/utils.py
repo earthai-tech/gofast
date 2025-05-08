@@ -273,7 +273,7 @@ def groupwise_train_test_split(
 
     >>> print("\\nTraining Data (Groups: {}):\\n{}".format(
     ...     sorted(train_data['id'].unique()), train_data))
-    <BLANKLINE>
+
     Training Data (Groups: ['A', 'C', 'E']):
        id  feature  target
     0  A        1       0
@@ -286,7 +286,7 @@ def groupwise_train_test_split(
 
     >>> print("\\nTesting Data (Groups: {}):\\n{}".format(
     ...     sorted(test_data['id'].unique()), test_data))
-    <BLANKLINE>
+
     Testing Data (Groups: ['B', 'D']):
        id  feature  target
     0  B        3       1
@@ -431,7 +431,6 @@ def groupwise_train_test_split(
 
     # --- Return Results ---
     return train_df, test_df
-
 
 def smart_split(
     X, 

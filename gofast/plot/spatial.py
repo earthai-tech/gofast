@@ -72,7 +72,8 @@ __all__=[
 
 
 @default_params_plot(
-    savefig=PlotConfig.AUTOSAVE('my_spatial_clusters_plot.png'))
+    savefig=PlotConfig.AUTOSAVE('my_spatial_clusters_plot.png')
+ )
 @isdf 
 def plot_sampling_map(
     df: pd.DataFrame,
@@ -117,7 +118,6 @@ def plot_sampling_map(
     grid_props: Optional[Dict[str, Any]] = None,
     legend_kwargs: Optional[Dict[str, Any]] = None,
     scatter_kwargs: Optional[Dict[str, Any]] = None, 
-    # --- Output ---
     savefig: Optional[str] = None,
     savefig_kwargs: Optional[Dict[str, Any]] = None,
     show_plot: bool = True
