@@ -50,6 +50,11 @@ _required_dependencies = [
     ("statsmodels", None)
 ]
 
+_OPT_PKGS= {
+    'kdiagram': 'k-diagram',
+    'fusionlab': 'fusionlab-learn',
+}
+
 _missing_dependencies = []
 for package, import_name in _required_dependencies:
     try:
@@ -242,6 +247,14 @@ class PublicAPIError(AttributeError):
     """Custom exception for public API access errors."""
     pass
 
+for pkg in _OPT_PKGS:
+    try:
+        module = importlib.import_module(pkg)
+        sys.modules[f'gofast.{pkg}'] = pkg
+        __all__.append(pkg)
+    except ImportError:
+        pass
+        
 def __getattr__(name):
     """
     Dynamically provide access to public API components based on the 'public' flag.
@@ -284,15 +297,43 @@ def __getattr__(name):
         If the attribute does not exist within the public API or internal
         modules.
     """
+    err_msg = AttributeError(
+        f"module '{__name__}' has no attribute '{name}'"
+    )
+    expkg_msg= (
+            "The {0} package is not installed. "
+            "The 'gofast.{1}' submodule will not be available. "
+            "Install it with 'pip install {0}'.",
+        ) 
+    
     from ._public_api import _PUBLIC_MODULES 
     
     # Define the list of attributes that are part of the public API
     public_attributes = [
         'assist_me', 'explore', 'read_data',
         'export_data', 'fetch_data',
-        #  other public functions as needed
+        #  other public functions as needed in future 
     ]
-
+    
+    # Handle access to optional packages 
+    # (lazy loading if not already imported)
+    if name in _OPT_PKGS:
+        dist_name = _OPT_PKGS[name]
+        if f'gofast.{name}' in sys.modules:
+            return sys.modules[f'gofast.{name}']
+        else:
+            try:
+                module = importlib.import_module(name)
+                sys.modules[f'gofast.{name}'] = module
+                return module
+            except ImportError:
+                # If one of _OPT_PKGS is not installed while
+                # calling, it will raise error
+                warnings.warn(
+                    expkg_msg.format(dist_name, name), ImportWarning
+                )
+                raise err_msg 
+                
     # Handle access to public API attributes
     if name in public_attributes:
         if config.public:
@@ -353,7 +394,7 @@ def __getattr__(name):
     # Issue a warning to guide the user
     warnings.warn(hint.format(attr=name))
     # Raise an AttributeError indicating the attribute does not exist
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+    raise err_msg
 
 __all__.extend (["config"])
 

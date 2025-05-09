@@ -192,7 +192,7 @@ setup_kwargs = {
             "tensorflow>=2.15.0"
         ], 
         'kdiagram': ['k-diagram'],
-        'fusionlab': ['fusionlab'],
+        'fusionlab': ['fusionlab-learn'],
     },
     'python_requires': '>=3.9'
 }
