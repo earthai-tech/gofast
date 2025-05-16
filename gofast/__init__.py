@@ -250,7 +250,7 @@ class PublicAPIError(AttributeError):
 for pkg in _OPT_PKGS:
     try:
         module = importlib.import_module(pkg)
-        sys.modules[f'gofast.{pkg}'] = pkg
+        sys.modules[f'gofast.{pkg}'] = module
         __all__.append(pkg)
     except ImportError:
         pass

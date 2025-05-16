@@ -106,6 +106,7 @@ import numpy as np
 
 from sklearn.model_selection import train_test_split
 
+from ..api.property import BaseClass 
 from ..api.summary import ModelSummary
 from ..utils.deps_utils import ensure_pkg
 from .optimize import Optimizer
@@ -117,7 +118,7 @@ except ImportError:
 
 __all__= ["TuningManager", "AdvancedTuningManager"]
 
-class TuningManager:
+class TuningManager (BaseClass):
     """
     A class to manage hyperparameter tuning configurations and execution.
 
